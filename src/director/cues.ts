@@ -13,12 +13,18 @@ function density<T extends { t: number; k?: number }>(ev: T[], all: number[], ba
 }
 export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number }[]): Cues {
   const M = st.m, bar = map.meter * map.beatLen(musicEnd / 2), inSong = (t: number) => t >= 0.5 && t <= musicEnd - 0.5;
+  // flash, invert and glass land on the beat's own accents — a strong hit on a beat (a downbeat first), never a syncopated
+  // one — and above all on the hit that opens a section that comes in louder (into a chorus, a drop)
+  const onBeat = (e: { t: number; off?: boolean; pos: number }) => !e.off && Math.abs(e.pos - Math.round(e.pos)) < 0.12;
+  const entries = map.sections.filter((S, i) => i > 0 && (S.drop || S.energy - map.sections[i - 1].energy > 0.18) && inSong(S.t0)).map(S => map.eventNear(S.t0, map.beatLen(S.t0) * 0.6, 1)).filter((e): e is NonNullable<typeof e> => !!e);
+  const withEntries = <T extends { t: number }>(sel: T[], es: T[], gap: number) => { const out = [...es]; for (const e of sel) if (!out.some(x => Math.abs(x.t - e.t) < gap)) out.push(e); return out.sort((a, b) => a.t - b.t); };
   // flashes: at most one a bar in the loudest parts, one every two bars elsewhere (closer together when more sensitive)
   const fs = clamp(M.flash ?? 1, 0, 2);
-  const flash0 = fs > 0.02 ? map.select({ sensitivity: fs, gapBeats: (_e, lv) => (lv > 0.85 ? map.meter * 0.99 : map.meter * 1.99) / Math.max(0.5, fs) }).filter(e => inSong(e.t)) : [];
-  // glass: only the strongest accents (drops, or loud sections), never two within ~20 beats
-  const gs = clamp(M.glassf ?? 1, 0, 2), glass0 = st.fx.glass && gs > 0.02
-    ? map.select({ sensitivity: gs * 0.5, gapBeats: () => Math.max(9 / map.beatLen(1), 20) / Math.max(0.4, gs) }).filter(e => inSong(e.t) && (map.level(e.t) >= 0.65 || map.section(e.t).s?.drop)) : [];
+  const flash0 = fs > 0.02 ? withEntries(map.select({ sensitivity: fs, gapBeats: (_e, lv) => (lv > 0.85 ? map.meter * 0.99 : map.meter * 1.99) / Math.max(0.5, fs) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2), entries, map.meter * map.beatLen(1)) : [];
+  // glass: only the strongest on-beat accents (section entries first, else drops or loud sections), never two within ~20 beats
+  const gs = clamp(M.glassf ?? 1, 0, 2), gapG = Math.max(9, 20 * map.beatLen(1)) / Math.max(0.4, gs), glass0 = st.fx.glass && gs > 0.02
+    ? withEntries(map.select({ sensitivity: gs * 0.5, gapBeats: () => Math.max(9 / map.beatLen(1), 20) / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && (map.level(e.t) >= 0.65 || map.section(e.t).s?.drop)), entries.filter(e => map.level(e.t) >= 0.45), gapG)
+      .filter((e, i, a) => i === 0 || e.t - a[i - 1].t >= gapG * 0.6) : [];
   // impacts: past the impact threshold, plus every pane; while idle the camera answers weaker accents too
   const is = clamp(M.impact ?? 1, 0, 2); let imp: number[] = [];
   if (is > 0.02) {

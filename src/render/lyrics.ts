@@ -10,7 +10,7 @@ import { wordState, unitPose, TIN_SPEC, type WordCtx, type WordState } from '../
 import type { PWord } from '../director/types';
 import { fontStack } from '../text/fonts';
 import { EM } from '../text/metrics';
-import { blurGlyph, drawFocus, focusW } from './glyphs';
+import { blurGlyph, drawFocus, focusW, type InkGrad } from './glyphs';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
 
@@ -39,8 +39,10 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
 export function lyricBake(f: Pick<RenderFrame, 'plan' | 'style' | 'pal'>) {
   const st = f.style, fc = fontStack(st.font, f.plan.doc.lines.map(L => L.text).join('').slice(0, 400)), pal = f.pal;
   const chars = [...new Set(f.plan.words.flatMap(S => S.units.map(u => u.c)))];
-  return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [rgba(pal.text, 1), shadowOf(pal), glowOf(st, pal)], chars };
+  return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [shadowOf(pal), glowOf(st, pal)], grad: inkGrad(pal.text, pal), chars };
 }
+/** The lit fill of the sharp glyphs (top, middle, bottom), shared with their blurred versions. */
+export const inkGrad = (ink: RenderFrame['pal']['text'], pal: RenderFrame['pal']): InkGrad => [rgba(mix(ink, [255, 255, 255], 0.35), 1), rgba(ink, 1), rgba(mix(ink, pal.accent, 0.22), 0.92)];
 const shadowOf = (pal: RenderFrame['pal']) => rgba(mix(pal.bg, [0, 0, 0], 0.75), 1);
 const glowOf = (st: RenderFrame['style'], pal: RenderFrame['pal']) => (st.bgStyle === 'cover' ? rgba(pal.bg, 0.9) : rgba(pal.accent, 0.85));
 /** Draw the lyrics. trail: a faint copy offset along the camera's travel (motion trail). */
@@ -50,12 +52,13 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   const font = `${fc.w} ${EM}px ${fc.stack}`;
   const g1 = rgba(pal.accent, 1), g2 = rgba(pal.flash, 1), inkC = rgba(o.ink as any, 1);
   const glowC = glowOf(st, pal), glowB = M.glow * 26 * f.px;
+  const lean = clamp((M.depth ?? 1) * 0.6, 0, 1.4) * f.motion;
   const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion, pulse = f.rs.pulse, fr = Math.floor(f.t * 12), blurOn = ov <= 0 && f.motion > 0.5;
   // the finish of a sharp glyph: lit from above (a soft gradient from the ink to a touch of the theme's light below, so the
   // type reads as translucent light rather than flat paint), a thin edge of thickness that leans against the camera's turn
   // (the plane of the words has depth), and a soft two-layer shadow (a contact shadow and a wide ambient one)
-  const inkG = g.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6);
-  inkG.addColorStop(0, rgba(mix(o.ink as any, [255, 255, 255], 0.35), 1)); inkG.addColorStop(0.55, inkC); inkG.addColorStop(1, rgba(mix(o.ink as any, pal.accent, 0.22), 0.92));
+  const grad = inkGrad(o.ink as any, pal), inkG = g.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6);
+  inkG.addColorStop(0, grad[0]); inkG.addColorStop(0.55, grad[1]); inkG.addColorStop(1, grad[2]);
   const edgeC = rgba(mix(pal.bg, o.ink as any, 0.25), 1), yaw = f.cam.cam.yaw ?? 0, pitch = f.cam.cam.pitch ?? 0;
   const ex = clamp(0.35 - yaw * 0.12, -0.6, 0.9), ey = clamp(1 - pitch * 0.12, 0.4, 1.4);
   const shadowC = shadowOf(pal);
@@ -65,7 +68,12 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
     const A = v.o * AK * view; if (A < 0.003) continue;
     const k = S.s * ws.sc * p.k;
     g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(f.W / 2 + p.sx + (trail?.dx ?? 0), f.H / 2 + p.sy + (trail?.dy ?? 0)); if (sk) g.transform(1, sk[0], sk[1], 1, 0, 0);
-    g.rotate((S.tilt + p.rot + ws.frot) * D2R); g.scale(k, k); g.translate(ws.ox, ws.oy);
+    g.rotate((S.tilt + p.rot + ws.frot) * D2R);
+    // the line's plane leans in depth: turned a little about its upright (the far end foreshortened and drawn in) and
+    // tipped back or forward, as much as the depth setting asks, with a slow breath — the words sit in space, not on glass
+    if (lean > 0.01) { const sd = S.line.i * 7.31 + 1.7, yaw = ((rnd(sd) - 0.5) * 2 * 20 + Math.sin(f.t * 0.37 + sd) * 3) * lean * D2R, pitch = ((rnd(sd + 3.1) - 0.5) * 2 * 14 + Math.cos(f.t * 0.29 + sd) * 2.5) * lean * D2R;
+      g.transform(Math.cos(yaw), Math.sin(yaw) * 0.22, Math.sin(pitch) * 0.22, Math.cos(pitch), 0, 0); }
+    g.scale(k, k); g.translate(ws.ox, ws.oy);
     const sp0 = !trail ? o.split * ws.gk / Math.max(1e-3, k) : 0;
     for (let ui = 0; ui < n; ui++) {
       const u = S.units[ui], up = unitPose(S, ui, f.t, ws, ov, c, !!trail); if (!up) continue;
@@ -97,7 +105,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       const eK = trail ? 0 : clamp(1 - bpx / 6) * clamp(Gpx / 14 - 0.5) * view;
       if (eK > 0.02) { const step = Math.min(1.1, Gpx * 0.011), nE = Gpx > 40 ? 3 : 2; g.fillStyle = edgeC;
         for (let e = nE; e >= 1; e--) { const [lx, ly] = toLocal(ex * step * e, ey * step * e); g.globalAlpha = A * up.ua * 0.55 * eK * (1 - (e - 1) / (nE + 1)); g.fillText(u.c, lx, ly); } }
-      g.fillStyle = inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : inkG);
+      g.fillStyle = inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : inkG, trail ? null : grad);   // (blurred, the same light: no change on focusing)
       g.restore();
     }
   }

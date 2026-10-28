@@ -82,7 +82,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   ok('back from the workshop: Hi-Fi again', back.ext && back.playing && back.dev.open && back.dev.rate === 96000, JSON.stringify({ ext: back.ext, playing: back.playing }));
 
   // switch to the standard output in the settings: the same song carries on from the same moment
-  await win.getByRole('button', { name: '設置' }).click(); await W(900); await shot('settings');
+  await win.getByRole('button', { name: '設定' }).click(); await W(900); await shot('settings');
   const tb = await C(() => window.__cadenza.engine.time);
   await win.getByRole('radio', { name: '標準' }).click();
   await win.waitForFunction(() => window.__cadenza.player.get().route === 'std' && window.__cadenza.engine.isPlaying, null, { timeout: 15000 }).catch(() => {});

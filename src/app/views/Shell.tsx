@@ -32,6 +32,8 @@ function useTheme() {
   }, [t]);
 }
 export async function setLang(l: Lang) { applyUiFont(l); setI18n(l); settings.set({ lang: l }); await D?.setSettings({ lang: l }); }
+/** The MV look from the settings. */
+export const mvLook = (n: Partial<import('../bridge').Settings>) => ({ dark: n.mvDark ?? 0.34, blur: n.mvBlur ?? 0.12, desat: n.mvDesat ?? 0, fit: !!n.mvFit });
 export const renderSettings = (n: { scale: 'auto' | number; fps: number; prerender: boolean }) => ({ scale: n.scale === 'auto' ? 'auto' as const : +n.scale || 1, fps: +n.fps || 0, prerender: n.prerender !== false });
 
 export function Shell() {
@@ -46,7 +48,7 @@ export function Shell() {
     (async () => {
       const st = await D.settings(); settings.set(st);
       const l = (st.lang && LANGS.some(([k]) => k === st.lang) ? st.lang : detectLang()) as Lang; applyUiFont(l); setI18n(l);
-      engine.setRender(renderSettings(st));
+      engine.setRender(renderSettings(st)); engine.mvLook = mvLook(st);
       lib.set({ ...(await Lib.get()), loaded: true }); setReady(true);
       startAnalysis();
     })();

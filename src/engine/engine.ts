@@ -9,7 +9,7 @@ import { clamp } from '../core/math';
 import { Emitter } from '../core/emitter';
 import { cameraAt } from '../director/evaluate';
 import { drawFrame } from '../render/renderer';
-import type { RenderFrame } from '../render/frame';
+import { MV_LOOK, type RenderFrame, type MvLook } from '../render/frame';
 import { makeCanvas } from '../render/palette';
 import type { RhythmSample } from '../rhythm/signals';
 import { AudioClock, type ExternalOut } from './audio';
@@ -39,6 +39,8 @@ export class Engine extends Emitter<EngineEvents> {
   view: View = 'hidden'; loop = false; volume = 1; muted = false;
   render: RenderSettings = { scale: 'auto', fps: 0, prerender: true };
   labels: Record<string, string> = {};
+  /** how the song's own video (MV mode) is graded and framed (an app setting) */
+  mvLook: MvLook = { ...MV_LOOK };
   private t = 0; private playing = false; private scrub = false; private last = 0; private lastDraw = 0; private dirty = true;
   private pscale = 1; private ema = 0; private fast = 0;
   private fadeOut: { cv: HTMLCanvasElement; t0: number } | null = null;
@@ -140,7 +142,7 @@ export class Engine extends Emitter<EngineEvents> {
     const cf = cameraAt(plan, s.sig, t, motion), rs = cf.rs, M = s.style.m;
     const p = this.handoff.p, scene = opts.offline ? 1 : this.handoff.scene;
     return { plan, style: s.style, pal: s.pal, ambient: s.ambient, t, dt: 0, W: plan.W, H: plan.H, px: opts.px ?? this.canvas.height / plan.H,
-      cam: cf, rs, media: { cover: s.cover, coverKey: s.coverKey, video: s.style.bgStyle === 'video' ? this.video.drawable() : null, mv: this.mv.k > 0 ? { ...(this.mv.drawable() || { frame: null, w: 16, h: 9 }), k: this.mv.k } : null },
+      cam: cf, rs, media: { cover: s.cover, coverKey: s.coverKey, video: s.style.bgStyle === 'video' ? this.video.drawable() : null, mv: this.mv.k > 0 ? { ...(this.mv.drawable() || { frame: null, w: 16, h: 9 }), k: this.mv.k } : null, mvLook: this.mvLook },
       view: { effect: opts.offline ? 1 : (this.view === 'effect' || p > 0 ? scene : 0) }, motion, offline: !!opts.offline, labels: this.labels,
       I: clamp(0.35 + 0.65 * rs.level), P: rs.pulse * clamp(M.pulse, 0, 2) * cf.calm * (1 - rs.still), ink: s.pal.text,
       coverOwner: opts.offline ? 'backdrop' : this.handoff.coverOwner, vinylOut: opts.offline ? 1 : this.handoff.vinyl,
@@ -202,12 +204,12 @@ export class Engine extends Emitter<EngineEvents> {
   private bake: { plan: unknown; steps: (() => boolean)[]; i: number; heavy: boolean[] } | null = null; private probeCv: HTMLCanvasElement | null = null;
   private startBake(s: Session) {
     const f0 = this.frameAt(0); if (!f0) return; const plan = s.plan, { lyricBake } = require_lyrics(), spec = lyricBake(f0);
-    const glyphs = prewarmGlyphs(spec.font, spec.cols, spec.chars, [1, 2, 3, 4, 5]), steps: (() => boolean)[] = [], heavy: boolean[] = [];
+    const glyphs = prewarmGlyphs(spec.font, spec.cols, spec.chars, [1, 2, 3, 4, 5], spec.grad), steps: (() => boolean)[] = [], heavy: boolean[] = [];
     steps.push(() => glyphs(3)); heavy.push(false);
     // the large levels only for the glyphs the camera will frame large (the plan knows each framing's closeness)
     const pxK = this.canvas.height / plan.H, big = new Set<string>();
     for (const st of plan.camera.stops) for (const S of st.words) if (EM * S.s * st.z * pxK > 150) for (const u of S.units) big.add(u.c);
-    if (big.size) { const large = prewarmGlyphs(spec.font, spec.cols.slice(0, 1), [...big], [0, 1]); steps.push(() => large(3)); heavy.push(false); }
+    if (big.size) { const large = prewarmGlyphs(spec.font, [], [...big], [0, 1], spec.grad); steps.push(() => large(3)); heavy.push(false); }
     // (the first transition at several depths of its blur: each depth works at its own size)
     const first = plan.words[0]?.show ?? 0, p0 = plan.passages[0], ramp = p0 ? [0.2, 0.4, 0.6, 0.8].map(u => p0.t - p0.inn * (1 - u)) : [];
     const times = [first + 0.3, ...ramp, ...plan.passages.map(p => p.t), ...plan.cues.glyphSlots.map(g => g.t + 0.6)];

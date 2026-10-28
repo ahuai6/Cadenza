@@ -38,15 +38,19 @@ export function timePassage(endPrev: number, nextT: number, map: RhythmMap, quic
 export const roomForQuick = (endPrev: number, nextT: number) => nextT - endPrev >= 0.55;
 
 export interface GapLine { t: number; sungEnd: number }
+/** a pause this long lets the camera go idle (five seconds of waiting, then at least a moment of idling) */
+export const IDLE_GAP = 6.4;
 /** The pauses that start passages: a clear breath (two and a half beats, at least 1.2 s) at least four lines and twelve
  *  seconds after the last passage, or a real pause (3.5 s or more) two lines and eight seconds after it; never at the very
  *  start or end of the song. A passage is a chapter, not a habit: while the page still has room it simply goes on. */
-export function gapPassages(lines: GapLine[], map: RhythmMap, musicEnd: number, enabled: boolean): Passage[] {
+/** idleCut: every idle stretch (a pause long enough for the camera to rest) ends with a passage — a video backdrop rests
+ *  in the open during one, and its shade comes back under that blur. */
+export function gapPassages(lines: GapLine[], map: RhythmMap, musicEnd: number, enabled: boolean, idleCut = false): Passage[] {
   const out: Passage[] = []; if (!enabled) return out;
   let lastI = 0, lastT = -1e9;
   for (let i = 1; i < lines.length; i++) {
     const A = lines[i - 1], B = lines[i], gap = B.t - A.sungEnd, bl = map.beatLen(B.t);
-    const breath = gap >= Math.max(1.2, 2.5 * bl) && i - lastI >= 4 && B.t - lastT >= 12, pause = gap >= 3.5 && i - lastI >= 2 && B.t - lastT >= 8;
+    const breath = gap >= Math.max(1.2, 2.5 * bl) && i - lastI >= 4 && B.t - lastT >= 12, pause = (gap >= 3.5 && i - lastI >= 2 && B.t - lastT >= 8) || (idleCut && gap >= IDLE_GAP);
     if ((breath || pause) && B.t >= 5 && B.t < musicEnd - 3) {
       const tm = timePassage(A.sungEnd, B.t, map, false);
       out.push({ ...tm, line: i, quick: false, reason: 'gap' }); lastI = i; lastT = B.t;

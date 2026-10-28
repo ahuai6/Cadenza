@@ -29,9 +29,13 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const vx = (cam.x - prev.x) * cam.z, vy = (cam.y - prev.y) * cam.z, vel = Math.hypot(vx, vy) + Math.abs(Math.log(cam.z / prev.z)) * W * 0.5 + Math.abs(cam.r - prev.r) * W / 90;
   const mb = Math.min(12 * W / 1280, vel * 0.025) * f.motion;
   /* ---- backdrop ---- */
-  const roll = cf.fx.r - cf.cont.r, zoom = cf.fx.z * (1 + Math.min(0.15, mb * 0.01)), ra = Math.abs(roll * D2R), zz = Math.max(0.05, zoom), E = Math.max(W, H) * 0.7;
+  // a video backdrop: in a long pause it rests upright and centred (the camera's turn, push and drift let go of it), and
+  // with 'less crop' it never turns at all (the words still do), so it can be drawn barely larger than the frame
+  const mvOn = !!(f.media.mv && f.media.mv.k > 0.5), video = st.bgStyle === 'video' || mvOn, fit = video && (mvOn ? !!f.media.mvLook?.fit : !!st.vidFit), rest = video ? cf.rest : 0;
+  const settle = (1 - rest) * (fit ? 0 : 1), hold = (1 - rest) * (fit ? 0.35 : 1);
+  const roll = (cf.fx.r - cf.cont.r) * settle, zoom = 1 + (cf.fx.z * (1 + Math.min(0.15, mb * 0.01)) - 1) * hold, ra = Math.abs(roll * D2R), zz = Math.max(0.05, zoom), E = Math.max(W, H) * 0.7;
   const Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(ra)) + H / 2 * Math.abs(Math.sin(ra))) / zz - W / 2, (W / 2 * Math.abs(Math.sin(ra)) + H / 2 * Math.abs(Math.cos(ra))) / zz - H / 2)) + 4);
-  const bd: BackdropView = { roll, zoom, ox: cf.fx.x * 0.5 - cf.hand[0] * 0.35, oy: cf.fx.y * 0.5 - cf.hand[1] * 0.35, E, Ev };
+  const bd: BackdropView = { roll, zoom, ox: (cf.fx.x * 0.5 - cf.hand[0] * 0.35) * hold, oy: (cf.fx.y * 0.5 - cf.hand[1] * 0.35) * hold, E, Ev, fit, rest };
   const bgFx = effect(st.bgStyle) || effect('minimal')!, sameAsAmbient = st.bgStyle === 'cover';
   const bdEffects = effects('effect').filter(e => e.layer === 'backdrop' && (st.fx[e.id] || e.id === 'mv')).sort(byZ);
   const inBackdrop = (c: Ctx) => { c.save(); c.translate(W / 2, H / 2); c.rotate(roll * D2R); c.scale(zoom, zoom); c.translate(-W / 2, -H / 2); };
@@ -55,7 +59,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   /* ---- flashes ---- */
   const bl = f.plan.map.beatLen(f.t), tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)), calm = cf.calm;
   let flash = 0; { const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));
-    flash = env(f.rs.phase, 9, 0.05) * (f.rs.inBar === 0 ? 0.12 : 0.05) * f.I;
+    flash = env(f.rs.phase, 9, 0.05) * (f.rs.inBar === 0 ? 0.12 : 0.05) * f.I * Math.min(3, M.groove ?? 1);   // the beat's own glint follows the groove
     const fa = st.cut === 'glide' ? 0.12 : st.cut === 'waltz' ? 0.16 : 0.05, fpk = st.cut === 'waltz' ? 0.5 : 0.6, fd = 6 / tempo;
     for (const q of f.plan.cues.flash) { const dt = f.t - q.t; if (dt >= 0 && dt < 1.4) flash = Math.max(flash, (dt < fa ? sstep(dt / fa) : Math.exp(-(dt - fa) * fd)) * fpk * (0.5 + 0.5 * q.k)); }
     flash *= calm * (M.flash > 0.02 ? M.flashk ?? 0.6 : 0) * view * (f.motion < 1 ? 0.3 : 1); }

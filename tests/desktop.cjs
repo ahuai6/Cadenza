@@ -51,14 +51,14 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   ok('scan: 4 files, 1 protected (listed, never decoded), covers and lyrics found', st.n === 4 && st.prot === 1 && st.covers === 2 && st.lrc === 2, JSON.stringify(st));
   ok('rhythm analysis: every playable song analysed in the background and cached', st.an === 3, `${st.an}/3 in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const ids = await C(() => window.cadenzaLib.get().then(v => Object.fromEntries(v.tracks.map(t => [t.title, t.id]))));
-  const cached = await C(id => window.cadenzaLib.analysis(id, 1).then(a => a && { v: a.version, beats: a.beats.length, events: a.events.length, bpm: Math.round(a.tempo.bpm) }), ids['晨光']);
-  ok('rhythm cache: the SDK\'s own analysis, versioned', cached && cached.v === 1 && cached.beats > 20 && cached.events > 20, JSON.stringify(cached));
-  await win.getByRole('tab', { name: '單曲' }).click(); await W(500); await shot('songs');
+  const cached = await C(id => window.cadenzaLib.analysis(id, 2).then(a => a && { v: a.version, beats: a.beats.length, events: a.events.length, bpm: Math.round(a.tempo.bpm), spec: (a.spec || []).length }), ids['晨光']);
+  ok('rhythm cache: the SDK\'s own analysis, versioned', cached && cached.v === 2 && cached.beats > 20 && cached.events > 20 && cached.spec === 6, JSON.stringify(cached));
+  await win.getByRole('tab', { name: '歌曲' }).click(); await W(500); await shot('songs');
   // the song rows line up: every column starts at the same x in every row
   const cols = await C(() => [...document.querySelectorAll('[role=list] [role=listitem]')].map(r => [...r.children].map(c => Math.round(c.getBoundingClientRect().left))));
   ok('library: every row\'s columns line up', cols.length === 4 && cols.every(r => r.join() === cols[0].join()), JSON.stringify(cols.map(r => r.slice(1, 6))));
   await win.getByRole('tab', { name: '專輯' }).click(); await W(400); await shot('albums');
-  await win.getByRole('tab', { name: '單曲' }).click(); await W(300);
+  await win.getByRole('tab', { name: '歌曲' }).click(); await W(300);
 
   /* ---------- play ---------- */
   await win.locator('[role=listitem]', { hasText: '晨光' }).dblclick();
@@ -93,26 +93,28 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await win.locator('[data-test=card]').getByTitle('展開').first().click();
   ok('now playing: open', await layerIs('np'));
   await W(400); await shot('nowplaying');
-  const np = await C(() => ({ lines: document.querySelectorAll('[data-test=np] [data-test=line]').length, cur: !!document.querySelector('[data-test=np] [data-test=line][data-on="true"]'), queue: !!document.querySelector('[data-test=np] [aria-label="播放列表"]'),
+  const np = await C(() => ({ lines: document.querySelectorAll('[data-test=np] [data-test=line]').length, cur: !!document.querySelector('[data-test=np] [data-test=line][data-on="true"]'), queue: !!document.querySelector('[data-test=np] [aria-label="播放佇列"]'),
     ambient: window.__cadenza.engine.view, same: window.__cadenza.engine.session === window.__cadenza.player.get().session }));
   ok('now playing: lyrics laid out word by word, a queue button, the backdrop is the engine\'s own picture of this song', np.lines >= 6 && np.cur && np.queue && np.ambient === 'ambient' && np.same, JSON.stringify(np));
   // the queue from the now-playing page: modes on one line, rows lined up with the header
-  await win.locator('[data-test=np] [aria-label="播放列表"]').click(); await W(600); await shot('np-queue');
+  await win.locator('[data-test=np] [aria-label="播放佇列"]').click(); await W(600); await shot('np-queue');
   const qp = await C(() => { const q = document.querySelector('[data-test=queue]'); if (!q) return null; const seg = q.querySelector('[role=radiogroup]'), rows = [...q.querySelectorAll('[role=listitem]')], head = q.querySelector('header b');
     return { segH: Math.round(seg.getBoundingClientRect().height), modes: seg.children.length, rows: rows.length, coverX: rows.map(r => Math.round(r.children[1].getBoundingClientRect().left)), headX: Math.round(head.getBoundingClientRect().left), segX: Math.round(seg.getBoundingClientRect().left),
       wraps: [...seg.querySelectorAll('button')].some(b => b.scrollHeight > b.clientHeight + 1) }; });
   ok('queue: the four modes on one line, rows lined up with the header', qp && qp.modes === 4 && qp.segH <= 36 && !qp.wraps && qp.rows >= 1 && qp.coverX.every(x => x === qp.coverX[0]) && Math.abs(qp.headX - qp.segX) <= 2, JSON.stringify(qp));
   await win.keyboard.press('Escape'); await W(400);
 
-  /* ---------- the hand-over into the effect lyrics ---------- */
-  await win.getByRole('button', { name: '特效歌詞' }).click(); await W(260);
-  const ho = await C(() => { const e = window.__cadenza.engine, np = document.querySelector('[data-test=np]'), cv = document.querySelector('[data-test=np-cover]');
-    return { p: e.handoff.p, owner: e.handoff.coverOwner, cover: !!e.handoff.spec.cover, lines: (e.handoff.spec.lines || []).length, pageCover: getComputedStyle(cv).visibility, handed: np.querySelectorAll('[data-handed="true"]').length }; });
+  /* ---------- into the effect lyrics: a full-screen blur, the view changes underneath ---------- */
+  await win.getByRole('button', { name: '特效歌詞' }).click();
+  // sample the blur veil while it runs: it rises, the view changes at its peak, and it clears
+  const ho = await C(() => new Promise(res => { const seen = []; const t0 = performance.now(); const tick = () => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60');
+      seen.push({ b: v && v.style.display !== 'none' ? parseFloat((v.style.backdropFilter.match(/blur\(([\d.]+)/) || [0, 0])[1]) : 0, view: window.__cadenza.engine.view });
+      if (performance.now() - t0 < 1300) requestAnimationFrame(tick); else res({ peak: Math.max(...seen.map(x => x.b)), endBlur: seen[seen.length - 1].b, viewAtPeak: seen.reduce((m, x) => (x.b > m.b ? x : m), seen[0]).view, last: seen[seen.length - 1].view }); }; tick(); }));
   await shot('fx-opening');
-  ok('hand-over: the page\'s cover and lines fly on the canvas (the page\'s own copies hide)', ho.p > 0.05 && ho.p < 0.99 && ho.owner === 'handoff' && ho.cover && ho.lines >= 1 && ho.pageCover === 'hidden' && ho.handed === ho.lines, JSON.stringify(ho));
+  ok('into the effect lyrics: a full-screen blur rises, the view changes under it, and it clears', ho.peak > 20 && ho.endBlur < 0.5 && ho.last === 'effect', JSON.stringify(ho));
   ok('effect lyrics: open', await layerIs('fx')); await W(300); await shot('fx');
   const fx = await C(() => { const e = window.__cadenza.engine, f = e.frameAt(e.time); return { view: e.view, mix: f.view.effect, owner: f.coverOwner, vinyl: f.vinylOut, aspect: e.session.style.aspect, theme: e.session.style.bgStyle }; });
-  ok('effect lyrics: full picture, the cover theme, the record out from under the sleeve', fx.view === 'effect' && fx.mix > 0.99 && fx.owner === 'backdrop' && fx.vinyl > 0.99 && fx.theme === 'cover' && fx.aspect === 'fill', JSON.stringify(fx));
+  ok('effect lyrics: full picture at 16:9, the cover theme, the record out from under the sleeve', fx.view === 'effect' && fx.mix > 0.99 && fx.owner === 'backdrop' && fx.vinyl > 0.99 && fx.theme === 'cover' && fx.aspect === '16:9', JSON.stringify(fx));
   // the bar and the pointer: both hide after a still moment, both come back on any movement
   await win.mouse.move(700, 400); await W(3200);
   const idle = await C(() => { const f = document.querySelector('[data-test=fx]'); return { bar: f.dataset.bar, cursor: f.dataset.cursor, css: getComputedStyle(f).cursor }; });
@@ -190,10 +192,10 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- export from the library ---------- */
   await C(() => window.__cadenza.ui.set({ page: 'library', section: 'songs', detail: null })); await W(500);
   await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
-  await win.getByRole('menuitem', { name: /導出 MP4/  }).click(); await W(2000); await shot('export-dialog');
+  await win.getByRole('menuitem', { name: /匯出 MP4/  }).click(); await W(2000); await shot('export-dialog');
   const exOpen = await C(() => window.__cadenza.ui.get().modal && window.__cadenza.ui.get().modal.kind);
   await win.locator('[data-test=modal] select').first().selectOption('720');
-  await win.locator('[data-test=modal]').getByRole('button', { name: '開始導出' }).click();
+  await win.locator('[data-test=modal]').getByRole('button', { name: '開始匯出' }).click();
   await win.waitForFunction(() => /完成/.test(document.querySelector('[data-test=modal] [role=status]')?.textContent || ''), null, { timeout: 180000 }).catch(() => {});
   const exMsg = await C(() => document.querySelector('[data-test=modal] [role=status]')?.textContent || '');
   ok('export: an MP4 of a library song, written straight to the chosen file', exOpen === 'export' && fs.existsSync(out) && fs.statSync(out).size > 100000, `${fs.existsSync(out) ? (fs.statSync(out).size / 1048576).toFixed(1) + ' MB' : 'no file'} · ${exMsg.slice(0, 80)}`);
@@ -233,7 +235,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
 
   /* ---------- poster wall, settings, light theme ---------- */
   await win.getByRole('button', { name: '海報牆' }).click(); await W(900); await shot('wall');
-  await win.getByRole('button', { name: '設置' }).click(); await W(600); await shot('settings');
+  await win.getByRole('button', { name: '設定' }).click(); await W(600); await shot('settings');
   await win.getByRole('radio', { name: '淺色' }).click(); await W(600); await shot('settings-light');
   await win.getByRole('button', { name: '音樂庫' }).click(); await W(600); await shot('library-light');
   await win.locator('[data-test=card]').getByTitle('展開').first().click(); await layerIs('np'); await W(300); await shot('np-light');

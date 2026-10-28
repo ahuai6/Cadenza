@@ -16,11 +16,24 @@ import { basePose } from './camera';
 import type { Cam, Fx } from './project';
 import { transK } from './passages';
 
-export interface CamFrame { cam: Cam; fx: Fx; /** the backdrop's camera: the same, but without the cuts */ cont: Cam; split: number; idle: number; trans: number; ov: number; calm: number; rs: RhythmSample;
+export interface CamFrame { /** a long pause's rest (see restK) */ rest: number; cam: Cam; fx: Fx; /** the backdrop's camera: the same, but without the cuts */ cont: Cam; split: number; idle: number; trans: number; ov: number; calm: number; rs: RhythmSample;
   /** the handheld float, as a screen offset (px): the backdrop moves against it a little (parallax) */ hand: [number, number] }
 
 export function idleK(plan: ScenePlan, t: number) {
   for (const I of plan.camera.idle) if (t > I.a && t < I.b) return Math.min(sstep((t - I.a) / 1.6), sstep((I.b - t) / 0.7));
+  return 0;
+}
+/** How far a long pause has let the picture rest (0..1): it eases in slowly over the idle stretch (as slowly as the camera
+ *  moves: the speed setting), and goes back at once under the blur of the passage that ends it — or, without one,
+ *  just before the next words. A video backdrop rests upright, centred and unshaded. */
+export function restK(plan: ScenePlan, t: number): number {
+  const sp = Math.max(0.3, plan.style.m.speed), ramp = clamp(3.2 / sp, 1.5, 6);
+  for (const I of plan.camera.idle) {
+    const p = plan.passages.find(q => q.t > I.a && q.t < I.b + 1.2), end = p ? p.t : I.b;
+    if (t <= I.a || t >= end) continue;
+    const inn = 1 - (1 - clamp((t - I.a) / ramp)) ** 2, back = p ? 1 - sstep(clamp((t - (p.t - p.inn)) / p.inn)) : sstep(clamp((I.b - t) / 0.7));
+    return Math.min(inn * inn * (3 - 2 * inn), back);
+  }
   return 0;
 }
 export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): CamFrame {
@@ -46,8 +59,9 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   cam.z *= easeIn;
   // the frame's own motion: cone spring, impacts, beat sway, build lean-in
   const fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still;
-  fx.z *= 1 + c.dyn.cone * rs.cone * mo;
-  fx.r += c.dyn.coneRoll * rs.coneRoll * mo;
+  const gv = M.groove ?? 1;                                     // the beat-and-melody motion (its own knob)
+  fx.z *= 1 + c.dyn.cone * rs.cone * mo * gv;
+  fx.r += c.dyn.coneRoll * rs.coneRoll * mo * gv;
   // the beat sway: a slow roll on the half bar and the lyric plane rocking in depth (a slight shear) over the bar
   const sw = clamp(0.35 + 0.65 * rs.level) * mo * (c.dyn.sway ?? 0), tempo = Math.sqrt(clamp(plan.map.beatLen(t) / 0.5, 0.5, 2));
   fx.r += Math.sin(rs.bt * Math.PI / 2) * 1.4 * sw;
@@ -82,6 +96,6 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   // the backdrop's camera skips the cuts (they are hidden by the blur; the backdrop must not turn or jump with them)
   const cont = { ...cam, x: b.x, y: b.y, z: b.z }; for (const k of c.cuts) if (t >= k.t) { cont.x -= k.dx; cont.y -= k.dy; cont.r -= k.dr; cont.z /= Math.exp(k.dz); }
   cont.x += ox / cont.z; cont.y += oy / cont.z; cont.z *= oz;
-  return { cam, fx, cont, split, idle: ik, trans: transK(plan.passages, t), ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
+  return { rest: restK(plan, t), cam, fx, cont, split, idle: ik, trans: transK(plan.passages, t), ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
 }
 export const lerpCam = (a: Cam, b: Cam, k: number): Cam => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)), r: lerp(a.r, b.r, k), d: lerp(a.d, b.d, k), yaw: lerp(a.yaw, b.yaw, k), pitch: lerp(a.pitch, b.pitch, k) });

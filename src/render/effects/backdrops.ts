@@ -4,7 +4,7 @@ import { eIO } from '../../core/ease';
 import { rnd } from '../../core/rng';
 import { mix, rgba, hexOf, K3, type RGB } from '../../core/color';
 import { register, type Ctx } from './registry';
-import type { RenderFrame } from '../frame';
+import { MV_LOOK, type RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { basePose } from '../../director/camera';
 
@@ -169,13 +169,13 @@ register({ id: 'gothic-chains', label: 'bg.gothic', layer: 'foreground', kind: '
 
 /* ---------- video: a clip graded into a backdrop that sits well behind the lyrics; also the song's MV ---------- */
 const VSM = makeCanvas(96, 54) as HTMLCanvasElement, VSX = VSM.getContext('2d', { willReadFrequently: true })!, VTN = makeCanvas(24, 14) as HTMLCanvasElement, VTX = VTN.getContext('2d', { willReadFrequently: true })!;
-export function drawVideo(g: Ctx, f: RenderFrame, src: { frame: CanvasImageSource | null; w: number; h: number } | null, A: number, grade: { dark: number; blur: number; desat: number }, roll: number, zoom: number, ox: number, oy: number, E: number, placeholder: boolean) {
+export function drawVideo(g: Ctx, f: RenderFrame, src: { frame: CanvasImageSource | null; w: number; h: number } | null, A: number, grade: { dark: number; blur: number; desat: number }, roll: number, zoom: number, ox: number, oy: number, E: number, placeholder: boolean, fit = false) {
   const w = f.W, h = f.H, B = f.pal.bg, B2 = f.pal.bg2, v = src?.frame, ok = !!v; if (!ok && !placeholder) return;
   const a = Math.abs(roll * D2R), cw = (w * Math.abs(Math.cos(a)) + h * Math.abs(Math.sin(a))) / Math.min(1, zoom), chh = (w * Math.abs(Math.sin(a)) + h * Math.abs(Math.cos(a))) / Math.min(1, zoom);
   // parallax: the backdrop lags the camera a little (it never looks back across a transition cut)
   const t = f.t; let tb = Math.max(0, t - 0.7); for (const p of f.plan.passages) if (p.t <= t && p.t > tb) tb = p.t;
   const c0 = basePose(f.plan.camera, t), c1 = basePose(f.plan.camera, tb), lagx = clamp((c1.x - c0.x) * c0.z * 0.1, -w * 0.04, w * 0.04), lagy = clamp((c1.y - c0.y) * c0.z * 0.1, -h * 0.04, h * 0.04), lz = Math.max(1, (c0.z / c1.z) ** 0.12);
-  const sw = ok ? src!.w : 16, sh = ok ? src!.h : 9, k = Math.max(cw / sw, chh / sh) * 1.09 * lz * (1 + f.P * 0.004), dw = sw * k, dh = sh * k, dx = w / 2 - dw / 2 + lagx + ox * 0.25, dy = h / 2 - dh / 2 + lagy + oy * 0.25;
+  const sw = ok ? src!.w : 16, sh = ok ? src!.h : 9, k = Math.max(cw / sw, chh / sh) * (fit ? 1.015 : 1.09 * lz) * (1 + f.P * (fit ? 0.002 : 0.004)), dw = sw * k, dh = sh * k, mo = fit ? 0.15 : 1, dx = w / 2 - dw / 2 + (lagx + ox * 0.25) * mo, dy = h / 2 - dh / 2 + (lagy + oy * 0.25) * mo;
   const sm = VSM.width, smh = Math.max(27, Math.round(sm * sh / sw)); if (VSM.height !== smh) VSM.height = smh;
   if (ok) VSX.drawImage(v!, 0, 0, sm, smh);
   else { const gr = VSX.createLinearGradient(0, 0, sm, smh); gr.addColorStop(0, hexOf(mix(B, B2, 0.25))); gr.addColorStop(1, hexOf(B)); VSX.fillStyle = gr; VSX.fillRect(0, 0, sm, smh);
@@ -198,9 +198,10 @@ export function drawVideo(g: Ctx, f: RenderFrame, src: { frame: CanvasImageSourc
   g.restore();
 }
 register({ id: 'video', label: 'bg.video', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
-  const st = f.style; drawVideo(g, f, f.media.video, 1, { dark: st.vidDark ?? 0.6, blur: st.vidBlur ?? 0.35, desat: st.vidDesat ?? 0.35 }, a.bd.roll, a.bd.zoom, a.bd.ox, a.bd.oy, a.bd.E, true); } });
+  const st = f.style, open = 1 - (a.bd.rest ?? 0); drawVideo(g, f, f.media.video, 1, { dark: (st.vidDark ?? 0.6) * open, blur: st.vidBlur ?? 0.35, desat: st.vidDesat ?? 0.35 }, a.bd.roll, a.bd.zoom, a.bd.ox, a.bd.oy, a.bd.E, true, a.bd.fit); } });
 /** MV mode: the song's own video over the theme's backdrop, fading in with a soft focus pull; everything in front stays. */
 register({ id: 'mv', label: 'mv', layer: 'backdrop', kind: 'effect', z: 100, draw(g, f, a) {
   const mv = f.media.mv; if (!mv || mv.k <= 0 || !mv.frame) return; const k = mv.k * mv.k * (3 - 2 * mv.k), blurPx = (1 - k) * 22;
   if (blurPx > 0.3) g.filter = `blur(${(blurPx * f.px).toFixed(1)}px)`;
-  drawVideo(g, f, mv, k, { dark: 0.42, blur: 0.12, desat: 0.12 }, a.bd.roll, a.bd.zoom, a.bd.ox, a.bd.oy, a.bd.E, false); g.filter = 'none'; } });
+  const L = f.media.mvLook || MV_LOOK, open = 1 - (a.bd.rest ?? 0);
+  drawVideo(g, f, mv, k, { dark: L.dark * open, blur: L.blur, desat: L.desat }, a.bd.roll, a.bd.zoom, a.bd.ox, a.bd.oy, a.bd.E, false, a.bd.fit); g.filter = 'none'; } });

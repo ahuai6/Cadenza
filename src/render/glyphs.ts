@@ -17,17 +17,20 @@ export const filterSupported = HAS_FILTER;
 export const STATS: { miss: number; keys?: string[] } = { miss: 0 };
 const TOP = 256, LEVELS = 6, B0 = 1.1;          // level k: working size TOP / 2^k (256 … 8), blur B0 px at that size
 
-function level(font: string, col: string, txt: string, k: number): Bm {
-  const key = font + '|' + col + '|' + k + '|' + txt; let e = CACHE.get(key);
+/** A fill lit from above (top, middle and bottom colours across the em), as the lyric pass draws its sharp glyphs. */
+export type InkGrad = [string, string, string];
+function level(font: string, col: string, txt: string, k: number, grad?: InkGrad | null): Bm {
+  const key = font + '|' + (grad ? grad.join('>') : col) + '|' + k + '|' + txt; let e = CACHE.get(key);
   if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
   STATS.miss++; STATS.keys?.push(col + '|' + k + '|' + txt);
   const S = TOP >> k, q = S / EM; if (sg.font !== font) sg.font = font;
   const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(B0 * 3 + S * 0.12 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.35 + pad * 2);
   // drawn straight into a canvas of exactly its size (a filter costs as much as the canvas it draws on)
   const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d') as CanvasRenderingContext2D;
-  c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = col; c.setTransform(q, 0, 0, q, w / 2, h / 2);
+  c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.setTransform(q, 0, 0, q, w / 2, h / 2);
+  if (grad) { const gr = c.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6); gr.addColorStop(0, grad[0]); gr.addColorStop(0.55, grad[1]); gr.addColorStop(1, grad[2]); c.fillStyle = gr; } else c.fillStyle = col;
   if (HAS_FILTER) { c.filter = `blur(${B0}px)`; c.fillText(txt, 0, 0); c.filter = 'none'; }
-  else { const D = (w + h) * 1.5 / q; c.shadowColor = col; c.shadowBlur = B0 * 2; c.shadowOffsetX = q * D; c.shadowOffsetY = 0; c.fillText(txt, -D, 0); }
+  else { const D = (w + h) * 1.5 / q; c.shadowColor = grad ? grad[1] : col; c.shadowBlur = B0 * 2; c.shadowOffsetX = q * D; c.shadowOffsetY = 0; c.fillText(txt, -D, 0); }
   const bm: any = oc.transferToImageBitmap ? oc.transferToImageBitmap() : oc;
   e = { bm, w, h, s: EM / S }; CACHE.set(key, e); PIX += w * h;
   while (PIX > MAX && CACHE.size > 1) { const [k0, o] = CACHE.entries().next().value!; CACHE.delete(k0); PIX -= o.w * o.h; (o.bm as ImageBitmap).close?.(); }
@@ -37,24 +40,24 @@ const put = (g: Ctx, e: Bm) => g.drawImage(e.bm, 0, 0, e.w, e.h, -e.w / 2 * e.s,
 
 /** Draw `txt` blurred by bpx device pixels at glyph em size G device pixels, centred at the context's origin (whose
  *  transform scales EM units to the glyph's size), at the context's current alpha. */
-export function blurGlyph(g: Ctx, txt: string, bpx: number, G: number) {
+export function blurGlyph(g: Ctx, txt: string, bpx: number, G: number, grad?: InkGrad | null) {
   const font = g.font, col = g.fillStyle as string, A = g.globalAlpha;
   const L = clamp(Math.log2(Math.max(1e-3, bpx) * TOP / (B0 * Math.max(1, G))), 0, LEVELS - 1), k0 = Math.floor(L), f = L - k0;
-  if (f < 0.02 || k0 >= LEVELS - 1) { put(g, level(font, col, txt, k0)); return; }
+  if (f < 0.02 || k0 >= LEVELS - 1) { put(g, level(font, col, txt, k0, grad)); return; }
   // between two levels: the blurrier under the sharper, so that together they keep the glyph's body at exactly A
   const sA = A * (1 - f), bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));
-  if (bA > 0.003) { g.globalAlpha = bA; put(g, level(font, col, txt, k0 + 1)); }
-  g.globalAlpha = sA; put(g, level(font, col, txt, k0)); g.globalAlpha = A;
+  if (bA > 0.003) { g.globalAlpha = bA; put(g, level(font, col, txt, k0 + 1, grad)); }
+  g.globalAlpha = sA; put(g, level(font, col, txt, k0, grad)); g.globalAlpha = A;
 }
 /** Bake the levels a song will use for these glyphs ahead of time, a slice at a time (the strong blurs and shadows use
  *  the small levels; the large ones are made as glyphs come close). Returns a function that does the next slice and
  *  says whether there is more. */
-export function prewarmGlyphs(font: string, cols: string[], chars: string[], levels = [3, 4, 5, 6]) {
+export function prewarmGlyphs(font: string, cols: string[], chars: string[], levels = [3, 4, 5, 6], grad?: InkGrad | null) {
   // (keys use the face and colour as a canvas reports them back, which is how the lyric pass reads them)
   const ng = (makeCanvas(1, 1) as HTMLCanvasElement).getContext('2d')!; ng.font = font; font = ng.font;
-  const ncols = cols.map(c => { ng.fillStyle = c; return ng.fillStyle as string; });
-  const todo: [string, string, number][] = []; for (const c of chars) for (const col of ncols) for (const k of levels) todo.push([col, c, k]);
-  let i = 0; return (budgetMs = 4) => { const t0 = performance.now(); while (i < todo.length && performance.now() - t0 < budgetMs) { const [col, c, k] = todo[i++]; level(font, col, c, k); } return i < todo.length; };
+  const ncols: (string | InkGrad)[] = cols.map(c => { ng.fillStyle = c; return ng.fillStyle as string; }); if (grad) ncols.push(grad);
+  const todo: [string | InkGrad, string, number][] = []; for (const c of chars) for (const col of ncols) for (const k of levels) todo.push([col, c, k]);
+  let i = 0; return (budgetMs = 4) => { const t0 = performance.now(); while (i < todo.length && performance.now() - t0 < budgetMs) { const [col, c, k] = todo[i++]; typeof col === 'string' ? level(font, col, c, k) : level(font, '', c, k, col); } return i < todo.length; };
 }
 export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as ImageBitmap).close?.(); CACHE.clear(); PIX = 0; }
 
@@ -64,11 +67,11 @@ export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as Ima
  *  body at exactly the word's opacity (source-over: a + b·(1 − a) = A). */
 /** (the hand-over spans from the finest level's own blur — a close-up glyph's finest level is softer than 1.6 px)  */
 export const focusW = (bpx: number, G = 0) => { const top = Math.max(1.6, B0 * G / TOP * 1.15); return bpx > 0.4 ? clamp((top - bpx) / (top - 0.4)) : 1; };
-export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number, sharp?: CanvasGradient | null) {
+export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number, sharp?: CanvasGradient | null, grad?: InkGrad | null) {
   const w = focusW(bpx, G), sharpFill = () => { if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
   if (w >= 1) { g.globalAlpha = A; sharpFill(); return; }
-  if (w <= 0) { g.globalAlpha = A; blurGlyph(g, ch, bpx, G); return; }
+  if (w <= 0) { g.globalAlpha = A; blurGlyph(g, ch, bpx, G, grad); return; }
   const sA = A * w, bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));
-  if (bA > 0.003) { g.globalAlpha = bA; blurGlyph(g, ch, bpx, G); }
+  if (bA > 0.003) { g.globalAlpha = bA; blurGlyph(g, ch, bpx, G, grad); }
   g.globalAlpha = sA; sharpFill();
 }

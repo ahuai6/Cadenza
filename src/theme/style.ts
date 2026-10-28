@@ -6,7 +6,7 @@ import { clamp } from '../core/math';
 
 export type CameraStyleId = 'punch' | 'glide' | 'waltz';
 export interface Motion {
-  shake: number; sway: number; punch: number; flash: number; flashk: number; impact: number; impk: number; speed: number; pulse: number;
+  shake: number; sway: number; punch: number; flash: number; flashk: number; impact: number; impk: number; speed: number; pulse: number; /** the beat-and-melody motion's strength (from the groove knob; 1 = the theme's) */ groove?: number;
   tilt: number; turn: number; tang: number; drift: number; split: number; glow: number; shadow: number; enter: number; lead: number;
   depth: number; float: number; jitter: number; tsize: number; flip: number; glyphf: number; glassf: number;
 }
@@ -16,7 +16,7 @@ export interface Style {
   edited?: boolean;
   bg: string; bg2: string; text: string; accent: string; flash: string;
   font: string; tin: string; tout: string; cut: CameraStyleId; bgStyle: string; flashMode: 'color' | 'invert'; future: 'dim' | 'hide'; trans?: 'auto' | 'off';
-  coverEdge?: 'album' | 'float' | 'blend'; coverBlur?: number; coverSize?: number; vidDark?: number; vidBlur?: number; vidDesat?: number;
+  coverEdge?: 'album' | 'float' | 'blend'; coverBlur?: number; coverSize?: number; vidDark?: number; vidBlur?: number; vidDesat?: number; /** the video backdrop never turns, so it is barely cropped */ vidFit?: boolean;
   m0: Motion; k: Record<string, number>; m: Motion;
   fx: Record<string, boolean>;
   /** per-effect parameters (see the effect's own schema); missing values take the effect's defaults */
@@ -44,22 +44,25 @@ export const PRESETS: Record<string, Omit<Style, 'preset' | 'from' | 'k' | 'm' |
 export const DEFAULT_THEME = 'liquid';
 /** The knobs: [key, group, min, max, step]. 1 = the theme's tuning. */
 export const KNOBS: [string, string, number, number, number][] = [
-  ['pace', 'grp.camera', 0.4, 1.6, .05], ['energy', 'grp.camera', 0, 2, .05], ['float', 'grp.camera', 0, 2, .05], ['turns', 'grp.camera', 0, 2, .05],
+  ['pace', 'grp.camera', 0.4, 1.6, .05], ['energy', 'grp.camera', 0, 2, .05], ['groove', 'grp.camera', 0, 4, .05], ['float', 'grp.camera', 0, 2, .05], ['turns', 'grp.camera', 0, 2, .05],
   ['flip', 'grp.camera', 0.3, 1.7, .05], ['depth', 'grp.camera', 0, 2, .05], ['size', 'grp.text', 0.6, 2, .05], ['enter', 'grp.text', 0.4, 1.6, .05],
   ['glow', 'grp.text', 0, 2, .05], ['split', 'grp.text', 0, 2, .05], ['jitter', 'grp.text', 0, 2, .05], ['trigger', 'grp.triggers', 0, 2, .05], ['glyph', 'grp.triggers', 0.25, 1.75, .05],
 ];
 export const AA_MODES = ['off', 'ssaa', 'ssaa3'];
 /** Style fields that belong to the project (frame, quality, the imported media), changeable even on a locked preset. */
-export const PROJECT_KEYS = ['aspect', 'quality', 'aa', 'vidDark', 'vidBlur', 'vidDesat', 'coverEdge', 'coverBlur', 'coverSize'];
+export const PROJECT_KEYS = ['aspect', 'quality', 'aa', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverEdge', 'coverBlur', 'coverSize'];
 /** What each knob rebuilds: 0 nothing, 1 the layout, 2 the camera path, 4 the effect cues. */
-export const KNOB_REBUILD: Record<string, number> = { jitter: 0, pace: 2, turns: 1, flip: 1, depth: 1, size: 1, glyph: 1, trigger: 4, energy: 4, float: 0, enter: 0, glow: 0, split: 0 };
+export const KNOB_REBUILD: Record<string, number> = { jitter: 0, pace: 2, turns: 1, flip: 1, depth: 1, size: 1, glyph: 1, trigger: 4, energy: 4, groove: 0, float: 0, enter: 0, glow: 0, split: 0 };
 
 const knobDefaults = () => Object.fromEntries(KNOBS.map(([k]) => [k, 1]));
 const up = (b: number, k: number, ref: number) => (k <= 1 ? b * k : b + (k - 1) * Math.max(b, ref));
 export function knobbed(m0: Motion, k: Record<string, number>): Motion {
   const K = (key: string) => k[key] ?? 1, m = { ...m0 };
   const p = K('pace'); m.speed = m0.speed * p; m.drift = m0.drift * Math.sqrt(p);
-  const e = K('energy'); for (const [x, r] of [['shake', .5], ['punch', .6], ['pulse', .6], ['impk', .5]] as const) (m as any)[x] = up((m0 as any)[x], e, r);
+  // force: the hits on strong beats and accents (kicks, arrival nudges, impacts); groove: the small motion with every beat
+  // and the melody (the backdrop's pulse and flicker, the frame's breathing pump) — its range reaches far higher
+  const e = K('energy'); for (const [x, r] of [['shake', .5], ['punch', .6], ['impk', .5]] as const) (m as any)[x] = up((m0 as any)[x], e, r);
+  const gv = K('groove'); m.pulse = up(m0.pulse, gv, 0.9); m.groove = gv <= 1 ? gv : 1 + (gv - 1) * 1.6;
   m.jitter = up(m0.jitter, K('jitter'), .4);
   const f = K('float'); m.float = up(m0.float, f, .4); m.sway = up(m0.sway, f, .5);
   const tu = K('turns'); m.turn = clamp(up(m0.turn, tu, .3), 0, 1); m.tang = clamp(up(m0.tang, tu, 30), 0, 135); m.tilt = up(m0.tilt, tu, .6);

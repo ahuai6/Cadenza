@@ -4,11 +4,11 @@ import { tx, LANGS, currentLang, type Lang } from '../../i18n';
 import { D, Lib, type Settings } from '../bridge';
 import { settings, lib, useStore } from '../state';
 import { Icon } from '../ui/icons';
-import { Button, Seg, Toggle, Note } from '../ui/kit';
+import { Button, Seg, Toggle, Note, Slider } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { switchOutput } from '../playback/player';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
-import { setLang, renderSettings } from './Shell';
+import { setLang, renderSettings, mvLook } from './Shell';
 import s from './Settings.module.css';
 
 const SCALES: ('auto' | number)[] = ['auto', 1, 0.85, 0.7, 0.55], FPS = [0, 120, 60, 30];
@@ -17,6 +17,7 @@ export async function setSettings(patch: Partial<Settings>) {
   if ('scale' in patch || 'fps' in patch || 'prerender' in patch) engine.setRender(renderSettings(n));
   if ('audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch) switchOutput();
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
+  if (Object.keys(patch).some(k => k.startsWith('mv'))) { engine.mvLook = mvLook(n); engine.invalidate(); }
 }
 export function SettingsView() {
   const st = useStore(settings), folders = useStore(lib, x => x.folders);
@@ -47,6 +48,12 @@ export function SettingsView() {
         <Toggle label={tx('s.set.tray')} on={st.closeToTray} set={v => set({ closeToTray: v })} />
       </Group>
       <AudioGroup st={st} />
+      <Group title={tx('s.set.mv')} help={tx('s.set.mvHelp')}>
+        <Slider label={tx('vd.dark')} min={0} max={0.9} step={0.01} value={st.mvDark ?? 0.34} format={v => Math.round(+v * 100) + '%'} onChange={v => set({ mvDark: +v })} />
+        <Slider label={tx('vd.blur')} min={0} max={1} step={0.01} value={st.mvBlur ?? 0.12} format={v => Math.round(+v * 100) + '%'} onChange={v => set({ mvBlur: +v })} />
+        <Slider label={tx('vd.desat')} min={0} max={1} step={0.01} value={st.mvDesat ?? 0} format={v => Math.round(+v * 100) + '%'} onChange={v => set({ mvDesat: +v })} />
+        <Toggle label={tx('vd.fit')} help={tx('vd.fitHelp')} on={!!st.mvFit} set={v => set({ mvFit: v })} />
+      </Group>
       <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
         <Field label={tx('s.set.scale')}><Seg size="sm" fit value={String(st.scale)} onChange={v => set({ scale: v === 'auto' ? 'auto' : +v })} options={SCALES.map(v => [String(v), v === 'auto' ? tx('s.set.scale.auto') : tx('s.set.scale.p', { n: Math.round(v * 100) })])} /></Field>
         <Field label={tx('s.set.fps')}><Seg size="sm" fit value={+st.fps} onChange={v => set({ fps: v })} options={FPS.map(v => [v, v ? `${v} fps` : tx('s.set.fps.none')])} /></Field>

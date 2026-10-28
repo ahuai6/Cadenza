@@ -102,7 +102,7 @@ export class Session {
     if (!this.custom && !PROJECT_KEYS.includes(k as string)) return false;
     if (st[k] === v) return true; st[k] = v; if (!PROJECT_KEYS.includes(k as string)) st.edited = true;
     if (['bg', 'bg2', 'text', 'accent', 'flash'].includes(k as string)) { this.colors(); return true; }
-    if (['vidDark', 'vidBlur', 'vidDesat', 'coverSize', 'coverEdge', 'coverBlur', 'aa', 'quality'].includes(k as string)) return true;
+    if (['vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverSize', 'coverEdge', 'coverBlur', 'aa', 'quality'].includes(k as string)) return true;
     if (k === 'font') { this.dirty |= 2; return true; }
     if (k === 'bgStyle') { st.coverEdge ??= 'album'; st.coverBlur ??= 0; st.coverSize ??= 0.6; }
     this.dirty |= 1; return true;

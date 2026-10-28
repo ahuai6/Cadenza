@@ -113,7 +113,7 @@ function crackPaths(g: Ctx, G: any, Rr: number, reach: number, fade: number, pas
 register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z: 40, draw(g, f) {
   const w = f.W, h = f.H, t = f.t, dark = f.pal.dark;
   for (const ev of f.plan.cues.glass) { const dt = t - ev.t; if (dt < 0 || dt > 2.2) continue;
-    const G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, grow = sstep(clamp(dt / 0.2)), fade = 1 - clamp((dt - 0.9) / 1.2), reach = grow * 1.2, hot = mix(f.pal.text, [255, 255, 255], 0.6);
+    const G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, grow = sstep(clamp(dt / 0.07)), fade = 1 - clamp((dt - 0.9) / 1.2), reach = grow * 1.2, hot = mix(f.pal.text, [255, 255, 255], 0.6);
     g.save(); g.translate(cx, cy); g.lineJoin = 'round'; g.lineCap = 'round';
     g.globalCompositeOperation = 'multiply'; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.6), 1); crackPaths(g, G, Rr, reach, fade * 1.5 * (ev.k ?? 1), 0);
     g.globalCompositeOperation = dark ? 'screen' : 'soft-light'; g.strokeStyle = rgba(hot, 1); g.save(); g.translate(-0.8, -0.8); crackPaths(g, G, Rr, reach, Math.min(1, fade * 1.6), 1); g.restore();
@@ -124,19 +124,25 @@ register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z:
       for (const ray of G.rays) { g.beginPath(); let st = false; for (const p of ray.pts) { if (p[2] < run - 0.14 || p[2] > run) continue; st ? g.lineTo(p[0] * Rr, p[1] * Rr) : g.moveTo(p[0] * Rr, p[1] * Rr); st = true; } g.strokeStyle = rgba(hot, 0.8 * k); g.stroke(); } }
     g.restore(); } } });
 const GSNAP = makeCanvas(16, 16) as HTMLCanvasElement;
+/** when a piece leaves: a few hundredths of a second after the blow, the ones nearest it first */
+const burstAt = (sh: { r0: number; delay: number }) => 0.03 + sh.r0 * 0.07 + sh.delay * 0.12;
 register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'effect', z: 0, draw(g, f) {
   if (!f.style.fx.glass) return; const t = f.t, act = f.plan.cues.glass.filter(ev => t >= ev.t && t - ev.t <= 2.2); if (!act.length) return;
   const w = f.W, h = f.H, cv = g.canvas as HTMLCanvasElement; if (GSNAP.width !== cv.width || GSNAP.height !== cv.height) { GSNAP.width = cv.width; GSNAP.height = cv.height; }
   const sg = C2(GSNAP); sg.setTransform(1, 0, 0, 1, 0, 0); sg.clearRect(0, 0, cv.width, cv.height); sg.drawImage(cv, 0, 0);
   const roll = f.cam.fx.r - f.cam.cont.r, zoom = f.cam.fx.z, Mbg = new DOMMatrix().translate(w / 2, h / 2).rotate(roll).scale(zoom).translate(-w / 2, -h / 2), inv = Mbg.inverse(), dark = f.pal.dark;
   const light = dark ? mix(f.pal.text, [255, 255, 255], 0.2) : mix(f.pal.text, f.pal.bg, 0.35);
-  for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, reach = sstep(clamp(dt / 0.2)) * 1.2, fade = 1 - clamp((dt - 0.9) / 1.2), split = sstep(clamp(dt / 0.3)) * 0.03;
+  for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, reach = sstep(clamp(dt / 0.07)) * 1.2, fade = 1 - clamp((dt - 0.9) / 1.2), split = sstep(clamp(dt / 0.08)) * 0.035;
     g.save(); g.transform(Mbg.a, Mbg.b, Mbg.c, Mbg.d, Mbg.e, Mbg.f); g.globalCompositeOperation = 'multiply';
-    for (const sh of G.shards) { if (sh.r0 > reach) continue; const st = Math.max(0, dt - 0.35 - sh.delay), gone = sstep(clamp(st / 0.5)) * fade * (1 - clamp((st - 0.9) / 0.8)); if (gone < 0.01) continue;
+    for (const sh of G.shards) { if (sh.r0 > reach) continue; const st = Math.max(0, dt - burstAt(sh)), gone = sstep(clamp(st / 0.25)) * fade * (1 - clamp((st - 0.9) / 0.8)); if (gone < 0.01) continue;
       g.globalAlpha = (dark ? 0.3 : 0.14) * gone; g.fillStyle = rgba(mix(f.pal.bg, K3, dark ? 0.5 : 0.35), 1); g.beginPath(); sh.poly.forEach((p: number[], k: number) => { const x = cx + p[0] * Rr, y = cy + p[1] * Rr; k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.fill(); }
     g.restore();
-    for (const sh of G.shards) { if (sh.r0 > reach) continue; const st = Math.max(0, dt - 0.35 - sh.delay), op = fade * (1 - clamp(st / 1.3)) * clamp((reach - sh.r0) / 0.2); if (op <= 0.01) continue;
-      const ox = cx + sh.c[0] * Rr, oy = cy + sh.c[1] * Rr, dx = sh.c[0] * Rr * split + sh.c[0] * st * Rr * 0.2, dy = sh.c[1] * Rr * split + st * st * h * 0.85, M = Mbg.multiply(new DOMMatrix().translate(ox + dx, oy + dy).rotate(sh.vr * st * 57.3).translate(-ox, -oy));
+    // a blow, not a peel: every piece is struck out from the point of impact at once (the inner ones a hair first), flies
+    // outward fast and slows (air), drops a little, tumbles, and the pieces near the blow come toward the camera
+    for (const sh of G.shards) { if (sh.r0 > reach) continue; const st = Math.max(0, dt - burstAt(sh)), op = fade * (1 - clamp(st / 1.1)) * clamp((reach - sh.r0) / 0.2); if (op <= 0.01) continue;
+      const cl = Math.hypot(sh.c[0], sh.c[1]) || 1, ux = sh.c[0] / cl, uy = sh.c[1] / cl, v0 = (1.1 + 1.4 * (1 - clamp(sh.r0 / 0.8))) * Rr, run = v0 * (1 - Math.exp(-st * 5)) / 5;
+      const ox = cx + sh.c[0] * Rr, oy = cy + sh.c[1] * Rr, dx = sh.c[0] * Rr * split + ux * run, dy = sh.c[1] * Rr * split + uy * run + st * st * h * 0.5, near = 1 + st * 1.3 * (1 - clamp(sh.r0 / 0.6));
+      const M = Mbg.multiply(new DOMMatrix().translate(ox + dx, oy + dy).rotate(sh.vr * st * 57.3 * 2.4).scale(near).translate(-ox, -oy));
       g.save(); g.transform(M.a, M.b, M.c, M.d, M.e, M.f); g.beginPath(); sh.poly.forEach((p: number[], k: number) => { const x = cx + p[0] * Rr, y = cy + p[1] * Rr; k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
       g.save(); g.clip(); g.save(); g.transform(inv.a, inv.b, inv.c, inv.d, inv.e, inv.f); g.globalAlpha = 0.8 * op; g.drawImage(GSNAP, 0, 0, cv.width, cv.height, 0, 0, w, h); g.restore();
       const ex = sh.poly.reduce((m: number, p: number[]) => Math.max(m, Math.hypot(p[0] - sh.c[0], p[1] - sh.c[1])), 0) * Rr, band = -0.6 + ((st * 0.9 + rnd(sh.c[0] * 31 + sh.c[1] * 17) * 0.6) % 1.6);

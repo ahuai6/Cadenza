@@ -221,6 +221,7 @@ function MediaBox({ s: ss }: { s: Session }) {
         <Slider label={tx('vd.dark')} min={0.2} max={0.9} step={0.01} value={S.vidDark ?? 0.6} format={v => v.toFixed(2)} onChange={v => edit(x => x.setStyle('vidDark', v))} />
         <Slider label={tx('vd.blur')} min={0} max={1} step={0.05} value={S.vidBlur ?? 0.35} format={v => v.toFixed(2)} onChange={v => edit(x => x.setStyle('vidBlur', v))} />
         <Slider label={tx('vd.desat')} min={0} max={1} step={0.05} value={S.vidDesat ?? 0.35} format={v => v.toFixed(2)} onChange={v => edit(x => x.setStyle('vidDesat', v))} />
+        <Check label={tx('vd.fit')} checked={!!S.vidFit} onChange={v => edit(x => x.setStyle('vidFit', v))} />
         <Row><TextField label={tx('vd.start')} value={video.start} placeholder={tx('vd.start.ph')} inputMode="decimal" onCommit={v => setVideoOpt('start', v)} /><Check label={tx('vd.loop')} checked={video.loop} onChange={v => setVideoOpt('loop', v)} /></Row>
         <Note>{tx('vd.help')}</Note>
       </>}

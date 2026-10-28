@@ -19,8 +19,10 @@ function work(w: number, h: number) { const key = w + 'x' + h; let p = WORK.get(
 export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   const cv = g.canvas as HTMLCanvasElement, w = cv.width, h = cv.height, r = k ** 0.9 * Math.max(w, h) * 0.014; if (r < 0.25) return;
   // the working scale: at least half size, and small enough that the blur there is about 3 px (sizes in √2 steps)
-  const fct = filterSupported ? Math.max(2, 2 ** (Math.floor(Math.log2(Math.max(1, r / 3)) * 2) / 2)) : 1, w1 = Math.ceil(w / fct), h1 = Math.ceil(h / fct), rb = r / fct, m = Math.min(30, Math.ceil(rb * 2.6) + 2);
-  const [TA, TB] = work(w1 + 2 * m, h1 + 2 * m), a = TA.getContext('2d')!, b = TB.getContext('2d')!;
+  // (the working picture is exactly 1/fct of the frame — fractional sizes, so the blurred copy lands on the sharp one at
+  // every step of the working scale and nothing shifts as the blur clears)
+  const fct = filterSupported ? Math.max(2, 2 ** (Math.floor(Math.log2(Math.max(1, r / 3)) * 2) / 2)) : 1, w1 = w / fct, h1 = h / fct, rb = r / fct, m = Math.min(30, Math.ceil(rb * 2.6) + 2);
+  const [TA, TB] = work(Math.ceil(w1) + 2 * m, Math.ceil(h1) + 2 * m), a = TA.getContext('2d')!, b = TB.getContext('2d')!;
   // (plain bilinear copies: the picture is blurred right after, and a high-quality resample of a full frame costs ~100×)
   a.imageSmoothingEnabled = b.imageSmoothingEnabled = true; a.imageSmoothingQuality = b.imageSmoothingQuality = 'low';
   a.setTransform(1, 0, 0, 1, 0, 0); a.globalAlpha = 1; a.filter = 'none'; a.clearRect(0, 0, TA.width, TA.height);

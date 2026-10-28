@@ -11,6 +11,7 @@ export interface MediaSources {
   /** the video backdrop and the song's MV: something drawable now, or null */
   video: { frame: CanvasImageSource | null; w: number; h: number } | null;
   mv: { frame: CanvasImageSource | null; w: number; h: number; k: number } | null;
+  /** how the song's own video (MV mode) is graded and framed */ mvLook?: MvLook;
 }
 export interface ViewMix {
   /** 0: the now-playing backdrop alone (ambient), 1: the full effect-lyrics picture */
@@ -38,3 +39,5 @@ export interface RenderFrame {
   /** words of lines that are being handed over from the page wait for the flight (multiplier per line index) */
   wordAlpha?: (line: number, k: number) => number;
 }
+export interface MvLook { dark: number; blur: number; desat: number; fit: boolean }
+export const MV_LOOK: MvLook = { dark: 0.34, blur: 0.12, desat: 0, fit: false };

@@ -2,6 +2,9 @@
 .head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
 .head h1 { margin: 0; font-size: 26px; font-weight: 720; }
 .sel { display: flex; align-items: center; gap: 8px; color: var(--fg-3); font-size: 13px; }
+/* an inline label and its menu: the label stays on one line, the menu as wide as its choices */
+.sel > span { white-space: nowrap; flex: none; }
+.sel select { width: auto; min-width: 128px; }
 .help { color: var(--fg-3); font-size: 12.5px; margin-left: auto; }
 
 .poster { position: relative; display: block; overflow: hidden; padding: 0; border-radius: var(--r-lg); background: var(--surface-2); aspect-ratio: 1; box-shadow: var(--shadow-1);

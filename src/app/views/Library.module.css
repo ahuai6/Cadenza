@@ -3,6 +3,9 @@
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 12px; }
 .count { color: var(--fg-3); font-size: 13px; margin-right: 4px; }
 .sel { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--fg-3); font-size: 13px; }
+/* an inline label and its menu: the label stays on one line, the menu as wide as its choices */
+.sel > span { white-space: nowrap; flex: none; }
+.sel select { width: auto; min-width: 128px; }
 .sel select { min-height: 30px; padding-top: 4px; padding-bottom: 4px; }
 
 /* the song list: one grid for every row, so columns line up whatever a row contains */

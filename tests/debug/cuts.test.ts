@@ -19,6 +19,7 @@ it('cuts', () => {
       const late = A.words.filter(w => w.end > q.t - q.inn * 0.5).length;   // words of the line before still being sung when the blur is past half
       const a = cameraAt(P, sig, q.t - 1 / 120, 1).cont, b = cameraAt(P, sig, q.t + 1 / 120, 1).cont;
       return `${q.reason[0]}@${q.t.toFixed(2)} gap${gap.toFixed(2)} in${q.inn.toFixed(2)} out${q.out.toFixed(2)} late${late} contJump ${Math.round(b.x - a.x)},${Math.round(b.y - a.y)} z${(b.z / a.z).toFixed(3)}`; });
-    console.log(th, st.cut, JSON.stringify(by), '\n  ' + info.join('\n  '));
+    if (th === "liquid") console.log(P.lines.map(l => l.words.length + ":" + (Math.min(l.L.sung, l.L.end) - l.L.t).toFixed(2) + ":" + l.words.every(S => S.w.latin)).join(" "));
+    console.log(th, st.cut, "dash", P.lines.filter(l => l.scene === "dash").length + "/" + P.lines.length, JSON.stringify(by), '\n  ' + info.join('\n  '));
   }
 });

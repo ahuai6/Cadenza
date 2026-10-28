@@ -20,6 +20,8 @@ export interface CoverFound { src: 'itunes' | 'caa'; title: string; artist: stri
 export interface Settings {
   theme: 'system' | 'light' | 'dark'; scanOnLaunch: boolean; openAtLogin: boolean; closeToTray: boolean; lang: string; scale: 'auto' | number; fps: number; prerender: boolean;
   audioOut: 'standard' | 'hifi'; audioMode: 'exclusive' | 'shared'; audioDevice: string; fixedVolume: boolean; platform?: string; version?: string;
+  /** the song's own video (MV mode): shade, soft focus, desaturation, and whether it is kept upright to crop it least */
+  mvDark: number; mvBlur: number; mvDesat: number; mvFit: boolean;
 }
 type Off = () => void;
 export interface DesktopApi {

@@ -9,7 +9,7 @@ export type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 export type Layer = 'backdrop' | 'world-back' | 'world-front' | 'foreground' | 'screen';
 export interface Param { key: string; label: string; kind: 'range' | 'toggle' | 'select'; min?: number; max?: number; step?: number; options?: [string, string][]; def: number | boolean | string }
 /** What the backdrop layer adds to a frame: the backdrop's own camera (it never cuts) and the bleed beyond the frame. */
-export interface BackdropView { roll: number; zoom: number; ox: number; oy: number; E: number; Ev: number }
+export interface BackdropView { roll: number; zoom: number; ox: number; oy: number; E: number; Ev: number; /** a video drawn with as little crop as can be */ fit?: boolean; /** a long pause's rest (0..1) */ rest?: number }
 export interface DrawArgs { bd: BackdropView; params: Record<string, number | boolean | string> }
 
 export interface Effect {

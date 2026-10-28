@@ -31,6 +31,7 @@ export interface PWord {
 }
 export interface PLine {
   L: Line; i: number; words: PWord[];
+  /** the scene its arrangement follows (scenes.ts), null for the ordinary one */ scene?: import('./scenes').SceneId | null;
   /** passage index; when its passage ends (a transition), and how long the blur takes to rise there */
   sec: number; secEnd: number; secIn: number;
   /** box of the line (path direction), depth */

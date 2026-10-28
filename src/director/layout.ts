@@ -13,6 +13,7 @@ import type { Style } from '../theme/style';
 import { EM, type Measurer } from '../text/metrics';
 import type { PWord, PLine, Passage, FrameRef } from './types';
 import { gapPassages, timePassage, roomForQuick } from './passages';
+import { scenesOf, fastLine } from './scenes';
 import { unitsOf } from '../lyrics/script';
 
 export const TIN_MIX = ['blur', 'drift', 'rise', 'track'];
@@ -47,10 +48,10 @@ export function layout(inp: LayoutInput): LayoutResult {
   const lines: PLine[] = [], words: PWord[] = [];
   for (const L of doc.lines) {
     const P: PLine = { L, i: L.i, words: [], sec: 0, secEnd: Infinity, secIn: 0.4, ax: 0, ay: 0, bw: 0, bh: 0, prot: 0, d: 0, back: false, rtl: L.rtl };
-    let prev: { group: number; s0: number; tin: string; show: number } | null = null;
+    let prev: { group: number; s0: number; tin: string; show: number } | null = null; const fast = fastLine(L);
     for (const Wd of L.words) {
       const k = Wd.k, n = Wd.units.length;
-      const vert = Wd.cjk && n >= 2 && n <= 5 && k > 0 && rnd(L.i * 37 + k * 11.3) < 0.34;
+      const vert = Wd.cjk && n >= 2 && n <= 5 && k > 0 && !fast && rnd(L.i * 37 + k * 11.3) < 0.34;
       const mb = measure.word(Wd.units.map(u => u.c), { vertical: vert, rtl: L.rtl });
       let s0 = Wd.latin ? 1.1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
@@ -71,7 +72,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   const zOf = (S: PWord) => wordZoom(S, med.get(S.line)!, W, H, T);
 
   /* ---- passages at pauses ---- */
-  const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off');
+  const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off', st.bgStyle === 'video');
   /* ---- lyric frames, before placement ----
      About half the lines ask for one on a chosen word. When that word does not leave the frame enough time on screen (its
      line ends, or a passage clears the picture), the frame moves on to the next word that does, into the following lines if
@@ -144,7 +145,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       const w = S.lw, h = S.lh, first = (i === 0 && k === 0) || (secFirst && k === 0);
       const tilt0 = rnd(i * 5 + k * 9.1) < 0.3 ? (rnd(i * 3 + k) - 0.5) * 12 : 0;
       let turn = 0; const rd = Lp.rtl ? -1 : 1;
-      if (!first && !Lp.rtl && TURN > 0 && TA > 0 && S.s > 0.55 && !S.vert && S.w.t - lastTurn >= map.beatLen(S.w.t)) {
+      if (!first && !Lp.rtl && mode !== 'dash' && TURN > 0 && TA > 0 && S.s > 0.55 && !S.vert && S.w.t - lastTurn >= map.beatLen(S.w.t)) {
         const acc = clamp(0.5 + map.accentAt(S.w.t) * 0.5, 0.5, 1.5);
         const p = TURN * (k === 0 ? 0.9 : 0.45) * acc * (0.6 + 0.8 * dens(S.w.t) / mxd) * (S.w.latin ? 0.7 : 1);
         if (rnd(i * 53 + k * 7.7 + 11) < p) {
@@ -185,11 +186,13 @@ export function layout(inp: LayoutInput): LayoutResult {
           let below = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) below = Math.max(below, (p[0] - ref[0]) * nrm[0] + (p[1] - ref[1]) * nrm[1]);
           const s0: [number, number] = [ref[0] + nrm[0] * (below + gap * 2.5 + h / 2), ref[1] + nrm[1] * (below + gap * 2.5 + h / 2)];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
-        } else if (k > 0 && !S.vert && prevSeg && !prevSeg.vert && mode !== 'right' && (cc = placeNext(S, prevSeg, w, h, d, nrm, i, k))) {
+        } else if (k > 0 && !S.vert && prevSeg && !prevSeg.vert && mode !== 'right' && mode !== 'dash' && (cc = placeNext(S, prevSeg, w, h, d, nrm, i, k))) {
           P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2];
         } else {
-          const g2 = first ? 0 : k === 0 ? gap * 3 : S.w.latin && prevSeg && prevSeg.w.latin ? Math.max(gap, h * 0.32) : gap, jit = first ? 0 : (rnd(i + k * 2.2) - 0.5) * h * 0.2;
-          const off = S.vert ? (h - prevH) / 2 : jit;
+          const g2 = first ? 0 : k === 0 ? gap * (mode === 'dash' ? 2 : 3) : S.w.latin && prevSeg && prevSeg.w.latin ? Math.max(gap, h * 0.32) : gap, jit = first ? 0 : (rnd(i + k * 2.2) - 0.5) * h * 0.2;
+          // a dash rises and dips with the beat as it runs on (a wave across the bar), instead of a random jitter
+          const wave = mode === 'dash' ? Math.sin((S.w.t / map.beatLen(S.w.t)) * Math.PI / 2 + i * 0.7) * h * 0.42 : jit;
+          const off = S.vert ? (h - prevH) / 2 : wave;
           cc = [P[0] + d[0] * (g2 + w / 2) + nrm[0] * off, P[1] + d[1] * (g2 + w / 2) + nrm[1] * off];
           P = [P[0] + d[0] * (g2 + w), P[1] + d[1] * (g2 + w)];
           if (k === 0) lineStart = [cc[0] - d[0] * w / 2, cc[1] - d[1] * w / 2];
@@ -220,11 +223,14 @@ export function layout(inp: LayoutInput): LayoutResult {
     S0 = { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN };
     return !bad;
   };
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off';
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', scenes = scenesOf(lines, map);
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
     if (i > 0 && startsAt.has(i)) newPassage();
     const before = save();
+    // a scene's own arrangement first (a dash runs on to the right); the ordinary tries after it
+    Lp.scene = scenes[i];
+    if (scenes[i] === 'dash' && i > 0 && !startsAt.has(i)) { if (placeLine(Lp, i, 'dash')) return; restore(before); Lp.scene = null; }
     if (placeLine(Lp, i, null) || i === 0 || startsAt.has(i)) return;
     restore(before); if (placeLine(Lp, i, 'right')) return;
     restore(before); if (placeLine(Lp, i, 'below')) return;
