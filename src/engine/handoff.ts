@@ -12,7 +12,8 @@ import { coverRest, drawCoverSubject, coverRadius } from '../render/effects/cove
 
 export interface WinRect { left: number; top: number; width: number; height: number }
 export interface HandoffCover { rect: WinRect; radius: number }
-export interface HandoffLine { i: number; rect: WinRect; text: string; font: string; px: number; color: string }
+/** A lyric line on the page: its box, its text and type, and (when the page wraps it) its rows. */
+export interface HandoffLine { i: number; rect: WinRect; text: string; font: string; px: number; color: string; alpha?: number; rows?: { rect: WinRect; text: string }[] }
 export interface HandoffSpec { cover?: HandoffCover | null; lines?: HandoffLine[] }
 
 const FLY = cubicBezier(0.32, 0.72, 0, 1);       // the drawer curve: leaves at once, settles long
@@ -82,8 +83,14 @@ export class Handoff {
         tx = f.W / 2 + (x0 + x1) / 2; ty = f.H / 2 + (y0 + y1) / 2; ts = clamp((x1 - x0) / Math.max(1, a.w), 0.3, 6); }
       const x = lerp(a.x + a.w / 2, tx, u), y = lerp(a.y + a.h / 2, ty, u), s = lerp(1, ts, u), al = (1 - sstep(clamp((u - 0.62) / 0.3))) * (vis.length ? 1 : 1 - u);
       if (al < 0.01) continue;
-      g.save(); g.translate(x, y); g.scale(s, s); g.globalAlpha = al; g.font = L.font.replace(/(\d+(\.\d+)?)px/, `${(L.px * a.w / Math.max(1, L.rect.width)).toFixed(2)}px`);
-      g.fillStyle = L.color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(L.text, 0, 0, a.w * 1.2); g.restore();
+      const kr = a.w / Math.max(1, L.rect.width);
+      g.save(); g.translate(x, y); g.scale(s, s); g.globalAlpha = al * (L.alpha ?? 1); g.font = L.font.replace(/(\d+(\.\d+)?)px/, `${(L.px * kr).toFixed(2)}px`);
+      g.fillStyle = L.color; g.textAlign = 'center'; g.textBaseline = 'middle';
+      // a line the page wraps over several rows flies as those rows, each keeping its place in the line
+      for (const R of L.rows && L.rows.length ? L.rows : [{ rect: L.rect, text: L.text }]) {
+        const b = this.toRef(R.rect); g.fillText(R.text, b.x + b.w / 2 - (a.x + a.w / 2), b.y + b.h / 2 - (a.y + a.h / 2), b.w * 1.15 + 2);
+      }
+      g.restore();
     }
     g.restore();
   }

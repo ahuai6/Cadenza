@@ -1,0 +1,19 @@
+.presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.preset { display: grid; gap: 7px; padding: 8px; border-radius: var(--r-md); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); text-align: left; font-size: 12.5px; font-weight: 560; transition: box-shadow var(--t-fast) var(--ease), background var(--t-fast) var(--ease); min-width: 0; }
+.preset span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preset:hover { background: var(--surface-3); }
+.preset[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
+.swatch { display: grid; grid-template-columns: repeat(4, 1fr); height: 26px; border-radius: calc(var(--r-md) - 4px); overflow: hidden; }
+.colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.color { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); background: var(--surface-2); font-size: 12.5px; cursor: pointer; }
+.color input { width: 24px; height: 24px; border: 0; padding: 0; background: none; border-radius: 7px; overflow: hidden; cursor: pointer; }
+.color input::-webkit-color-swatch-wrapper { padding: 0; } .color input::-webkit-color-swatch { border: 0; border-radius: 7px; }
+.set { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; }
+.set:disabled { opacity: 0.55; }
+.fxList { display: grid; gap: 4px; }
+.fx { display: grid; gap: 2px; padding: 2px 8px; border-radius: var(--r-sm); }
+.fx[data-on="true"] { background: var(--surface-2); padding: 4px 10px 8px; }
+.export { display: grid; gap: 10px; }
+.xbar { height: 6px; border-radius: 4px; background: var(--surface-3); position: relative; overflow: hidden; --k: 0; }
+.xbar i { position: absolute; inset: 0; background: var(--brand); clip-path: inset(0 calc((1 - var(--k)) * 100%) 0 0 round 4px); }
+.status { margin: 0; min-height: 1.4em; font-size: 12.5px; color: var(--fg-2); word-break: break-word; user-select: text; }

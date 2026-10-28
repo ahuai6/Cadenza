@@ -1,0 +1,52 @@
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; margin-bottom: 18px; }
+.head h1, .detailHead h1 { margin: 0; font-size: 26px; font-weight: 720; letter-spacing: -0.01em; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.count { color: var(--fg-3); font-size: 13px; margin-right: 4px; }
+.sel { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--fg-3); font-size: 13px; }
+.sel select { min-height: 30px; padding-top: 4px; padding-bottom: 4px; }
+
+/* the song list: one grid for every row, so columns line up whatever a row contains */
+.tracks { display: grid; gap: 2px; }
+.row {
+  display: grid; grid-template-columns: var(--grip, 0px) 44px minmax(0, 1.6fr) minmax(0, 1fr) 108px 32px 32px 46px 32px; align-items: center; column-gap: 12px;
+  height: 56px; padding: 0 8px; border-radius: var(--r-md); background: var(--surface, transparent); background: transparent; position: relative;
+  transition: background var(--t-fast) var(--ease);
+}
+.tracks[data-reorder="true"] .row { --grip: 18px; cursor: grab; }
+.row:hover, .row:focus-within { background: var(--hover); }
+.row[data-cur="true"] { background: var(--accent-soft); }
+.row[data-drag="true"] { z-index: 2; background: var(--surface-2); box-shadow: var(--shadow-2); cursor: grabbing; }
+.row[data-protected="true"] { opacity: 0.6; }
+.grip { color: var(--fg-3); display: grid; place-items: center; }
+.lead { position: relative; width: 44px; height: 44px; display: grid; place-items: center; color: var(--fg-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.lead > span:first-child { width: 44px; height: 44px; --cover-r: 9px; }
+.lead .playOver { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 9px; background: rgba(0, 0, 0, 0.45); color: #fff; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.row:hover .lead .playOver, .lead .playOver:focus-visible { opacity: 1; }
+.main { display: grid; min-width: 0; }
+.main b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.main small, .album { color: var(--fg-3); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row[data-cur="true"] .main b { color: var(--accent); }
+.badges { display: flex; gap: 6px; justify-content: flex-end; }
+.time { color: var(--fg-3); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.hide { opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.row:hover .hide, .row:focus-within .hide, .hide[data-on="true"] { opacity: 1; }
+@container (max-width: 760px) { .row { grid-template-columns: var(--grip, 0px) 44px minmax(0, 1fr) 108px 32px 46px 32px; } .album, .qadd { display: none; } }
+
+/* cards: albums, artists, genres, playlists */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 22px 18px; }
+.card { display: grid; gap: 4px; text-align: left; padding: 0; min-width: 0; }
+.card > span:first-child { width: 100%; height: auto; --cover-r: var(--r-lg); box-shadow: var(--shadow-1); transition: transform var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease); margin-bottom: 6px; }
+.card:hover > span:first-child { transform: translateY(-3px); box-shadow: var(--shadow-2); }
+.card b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card small { color: var(--fg-3); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cards[data-kind="artist"] .card { text-align: center; }
+.newCard > span:first-child { display: grid; place-items: center; background: var(--surface-2); box-shadow: inset 0 0 0 1.5px var(--line-2); color: var(--fg-2); aspect-ratio: 1; border-radius: var(--r-lg); }
+
+.detail { display: grid; gap: 18px; }
+.detailHead { display: grid; grid-template-columns: 200px 1fr; gap: 24px; align-items: end; }
+.detailHead > span:first-child { width: 200px; height: 200px; --cover-r: var(--r-xl); box-shadow: var(--shadow-2); }
+.detailHead > div { display: grid; gap: 8px; justify-items: start; min-width: 0; }
+.kicker { color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11.5px; font-weight: 650; }
+.detailHead p { margin: 0; color: var(--fg-2); }
+.ops { display: flex; gap: 6px; flex-wrap: wrap; }
+.libWrap { container-type: inline-size; }

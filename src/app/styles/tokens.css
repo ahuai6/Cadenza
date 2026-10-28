@@ -1,0 +1,47 @@
+/* Cadenza's design language, as tokens.
+   - Corners: continuous curves (superellipse) everywhere a shape is rounded; radii come from one scale, and a nested
+     shape takes its parent's radius minus the gap between them, so outlines stay concentric.
+   - Surfaces: solid for pages, glass (blur + a faint light edge) only for what floats above content.
+   - Motion: one family of springs (see motion.ts); CSS transitions use the same curve for hover and press. */
+:root {
+  --font-ui: "Instrument Sans Variable", "Instrument Sans", var(--font-cjk), system-ui, sans-serif;
+  --font-cjk: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR";
+  --r-xs: 7px; --r-sm: 10px; --r-md: 13px; --r-lg: 17px; --r-xl: 22px; --r-2xl: 30px;
+  --corner: superellipse(1.6);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1); --ease-in: cubic-bezier(0.55, 0, 0.75, 0.4);
+  --t-fast: 140ms; --t-med: 240ms;
+  --tb-h: 46px; --side-w: 220px; --card-h: 76px;
+
+  /* dark (the default) */
+  --bg: #111015; --bg-side: #0d0c11; --surface: #1a1920; --surface-2: #22212a; --surface-3: #2c2b35;
+  --fg: #f4f2f8; --fg-2: #b6b2c2; --fg-3: #7d7889; --line: rgba(255, 255, 255, 0.08); --line-2: rgba(255, 255, 255, 0.14);
+  --hover: rgba(255, 255, 255, 0.06); --press: rgba(255, 255, 255, 0.1);
+  --accent: #9d8cff; --accent-2: #f070d6; --accent-3: #ffb37a; --on-accent: #120e24; --accent-soft: rgba(157, 140, 255, 0.16);
+  --danger: #ff6b81; --ok: #61d6a4; --warn: #ffc46b;
+  --glass: rgba(28, 26, 36, 0.62); --glass-strong: rgba(24, 22, 31, 0.82); --glass-edge: rgba(255, 255, 255, 0.12); --glass-blur: blur(26px) saturate(1.7);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.22);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 18px 48px rgba(0, 0, 0, 0.42);
+  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --brand: linear-gradient(135deg, var(--accent-3), var(--accent-2) 45%, var(--accent));
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f6f5f9; --bg-side: #efedf4; --surface: #ffffff; --surface-2: #f1eff6; --surface-3: #e6e3ee;
+  --fg: #17151f; --fg-2: #55516a; --fg-3: #8b8799; --line: rgba(20, 16, 40, 0.08); --line-2: rgba(20, 16, 40, 0.14);
+  --hover: rgba(20, 16, 40, 0.05); --press: rgba(20, 16, 40, 0.09);
+  --accent: #6b55f0; --accent-2: #d6439f; --accent-3: #f08a4b; --on-accent: #ffffff; --accent-soft: rgba(107, 85, 240, 0.12);
+  --danger: #d93a55; --ok: #1f9e6b; --warn: #b9770e;
+  --glass: rgba(255, 255, 255, 0.66); --glass-strong: rgba(255, 255, 255, 0.86); --glass-edge: rgba(255, 255, 255, 0.7);
+  --shadow-1: 0 1px 2px rgba(20, 16, 40, 0.08), 0 4px 14px rgba(20, 16, 40, 0.08);
+  --shadow-2: 0 2px 6px rgba(20, 16, 40, 0.08), 0 18px 48px rgba(20, 16, 40, 0.16);
+  color-scheme: light;
+}
+/* over the picture (now playing, effect lyrics) the interface is always light-on-dark */
+.on-picture {
+  --fg: #ffffff; --fg-2: rgba(255, 255, 255, 0.74); --fg-3: rgba(255, 255, 255, 0.5); --line: rgba(255, 255, 255, 0.14); --line-2: rgba(255, 255, 255, 0.22);
+  --hover: rgba(255, 255, 255, 0.12); --press: rgba(255, 255, 255, 0.18);
+  --glass: rgba(18, 16, 24, 0.34); --glass-strong: rgba(18, 16, 24, 0.62); --glass-edge: rgba(255, 255, 255, 0.16);
+  --surface: rgba(255, 255, 255, 0.1); --surface-2: rgba(255, 255, 255, 0.14); --surface-3: rgba(255, 255, 255, 0.2);
+  --accent: #ffffff; --on-accent: #16141c; --accent-soft: rgba(255, 255, 255, 0.18);
+  color-scheme: dark;
+}

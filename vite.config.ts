@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
       { name: 'cadenza-html', transformIndexHtml: (html: string) => html.replace('<!--CSP-->', csp ? `<meta http-equiv="Content-Security-Policy" content="${csp}">` : '').replace('<!--FONTS-->', fonts) }],
     worker: { format: 'es' },
     build: { outDir: app ? 'dist-app' : harness ? 'dist-harness' : 'dist-web', emptyOutDir: true, assetsInlineLimit: 100000000, chunkSizeWarningLimit: 100000,
-      rollupOptions: { input: harness ? resolve(__dirname, 'harness.html') : app ? resolve(__dirname, 'index.html') : resolve(__dirname, 'web.html') } },
-    resolve: { alias: { '@': resolve(__dirname, 'src') } },
+      rollupOptions: { input: harness ? resolve(import.meta.dirname, 'harness.html') : app ? resolve(import.meta.dirname, 'index.html') : resolve(import.meta.dirname, 'web.html') } },
+    resolve: { alias: { '@': resolve(import.meta.dirname, 'src') } },
   };
 });

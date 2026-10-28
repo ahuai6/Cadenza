@@ -1,0 +1,41 @@
+.fx { position: fixed; inset: 0; z-index: 42; pointer-events: none; --h: 0; --show: calc(max(0, var(--h) - 0.85) / 0.15); }
+.fx[data-on="true"] { pointer-events: auto; }
+.fx[data-cursor="false"] { cursor: none; }
+.fx[data-cursor="false"] * { cursor: none !important; }
+
+/* the bottom bar rises when the pointer moves and sinks after a still moment */
+.bottom { position: absolute; left: 50%; bottom: 18px; width: min(1120px, calc(100% - 36px)); translate: -50% 0; display: grid; grid-template-columns: auto minmax(120px, 220px) minmax(140px, 1fr) auto auto; align-items: center; gap: 14px; padding: 10px 12px; border-radius: var(--r-xl);
+  opacity: calc(var(--show) * var(--bar, 1)); transform: translateY(calc((1 - var(--bar, 1)) * 18px)); transition: opacity 320ms var(--ease), transform 420ms var(--ease); }
+.fx[data-bar="false"] .bottom { --bar: 0; pointer-events: none; }
+.meta { display: grid; min-width: 0; }
+.meta b { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta small { color: var(--fg-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tools { display: flex; align-items: center; gap: 4px; }
+.mvb { gap: 6px; }
+.mvb[aria-pressed="true"] { background: var(--fg); color: #16141c; }
+
+/* the lyric list: the song's lines, on glass, above the bar */
+.list { position: absolute; right: 24px; bottom: 104px; width: min(420px, 40vw); height: min(56vh, 560px); border-radius: var(--r-xl); overflow: hidden; opacity: var(--show); }
+
+/* the song's own settings slide in from the right edge */
+.edge { position: absolute; top: var(--tb-h); right: 0; bottom: 0; width: 22px; }
+.panel { position: absolute; top: calc(var(--tb-h) + 10px); right: 10px; bottom: 10px; width: 380px; display: grid; grid-template-rows: auto auto 1fr; border-radius: var(--r-xl); overflow: hidden;
+  transform: translateX(calc(100% + 24px)); transition: transform 460ms var(--ease); }
+.panel[data-open="true"] { transform: none; }
+.phead { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 14px 8px 18px; }
+.phead > div { display: grid; }
+.phead b { font-size: 15px; font-weight: 680; }
+.phead small { color: var(--fg-2); font-size: 12px; }
+.tabs { padding: 0 14px 8px; overflow-x: auto; scrollbar-width: none; }
+.tabs > div { display: flex; }
+.pbody { overflow: auto; padding: 4px 18px 18px; position: relative; }
+.pbody[data-locked="true"] > :not(.lockCover) { opacity: 0.4; pointer-events: none; }
+.lockCover { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--fg); font-weight: 600; }
+.lyricsTa { min-height: 180px; width: 100%; }
+.res { border-radius: var(--r-md); background: var(--surface); overflow: hidden; }
+.resH { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; width: 100%; padding: 9px 11px; text-align: left; }
+.resH > span { display: grid; min-width: 0; }
+.resH b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.resH small { color: var(--fg-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pre { margin: 0 11px 10px; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.5; color: var(--fg-2); white-space: pre-wrap; user-select: text; }
+.q { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }

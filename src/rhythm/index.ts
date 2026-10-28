@@ -6,12 +6,14 @@ export { analyze } from './analyze';
 
 import type { RhythmAnalysis } from './types';
 import { RHYTHM_VERSION } from './types';
+// bundled inline (a blob: URL), so it also starts from a page loaded from file:// (the desktop app)
+import AnalysisWorker from './worker.ts?worker&inline';
 
 let worker: Worker | null = null, nextId = 1;
 const pending = new Map<number, { res: (a: RhythmAnalysis) => void; rej: (e: Error) => void; prog?: (k: number) => void }>();
 function getWorker(): Worker {
   if (worker) return worker;
-  worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+  worker = new AnalysisWorker();
   worker.onmessage = (ev: MessageEvent<{ id: number; progress?: number; analysis?: RhythmAnalysis; error?: string }>) => {
     const p = pending.get(ev.data.id); if (!p) return;
     if (ev.data.progress != null) { p.prog?.(ev.data.progress); return; }
