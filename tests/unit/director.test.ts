@@ -9,14 +9,14 @@ import { presetStyle, normalizeStyle } from '../../src/theme/style';
 import { approxMeasurer } from '../../src/text/metrics';
 import { plan, cameraAt, basePose, project, corners, NO_FX, transK, type ScenePlan } from '../../src/director';
 import { rawPose } from '../../src/director/camera';
-import { sectionEntries } from '../../src/director/cues';
+import { sectionEntries, entryFloor } from '../../src/director/cues';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
-function make(cut: 'punch' | 'glide' | 'waltz', src = LRC, opts: { frame?: boolean } = {}) {
+function make(cut: 'punch' | 'glide' | 'waltz', src = LRC, opts: { frame?: boolean; trigger?: number } = {}) {
   const map = RhythmMap.grid(112, 0.3, 160);
   const p = parse(src), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6;
   const doc = buildLyrics(p, map, musicEnd);
-  const st = normalizeStyle({ ...presetStyle(cut === 'punch' ? 'liquid' : 'cover'), preset: 'custom', cut, fx: { ...presetStyle('cover').fx, frame: opts.frame ?? true } });
+  const base = presetStyle(cut === 'punch' ? 'liquid' : 'cover'), st = normalizeStyle({ ...base, preset: 'custom', cut, fx: { ...presetStyle('cover').fx, frame: opts.frame ?? true }, ...(opts.trigger ? { k: { ...base.k, trigger: opts.trigger } } : {}) });
   return plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
 }
 const styles = ['punch', 'glide', 'waltz'] as const;
@@ -114,6 +114,21 @@ describe('director: specific cases', () => {
         if (out) bad++; } }
     expect(n).toBeGreaterThan(0); expect(bad / n).toBeLessThan(0.05);
   });
+  it('a lyric frame takes a small target (a word or two of one line) and stays frequent', () => {
+    const P = make('glide'), Fs = [...new Set(P.words.map(S => S.frame).filter(Boolean))] as NonNullable<(typeof P.words)[0]['frame']>[];
+    expect(Fs.length, 'frames in the song').toBeGreaterThanOrEqual(Math.floor(P.lines.length * 0.2));
+    for (const F of Fs) { expect(F.words.length).toBeLessThanOrEqual(2); expect(new Set(F.words.map(S => S.line)).size).toBe(1);
+      const txt = F.words.map(S => S.w.text.trim()).join(''), cjk = /[\u3000-\u9fff\uac00-\ud7af]/.test(txt);
+      if (F.words.length === 2) expect([...txt].length, txt).toBeLessThanOrEqual(cjk ? 4 : 12); }
+  });
+  it('a lyric frame never pulls the camera closer than its words would be framed without it', () => {
+    const on = make('glide'), off = make('glide', LRC, { frame: false });
+    const zOff = new Map(off.camera.stops.map(s => [s.words[0].w.id, s.z]));
+    for (const s of on.camera.stops) { if (!s.words.some(w => w.frame) || s.cut) continue; const z0 = zOff.get(s.words[0].w.id); if (z0 == null) continue;
+      expect(s.z, `stop at ${s.t.toFixed(2)}`).toBeLessThanOrEqual(z0 * 1.6 + 1e-6); }
+    const zs = on.camera.stops.filter(s => s.words.some(w => w.frame)).map(s => s.z), zAll = on.camera.stops.map(s => s.z).sort((a, b) => a - b);
+    expect(Math.max(...zs)).toBeLessThanOrEqual(zAll[Math.floor(zAll.length * 0.95)] + 1e-6);
+  });
   it('projection stays bounded at the frame edge (a tilted view scales an edge word by at most ~12 %)', () => {
     const cam = { x: 0, y: 0, z: 0.4, r: 0, d: 0, yaw: 4, pitch: 4 }, flat = { ...cam, yaw: 0, pitch: 0 };
     for (const x of [-2000, -900, 0, 900, 2000, 6000]) { const a = project(x, 600, 0, cam, NO_FX, 1280, 720), b = project(x, 600, 0, flat, NO_FX, 1280, 720);
@@ -176,10 +191,26 @@ describe('chorus entries', () => {
   V1.forEach((l, i) => rows.push([at(2 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(10 + i * 2) - b * 0.5, l]));
   V2.forEach((l, i) => rows.push([at(20 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(28 + i * 2) - b * 0.5, l]));
   const P = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'));
+  const es = sectionEntries(P.map, P.lines, t => t > 0.5 && t < P.musicEnd - 0.5), near = (t: number, k: number) => Math.abs(t - at(k)) < 0.06;
   it('finds the downbeat each lyric chorus comes in on (under its pickup), and no other', () => {
-    const es = sectionEntries(P.map, P.lines, t => t > 0.5 && t < P.musicEnd - 0.5).map(e => e.t);
-    expect(es.length, es.join(', ')).toBe(2);
-    for (const k of [10, 28]) expect(es.some(t => Math.abs(t - at(k)) < 0.06), `bar ${k}: ${es.join(', ')}`).toBe(true);
-    for (const k of [10, 28]) expect(P.cues.flash.some(q => Math.abs(q.t - at(k)) < 0.06), `flash at bar ${k}`).toBe(true);
+    const leads = es.filter(x => x.lead).map(x => x.e.t);
+    expect(leads.length, leads.join(', ')).toBe(2);
+    for (const k of [10, 28]) expect(leads.some(t => near(t, k)), `bar ${k}: ${leads.join(', ')}`).toBe(true);
+    for (const k of [10, 28]) expect(P.cues.flash.some(q => near(q.t, k)), `flash at bar ${k}`).toBe(true);
+  });
+  it('follows each entry with its next two hits, each weaker than the one before', () => {
+    for (const k of [10, 28]) {
+      const L = es.find(x => x.lead && near(x.e.t, k))!, after = es.filter(x => !x.lead && x.e.t > L.e.t && x.e.t <= at(k + 2) + 0.06);
+      expect(after.map(x => x.e.t.toFixed(2)), `after bar ${k}`).toHaveLength(2);
+      expect(after[0].k).toBeLessThan(L.k); expect(after[1].k).toBeLessThan(after[0].k);
+    }
+  });
+  it('lets the trigger sensitivity decide how many of them fire', () => {
+    const n = (s: number) => es.filter(x => x.k >= entryFloor(s)).length;
+    expect(n(0.3)).toBe(0); expect(n(0.75)).toBe(2); expect(n(1)).toBe(6);
+    for (let s = 0; s < 2; s += 0.1) expect(n(s + 0.1)).toBeGreaterThanOrEqual(n(s));
+    // and the knob really reaches it: the theme's trigger knob scales every trigger's sensitivity
+    const lo = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'), { trigger: 0.3 }), hiP = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'), { trigger: 1.6 });
+    expect(lo.style.m.flash).toBeLessThan(P.style.m.flash); expect(hiP.style.m.impact).toBeGreaterThan(P.style.m.impact);
   });
 });

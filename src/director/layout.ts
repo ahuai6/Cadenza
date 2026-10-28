@@ -74,19 +74,26 @@ export function layout(inp: LayoutInput): LayoutResult {
   /* ---- passages at pauses ---- */
   const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off', st.bgStyle === 'video');
   /* ---- lyric frames, before placement ----
-     About half the lines ask for one on a chosen word. When that word does not leave the frame enough time on screen (its
-     line ends, or a passage clears the picture), the frame moves on to the next word that does, into the following lines if
-     need be: frames stay frequent and are never cut short. */
+     About half the lines ask for one on a chosen word: a small target (one word, a few characters). When that word does
+     not leave the frame enough time on screen (its line ends, or a passage clears the picture), the frame moves on to the
+     next word that does, into the following lines if need be: frames stay frequent and are never cut short. */
   const nextPass = new Map(passages.map(q => [q.line, q]));
+  const chars = (S: PWord) => { const s = S.w.text.trim(); return /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/.test(s) ? [...s].length : Math.ceil([...s].length / 3); };
+  const small = (S: PWord) => chars(S) <= 4;
   const lineEnd = (P: PLine) => { const q = nextPass.get(P.i + 1); return q ? Math.min(P.L.end, q.t - q.inn) : P.L.end; };
   if (st.fx.frame) { let want = false;
     for (const P of lines) {
       const n = P.words.length; let k0 = 0;
       if (!want && P.i > 0 && rnd(P.i * 7.7 + 3.3) < 0.5) { want = true; k0 = n === 1 ? 0 : Math.min(n - 1, Math.floor(rnd(P.i * 2.9) * Math.min(n, 3))); }
       if (!want) continue;
-      for (let k = k0; k < n; k++) { const S = P.words[k]; if (lineEnd(P) - 0.8 - S.w.t >= FRAME_NEED) {
-        const fw = P.words.slice(Math.max(0, k - 2), k + 1), pad = Math.min(...fw.map(x => x.lh)) * 0.3 * 2.3;
-        const F: FrameRef = { words: fw, ts: S.w.t, corner: rnd(P.i * 5.1) < 0.5, pad }; for (const x of fw) x.frame = F; want = false; break; } }
+      // a small target: one word (a short one by preference), or a very short word with the one before it — a few
+      // characters at most, never a stretch of a line, so the outline sits snugly and the camera holds it at its usual closeness
+      const ok = (k: number) => lineEnd(P) - 0.8 - P.words[k].w.t >= FRAME_NEED;
+      let pick = -1; for (let k = k0; k < n; k++) if (ok(k) && small(P.words[k])) { pick = k; break; }
+      if (pick < 0) for (let k = k0; k < n; k++) if (ok(k)) { pick = k; break; }
+      if (pick >= 0) { const S = P.words[pick], prev = P.words[pick - 1];
+        const fw = prev && chars(S) <= 2 && chars(prev) + chars(S) <= 4 && Math.abs(prev.tilt - S.tilt) < 1 ? [prev, S] : [S], pad = Math.min(...fw.map(x => x.lh)) * 0.3 * 2.3;
+        const F: FrameRef = { words: fw, ts: S.w.t, corner: rnd(P.i * 5.1) < 0.5, pad }; for (const x of fw) x.frame = F; want = false; }
     } }
   const padOf = (S: PWord) => (S.frame ? S.frame.pad * 0.6 : 0);
 

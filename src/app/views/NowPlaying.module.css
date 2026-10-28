@@ -1,12 +1,13 @@
 /* the stage: the engine's picture, behind the now-playing page and under the effect controls */
 /* the page and its picture take the main area (the sidebar and the title bar stay); in full screen, and for the effect
-   lyrics, the whole window */
+   lyrics, the whole window. In the main area they sit one pixel inside it, so the main area's own edge (its line and its
+   rounded corner, drawn by the page underneath) stays the page's edge: one edge, never a second one of our own */
 .stage, .np { --pad-t: 0px; }
-.stage { position: fixed; inset: var(--tb-h) 0 0 var(--side-w); z-index: 40; background: #07060b; visibility: hidden; contain: strict; }
+.stage { position: fixed; inset: calc(var(--tb-h) + 1px) 0 0 calc(var(--side-w) + 1px); z-index: 40; background: #07060b; visibility: hidden; contain: strict; }
 :global(html[data-winfull="true"]) .stage, :global(html[data-fxmode="true"]) .stage { inset: 0; }
 .stage[data-vis="true"] { visibility: visible; }
 
-.np { position: fixed; inset: var(--tb-h) 0 0 var(--side-w); z-index: 41; display: none; --h: 0; }
+.np { position: fixed; inset: calc(var(--tb-h) + 1px) 0 0 calc(var(--side-w) + 1px); z-index: 41; display: none; --h: 0; }
 :global(html[data-winfull="true"]) .np { inset: 0; --pad-t: var(--tb-h); }
 .np[data-vis="true"] { display: block; }
 .np[data-fx="true"] { pointer-events: none; }
@@ -62,7 +63,5 @@
 
 /* in a window the page has the main area's own shape: its top-left corner rounded and the same thin edge along the top
    and left (drawn as light on the picture), arriving as the expansion lands */
-.np { border-top-left-radius: var(--r-xl); }
-.np::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-top-left-radius: inherit; box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.16), inset 2px 2px 6px -4px rgba(0, 0, 0, 0.35); opacity: var(--np-edge, 1); }
+.np { border-top-left-radius: calc(var(--r-xl) - 1px); }
 :global(html[data-winfull="true"]) .np { border-top-left-radius: 0; }
-:global(html[data-winfull="true"]) .np::after { display: none; }

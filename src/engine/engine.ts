@@ -138,6 +138,9 @@ export class Engine extends Emitter<EngineEvents> {
     return Promise.resolve();
   }
   invalidate() { this.dirty = true; }
+  /** Draw the page's picture once while nothing shows it (the now-playing page warming up out of sight): the canvas, the
+   *  ambient field and the cover's layers are then made before the page first opens. */
+  warmPicture() { const s = this.session; if (!s || s.needsFlush || this.view !== 'hidden') return false; try { this.draw(s); } catch (e) { console.warn(e); } this.dirty = true; return true; }
 
   /* ---------- the frame ---------- */
   frameAt(t: number, opts: { offline?: boolean; px?: number } = {}): RenderFrame | null {

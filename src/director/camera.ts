@@ -56,7 +56,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       const F = grp.find(S => S.frame && S.frame.words[S.frame.words.length - 1] === S)?.frame;
       const boxWords = F ? [...new Set([...grp, ...F.words])] : grp;
       const B = boxIn(boxWords, S0.tilt, F ? F.pad : 0);
-      let z = Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, F ? Infinity : z1);
+      // (a lyric frame is small — a word or two — so it never pulls the camera closer than the words' own framing)
+      let z = Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1);
       if (F) z = Math.min(z, W * 0.8 / B.w, H * 0.58 / B.h);
       const last = grp[grp.length - 1], rd = P.rtl ? -1 : 1, dv = dirv(S0.ang);
       stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 12 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,

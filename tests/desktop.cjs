@@ -114,6 +114,10 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await shot('fx-opening');
   ok('into the effect lyrics: a full-screen blur rises, the view changes under it, and it clears', ho.peak > 20 && ho.endBlur < 0.5 && ho.last === 'effect', JSON.stringify(ho));
   ok('effect lyrics: open', await layerIs('fx')); await W(300); await shot('fx');
+  // nothing draws an edge of its own over the picture: the page's edge is the main area's, under the full-window picture
+  const edge = await C(() => { const np = document.querySelector('[data-test=np]'), st = document.querySelector('[data-test=stage]').getBoundingClientRect();
+    return { after: getComputedStyle(np, '::after').content, stage: [st.left, st.top, st.width, st.height].map(Math.round), win: [innerWidth, innerHeight] }; });
+  ok('effect lyrics: no page edge over the picture (the picture covers the window)', edge.after === 'none' && edge.stage[0] === 0 && edge.stage[1] === 0 && edge.stage[2] === edge.win[0] && edge.stage[3] === edge.win[1], JSON.stringify(edge));
   const fx = await C(() => { const e = window.__cadenza.engine, f = e.frameAt(e.time); return { view: e.view, mix: f.view.effect, owner: f.coverOwner, vinyl: f.vinylOut, aspect: e.session.style.aspect, theme: e.session.style.bgStyle }; });
   ok('effect lyrics: full picture at 16:9, the cover theme, the record out from under the sleeve', fx.view === 'effect' && fx.mix > 0.99 && fx.owner === 'backdrop' && fx.vinyl > 0.99 && fx.theme === 'cover' && fx.aspect === '16:9', JSON.stringify(fx));
   // the bar and the pointer: both hide after a still moment, both come back on any movement
@@ -166,8 +170,17 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   ok('MV mode: bound, fading in over the song\'s own backdrop', mv.on && mv.ready && mv.k > 0.99 && mv.bg === 'cover', JSON.stringify(mv));
   await shot('fx-mv');
   await C(() => window.__cadenza.api.setMvOn(false)); await W(1200);
+  // back to the page: the title bar's brand and search (above the blur) stay away until the page is under it again
+  const tbBack = C(() => new Promise(res => { const seen = []; const t0 = performance.now(); const tb = document.querySelector('[data-test=titlebar]'), brand = tb.children[0], mid = tb.children[1];
+    const tick = () => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60'), b = v && v.style.display !== 'none' ? parseFloat((v.style.backdropFilter.match(/blur\(([\d.]+)/) || [0, 0])[1]) : 0;
+      seen.push({ b, view: window.__cadenza.engine.view, o: Math.max(+getComputedStyle(brand).opacity * (getComputedStyle(brand).visibility === 'visible'), +getComputedStyle(mid).opacity * (getComputedStyle(mid).visibility === 'visible')) });
+      if (performance.now() - t0 < 1100) requestAnimationFrame(tick); else res(seen); }; tick(); }));
   await win.keyboard.press('Escape');
+  { const seen = await tbBack, early = seen.filter(x => x.view === 'effect' && x.o > 0.02), lateIn = seen.filter(x => x.view !== 'effect' && x.b > 18 && x.o > 0.6);
+    ok('back to now playing: the brand and search fade in with the blur clearing, never before the swap', !early.length && !lateIn.length && seen[seen.length - 1].o > 0.9, JSON.stringify({ early: early.length, lateIn: lateIn.length, last: seen[seen.length - 1] })); }
   ok('effect lyrics: Esc hands back to now playing', await layerIs('np')); await W(300); await shot('np-back');
+  const npEdge = await C(() => { const st = document.querySelector('[data-test=stage]').getBoundingClientRect(), pg = document.querySelector('main[data-scroll]').getBoundingClientRect(); return { dx: Math.round(st.left - pg.left), dy: Math.round(st.top - pg.top) }; });
+  ok('now playing: the page sits one pixel inside the main area, its edge the area\'s own', npEdge.dx === 1 && npEdge.dy === 1, JSON.stringify(npEdge));
   await win.keyboard.press('Escape');
   ok('now playing: Esc closes into the card', await layerIs('none')); await W(300);
 

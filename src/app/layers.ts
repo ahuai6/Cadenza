@@ -28,7 +28,7 @@ const measure = () => {
   // the resting corners, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
   if (npCover) { const keep = npCover.style.borderRadius; npCover.style.borderRadius = ''; coverR = radiusOf(npCover); npCover.style.borderRadius = keep; }
   if (mini) miniR = radiusOf(mini) || 9; if (card) cardR = radiusOf(card) || 20;
-  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = radiusOf(pg) || 20; }
+  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, (radiusOf(pg) || 20) - 1); }   // one pixel inside the area's own corner
 };
 const eo = (u: number) => 1 - (1 - u) ** 3;
 function applyNp(p: number) {
@@ -55,7 +55,6 @@ function applyNp(p: number) {
   // under it; in full screen, square)
   const k = part(p, 0.55, 1), full = document.documentElement.dataset.winfull === 'true', rTL = cardR + ((full ? 0 : pageR) - cardR) * k, rO = cardR * (1 - k);
   const clip = p >= 0.9995 ? (full ? '' : `inset(0 round ${pageR}px 0 0 0)`) : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
-  np.style.setProperty('--np-edge', part(p, 0.7, 1).toFixed(3));
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
@@ -65,7 +64,30 @@ const np = new Drive(0, x => applyNp(x), { stiffness: 150, damping: 23 });
 export const npProgress = () => np.x;
 /** for the tests: the expand progress itself */
 export const npDrive = np;
-addEventListener('resize', () => { if (np.x > 0) { measure(); applyNp(np.x); } });
+/* ---------- warming the page up ----------
+   The first time the page opens, everything in it is new to the browser: its styles and layout (the whole lyric list),
+   its large text, its blurs, the picture's canvas and the engine's first ambient frame. Each song, at an idle moment
+   while the page is closed, the page and its picture are shown for two frames at an opacity nobody can see (and never
+   under the pointer), so all of that is made before the page opens for real. */
+let warmed: unknown = null, warming = false;
+const idleCb = (fn: () => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
+function warmPage() {
+  const { np: el, stage } = refs, s = engine.session; if (!el || !stage || !s || warming || warmed === s) return;
+  warming = true;
+  idleCb(() => {
+    const closed = () => ui.get().layer === 'none' && np.x === 0 && np.target === 0 && engine.view === 'hidden';
+    if (!closed()) { warming = false; return; }
+    if (!engine.warmPicture()) { warming = false; return; }                // (the song isn't ready yet: try again on a later frame)
+    warmed = s;
+    el.style.opacity = stage.style.opacity = '0.001'; el.style.pointerEvents = stage.style.pointerEvents = 'none'; el.dataset.vis = stage.dataset.vis = 'true';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.style.opacity = el.style.pointerEvents = stage.style.pointerEvents = ''; warming = false;
+      if (closed()) applyNp(0); else stage.style.opacity = '';      // (opening meanwhile: the page's own progress has taken over)
+    }));
+  });
+}
+engine.on('frame', () => { if (np.x === 0) warmPage(); });
+addEventListener('resize', () => { if (np.x > 0 && engine.view !== 'effect') { measure(); applyNp(np.x); } });
 
 /* ---------- np ⇄ fx: a full-screen blur ---------- */
 const veil = document.createElement('div');
