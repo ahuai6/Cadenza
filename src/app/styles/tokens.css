@@ -42,6 +42,6 @@
   --hover: rgba(255, 255, 255, 0.12); --press: rgba(255, 255, 255, 0.18);
   --glass: rgba(18, 16, 24, 0.34); --glass-strong: rgba(18, 16, 24, 0.62); --glass-edge: rgba(255, 255, 255, 0.16);
   --surface: rgba(255, 255, 255, 0.1); --surface-2: rgba(255, 255, 255, 0.14); --surface-3: rgba(255, 255, 255, 0.2);
-  --accent: #ffffff; --on-accent: #16141c; --accent-soft: rgba(255, 255, 255, 0.18);
-  color-scheme: dark;
+  --accent: #ffffff; --on-accent: #16141c; --accent-soft: rgba(255, 255, 255, 0.18); --bg: #16141c;
+  color-scheme: dark; color: var(--fg);
 }

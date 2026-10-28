@@ -19,7 +19,7 @@ import s from './NowPlaying.module.css';
 export function Stage() {
   const el = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { refs.stage = el.current; engine.mount(el.current!); return () => { refs.stage = null; }; }, []);
-  return <div className={s.stage} ref={el} data-vis="false" aria-hidden="true" />;
+  return <div data-test="stage" className={s.stage} ref={el} data-vis="false" aria-hidden="true" />;
 }
 
 export function NowPlaying() {
@@ -37,7 +37,7 @@ export function NowPlaying() {
   ]);
   const live = layer === 'np';
   return (
-    <section className={s.np + ' on-picture'} ref={root} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
+    <section data-test="np" className={s.np + ' on-picture'} ref={root} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
       <i className={s.veil} />
       <header className={s.top} ref={top}>
         <div className={s.fade}><IconButton n="chevronDown" glass label={tx('s.collapse')} onClick={back} /></div>
@@ -48,7 +48,7 @@ export function NowPlaying() {
       </header>
       <div className={s.main}>
         <div className={s.left}>
-          <div className={s.cover} ref={cover}><Cover k={t.cover} full eager /></div>
+          <div className={s.cover} ref={cover} data-test="np-cover"><Cover k={t.cover} full eager /></div>
           <div className={s.info} ref={info}>
             <div className={s.fade} style={{ display: 'grid', gap: 14 }}>
               <div className={s.meta}>
@@ -140,7 +140,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   return (
     <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel}>
       {lines.map((L, i) => (
-        <button key={i} type="button" className={s.line} ref={el => { lineEls.current[i] = el; }} onClick={() => { st.current.manual = 0; engine.seek(Math.max(0, L.t - 0.05)); if (!engine.isPlaying) engine.play(); }}>
+        <button key={i} type="button" data-test="line" className={s.line} ref={el => { lineEls.current[i] = el; }} onClick={() => { st.current.manual = 0; engine.seek(Math.max(0, L.t - 0.05)); if (!engine.isPlaying) engine.play(); }}>
           {L.words.length ? L.words.map((w, k) => <span key={k} data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>) : <span data-w className={s.w}>{L.text}</span>}
           {L.subs.map((x, k) => <small key={k}>{x}</small>)}
         </button>

@@ -24,7 +24,8 @@ export function EffectView() {
   const t = trackOf(shownId), root = useRef<HTMLDivElement>(null);
   const [idle, setIdle] = useState(false), [list, setList] = useState(false), [panel, setPanel] = useState(false), [near, setNear] = useState(false);
   const on = layer === 'fx';
-  useLayoutEffect(() => { refs.fxUi = root.current; return () => { refs.fxUi = null; }; }, []);
+  useLayoutEffect(() => { refs.fxUi = root.current; });
+  useEffect(() => () => { refs.fxUi = null; }, []);
   // any movement shows the pointer and the bar; a still moment hides both (never while a control is in use)
   useEffect(() => {
     if (!on) { setIdle(false); setPanel(false); setList(false); return; }
@@ -38,11 +39,11 @@ export function EffectView() {
   const bar = !idle || near || list || panel || queue || modal;
   const cursor = !idle || near || panel || list || queue || modal;
   return (
-    <div className={s.fx + ' on-picture'} ref={root} data-on={on} data-bar={bar} data-cursor={cursor} aria-hidden={!on} inert={!on}
+    <div data-test="fx" className={s.fx + ' on-picture'} ref={root} data-on={on} data-bar={bar} data-cursor={cursor} aria-hidden={!on} inert={!on}
       onPointerMove={e => setNear(e.clientY > innerHeight - 130)}>
       <div className={s.edge} onPointerEnter={() => setPanel(true)} />
       {list && hasLyrics && session && <div className={s.list + ' glass'} role="dialog" aria-label={tx('s.lyricList')}><NpLyrics lines={session.doc.lines} live compact /></div>}
-      <div className={s.bottom + ' glass'}>
+      <div data-test="fx-bar" className={s.bottom + ' glass'}>
         <IconButton n="chevronLeft" label={tx('s.fxExit')} onClick={back} />
         <div className={s.meta}><b>{t.title}</b><small>{t.artist}</small></div>
         <Progress />
@@ -90,10 +91,11 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => () => clearTimeout(leaveTm.current), []);
   const props = { s: session, edit: editSong, ctx: 'song' as const };
   return (
-    <aside className={s.panel + ' glass'} ref={el} data-open={open} aria-hidden={!open} inert={!open}
+    <aside data-test="song-panel" className={s.panel + ' glass'} ref={el} data-open={open} aria-hidden={!open} inert={!open}
       onPointerLeave={e => { const r = el.current!.getBoundingClientRect(); if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return; inside.current = false; leave(); }}
       onPointerEnter={() => { inside.current = true; clearTimeout(leaveTm.current); }}
-      onCompositionStart={() => { composing.current = true; clearTimeout(leaveTm.current); }} onCompositionEnd={() => { composing.current = false; }}>
+      onCompositionStart={() => { composing.current = true; clearTimeout(leaveTm.current); }} onCompositionEnd={() => { composing.current = false; if (!inside.current) leave(); }}
+      onBlur={e => { if (!inside.current && !el.current!.contains(e.relatedTarget as Node)) leave(); }}>
       <header className={s.phead}>
         <div><b>{tx('s.panel.song')}</b><small>{tx('s.panel.bound')}</small></div>
         <IconButton n={locked ? 'lock' : 'unlock'} pressed={locked} label={tx(locked ? 's.locked' : 's.lock')} onClick={() => { if (!locked) saveSong({ locked: true }); }} onDoubleClick={() => { if (locked) saveSong({ locked: false }); }} />

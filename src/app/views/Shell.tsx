@@ -75,7 +75,7 @@ export function Shell() {
       <TitleBar />
       <div className={s.body}>
         <Sidebar />
-        <main className={s.page} aria-hidden={layer !== 'none'} inert={layer !== 'none'}>
+        <main data-scroll className={s.page} aria-hidden={layer !== 'none'} inert={layer !== 'none'}>
           <div className={s.pageInner}>
             {page === 'library' && <LibraryView />}
             {page === 'wall' && <PosterWall />}
@@ -99,7 +99,7 @@ export function Shell() {
 function TitleBar() {
   const st = useStore(ui, x => x.win), page = useStore(ui, x => x.page), search = useStore(ui, x => x.search);
   return (
-    <header className={s.tb} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,input')) D?.win('max'); }}>
+    <header data-test="titlebar" className={s.tb} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,input')) D?.win('max'); }}>
       <div className={s.brand}><img src={mark} alt="" /><span>Cadenza</span></div>
       <div className={s.tbMid}>
         {page === 'library' && (
@@ -141,3 +141,8 @@ function Sidebar() {
   );
 }
 export { keep };
+// read by the desktop tests
+import * as playerApi from '../playback/player';
+import * as layers from '../layers';
+import { ws as workshop, engine as wsEngine } from './workshop/project';
+Object.assign((window as any).__cadenza, { ui, lib, settings, player: playerApi.player, api: playerApi, layers, workshop, wsEngine });

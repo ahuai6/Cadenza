@@ -25,6 +25,8 @@ export interface SessionSpec {
   analysis?: RhythmAnalysis | null;
   range?: string; lshift?: number; bpm?: number; endLen?: number;
   fade?: boolean;
+  /** the frame's aspect, whatever the stored style says ('fill': the view's own, as the player shows it) */
+  aspect?: string;
 }
 export interface SessionEnv { lang: string; labels: { composer: string; lyricist: string; artist: string }; viewAspect: () => number; onAnalysis?: (a: RhythmAnalysis) => void }
 type Img = CanvasImageSource & { width: number; height: number };
@@ -48,6 +50,7 @@ export class Session {
     const s = new Session(spec, env);
     s.cover = await loadImage(spec.coverUrl || ''); s.coverKey = spec.coverUrl || '';
     s.style = spec.style ? styleFromStored(spec.style) : { ...presetStyle('cover'), ...(s.cover ? paletteFromImage(s.cover) : {}) };
+    if (spec.aspect) s.style.aspect = spec.aspect;
     s.colors();
     let a = spec.analysis && isCurrent(spec.analysis) ? spec.analysis : null;
     const buf = spec.audio;
@@ -108,8 +111,8 @@ export class Session {
   setEffect(id: string, on: boolean) { if (!this.custom) return false; this.style.fx[id] = !!on; if (id === 'glass' || id === 'glyph' || id === 'frame') this.dirty |= 1; return true; }
   setEffectParam(id: string, key: string, v: number | string | boolean) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; return true; }
   makeCustom() { if (this.custom) return; this.style = { ...JSON.parse(JSON.stringify(this.style)), preset: 'custom', from: this.style.from || this.style.preset, id: null, name: '' }; this.style.m = knobbed(this.style.m0, this.style.k); }
-  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); if (id === 'cover' && this.cover) Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); this.dirty |= 2; }
-  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: keep.aspect, quality: keep.quality, aa: keep.aa }); this.colors(); this.dirty |= 2; }
+  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (id === 'cover' && this.cover) Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); this.dirty |= 2; }
+  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, quality: keep.quality, aa: keep.aa }); this.colors(); this.dirty |= 2; }
   coverPalette() { if (!this.cover) return; Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); }
   setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= 2; else this.dirty |= 1; }
   setLyrics(src: string) { this.spec.lyrics = src; this.dirty |= 2; }

@@ -30,7 +30,7 @@ export function Progress({ className = '', times = true }: { className?: string;
   return (
     <div className={s.prog + ' ' + className} data-times={times}>
       {times && <span className={s.pt} ref={cur}>0:00</span>}
-      <div className={s.bar} ref={bar} role="slider" aria-label={tx('s.nowPlaying')} aria-valuemin={0} tabIndex={0}
+      <div className={s.bar} ref={bar} data-test="progress" role="slider" aria-label={tx('s.nowPlaying')} aria-valuemin={0} tabIndex={0}
         onPointerDown={e => { drag.current = true; bar.current!.dataset.drag = 'true'; e.currentTarget.setPointerCapture(e.pointerId); engine.seek(at(e), true); }}
         onPointerMove={e => { if (drag.current) engine.seek(at(e), true); }}
         onPointerUp={e => { if (drag.current) { drag.current = false; bar.current!.dataset.drag = ''; engine.seek(at(e), false); } }}
@@ -96,7 +96,7 @@ export function PlayerCard() {
   useLayoutEffect(() => { refs.card = card.current; refs.mini = mini.current; return () => { refs.card = null; refs.mini = null; }; });
   if (!t) return null;
   return (
-    <div className={s.card + ' glass'} ref={card}>
+    <div className={s.card + ' glass'} ref={card} data-test="card">
       <button type="button" className={s.id} title={tx('s.expand')} onClick={openNp}>
         <span ref={mini} className={s.mini}><Cover k={t.cover} className={s.mini} /></span>
         <span className={s.text}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span>
@@ -136,7 +136,7 @@ function QueueBody({ box }: { box: React.MutableRefObject<HTMLElement | null> })
   useEffect(() => { const el = box.current?.querySelector('[data-cur="true"]'); if (el) el.scrollIntoView({ block: 'center' }); }, []);
   const cur = shown.findIndex(x => x.id === p.id), rest = Math.max(0, shown.length - 1 - cur);
   return (
-    <section className={s.queue + ' glass'} ref={el => { box.current = el; }} style={pos || { visibility: 'hidden' }} aria-label={tx('s.queue')}>
+    <section data-test="queue" className={s.queue + ' glass'} ref={el => { box.current = el; }} style={pos || { visibility: 'hidden' }} aria-label={tx('s.queue')}>
       <header className={s.qhead}>
         <div><b>{tx('s.queue')}</b><small>{tx('s.queue.count', { n: items.length, rest })}</small></div>
         <button type="button" className="muted" disabled={items.length < 2} onClick={() => clearQueue()} style={{ fontSize: 12.5, fontWeight: 600 }}>{tx('s.queue.clear')}</button>

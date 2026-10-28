@@ -27,6 +27,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
 
 [[package]]
+name = "cadenza-audio"
+version = "1.0.0"
+dependencies = [
+ "rubato",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "wasapi",
+ "windows",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -69,18 +81,6 @@ name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
-
-[[package]]
-name = "lmaudio"
-version = "2.1.1"
-dependencies = [
- "rubato",
- "serde",
- "serde_json",
- "symphonia",
- "wasapi",
- "windows",
-]
 
 [[package]]
 name = "log"

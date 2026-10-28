@@ -35,7 +35,7 @@ export function ModalHost() {
   const Body = ({ text: TextModal, playlist: PlaylistModal, meta: MetaModal, mv: MvModal, mvOffset: MvOffsetModal, export: ExportModal } as Record<string, (p: { m: any }) => React.ReactElement | null>)[m.kind];
   return (
     <div className={s.scrim + ' ' + (ui.get().layer !== 'none' ? 'on-picture' : '')} onPointerDown={e => { if (e.target === e.currentTarget && !exportBusy) close(null); }}>
-      <div className={s.modal} role="dialog" aria-modal="true" data-kind={m.kind}><Body m={m} /></div>
+      <div data-test="modal" className={s.modal} role="dialog" aria-modal="true" data-kind={m.kind}><Body m={m} /></div>
     </div>
   );
 }
