@@ -4,23 +4,23 @@
 /* title bar: the window's own buttons, a drag region only where nothing is clickable */
 .tb { position: relative; z-index: 80; display: grid; grid-template-columns: var(--side-w) 1fr auto; align-items: center; -webkit-app-region: drag; app-region: drag; transition: background var(--t-med) var(--ease), opacity var(--t-med) var(--ease); }
 .tb button, .tb input, .tb label { -webkit-app-region: no-drag; app-region: no-drag; }
-.shell[data-layer="np"] .tb, .shell[data-layer="fx"] .tb { position: fixed; left: 0; right: 0; top: 0; height: var(--tb-h); }
+:global(html[data-winfull="true"]) .shell[data-layer="np"] .tb, .shell[data-layer="fx"] .tb { position: fixed; left: 0; right: 0; top: 0; height: var(--tb-h); }
 .shell[data-layer="fx"][data-idle="true"] .tb { opacity: 0; }
 .shell[data-top="modal"] .tb, .shell[data-top="menu"] .tb { -webkit-app-region: no-drag; app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 9px; padding-left: 16px; font-weight: 680; letter-spacing: 0.01em; font-size: 14.5px; }
 .brand img { width: 22px; height: 22px; display: block; }
-.shell[data-layer="np"] .brand, .shell[data-layer="fx"] .brand { opacity: 0; pointer-events: none; }
+:global(html[data-winfull="true"]) .shell[data-layer="np"] .brand, .shell[data-layer="fx"] .brand { opacity: 0; pointer-events: none; }
 .tbMid { display: flex; justify-content: center; padding: 0 12px; min-width: 0; }
 .search { position: relative; display: flex; align-items: center; width: min(420px, 100%); }
 .search svg { position: absolute; left: 11px; color: var(--fg-3); pointer-events: none; }
 .search input { width: 100%; height: 32px; min-height: 32px; padding-left: 34px; border-radius: var(--r-sm); background: var(--surface); }
-.shell[data-layer="np"] .tbMid, .shell[data-layer="fx"] .tbMid { visibility: hidden; }
+:global(html[data-winfull="true"]) .shell[data-layer="np"] .tbMid, .shell[data-layer="fx"] .tbMid { visibility: hidden; }
 .winbtns { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
 .winbtns button { width: 40px; height: 32px; border-radius: var(--r-xs); display: grid; place-items: center; color: var(--fg-2); transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .winbtns button:hover { background: var(--hover); color: var(--fg); }
 .winbtns button[data-close]:hover { background: #e5484d; color: #fff; }
-.shell[data-layer="np"] .winbtns button, .shell[data-layer="fx"] .winbtns button { color: rgba(255, 255, 255, 0.85); }
-.shell[data-layer="np"] .winbtns button:hover, .shell[data-layer="fx"] .winbtns button:hover { background: rgba(255, 255, 255, 0.14); }
+:global(html[data-winfull="true"]) .shell[data-layer="np"] .winbtns button, .shell[data-layer="fx"] .winbtns button { color: rgba(255, 255, 255, 0.85); }
+:global(html[data-winfull="true"]) .shell[data-layer="np"] .winbtns button:hover, .shell[data-layer="fx"] .winbtns button:hover { background: rgba(255, 255, 255, 0.14); }
 
 .body { display: grid; grid-template-columns: var(--side-w) 1fr; min-height: 0; }
 .side { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; padding: 6px 10px 14px; min-height: 0; }
