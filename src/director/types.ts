@@ -74,7 +74,7 @@ export interface CameraPlan {
   /** punch: each arrival nudges the frame once in one direction and lets it settle */
   arrivals?: { t: number; ang: number; sg: number; k: number }[];
   /** the path the camera follows: the moves sampled and given inertia (see smoothPath) */
-  path?: { rate: number; n: number; seg: Int32Array; x: Float32Array; y: Float32Array; lz: Float32Array; r: Float32Array; d: Float32Array };
+  path?: { rate: number; n: number; seg: Int32Array; /** the cuts, in order: segment i ends at cutT[i] */ cutT: number[]; x: Float32Array; y: Float32Array; lz: Float32Array; r: Float32Array; d: Float32Array };
 }
 
 export interface Cues {

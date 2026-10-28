@@ -36,5 +36,5 @@ export interface RenderFrame {
   /** how far the record has slid out from under the sleeve (0..1) */
   vinylOut: number;
   /** words of lines that are being handed over from the page wait for the flight (multiplier per line index) */
-  wordAlpha?: (line: number) => number;
+  wordAlpha?: (line: number, k: number) => number;
 }

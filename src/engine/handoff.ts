@@ -4,7 +4,7 @@
    the record slides out from under it; the current line to the words it becomes, crossfading into them. On the way
    out the same flight runs back to where the page measures its elements now. One progress value drives all of it. */
 import { clamp, lerp, sstep, D2R } from '../core/math';
-import { cubicBezier } from '../core/ease';
+import { fontStack } from '../text/fonts';
 import { rgba } from '../core/color';
 import type { RenderFrame } from '../render/frame';
 import type { Ctx } from '../render/effects/registry';
@@ -13,21 +13,23 @@ import { coverRest, drawCoverSubject, coverRadius } from '../render/effects/cove
 export interface WinRect { left: number; top: number; width: number; height: number }
 export interface HandoffCover { rect: WinRect; radius: number }
 /** A lyric line on the page: its box, its text and type, and (when the page wraps it) its rows. */
-export interface HandoffLine { i: number; rect: WinRect; text: string; font: string; px: number; color: string; alpha?: number; rows?: { rect: WinRect; text: string }[] }
+/** A lyric line on the page: its box, its text and type, its rows (as the page wraps it) and each word's own box. */
+export interface HandoffLine { i: number; rect: WinRect; text: string; font: string; px: number; color: string; alpha?: number; rows?: { rect: WinRect; text: string }[]; words?: { rect: WinRect; text: string }[] }
 export interface HandoffSpec { cover?: HandoffCover | null; lines?: HandoffLine[] }
 
-const FLY = cubicBezier(0.32, 0.72, 0, 1);       // the drawer curve: leaves at once, settles long
-/** The timeline of a hand-over, as a function of its progress p (0 = the page, 1 = the picture). */
+/** The timeline of a hand-over, as a function of its progress p (0 = the page, 1 = the picture). p itself moves on a
+ *  critically damped spring, so every part starts softly and lands softly, and a reversal keeps its momentum. */
 export function phases(p: number) {
   return {
-    cover: FLY(clamp(p / 0.72)),                         // the cover leads
-    scene: sstep(clamp((p - 0.12) / 0.7)),                // the picture follows it out
-    vinyl: sstep(clamp((p - 0.74) / 0.26)),               // the record comes out once the sleeve has landed
-    line: (k: number) => FLY(clamp((p - 0.06 - 0.05 * k) / 0.66)),
+    cover: clamp(p / 0.82),                               // the cover leads
+    scene: sstep(clamp((p - 0.06) / 0.74)),               // the picture follows it out
+    vinyl: sstep(clamp((p - 0.78) / 0.22)),               // the record comes out once the sleeve has landed
+    line: (k: number) => clamp((p - 0.03 - 0.035 * k) / 0.84),
   };
 }
+const ease = (u: number) => u * u * (3 - 2 * u) * 0.35 + u * 0.65;        // a touch of ease on top of the spring
 
-/** Where the cover lands on screen (reference px), its rotation (deg) and corner radius; null when no cover is drawn. */
+/** Where the cover lands in the picture (reference px, centre), with its roll and corners; `fade` when the theme has no cover. */
 export function coverTarget(f: RenderFrame): { cx: number; cy: number; S: number; rot: number; radius: number; fade: boolean } {
   const fx = f.cam.fx, roll = fx.r - f.cam.cont.r, zoom = fx.z, bd = { ox: fx.x * 0.5 - f.cam.hand[0] * 0.35, oy: fx.y * 0.5 - f.cam.hand[1] * 0.35 };
   if (f.style.bgStyle === 'cover' && !(f.media.mv && f.media.mv.k > 0.5)) {
@@ -39,66 +41,79 @@ export function coverTarget(f: RenderFrame): { cx: number; cy: number; S: number
 
 export class Handoff {
   /** progress (0 page .. 1 picture), animated by the engine toward `target` */
-  p = 0; target = 0; private from = 0; private t0 = 0; private dur = 1100; spec: HandoffSpec = {};
+  p = 0; target = 0; private v = 0; private last = 0; spec: HandoffSpec = {};
   /** converts a window rect to reference px of the frame */
   toRef: (r: WinRect) => { x: number; y: number; w: number; h: number } = r => ({ x: r.left, y: r.top, w: r.width, h: r.height });
   private done: (() => void) | null = null;
-  go(target: number, spec: HandoffSpec, ms = 1100): Promise<void> {
-    this.from = this.p; this.target = target; this.t0 = performance.now(); this.dur = ms * Math.max(0.35, Math.abs(target - this.p)); this.spec = spec;
+  private byWord = new Map<number, boolean>();
+  go(target: number, spec: HandoffSpec): Promise<void> {
+    if (this.p === this.target) this.last = performance.now();
+    this.target = target; this.spec = spec;
     this.done?.();
     return new Promise(res => { this.done = res; });
   }
-  jump(p: number) { this.p = this.target = p; this.done?.(); this.done = null; }
-  /** Advance by the interface clock; true while moving. */
+  jump(p: number) { this.p = this.target = p; this.v = 0; this.done?.(); this.done = null; }
+  /** Advance by the interface clock (a critically damped spring, about 1.3 s to land); true while moving. */
   tick(): boolean {
-    if (this.p === this.target) return false;
-    const u = clamp((performance.now() - this.t0) / this.dur); this.p = this.from + (this.target - this.from) * u;
-    if (u >= 1) { this.p = this.target; const d = this.done; this.done = null; d?.(); }
+    if (this.p === this.target && this.v === 0) return false;
+    const now = performance.now(), dt = clamp((now - (this.last || now)) / 1000, 0, 1 / 30); this.last = now;
+    const w = 4.6;
+    for (let i = 0; i < 4; i++) { const h = dt / 4, a = -w * w * (this.p - this.target) - 2 * w * this.v; this.v += a * h; this.p += this.v * h; }
+    if (Math.abs(this.p - this.target) < 0.0015 && Math.abs(this.v) < 0.02) { this.p = this.target; this.v = 0; const d = this.done; this.done = null; d?.(); }
     return true;
   }
   get moving() { return this.p !== this.target || (this.p > 0 && this.p < 1); }
   get active() { return this.p > 0.0001 && this.p < 0.9999; }
 
-  /** Draw the flying cover and lines over the frame. */
+  /** The flying cover, drawn where the backdrop draws its own cover (under the words), so it never changes layer. */
+  drawCover(g: Ctx, f: RenderFrame) {
+    const sp = this.spec; if (!this.active || !sp.cover) return;
+    const ph = phases(this.p), a = this.toRef(sp.cover.rect), tg = coverTarget(f), u = ease(ph.cover);
+    const cx = lerp(a.x + a.w / 2, tg.cx, u), cy = lerp(a.y + a.h / 2, tg.cy, u), S = lerp(a.w, tg.S, u), rot = lerp(0, tg.rot, u);
+    const rad = lerp(sp.cover.radius * a.w / Math.max(1, sp.cover.rect.width), tg.radius, u);
+    const alpha = tg.fade ? 1 - sstep(clamp((this.p - 0.7) / 0.3)) : 1;
+    g.save(); g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(cx, cy); g.rotate(rot * D2R);
+    if (rad > 0.5) { g.beginPath(); g.roundRect(-S / 2, -S / 2, S, S, rad); g.clip(); }
+    drawCoverSubject(g, f, -S / 2, -S / 2, S, tg.fade ? 0 : ph.vinyl, alpha);
+    g.restore();
+  }
+  /** The page's words, each flying to the word it becomes in the scene and growing into it: position, size and turn
+   *  meet the scene's glyph exactly, and the two are crossfaded only where they coincide. */
   draw(g: Ctx, f: RenderFrame) {
     if (!this.active) return;
     const ph = phases(this.p), sp = this.spec;
-    g.save(); g.setTransform(f.px, 0, 0, f.px, 0, 0);
-    if (sp.cover) {
-      const a = this.toRef(sp.cover.rect), tg = coverTarget(f), u = ph.cover;
-      const S0 = a.w, cx = lerp(a.x + a.w / 2, tg.cx, u), cy = lerp(a.y + a.h / 2, tg.cy, u), S = lerp(S0, tg.S, u), rot = lerp(0, tg.rot, u);
-      const rad = lerp(sp.cover.radius * a.w / Math.max(1, sp.cover.rect.width), tg.radius, u);
-      const alpha = tg.fade ? 1 - sstep(clamp((this.p - 0.7) / 0.3)) : 1;
-      g.save(); g.translate(cx, cy); g.rotate(rot * D2R);
-      if (rad > 0.5) { g.beginPath(); g.roundRect(-S / 2, -S / 2, S, S, rad); g.clip(); }
-      drawCoverSubject(g, f, -S / 2, -S / 2, S, tg.fade ? 0 : ph.vinyl, alpha);
-      g.restore();
-    }
-    // lines: the page's lines fly to their words in the scene, then hand over to them
-    for (const L of sp.lines || []) {
-      const P = f.plan.lines[L.i]; if (!P) continue; const k = Math.max(0, (sp.lines || []).indexOf(L)), u = ph.line(k);
-      const a = this.toRef(L.rect), vis = (f.vis || []).filter(v => v.S.line === P);
-      let tx = a.x + a.w / 2, ty = a.y + a.h / 2 - 30 * u, ts = 1;
-      if (vis.length) { let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const v of vis) { const hw = v.S.lw * v.p.k / 2, hh = v.S.lh * v.p.k / 2; x0 = Math.min(x0, v.p.sx - hw); x1 = Math.max(x1, v.p.sx + hw); y0 = Math.min(y0, v.p.sy - hh); y1 = Math.max(y1, v.p.sy + hh); }
-        tx = f.W / 2 + (x0 + x1) / 2; ty = f.H / 2 + (y0 + y1) / 2; ts = clamp((x1 - x0) / Math.max(1, a.w), 0.3, 6); }
-      const x = lerp(a.x + a.w / 2, tx, u), y = lerp(a.y + a.h / 2, ty, u), s = lerp(1, ts, u), al = (1 - sstep(clamp((u - 0.62) / 0.3))) * (vis.length ? 1 : 1 - u);
-      if (al < 0.01) continue;
-      const kr = a.w / Math.max(1, L.rect.width);
-      g.save(); g.translate(x, y); g.scale(s, s); g.globalAlpha = al * (L.alpha ?? 1); g.font = L.font.replace(/(\d+(\.\d+)?)px/, `${(L.px * kr).toFixed(2)}px`);
-      g.fillStyle = L.color; g.textAlign = 'center'; g.textBaseline = 'middle';
-      // a line the page wraps over several rows flies as those rows, each keeping its place in the line
-      for (const R of L.rows && L.rows.length ? L.rows : [{ rect: L.rect, text: L.text }]) {
-        const b = this.toRef(R.rect); g.fillText(R.text, b.x + b.w / 2 - (a.x + a.w / 2), b.y + b.h / 2 - (a.y + a.h / 2), b.w * 1.15 + 2);
-      }
-      g.restore();
-    }
+    g.save(); g.setTransform(f.px, 0, 0, f.px, 0, 0); g.textAlign = 'center'; g.textBaseline = 'middle';
+    const fc = fontStack(f.style.font, f.plan.doc.lines.map(L => L.text).join('').slice(0, 400)), sceneFont = (px: number) => `${fc.w} ${px.toFixed(2)}px ${fc.stack}`;
+    (sp.lines || []).forEach((L, li) => {
+      const P = f.plan.lines[L.i]; if (!P) return;
+      const a = this.toRef(L.rect), kr = a.w / Math.max(1, L.rect.width), lineVis = (f.vis || []).filter(v => v.S.line === P);
+      // word for word when the page and the scene split the line alike; otherwise the line flies whole to the scene's words
+      const byWord = !!L.words && L.words.length > 1 && L.words.length === P.words.length, words = byWord ? L.words! : [{ rect: L.rect, text: L.text }];
+      this.byWord.set(L.i, byWord);
+      words.forEach((Wd, k) => {
+        const u = ease(ph.line(li + k * 0.35)), b = this.toRef(Wd.rect), x0 = b.x + b.w / 2, y0 = b.y + b.h / 2, px0 = L.px * kr;
+        const vs = byWord ? lineVis.filter(q => q.S.k === k) : lineVis;
+        let x1 = x0, y1 = y0 - 24, px1 = px0, r1 = 0, hand = 0;
+        if (vs.length) { x1 = f.W / 2 + vs.reduce((s, v) => s + v.p.sx, 0) / vs.length; y1 = f.H / 2 + vs.reduce((s, v) => s + v.p.sy, 0) / vs.length;
+          px1 = vs.reduce((s, v) => s + v.glyphPx, 0) / vs.length / f.px; const v = vs[0]; r1 = v.S.tilt + v.p.rot + v.ws.frot; hand = byWord || vs.length === 1 ? 1 : 0; }
+        const x = lerp(x0, x1, u), y = lerp(y0, y1, u), pxs = lerp(px0, px1, u), rot = lerp(0, r1, u);
+        // the page's type gives way to the scene's own type over the flight, and the scene's glyph takes over on landing
+        const fade = hand ? 1 - sstep(clamp((u - 0.86) / 0.14)) : 1 - sstep(clamp(u / 0.55)), al = fade * lerp(L.alpha ?? 1, 1, u); if (al < 0.01) return;
+        g.save(); g.translate(x, y); g.rotate(rot * D2R); g.fillStyle = L.color;
+        const mixT = sstep(clamp((u - 0.2) / 0.6));
+        if (mixT < 1) { g.globalAlpha = al * (1 - mixT); g.font = L.font.replace(/(\d+(\.\d+)?)px/, `${pxs.toFixed(2)}px`); g.fillText(Wd.text, 0, 0); }
+        if (mixT > 0) { g.globalAlpha = al * mixT; g.font = sceneFont(pxs); g.fillText(Wd.text, 0, 0); }
+        g.restore();
+      });
+    });
     g.restore();
   }
   /** While the lines fly, the scene's own words for them wait, then fade in as the flight hands over. */
-  wordAlpha(lineIndex: number): number {
+  wordAlpha(lineIndex: number, k = 0): number {
     if (!this.active || !this.spec.lines) return 1;
-    const k = this.spec.lines.findIndex(L => L.i === lineIndex); if (k < 0) return 1;
-    return sstep(clamp((phases(this.p).line(k) - 0.62) / 0.3));
+    const li = this.spec.lines.findIndex(L => L.i === lineIndex); if (li < 0) return 1;
+    const bw = this.byWord.get(lineIndex) ?? false, u = ease(phases(this.p).line(li + (bw ? k : 0) * 0.35));
+    return bw ? sstep(clamp((u - 0.86) / 0.14)) : sstep(clamp((u - 0.55) / 0.45));
   }
   get coverOwner(): 'backdrop' | 'handoff' | 'none' { return this.p >= 0.9999 ? 'backdrop' : this.p <= 0.0001 ? 'none' : this.spec.cover ? 'handoff' : 'backdrop'; }
   get vinyl() { return phases(this.p).vinyl; }

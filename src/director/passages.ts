@@ -5,7 +5,7 @@
    - the cut (the blur's peak) lands on the strongest grid point the pause allows: a downbeat or an accent first, then a
      beat, then an eighth; when the next line starts with a pickup (before the beat), the clear still completes on the
      pickup, so the cut moves earlier with it. */
-import { clamp } from '../core/math';
+import { clamp, lerp } from '../core/math';
 import type { RhythmMap } from '../rhythm/map';
 import type { Passage } from './types';
 
@@ -16,9 +16,12 @@ export function timePassage(endPrev: number, nextT: number, map: RhythmMap, quic
   const bl = map.beatLen(nextT), gap = Math.max(0, nextT - endPrev);
   let out = quick ? clamp(0.6 * bl, 0.22, 0.4) : clamp(1.0 * bl, 0.35, 0.8);
   let inn = quick ? clamp(0.75 * bl, 0.25, 0.45) : clamp(1.5 * bl, 0.45, 1.1);
+  // a long pause (an instrumental, an idle stretch) takes its time: the picture dissolves slowly and comes back unhurried
+  if (!quick && gap > 2.5) { const k = clamp((gap - 2.5) / 6); inn = lerp(inn, Math.min(2.4, Math.max(inn, 0.3 * gap)), k); out = lerp(out, Math.min(1.5, Math.max(out, 0.16 * gap)), k); }
   const avail = gap + 0.15 - 0.06;                         // the blur may begin just before the last word ends
   if (inn + out > avail) { const k = Math.max(0.2, avail) / (inn + out); inn = Math.max(0.22, inn * k); out = Math.max(0.18, out * k); }
-  const latest = nextT - 0.06 - out, earliest = Math.min(latest, endPrev - 0.15 + inn);
+  // the blur is past half only once the last word is sung: nothing still being sung is hidden by it
+  const latest = nextT - 0.06 - out, earliest = Math.min(latest, Math.max(endPrev - 0.15 + inn, endPrev + inn * 0.5));
   // the strongest grid point in [earliest, latest], later preferred (the blur then sits right before the new words)
   let best = latest, bv = -Infinity;
   let grid = map.grid(earliest, latest, 2);
@@ -31,16 +34,20 @@ export function timePassage(endPrev: number, nextT: number, map: RhythmMap, quic
   const t = Math.min(best, latest);
   return { t, inn: Math.max(0.22, Math.min(inn, t - (endPrev - 0.3))), out: Math.max(0.18, Math.min(out, nextT - 0.04 - t)) };
 }
+/** Is there room for a quick transition between these words without hiding any of the words before it while sung? */
+export const roomForQuick = (endPrev: number, nextT: number) => nextT - endPrev >= 0.55;
 
 export interface GapLine { t: number; sungEnd: number }
-/** The pauses that start passages: long enough (two beats, at least 0.9 s), at least three lines and eight seconds after
- *  the last passage, not at the very start or end of the song. */
+/** The pauses that start passages: a clear breath (two and a half beats, at least 1.2 s) at least four lines and twelve
+ *  seconds after the last passage, or a real pause (3.5 s or more) two lines and eight seconds after it; never at the very
+ *  start or end of the song. A passage is a chapter, not a habit: while the page still has room it simply goes on. */
 export function gapPassages(lines: GapLine[], map: RhythmMap, musicEnd: number, enabled: boolean): Passage[] {
   const out: Passage[] = []; if (!enabled) return out;
   let lastI = 0, lastT = -1e9;
   for (let i = 1; i < lines.length; i++) {
     const A = lines[i - 1], B = lines[i], gap = B.t - A.sungEnd, bl = map.beatLen(B.t);
-    if (gap >= Math.max(0.9, 2 * bl) && i - lastI >= 3 && B.t - lastT >= 8 && B.t >= 5 && B.t < musicEnd - 3) {
+    const breath = gap >= Math.max(1.2, 2.5 * bl) && i - lastI >= 4 && B.t - lastT >= 12, pause = gap >= 3.5 && i - lastI >= 2 && B.t - lastT >= 8;
+    if ((breath || pause) && B.t >= 5 && B.t < musicEnd - 3) {
       const tm = timePassage(A.sungEnd, B.t, map, false);
       out.push({ ...tm, line: i, quick: false, reason: 'gap' }); lastI = i; lastT = B.t;
     }

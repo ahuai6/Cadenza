@@ -44,17 +44,21 @@ export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as Ima
  *  either); a word still fading in mixes the two additively on a scratch canvas first. */
 export const focusW = (bpx: number) => (bpx > 0.4 ? clamp((1.6 - bpx) / 1.2) : 1);
 const POOL = new Map<number, HTMLCanvasElement | OffscreenCanvas>();
-export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number) {
-  const w = focusW(bpx);
-  if (w >= 1) { g.globalAlpha = A; g.fillText(ch, 0, 0); return; }
+export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number, sharp?: CanvasGradient | null) {
+  const w = focusW(bpx), sharpFill = () => { if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
+  if (w >= 1) { g.globalAlpha = A; sharpFill(); return; }
   if (w <= 0) { g.globalAlpha = A; blurGlyph(g, ch, bpx, G); return; }
-  if (A >= 0.995) { g.globalAlpha = A; g.fillText(ch, 0, 0); g.globalAlpha = A * (1 - w); blurGlyph(g, ch, bpx, G); return; }
-  const k = Math.max(0.05, G / EM), need = Math.ceil(EM * 1.8 * k + bpx * 8), N = Math.max(64, 1 << Math.ceil(Math.log2(need)));
-  let cv = POOL.get(N); if (!cv) { cv = makeCanvas(N, N); POOL.set(N, cv); }
+  if (A >= 0.995) { g.globalAlpha = A; sharpFill(); g.globalAlpha = A * (1 - w); blurGlyph(g, ch, bpx, G); return; }
+  // the scratch holds the whole unit with its blur: a unit may be a whole word, much wider than one em (a square of a
+  // couple of ems cut its sides off while it focused in, and they flickered back when it turned sharp)
+  if (sg.font !== g.font) sg.font = g.font;
+  const k = Math.max(0.05, G / EM), tw = Math.max(EM, sg.measureText(ch).width) * 1.15 + EM * 0.4;
+  const NW = Math.max(64, 1 << Math.ceil(Math.log2(Math.ceil(tw * k + bpx * 8)))), NH = Math.max(64, 1 << Math.ceil(Math.log2(Math.ceil(EM * 1.8 * k + bpx * 8)))), key = NW * 65536 + NH;
+  let cv = POOL.get(key); if (!cv) { cv = makeCanvas(NW, NH); POOL.set(key, cv); }
   const c = (cv as HTMLCanvasElement).getContext('2d')!;
-  c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, N, N);
-  c.setTransform(k, 0, 0, k, N / 2, N / 2); c.font = g.font; c.fillStyle = g.fillStyle; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, NW, NH);
+  c.setTransform(k, 0, 0, k, NW / 2, NH / 2); c.font = g.font; c.fillStyle = g.fillStyle; c.textAlign = 'center'; c.textBaseline = 'middle';
   c.globalAlpha = 1 - w; blurGlyph(c, ch, bpx, G);
   c.globalCompositeOperation = 'lighter'; c.globalAlpha = w; c.fillText(ch, 0, 0); c.globalCompositeOperation = 'source-over';
-  g.globalAlpha = A; g.drawImage(cv, 0, 0, N, N, -N / 2 / k, -N / 2 / k, N / k, N / k);
+  g.globalAlpha = A; g.drawImage(cv, 0, 0, NW, NH, -NW / 2 / k, -NH / 2 / k, NW / k, NH / k);
 }

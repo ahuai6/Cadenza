@@ -19,7 +19,7 @@ import type { Signals } from '../rhythm/signals';
 const byZ = (a: Effect, b: Effect) => (a.z ?? 0) - (b.z ?? 0);
 const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
 
-export interface DrawOptions { captions?: boolean; captionBottom?: number; overlay?: (g: Ctx, f: RenderFrame) => void; sig: Signals }
+export interface DrawOptions { captions?: boolean; captionBottom?: number; overlay?: (g: Ctx, f: RenderFrame) => void; /** drawn on the backdrop, under the words */ under?: (g: Ctx, f: RenderFrame) => void; sig: Signals }
 
 export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const st = f.style, M = st.m, W = f.W, H = f.H, view = f.view.effect, cf = f.cam;
@@ -47,6 +47,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
       g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = sstep(view); g.drawImage(LAYER, 0, 0); g.restore();
     }
   }
+  o.under?.(g, f); g.setTransform(f.px, 0, 0, f.px, 0, 0);
   /* ---- flashes ---- */
   const bl = f.plan.map.beatLen(f.t), tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)), calm = cf.calm;
   let flash = 0; { const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));

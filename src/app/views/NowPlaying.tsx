@@ -100,7 +100,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     const S = st.current, H = box.current ? box.current.clientHeight : 600, anchor = H * (compact ? 0.38 : 0.3), a = S.tops[Math.max(0, idx)] || 0, now = performance.now();
     S.words.forEach((ws, i) => {
       const d = i - idx, ty = anchor - a + S.manual, lineDelay = wave ? Math.max(0, Math.min(d + 1, 9)) * 46 : 0;
-      ws.forEach((w, k) => { w.next = ty; w.at = now + lineDelay + (wave && d >= 0 ? k * 16 : wave ? k * 6 : 0);
+      ws.forEach((w, k) => { w.next = ty; w.at = now + lineDelay + (wave && d >= 0 ? Math.min(k, 14) * 34 : wave ? k * 8 : 0);
         if (jump) { w.y = w.ty = ty; w.v = 0; w.at = now; w.el.style.transform = `translate3d(0,${ty}px,0)`; } });
     });
     if (!jump) kick();
@@ -132,7 +132,8 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       const L = lines[i], el = lineEls.current[i]; if (!L || !el) return;
       const ws = el.querySelectorAll<HTMLElement>('[data-w]'), lvl = p.rs ? p.rs.level : 0.5;
       L.words.forEach((w, k) => { const q = Math.min(1, Math.max(0, (p.t - w.t) / Math.max(0.08, w.end - w.t))), e = ws[k]; if (!e) return;
-        e.style.setProperty('--p', q.toFixed(3)); e.style.setProperty('--glow', lvl.toFixed(2)); e.style.translate = `0 ${(-2.5 * Math.sin(Math.min(1, q) * Math.PI / 2)).toFixed(2)}px`; });
+        e.style.setProperty('--p', q.toFixed(3)); e.style.setProperty('--glow', lvl.toFixed(2)); const r = Math.min(1, Math.max(0, (p.t - w.t) / 0.32)), lift = r * r * (3 - 2 * r);
+        e.style.translate = `0 ${(-4 * lift).toFixed(2)}px`; });
     });
   }, [lines, live]);
   const wheel = (e: React.WheelEvent) => { const S = st.current; S.manual -= e.deltaY; clearTimeout(S.mTm); aim(S.cur, false, false);
@@ -162,7 +163,7 @@ function handoffLines(lines: Line[], els: (HTMLElement | null)[], cur: number): 
     const u = rows.reduce((a, x) => ({ l: Math.min(a.l, x.rect.left), t: Math.min(a.t, x.rect.top), r: Math.max(a.r, x.rect.right), b: Math.max(a.b, x.rect.bottom) }), { l: 1e9, t: 1e9, r: -1e9, b: -1e9 });
     el.dataset.handed = 'true';
     out.push({ i, rect: { left: u.l, top: u.t, width: u.r - u.l, height: u.b - u.t }, text: lines[i].text, font: `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, px: parseFloat(cs.fontSize), color: '#ffffff',
-      alpha: i === cur ? 1 : 0.38, rows: rows.map(x => ({ rect: { left: x.rect.left, top: x.rect.top, width: x.rect.width, height: x.rect.height }, text: x.text.trim() })) });
+      alpha: i === cur ? 1 : 0.38, words: ws.map(w => { const b = w.getBoundingClientRect(); return { rect: { left: b.left, top: b.top, width: b.width, height: b.height }, text: (w.textContent || '').trim() }; }), rows: rows.map(x => ({ rect: { left: x.rect.left, top: x.rect.top, width: x.rect.width, height: x.rect.height }, text: x.text.trim() })) });
   }
   return out;
 }

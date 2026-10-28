@@ -44,8 +44,8 @@ describe.each(styles)('director (%s)', cut => {
       // how far the picture actually slides on screen during the move
       let D = 0, p0 = basePose(P.camera, m.s); for (let k = 1; k <= 40; k++) { const p1 = basePose(P.camera, m.s + (m.a - m.s) * k / 40); D += Math.hypot(p1.x - p0.x, p1.y - p0.y) * Math.sqrt(p0.z * p1.z) / P.W; p0 = p1; }
       const st = P.camera.stops.find(x => Math.abs(x.arrive - m.a) < 1e-6), i = st ? P.camera.stops.indexOf(st) : -1, A = i > 0 ? P.camera.stops[i - 1] : null;
-      const canCut = !!st && !!A && st.words[0]?.k === 0 && st.words[0].show - A.sungEnd >= 0.3;
-      expect(D).toBeLessThan(canCut ? 1.4 : 1.7);      // where a transition fits, a longer move becomes one
+      const canCut = !!st && !!A && st.words[0]?.k === 0 && st.words[0].show - A.sungEnd >= 0.55;
+      expect(D).toBeLessThan(canCut ? 2.4 : 2.8);      // a long move rather than a needless clear; beyond that, a transition where one fits
     }
   });
   it('drifts along the singing direction while it holds (not locked dead centre)', () => {
@@ -61,6 +61,21 @@ describe.each(styles)('director (%s)', cut => {
       expect(p.t + p.out).toBeLessThanOrEqual(first.show + 0.001);
       const pos = P.map.beatAt(p.t); expect(Math.min(pos.phase, 1 - pos.phase, Math.abs(pos.phase - 0.5))).toBeLessThan(0.02);
     }
+  });
+});
+
+describe.each(styles)('transitions (%s)', cut => {
+  const P = make(cut), sig = new Signals(P.map);
+  it('the backdrop\'s camera never jumps where the camera cuts', () => {
+    for (const k of P.camera.cuts) { const a = cameraAt(P, sig, k.t - 1e-4, 1).cont, b = cameraAt(P, sig, k.t + 1e-4, 1).cont;
+      expect(Math.hypot(b.x - a.x, b.y - a.y) * b.z, `cut at ${k.t.toFixed(2)}`).toBeLessThan(2); expect(Math.abs(Math.log(b.z / a.z))).toBeLessThan(0.005); expect(Math.abs(b.r - a.r)).toBeLessThan(0.1); }
+  });
+  it('a transition never hides words still being sung', () => {
+    for (const q of P.passages) for (const S of P.lines[q.line - 1].words) expect(S.end - 0.12, `${q.reason} at ${q.t.toFixed(2)}: "${S.w.text}"`).toBeLessThanOrEqual(q.t - q.inn * 0.5 + 1e-6);
+  });
+  it('a lyric frame always has its full time on screen', () => {
+    for (const P1 of P.lines) for (const S of P1.words) { const F = S.frame; if (!F || F.words[F.words.length - 1] !== S) continue;
+      const end = Math.min(P1.L.end, isFinite(P1.secEnd) ? P1.secEnd - P1.secIn : Infinity); expect(end - 0.8 - F.ts, `frame on line ${P1.i}`).toBeGreaterThanOrEqual(1.3 - 0.41); }
   });
 });
 

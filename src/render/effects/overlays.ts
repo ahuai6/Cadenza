@@ -153,21 +153,47 @@ function keyChar(P: PLine) {
   const cands = best ? graphemes(best.w.text).filter((ch: string) => !/[\p{P}\p{S}\s]/u.test(ch)) : [];
   const c = cands.length ? (isLatin(cands[0]) ? cands[0].toUpperCase() : cands[Math.floor(rnd(P.i * 3.3) * Math.min(cands.length, 3))]) : null; KEYCH.set(P, c); return c;
 }
+/* The glyph as a mid-ground drawing, not as type: three loose layers kept as bitmaps (a broken, gestural contour in a
+   brush's rhythm of long and short strokes; a finer echo a little larger and turned; a faint wash of its shape), in a
+   muted mix of the theme's light and its ground — never the lyrics' ink, never as bright. It lives in the lyric world a
+   good way behind the words (so it slides against both the words and the backdrop as the camera moves) and its layers
+   drift and breathe apart a little, so it reads as depth rather than as a stamp. */
+const GLY = new Map<string, { L: (HTMLCanvasElement | OffscreenCanvas)[]; S: number }>();
+function glyphLayers(ch: string, w: number, stack: string, col: string) {
+  const key = ch + '|' + w + stack + '|' + col; let e = GLY.get(key); if (e) return e;
+  const R = 720, font = `${w} ${R}px ${stack}`;
+  // (drawn only once the face is really there: a fallback face must not be kept, nor redrawn every frame meanwhile)
+  if (typeof document !== 'undefined' && document.fonts && !document.fonts.check(font, ch)) { document.fonts.load(font, ch).catch(() => {}); return null; }
+  const S = Math.round(R * 1.6), L: (HTMLCanvasElement | OffscreenCanvas)[] = [];
+  const mk = (draw: (g: CanvasRenderingContext2D) => void) => { const c = makeCanvas(S, S); const g = C2(c) as CanvasRenderingContext2D; g.translate(S / 2, S / 2);
+    g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.lineCap = 'round'; g.strokeStyle = col; g.fillStyle = col; draw(g); L.push(c); };
+  // the gesture: long strokes broken by short ones and gaps, slightly soft
+  mk(g => { g.filter = 'blur(1.4px)'; g.lineWidth = R * 0.0065; g.setLineDash([R * 0.21, R * 0.05, R * 0.035, R * 0.11, R * 0.12, R * 0.07]); g.strokeText(ch, 0, 0);
+    g.globalAlpha = 0.5; g.lineWidth = R * 0.0028; g.setLineDash([R * 0.06, R * 0.16]); g.lineDashOffset = R * 0.09; g.rotate(-0.012); g.strokeText(ch, R * 0.006, -R * 0.004); });
+  // the echo: finer, a little larger, sparser
+  mk(g => { g.filter = 'blur(0.8px)'; g.scale(1.07, 1.07); g.rotate(0.03); g.lineWidth = R * 0.0026; g.setLineDash([R * 0.04, R * 0.1, R * 0.015, R * 0.06]); g.strokeText(ch, 0, 0); });
+  // the wash: the shape as mist
+  mk(g => { g.filter = `blur(${Math.round(R * 0.035)}px)`; g.fillText(ch, 0, 0); });
+  e = { L, S: S / R }; GLY.set(key, e); if (GLY.size > 24) GLY.delete(GLY.keys().next().value!); return e;
+}
 register({ id: 'glyph', label: 'fx.glyph', layer: 'world-back', kind: 'effect', z: 0, params: [{ key: 'contrast', label: 'p.contrast', kind: 'range', min: 0.3, max: 2, step: 0.05, def: 1 }],
   draw(g, f, a) {
-    const t = f.t, ov = f.cam.ov, base = (f.pal.dark ? 0.2 : 0.16) * +a.params.contrast, fc = fontStack(f.style.font), col = rgba(mix(f.pal.accent, f.pal.text, 0.5), 1), TR_IN = 0.4;
+    const t = f.t, ov = f.cam.ov, base = (f.pal.dark ? 0.16 : 0.12) * +a.params.contrast, fc = fontStack(f.style.font), col = rgba(mix(mix(f.pal.accent, f.pal.text, 0.25), f.pal.bg, 0.3), 1), TR_IN = 0.4;
     for (const sl of f.plan.cues.glyphSlots) {
-      if (t < sl.t - 0.2 || t > sl.end + 1.4) continue; const P = sl.line, ch = keyChar(P); if (!ch) continue;
-      const fin = eSine(clamp((t - sl.t + 0.2) / 1.4)), fout = sl.cut ? 1 - sstep(clamp((t - (sl.end - TR_IN)) / TR_IN)) : 1 - eSine(clamp((t - sl.end + 0.2) / 1.4));
+      if (t < sl.t - 0.2 || t > sl.end + 1.8) continue; const P = sl.line, ch = keyChar(P); if (!ch) continue;
+      const fin = eSine(clamp((t - sl.t + 0.2) / 1.8)), fout = sl.cut ? 1 - sstep(clamp((t - (sl.end - TR_IN)) / TR_IN)) : 1 - eSine(clamp((t - sl.end + 0.2) / 1.8));
       const al = base * fin * fout * (1 - ov) * f.view.effect; if (al < 0.004) continue;
-      const side = sl.side ? 1 : -1, d = [Math.cos(P.prot * D2R), Math.sin(P.prot * D2R)], X = P.ax + d[0] * side * P.bw * 0.18, Y = P.ay + d[1] * side * P.bw * 0.18;
-      const p = project(X, Y, P.d + 900, f.cam.cam, f.cam.fx, f.W, f.H), size = Math.max(P.bh * 3.4, 1300) * p.k * (1 + 0.03 * Math.sin(t * 0.5 + P.i)) * 0.7;
-      g.save(); g.translate(f.W / 2 + p.sx + Math.sin(t * 0.37 + P.i) * 60 * p.k, f.H / 2 + p.sy + Math.cos(t * 0.31 + P.i * 1.7) * 45 * p.k); g.rotate((P.prot + p.rot + (rnd(P.i * 2.3) - 0.5) * 10 + Math.sin(t * 0.23 + P.i) * 2) * D2R);
-      g.font = `${fc.w} ${size.toFixed(1)}px ${fc.stack}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.strokeStyle = col;
-      // two rings, vector: the outline itself and one echo outside it
-      g.globalAlpha = al; g.lineWidth = 1.6; g.strokeText(ch, 0, 0);
-      g.globalAlpha = al * 0.45; g.lineWidth = size * 0.028; g.strokeText(ch, 0, 0); g.globalCompositeOperation = 'destination-out'; g.lineWidth = size * 0.028 - 2.4; g.strokeText(ch, 0, 0); g.globalCompositeOperation = 'source-over';
-      g.restore(); } } });
+      const side = sl.side ? 1 : -1, d = [Math.cos(P.prot * D2R), Math.sin(P.prot * D2R)], X = P.ax + d[0] * side * P.bw * 0.2, Y = P.ay + d[1] * side * P.bw * 0.2;
+      const p = project(X, Y, P.d + 700, f.cam.cam, f.cam.fx, f.W, f.H), size = Math.max(P.bh * 3.4, 1300) * p.k * 0.7 * (0.96 + 0.04 * fin);
+      const ly = glyphLayers(ch, fc.w, fc.stack, col); if (!ly) continue; const rot0 = (P.prot + p.rot + (rnd(P.i * 2.3) - 0.5) * 10) * D2R;
+      const cx = f.W / 2 + p.sx + Math.sin(t * 0.37 + P.i) * 60 * p.k, cy = f.H / 2 + p.sy + Math.cos(t * 0.31 + P.i * 1.7) * 45 * p.k;
+      // each layer: its own slow drift, turn and breath (the wash furthest back moves least)
+      const lay = [{ a: 1, dx: 0, dy: 0, r: Math.sin(t * 0.23 + P.i) * 0.035, s: 1 },
+        { a: 0.8 * (0.75 + 0.25 * Math.sin(t * 0.6 + P.i)), dx: Math.sin(t * 0.29 + 1 + P.i) * 0.018, dy: Math.cos(t * 0.21 + P.i) * 0.014, r: Math.sin(t * 0.17 + 2 + P.i) * 0.05, s: 1 + 0.015 * Math.sin(t * 0.4 + P.i) },
+        { a: 0.55, dx: -Math.sin(t * 0.19 + P.i) * 0.01, dy: 0, r: 0, s: 0.98 }];
+      for (let i = 2; i >= 0; i--) { const q = lay[i], c = ly.L[i], w = size * ly.S * q.s;
+        g.save(); g.translate(cx + q.dx * size, cy + q.dy * size); g.rotate(rot0 + q.r); g.globalAlpha = al * q.a; g.drawImage(c as CanvasImageSource, -w / 2, -w / 2, w, w); g.restore(); }
+    } } });
 
 /* ---------- lyric frames: an outline traced round part of a line, with corner ticks, following the words' depth ---------- */
 register({ id: 'frame', label: 'fx.frame', layer: 'world-back', kind: 'effect', z: 2, draw(g, f) {

@@ -12,7 +12,7 @@ import type { RhythmMap } from '../rhythm/map';
 import type { Style } from '../theme/style';
 import { EM, type Measurer } from '../text/metrics';
 import type { PWord, PLine, Passage, FrameRef } from './types';
-import { gapPassages, timePassage } from './passages';
+import { gapPassages, timePassage, roomForQuick } from './passages';
 import { unitsOf } from '../lyrics/script';
 
 export const TIN_MIX = ['blur', 'drift', 'rise', 'track'];
@@ -70,20 +70,25 @@ export function layout(inp: LayoutInput): LayoutResult {
   const med = new Map(lines.map(P => [P, medLh(P)]));
   const zOf = (S: PWord) => wordZoom(S, med.get(S.line)!, W, H, T);
 
-  /* ---- lyric frames, before placement ---- */
+  /* ---- passages at pauses ---- */
+  const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off');
+  /* ---- lyric frames, before placement ----
+     About half the lines ask for one on a chosen word. When that word does not leave the frame enough time on screen (its
+     line ends, or a passage clears the picture), the frame moves on to the next word that does, into the following lines if
+     need be: frames stay frequent and are never cut short. */
+  const nextPass = new Map(passages.map(q => [q.line, q]));
+  const lineEnd = (P: PLine) => { const q = nextPass.get(P.i + 1); return q ? Math.min(P.L.end, q.t - q.inn) : P.L.end; };
   if (st.fx.frame) { let want = false;
     for (const P of lines) {
       const n = P.words.length; let k0 = 0;
       if (!want && P.i > 0 && rnd(P.i * 7.7 + 3.3) < 0.5) { want = true; k0 = n === 1 ? 0 : Math.min(n - 1, Math.floor(rnd(P.i * 2.9) * Math.min(n, 3))); }
       if (!want) continue;
-      for (let k = k0; k < n; k++) { const S = P.words[k]; if (P.L.end - 0.8 - S.w.t >= FRAME_NEED) {
+      for (let k = k0; k < n; k++) { const S = P.words[k]; if (lineEnd(P) - 0.8 - S.w.t >= FRAME_NEED) {
         const fw = P.words.slice(Math.max(0, k - 2), k + 1), pad = Math.min(...fw.map(x => x.lh)) * 0.3 * 2.3;
         const F: FrameRef = { words: fw, ts: S.w.t, corner: rnd(P.i * 5.1) < 0.5, pad }; for (const x of fw) x.frame = F; want = false; break; } }
     } }
   const padOf = (S: PWord) => (S.frame ? S.frame.pad * 0.6 : 0);
 
-  /* ---- passages at pauses ---- */
-  const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off');
   const starts = lines.flatMap(P => P.words.map(S => S.w.t)).sort((a, b) => a - b);
   const dens = (t: number) => { let c = 0; for (const x of starts) { if (x > t + 1.6) break; if (x >= t - 1.6) c++; } return c; };
   let mxd = 1; for (const x of starts) mxd = Math.max(mxd, dens(x));
@@ -222,14 +227,20 @@ export function layout(inp: LayoutInput): LayoutResult {
     const before = save();
     if (placeLine(Lp, i, null) || i === 0 || startsAt.has(i)) return;
     restore(before); if (placeLine(Lp, i, 'right')) return;
-    if (!canClear) return;
+    restore(before); if (placeLine(Lp, i, 'below')) return;
+    const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
+    // no room for a clear (or none allowed): keep going on the page — the camera makes the longer move instead
+    if (!canClear || !roomForQuick(endA, Lp.words[0].show)) { restore(before); placeLine(Lp, i, null); return; }
     restore(before);
-    const A = lines[i - 1], tm = timePassage(Math.min(A.L.sung, A.L.end), Lp.words[0].show, map, true);
+    const tm = timePassage(endA, Lp.words[0].show, map, true);
     passages.push({ ...tm, line: i, quick: true, reason: 'layout' }); startsAt.add(i);
     newPassage(); placeLine(Lp, i, null);
   });
   passages.sort((a, b) => a.t - b.t);
   assignSections(lines, passages);
+  // a quick clear decided while placing may still shorten a framed line: such a frame is not drawn rather than cut short
+  for (const P of lines) if (isFinite(P.secEnd)) for (const S of P.words) { const F = S.frame;
+    if (F && Math.min(P.L.end, P.secEnd - Math.max(0.4, P.secIn)) - 0.8 - F.ts < FRAME_NEED) for (const x of F.words) x.frame = null; }
   // draw order, fixed: deeper first, then in singing order (never re-sorted by the view)
   const order = [...words].sort((a, b) => b.d - a.d || a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
   const dmin = words.reduce((m, S) => Math.min(m, S.d), 0);

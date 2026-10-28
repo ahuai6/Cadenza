@@ -19,11 +19,11 @@ import type { RhythmMap } from '../rhythm/map';
 import type { Style } from '../theme/style';
 import type { PWord, PLine, Passage, Stop, Move, CameraPlan, Pose } from './types';
 import { boxIn, corners, wordZoom, tsz } from './layout';
-import { timePassage } from './passages';
+import { timePassage, roomForQuick } from './passages';
 
 export const EASES: Record<string, Ease> = { glide: eGlide, waltz: eWaltz, punch: ePunch, settle: eSettle, zoom: minJerk, cut: u => (u >= 1 ? 1 : u > 0 ? 1 : 0) };
-const MAX_PAN = 1.25;          // frames: a single move never pans further than this
-const MAX_SPEED = 3.2;         // frames per second
+const MAX_PAN = 2.2;           // frames: a single move never pans further than this
+const MAX_SPEED = 4.5;         // frames per second
 const SAFE_X = 0.43, SAFE_Y = 0.40;   // half-extent of the safe area, share of the frame
 
 export interface CameraInput { lines: PLine[]; words: PWord[]; passages: Passage[]; map: RhythmMap; style: Style; W: number; H: number; musicEnd: number; dur: number; introHold: number }
@@ -145,7 +145,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         if (A.drift > 0 && h1 - h0 > 0.2 && !A.over) { const dd = Math.min(A.drift, A.drift * (h1 - h0) / 2.5); drifts.push([h0, h1, A.dir[0] * dd, A.dir[1] * dd]); A.x += A.dir[0] * dd; A.y += A.dir[1] * dd; } }
       // too far or too fast for one move: a quick transition instead (when the pause allows one)
       const zm = Math.abs(B.z - A.z) > 1e-6 ? (B.z - A.z) / Math.log(B.z / A.z) : A.z, D = Math.hypot(B.x - A.x, B.y - A.y) * zm / W, gapT = B.words[0].show - A.sungEnd;   // apparent travel: the log-mean closeness
-      if ((D > MAX_PAN || D / Math.max(0.05, arrive - s) > MAX_SPEED) && gapT >= 0.3 && B.words[0].k === 0) {
+      // (only for a move far beyond what a camera can make, and only when the pause leaves room: a long move is better
+      //  than a needless clear, and no clear may hide words still being sung)
+      if ((D > MAX_PAN || D / Math.max(0.05, arrive - s) > MAX_SPEED) && roomForQuick(A.sungEnd, B.words[0].show) && B.words[0].k === 0) {
         const tm = timePassage(A.sungEnd, B.words[0].show, map, true);
         const pg: Passage = { ...tm, line: B.words[0].line.i, quick: true, reason: 'distance' }; extraPass.push(pg); passByLine.set(pg.line, pg);
         B.cut = true; arrive = pg.t; s = arrive;
@@ -187,6 +189,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     a: clamp(map.accentAt(s.t) - 0.45, 0.15, 1.05) * (0.6 + 0.6 * intensity(s.t)) * sounding(s.t), sg: rnd(s.t * 13.7) < 0.5 ? -1 : 1, px: Math.cos(rnd(s.t * 7.3) * 6.283), py: Math.sin(rnd(s.t * 7.3) * 6.283) }));
   if (!smooth) plan.arrivals = stops.filter(s => !s.over && !s.cut && s.t > 0.3).map(s => ({ t: s.arrive, ang: rnd(s.t * 7.13) * 6.283, sg: rnd(s.t * 3.3) < 0.5 ? -1 : 1, k: (0.5 + 0.7 * intensity(s.t)) * (s.words[0].k === 0 ? 1 : 0.6) }));
   plan.path = smoothPath(plan, inp.dur, cut, sp, stops.find(s => s.over) ? moves[moves.length - 1].s : Infinity);
+  // each cut's jump as the smoothed path really makes it (the backdrop's camera takes exactly this out, so it never jumps)
+  { const Pp = plan.path; for (const k of plan.cuts) { const f = Math.min(Pp.n - 1, Math.max(1, Math.ceil(k.t * Pp.rate - 1e-9)));
+    k.dx = Pp.x[f] - Pp.x[f - 1]; k.dy = Pp.y[f] - Pp.y[f - 1]; k.dz = Pp.lz[f] - Pp.lz[f - 1]; k.dr = Pp.r[f] - Pp.r[f - 1]; } }
   return { camera: plan, extraPassages: extraPass };
 }
 
@@ -224,8 +229,9 @@ function smoothPath(c: CameraPlan, dur: number, style: string, sp: number, overS
   const n = Math.ceil((dur + 1) * RATE) + 1, waltz = style === 'waltz', punch = style === 'punch';
   const X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), R = new Float32Array(n), Dd = new Float32Array(n), seg = new Int32Array(n);
   const cuts = c.cuts.map(k => k.t).sort((a, b) => a - b);
+  // (a sample on a cut belongs to the new passage, as its segment says: it is read just after the cut)
   for (let f = 0, ci = 0; f < n; f++) { const t = f / RATE; while (ci < cuts.length && t >= cuts[ci]) ci++; seg[f] = ci;
-    const b = rawPose(c, t); X[f] = b.x; Y[f] = b.y; Z[f] = Math.log(b.z); R[f] = b.r; Dd[f] = b.d; }
+    const b = rawPose(c, t + 1e-6); X[f] = b.x; Y[f] = b.y; Z[f] = Math.log(b.z); R[f] = b.r; Dd[f] = b.d; }
   const lo = new Int32Array(n), hi = new Int32Array(n);
   for (let f = 0; f < n; f++) lo[f] = f > 0 && seg[f - 1] === seg[f] ? lo[f - 1] : f;
   for (let f = n - 1; f >= 0; f--) hi[f] = f < n - 1 && seg[f + 1] === seg[f] ? hi[f + 1] : f;
@@ -237,14 +243,17 @@ function smoothPath(c: CameraPlan, dur: number, style: string, sp: number, overS
     for (let k = -rad; k <= rad; k++) { const v = Math.exp(-0.5 * (k / (sig * RATE)) ** 2); ker.push(v); ks += v; }
     const o = new Float32Array(n); for (let f = 0; f < n; f++) { let v = 0; for (let k = -rad; k <= rad; k++) { const g = f + k; v += a[g < lo[f] ? lo[f] : g > hi[f] ? hi[f] : g] * ker[k + rad]; } o[f] = v / ks; } return o; };
   const ps = punch ? 0.035 : waltz ? 0.08 : 0.12, zsig = (punch ? 0.12 : waltz ? 0.3 : 0.45) / sp;
-  return { rate: RATE, n, seg, x: gauss(X, ps), y: gauss(Y, ps), lz: gauss(Z, zsig), r: gauss(R, ps), d: gauss(Dd, ps) };
+  return { rate: RATE, n, seg, cutT: cuts, x: gauss(X, ps), y: gauss(Y, ps), lz: gauss(Z, zsig), r: gauss(R, ps), d: gauss(Dd, ps) };
 }
 /** The planned camera at t (on its smoothed path when there is one). Pure. */
 export function basePose(c: CameraPlan, t: number): Pose & { tx: number; ty: number } {
   const P = c.path; if (!P) return rawPose(c, t);
   // read along a curve through the samples that never overshoots them, and never across a cut
   const u = clamp(t * P.rate, 0, P.n - 1), f = Math.floor(u), k = u - f, n1 = P.n - 1, sg = P.seg;
-  let f0 = Math.max(0, f - 1), f2 = Math.min(n1, f + 1), f3 = Math.min(n1, f + 2); if (sg[f0] !== sg[f]) f0 = f; if (sg[f2] !== sg[f]) f2 = f; if (sg[f3] !== sg[f2]) f3 = f2;
+  let f0 = Math.max(0, f - 1), f2 = Math.min(n1, f + 1), f3 = Math.min(n1, f + 2);
+  // between the last sample before a cut and the first after it: the cut happens exactly at its own time, not on a sample
+  if (sg[f2] !== sg[f] && t >= (P.cutT[sg[f]] ?? Infinity)) return { x: P.x[f2], y: P.y[f2], z: Math.exp(P.lz[f2]), r: P.r[f2], d: P.d[f2], tx: 0, ty: 0 };
+  if (sg[f0] !== sg[f]) f0 = f; if (sg[f2] !== sg[f]) f2 = f; if (sg[f3] !== sg[f2]) f3 = f2;
   const L = (a: Float32Array) => mcubic(a[f0], a[f], a[f2], a[f3], k);
   return { x: L(P.x), y: L(P.y), z: Math.exp(L(P.lz)), r: L(P.r), d: L(P.d), tx: 0, ty: 0 };
 }

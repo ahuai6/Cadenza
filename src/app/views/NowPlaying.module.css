@@ -6,7 +6,7 @@
 .np[data-vis="true"] { display: block; }
 .np[data-fx="true"] { pointer-events: none; }
 /* a soft shade over the picture where text sits; it leaves with the hand-over */
-.veil { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 30% 55%, rgba(8, 6, 14, 0.12), rgba(8, 6, 14, 0.46)); opacity: calc(1 - var(--h)); }
+.veil { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 30% 55%, rgba(8, 6, 14, 0.12), rgba(8, 6, 14, 0.46)); opacity: calc(var(--np, 1) * (1 - var(--h))); }
 .fade { opacity: calc(1 - min(1, var(--h) * 3.2)); }
 
 .top { position: absolute; left: 0; right: 0; top: var(--tb-h); height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; }
@@ -34,7 +34,7 @@
 .line:hover { background: rgba(255, 255, 255, 0.07); }
 .w { display: inline-block; will-change: transform; white-space: pre-wrap; }
 .line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * 100%), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * 100% + 0.5em)); -webkit-background-clip: text; background-clip: text; color: transparent;
-  text-shadow: 0 0 calc(var(--p, 0) * 18px) rgba(255, 255, 255, calc(var(--glow, 0) * 0.35)); }
+  text-shadow: 0 0 calc(6px + var(--p, 0) * 12px) rgba(255, 255, 255, calc(var(--glow, 0) * 0.32 * var(--p, 0) * var(--p, 0))); }
 .line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; will-change: transform; }
 .np[data-fx="true"] .line[data-handed="true"] { visibility: hidden; }
 .compact .line { font-size: 17px; padding: 7px 10px; }

@@ -26,7 +26,8 @@ const measure = () => {
   A = mini && mini.isConnected && mini.offsetParent ? rectOf(mini) : null;
   B = npCover ? restRect(npCover) : null;
   C = card && card.isConnected ? rectOf(card) : null;
-  if (npCover) coverR = parseFloat(getComputedStyle(npCover).borderTopLeftRadius) || 22;
+  // the resting corner, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
+  if (npCover) { const keep = npCover.style.borderRadius; npCover.style.borderRadius = ''; coverR = parseFloat(getComputedStyle(npCover).borderTopLeftRadius) || 22; npCover.style.borderRadius = keep; }
   if (mini) miniR = parseFloat(getComputedStyle(mini).borderTopLeftRadius) || 9;
 };
 function applyNp(p: number) {
@@ -49,13 +50,19 @@ function applyNp(p: number) {
   const sp = part(p, 0.06, 0.9), tp = part(p, 0, 0.62);
   let top = c.top + (0 - c.top) * tp; if (npCover && B && p < 0.999) top = Math.min(top, coverTop - 26 * (1 - p));
   const left = c.left * (1 - sp), right = (W - c.left - c.width) * (1 - sp), bottom = (H - c.top - c.height) * (1 - sp), rad = 20 * (1 - part(p, 0.55, 1));
-  stage.style.clipPath = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${right.toFixed(1)}px ${bottom.toFixed(1)}px ${left.toFixed(1)}px round ${rad.toFixed(1)}px)`;
+  const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${right.toFixed(1)}px ${bottom.toFixed(1)}px ${left.toFixed(1)}px round ${rad.toFixed(1)}px)`;
+  stage.style.clipPath = clip;
+  // the page's shade covers exactly the picture and deepens with it, so the window never darkens ahead of the picture
+  const veil = np.firstElementChild as HTMLElement | null; if (veil) veil.style.clipPath = clip;
+  np.style.setProperty('--np', part(p, 0.1, 0.85).toFixed(3));
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
   for (const el of refs.npParts) if (el) { el.style.opacity = String(q); el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`; }
 }
 const np = new Drive(0, x => applyNp(x), { stiffness: 150, damping: 23 });
 export const npProgress = () => np.x;
+/** for the tests: the expand progress itself */
+export const npDrive = np;
 addEventListener('resize', () => { if (np.x > 0) { measure(); applyNp(np.x); } });
 
 /* ---------- np ⇄ fx ---------- */

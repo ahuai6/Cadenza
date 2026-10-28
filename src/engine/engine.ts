@@ -115,6 +115,8 @@ export class Engine extends Emitter<EngineEvents> {
   setView(v: View, spec: HandoffSpec = {}): Promise<void> {
     const prev = this.view; this.view = v; this.dirty = true;
     if (v === 'hidden') { this.handoff.jump(0); return Promise.resolve(); }
+    // coming out of hidden: draw now, so the stage never shows a stale picture for the frame it becomes visible
+    if (prev === 'hidden' && this.session) { this.handoff.jump(0); try { this.draw(this.session); this.dirty = false; } catch (e) { console.warn(e); } }
     if (v === 'ambient' && prev === 'effect') return this.handoff.go(0, spec);
     if (v === 'effect' && prev !== 'effect') { if (prev === 'hidden') this.handoff.jump(0); return this.handoff.go(1, spec); }
     if (v === 'ambient') this.handoff.jump(0);
@@ -132,7 +134,7 @@ export class Engine extends Emitter<EngineEvents> {
       view: { effect: opts.offline ? 1 : (this.view === 'effect' || p > 0 ? scene : 0) }, motion, offline: !!opts.offline, labels: this.labels,
       I: clamp(0.35 + 0.65 * rs.level), P: rs.pulse * clamp(M.pulse, 0, 2) * cf.calm * (1 - rs.still), ink: s.pal.text,
       coverOwner: opts.offline ? 'backdrop' : this.handoff.coverOwner, vinylOut: opts.offline ? 1 : this.handoff.vinyl,
-      wordAlpha: opts.offline ? undefined : (i: number) => this.handoff.wordAlpha(i) } as RenderFrame;
+      wordAlpha: opts.offline ? undefined : (i: number, k: number) => this.handoff.wordAlpha(i, k) } as RenderFrame;
   }
   private frame(now: number) {
     this.raf = requestAnimationFrame(n => this.frame(n));
@@ -173,7 +175,7 @@ export class Engine extends Emitter<EngineEvents> {
     const N = !this.playing ? ssFactor(s.style.aa, cw, ch) : 1, target = N > 1 ? this.ssCanvas(cw * N, ch * N) : null, tg = target ? target.getContext('2d')! : g;
     tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalAlpha = 1; tg.globalCompositeOperation = 'source-over';
     f.px = ch * N / s.plan.H;
-    drawFrame(tg, f, { sig: s.sig, captions: true, captionBottom: s.plan.H * 0.9, overlay: (gg, ff) => this.handoff.draw(gg, ff) });
+    drawFrame(tg, f, { sig: s.sig, captions: true, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
     if (target) ssDown(target, this.canvas, N);
     if (this.fadeOut) { const u = clamp((performance.now() - this.fadeOut.t0) / 900);
       if (u >= 1) this.fadeOut = null; else { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = (1 - u) ** 1.5; g.filter = `blur(${(u * 18 * this.dpr).toFixed(1)}px)`; g.drawImage(this.fadeOut.cv, 0, 0, cw, ch); g.filter = 'none'; g.restore(); } }
