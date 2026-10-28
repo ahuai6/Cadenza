@@ -45,7 +45,7 @@ describe.each(styles)('director (%s)', cut => {
       let D = 0, p0 = basePose(P.camera, m.s); for (let k = 1; k <= 40; k++) { const p1 = basePose(P.camera, m.s + (m.a - m.s) * k / 40); D += Math.hypot(p1.x - p0.x, p1.y - p0.y) * Math.sqrt(p0.z * p1.z) / P.W; p0 = p1; }
       const st = P.camera.stops.find(x => Math.abs(x.arrive - m.a) < 1e-6), i = st ? P.camera.stops.indexOf(st) : -1, A = i > 0 ? P.camera.stops[i - 1] : null;
       const canCut = !!st && !!A && st.words[0]?.k === 0 && st.words[0].show - A.sungEnd >= 0.55;
-      expect(D).toBeLessThan(canCut ? 2.4 : 2.8);      // a long move rather than a needless clear; beyond that, a transition where one fits
+      expect(D).toBeLessThan(canCut ? 1.4 : 2.8);      // beyond about a screen, a transition where one fits; a longer move only where none does
     }
   });
   it('drifts along the singing direction while it holds (not locked dead centre)', () => {

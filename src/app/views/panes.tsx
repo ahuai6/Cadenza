@@ -32,13 +32,13 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
   const isSaved = custom && !!st.id && saved.some(t => t.id === st.id);
   const presets = ctx === 'song' ? ['cover', 'liquid', 'gothic'] : Object.keys(PRESETS);
   const usePreset = (k: string) => edit(x => { x.applyPreset(k); if (ctx === 'song') x.makeCustom(); });
-  const save = (asNew: boolean) => { const n = name.trim() || tx('th.untitled'), id = saveTheme(st, n, asNew); edit(x => { x.style.id = id; x.style.name = n; }); toast(tx('th.saved', { name: n })); };
+  const save = (asNew: boolean) => { const n = name.trim() || tx('th.untitled'), id = saveTheme(st, n, asNew); edit(x => { x.style.id = id; x.style.name = n; x.style.edited = false; }); toast(tx('th.saved', { name: n })); };
   return (
     <Section title={tx('th.h')} note={!custom && ctx === 'workshop' ? tx('th.locked') : undefined}>
       <div className={s.presets}>
-        {presets.map(k => <button key={k} type="button" className={s.preset} aria-pressed={(custom ? st.from === k && !st.id : st.preset === k)} onClick={() => usePreset(k)}><Swatch st={PRESETS[k]} /><span>{tx('preset.' + k)}</span></button>)}
+        {presets.map(k => <button key={k} type="button" className={s.preset} aria-pressed={(custom ? st.from === k && !st.id && !st.edited : st.preset === k)} onClick={() => usePreset(k)}><Swatch st={PRESETS[k]} /><span>{tx('preset.' + k)}</span></button>)}
         {saved.map(t => <button key={t.id} type="button" className={s.preset} aria-pressed={custom && st.id === t.id} onClick={() => edit(x => x.applyTheme({ ...(t.style as object), id: t.id, name: t.name }))}><Swatch st={t.style as Style} /><span>{t.name}</span></button>)}
-        {custom && !isSaved && <button type="button" className={s.preset} aria-pressed="true"><Swatch st={st} /><span>{tx('th.unsaved')}</span></button>}
+        {custom && !isSaved && st.edited && <button type="button" className={s.preset} aria-pressed="true"><Swatch st={st} /><span>{tx('th.unsaved')}</span></button>}
       </div>
       {!custom && <Row><Button size="sm" onClick={() => edit(x => x.makeCustom())}>{tx('th.from')}</Button></Row>}
       {custom && <>

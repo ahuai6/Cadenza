@@ -13,7 +13,7 @@
 .topR { display: flex; gap: 8px; }
 .main { position: absolute; inset: calc(var(--tb-h) + 52px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(320px, 1.1fr); gap: clamp(24px, 4vw, 72px); padding: 0 clamp(24px, 5vw, 88px) 40px; }
 .left { display: grid; align-content: center; justify-items: center; gap: 26px; min-height: 0; }
-.cover { width: min(44vh, 34vw, 460px); aspect-ratio: 1; border-radius: var(--r-2xl); overflow: hidden; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45); transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform; }
+.cover { width: min(44vh, 34vw, 460px); aspect-ratio: 1; border-radius: 0; overflow: hidden; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45); transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform; }
 .cover > span { width: 100%; height: 100%; --cover-r: 0; border-radius: 0; }
 .np[data-fx="true"] .cover { visibility: hidden; }
 .info { width: min(44vh, 34vw, 460px); display: grid; gap: 14px; }
@@ -32,10 +32,13 @@
   opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05); transition: opacity 420ms var(--ease), background var(--t-fast) var(--ease); }
 .line[data-on="true"] { opacity: 1; }
 .line:hover { background: rgba(255, 255, 255, 0.07); }
-.w { display: inline-block; will-change: transform; white-space: pre-wrap; }
-.line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * 100%), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * 100% + 0.5em)); -webkit-background-clip: text; background-clip: text; color: transparent;
-  text-shadow: 0 0 calc(6px + var(--p, 0) * 12px) rgba(255, 255, 255, calc(var(--glow, 0) * 0.32 * var(--p, 0) * var(--p, 0))); }
-.line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; will-change: transform; }
+.w { display: inline-block; white-space: pre-wrap; }
+.line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * (100% + 0.6em))); -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3)); }
+/* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
+.line .w { transition: translate 420ms var(--ease); }
+.line[data-on="true"] .w { transition: none; }
+.line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; }
 .np[data-fx="true"] .line[data-handed="true"] { visibility: hidden; }
 .compact .line { font-size: 17px; padding: 7px 10px; }
 .none { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; color: var(--fg-2); }

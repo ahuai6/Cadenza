@@ -100,19 +100,19 @@ export class Session {
   setStyle(k: keyof Style | string, v: unknown) {
     const st = this.style as any;
     if (!this.custom && !PROJECT_KEYS.includes(k as string)) return false;
-    if (st[k] === v) return true; st[k] = v;
+    if (st[k] === v) return true; st[k] = v; if (!PROJECT_KEYS.includes(k as string)) st.edited = true;
     if (['bg', 'bg2', 'text', 'accent', 'flash'].includes(k as string)) { this.colors(); return true; }
     if (['vidDark', 'vidBlur', 'vidDesat', 'coverSize', 'coverEdge', 'coverBlur', 'aa', 'quality'].includes(k as string)) return true;
     if (k === 'font') { this.dirty |= 2; return true; }
     if (k === 'bgStyle') { st.coverEdge ??= 'album'; st.coverBlur ??= 0; st.coverSize ??= 0.6; }
     this.dirty |= 1; return true;
   }
-  setKnob(k: string, v: number) { if (!this.custom && k !== 'size') return false; this.style.k[k] = +v; this.style.m = knobbed(this.style.m0, this.style.k); if (KNOB_REBUILD[k]) this.dirty |= 1; return true; }
-  setEffect(id: string, on: boolean) { if (!this.custom) return false; this.style.fx[id] = !!on; if (id === 'glass' || id === 'glyph' || id === 'frame') this.dirty |= 1; return true; }
-  setEffectParam(id: string, key: string, v: number | string | boolean) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; return true; }
-  makeCustom() { if (this.custom) return; this.style = { ...JSON.parse(JSON.stringify(this.style)), preset: 'custom', from: this.style.from || this.style.preset, id: null, name: '' }; this.style.m = knobbed(this.style.m0, this.style.k); }
-  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (id === 'cover' && this.cover) Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); this.dirty |= 2; }
-  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, quality: keep.quality, aa: keep.aa }); this.colors(); this.dirty |= 2; }
+  setKnob(k: string, v: number) { if (!this.custom && k !== 'size') return false; this.style.k[k] = +v; if (k !== 'size') this.style.edited = true; this.style.m = knobbed(this.style.m0, this.style.k); if (KNOB_REBUILD[k]) this.dirty |= 1; return true; }
+  setEffect(id: string, on: boolean) { if (!this.custom) return false; this.style.fx[id] = !!on; this.style.edited = true; if (id === 'glass' || id === 'glyph' || id === 'frame') this.dirty |= 1; return true; }
+  setEffectParam(id: string, key: string, v: number | string | boolean) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; this.style.edited = true; return true; }
+  makeCustom() { if (this.custom) return; this.style = { ...JSON.parse(JSON.stringify(this.style)), preset: 'custom', from: this.style.from || this.style.preset, id: null, name: '', edited: false }; this.style.m = knobbed(this.style.m0, this.style.k); }
+  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); this.style.edited = false; if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (id === 'cover' && this.cover) Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); this.dirty |= 2; }
+  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, quality: keep.quality, aa: keep.aa, edited: false }); this.colors(); this.dirty |= 2; }
   coverPalette() { if (!this.cover) return; Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); }
   setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= 2; else this.dirty |= 1; }
   setLyrics(src: string) { this.spec.lyrics = src; this.dirty |= 2; }

@@ -8,7 +8,7 @@ import { fontStack } from '../text/fonts';
 import { rgba } from '../core/color';
 import type { RenderFrame } from '../render/frame';
 import type { Ctx } from '../render/effects/registry';
-import { coverRest, drawCoverSubject, coverRadius } from '../render/effects/cover';
+import { coverRest, drawCoverSubject, coverRadius, coverShadow } from '../render/effects/cover';
 
 export interface WinRect { left: number; top: number; width: number; height: number }
 export interface HandoffCover { rect: WinRect; radius: number }
@@ -21,7 +21,7 @@ export interface HandoffSpec { cover?: HandoffCover | null; lines?: HandoffLine[
  *  critically damped spring, so every part starts softly and lands softly, and a reversal keeps its momentum. */
 export function phases(p: number) {
   return {
-    cover: clamp(p / 0.82),                               // the cover leads
+    cover: clamp(p / 0.72),                               // the cover leads
     scene: sstep(clamp((p - 0.06) / 0.74)),               // the picture follows it out
     vinyl: sstep(clamp((p - 0.78) / 0.22)),               // the record comes out once the sleeve has landed
     line: (k: number) => clamp((p - 0.03 - 0.035 * k) / 0.84),
@@ -53,11 +53,11 @@ export class Handoff {
     return new Promise(res => { this.done = res; });
   }
   jump(p: number) { this.p = this.target = p; this.v = 0; this.done?.(); this.done = null; }
-  /** Advance by the interface clock (a critically damped spring, about 1.3 s to land); true while moving. */
+  /** Advance by the interface clock (a critically damped spring, about 0.9 s to land); true while moving. */
   tick(): boolean {
     if (this.p === this.target && this.v === 0) return false;
     const now = performance.now(), dt = clamp((now - (this.last || now)) / 1000, 0, 1 / 30); this.last = now;
-    const w = 4.6;
+    const w = 6.6;
     for (let i = 0; i < 4; i++) { const h = dt / 4, a = -w * w * (this.p - this.target) - 2 * w * this.v; this.v += a * h; this.p += this.v * h; }
     if (Math.abs(this.p - this.target) < 0.0015 && Math.abs(this.v) < 0.02) { this.p = this.target; this.v = 0; const d = this.done; this.done = null; d?.(); }
     return true;
@@ -72,9 +72,14 @@ export class Handoff {
     const cx = lerp(a.x + a.w / 2, tg.cx, u), cy = lerp(a.y + a.h / 2, tg.cy, u), S = lerp(a.w, tg.S, u), rot = lerp(0, tg.rot, u);
     const rad = lerp(sp.cover.radius * a.w / Math.max(1, sp.cover.rect.width), tg.radius, u);
     const alpha = tg.fade ? 1 - sstep(clamp((this.p - 0.7) / 0.3)) : 1;
+    // its shadow: from the page's (CSS 0 24px 70px, 45 %) to the one the scene gives it, all the way
+    // (canvas shadows are in device px; the scene's cover gives its own in the backdrop's units, as it draws them)
+    const kd = a.w / Math.max(1, sp.cover.rect.width) * f.px, sh0 = { blur: 35 * kd, oy: 24 * kd, a: 0.45 }, sh1 = coverShadow(f.style.coverEdge, tg.S, f.pal.dark);
+    const sb = lerp(sh0.blur, tg.fade ? sh0.blur : sh1.blur, u), so = lerp(sh0.oy, tg.fade ? sh0.oy : sh1.oy, u), sa = lerp(sh0.a, tg.fade ? sh0.a : sh1.a, u) * alpha;
     g.save(); g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(cx, cy); g.rotate(rot * D2R);
+    if (sa > 0.005) { g.save(); g.shadowColor = `rgba(0,0,0,${sa.toFixed(3)})`; g.shadowBlur = sb; g.shadowOffsetY = so; g.fillStyle = '#000'; g.beginPath(); g.roundRect(-S / 2, -S / 2, S, S, Math.max(0, rad)); g.fill(); g.restore(); }
     if (rad > 0.5) { g.beginPath(); g.roundRect(-S / 2, -S / 2, S, S, rad); g.clip(); }
-    drawCoverSubject(g, f, -S / 2, -S / 2, S, tg.fade ? 0 : ph.vinyl, alpha);
+    drawCoverSubject(g, f, -S / 2, -S / 2, S, tg.fade ? 0 : ph.vinyl, alpha, { finish: ph.scene, shadow: false });
     g.restore();
   }
   /** The page's words, each flying to the word it becomes in the scene and growing into it: position, size and turn

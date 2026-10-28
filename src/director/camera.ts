@@ -9,7 +9,7 @@
    - a move longer than the camera can reasonably make (MAX_PAN frames, or faster than MAX_SPEED) becomes a quick blur
      transition instead of a long pull;
    - a lyric frame is part of the framing from the moment it is traced;
-   - the ending pulls straight back until every line is in the picture.
+   - at the ending the camera stays with the last words (no pull-back).
    Styles: punch (a firm, short move landing exactly on each word), glide (continuous, unhurried, arriving a moment
    early), waltz (glide's path with livelier moves; its springy kicks come from the rhythm's cone signal at render). */
 import { clamp, dirv, angDiff, lerp, mcubic } from '../core/math';
@@ -22,8 +22,8 @@ import { boxIn, corners, wordZoom, tsz } from './layout';
 import { timePassage, roomForQuick } from './passages';
 
 export const EASES: Record<string, Ease> = { glide: eGlide, waltz: eWaltz, punch: ePunch, settle: eSettle, zoom: minJerk, cut: u => (u >= 1 ? 1 : u > 0 ? 1 : 0) };
-const MAX_PAN = 2.2;           // frames: a single move never pans further than this
-const MAX_SPEED = 4.5;         // frames per second
+const MAX_PAN = 1.1;           // frames: a move that must travel further than about a screen becomes a transition
+const MAX_SPEED = 3.4;         // frames per second
 const SAFE_X = 0.43, SAFE_Y = 0.40;   // half-extent of the safe area, share of the frame
 
 export interface CameraInput { lines: PLine[]; words: PWord[]; passages: Passage[]; map: RhythmMap; style: Style; W: number; H: number; musicEnd: number; dur: number; introHold: number }
@@ -164,19 +164,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   // the last stop drifts until the ending
   const lastS = stops[stops.length - 1];
 
-  /* ---- the ending: straight back from wherever the camera is, until every line fits ---- */
-  const endT = inp.musicEnd;
-  if (lines.length) {
-    const all = boxIn(lines.flatMap(P => P.words), 0), md = lines.reduce((a, P) => a + P.d, 0) / lines.length;
-    const ck = inp.passages.length + extraPass.length ? 0.5 : 0.12, cx = lerp(lastS.x, all.x, ck), cy = lerp(lastS.y, all.y, ck);
-    const hw = Math.max(Math.abs(all.x - all.w / 2 - cx), Math.abs(all.x + all.w / 2 - cx)), hh = Math.max(Math.abs(all.y - all.h / 2 - cy), Math.abs(all.y + all.h / 2 - cy));
-    const z = (1 / (1 + 0.12 * (M.depth ?? 1))) * Math.min(W * 0.95 / (2 * hw), H * 0.85 / (2 * hh)) * 0.85;
-    const go = Math.max(endT, lastS.sungEnd, lastS.arrive + 0.2), arr = go + clamp(1.6 / sp, 1.2, 2.6);
-    if (lastS.drift > 0 && go - lastS.arrive > 0.2) { const dd = Math.min(lastS.drift, lastS.drift * (go - lastS.arrive) / 2.5); drifts.push([lastS.arrive, go, lastS.dir[0] * dd, lastS.dir[1] * dd]); lastS.x += lastS.dir[0] * dd; lastS.y += lastS.dir[1] * dd; }
-    const over: Stop = { x: cx, y: cy, z, r: -3 * TK, d: md, t: endT, arrive: arr, leave: arr, sungEnd: arr, box: { x: all.x, y: all.y, w: all.w, h: all.h, tilt: 0 }, dir: [1, 0], drift: 0, cut: false, over: true, rest: 0, words: [] };
-    moves.push({ s: go, a: arr, dx: over.x - lastS.x, dy: over.y - lastS.y, dz: Math.log(over.z / lastS.z), dr: angDiff(over.r, lastS.r), dd: over.d - lastS.d, ease: 'settle', bow: [0, 0] });
-    stops.push(over);
-  }
+  /* ---- the ending: no pull-back — the camera stays with the last words and keeps drifting gently until the end ---- */
+  { const go = Math.max(inp.musicEnd, lastS.sungEnd, lastS.arrive + 0.2) + 3;
+    if (lastS.drift > 0 && go - lastS.arrive > 0.2) { const dd = Math.min(lastS.drift, lastS.drift * (go - lastS.arrive) / 2.5); drifts.push([lastS.arrive, go, lastS.dir[0] * dd, lastS.dir[1] * dd]); lastS.x += lastS.dir[0] * dd; lastS.y += lastS.dir[1] * dd; } }
 
   /* ---- cuts: the jump the base path makes at each transition (the backdrop does not follow these) ---- */
   const plan: CameraPlan = { style: cut, start, stops, moves, drifts, cuts: [], idle: idleWindows(lines, inp.musicEnd),

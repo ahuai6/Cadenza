@@ -144,13 +144,17 @@ register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop'
   for (const pt of PETALS) { const y = ((pt.p + t * pt.s) % 1.3 - 0.15) * h + oy * pt.z, x = (pt.x + Math.sin(t * pt.f + pt.ph) * 0.04) * w + ox * pt.z, sz = m * 0.022 * (0.6 + pt.z);
     g.save(); g.globalAlpha = 0.4 + 0.45 * pt.z; g.translate(x, y); g.rotate(t * pt.f + pt.ph); g.scale(Math.cos(t * pt.f * 1.3 + pt.ph), 1); g.drawImage(Gs.petal, -sz, -sz, sz * 2, sz * 2); g.restore(); }
   g.globalAlpha = 1; } });
+const calmOf = (f: RenderFrame) => f.cam.calm * (1 - f.rs.still);
 const FCHAINS = [{ y0: -0.02, y1: 0.4, sag: 0.1, ph: 0.4, k: 1 }, { y0: 1.12, y1: 0.66, sag: 0.07, ph: 2.1, k: -1 }];
 register({ id: 'gothic-chains', label: 'bg.gothic', layer: 'foreground', kind: 'effect', z: 3, draw(g, f) {
   if (f.style.bgStyle !== 'gothic' || f.view.effect <= 0.01) return;
-  const Gs = gothicSprites(f), w = f.W, h = f.H, m = Math.min(w, h), link = m * 0.085 * (1 + f.P * 0.01), step = link * 0.8, calm = f.cam.calm, cam = f.cam.cont, t = f.t, roll = f.cam.fx.r - cam.r;
-  g.save(); g.globalAlpha = f.view.effect; g.translate(w / 2, h / 2); g.rotate(roll * 0.12 * D2R); g.translate(-w / 2, -h / 2);
+  // the chains are heavy: they answer the downbeat only (a slight drop and swing out that settles over the bar), never
+  // every beat or eighth, and they turn with the frame only a little
+  const rs = f.rs, down = rs.inBar === 0 && rs.bar >= 0 ? Math.exp(-rs.phase * 2.2) * (0.4 + 0.6 * rs.level) * calmOf(f) : 0;
+  const Gs = gothicSprites(f), w = f.W, h = f.H, m = Math.min(w, h), link = m * 0.085, step = link * 0.8, calm = f.cam.calm, cam = f.cam.cont, t = f.t, roll = f.cam.fx.r - cam.r;
+  g.save(); g.globalAlpha = f.view.effect; g.translate(w / 2, h / 2); g.rotate(roll * 0.06 * D2R); g.translate(-w / 2, -h / 2);
   for (const ch of FCHAINS) {
-    const sw = Math.sin(t * 0.5 + ch.ph) * 0.012 + Math.sin(t * 1.3 + ch.ph * 2) * 0.005, A = [-w * 0.15, (ch.y0 + sw) * h], Bp = [w * 1.15, (ch.y1 - sw) * h], C = [w * 0.5, ((ch.y0 + ch.y1) / 2 + ch.sag * (1 + 0.15 * Math.sin(t * 0.7 + ch.ph))) * h];
+    const sw = Math.sin(t * 0.5 + ch.ph) * 0.012 + Math.sin(t * 1.3 + ch.ph * 2) * 0.005 + down * 0.008 * ch.k, A = [-w * 0.15, (ch.y0 + sw) * h], Bp = [w * 1.15, (ch.y1 - sw) * h], C = [w * 0.5, ((ch.y0 + ch.y1) / 2 + ch.sag * (1 + 0.15 * Math.sin(t * 0.7 + ch.ph) + 0.14 * down)) * h];
     const pts: number[][] = [], N = 160; let tot = 0;
     for (let i = 0; i <= N; i++) { const u = i / N, x = (1 - u) ** 2 * A[0] + 2 * u * (1 - u) * C[0] + u * u * Bp[0], y = (1 - u) ** 2 * A[1] + 2 * u * (1 - u) * C[1] + u * u * Bp[1]; if (i) tot += Math.hypot(x - pts[i - 1][0], y - pts[i - 1][1]); pts.push([x, y, tot]); }
     const dir = Math.atan2(Bp[1] - A[1], Bp[0] - A[0]), slide = ((cam.x * Math.cos(dir) + cam.y * Math.sin(dir)) * cam.z * 1.6 * ch.k) % (step * 2); let seg = 0;

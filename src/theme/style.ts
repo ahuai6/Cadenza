@@ -12,6 +12,8 @@ export interface Motion {
 }
 export interface Style {
   preset: string; from: string; id?: string | null; name?: string;
+  /** a custom theme changed since it was taken from a preset or a saved theme (only then is it an unsaved theme of its own) */
+  edited?: boolean;
   bg: string; bg2: string; text: string; accent: string; flash: string;
   font: string; tin: string; tout: string; cut: CameraStyleId; bgStyle: string; flashMode: 'color' | 'invert'; future: 'dim' | 'hide'; trans?: 'auto' | 'off';
   coverEdge?: 'album' | 'float' | 'blend'; coverBlur?: number; coverSize?: number; vidDark?: number; vidBlur?: number; vidDesat?: number;

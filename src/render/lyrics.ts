@@ -78,15 +78,17 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       if (gk2 > 0.01) { g.fillStyle = glowC; g.globalAlpha = A * up.ua * gk2; blurGlyph(g, u.c, glowB * 0.5, Gpx); }
       const shK = trail ? 0 : Math.max(0.35, M.shadow ?? 0), mt = g.getTransform(), det = mt.a * mt.d - mt.b * mt.c || 1;
       const toLocal = (sx: number, sy: number): [number, number] => [(mt.d * sx - mt.c * sy) / det, (-mt.b * sx + mt.a * sy) / det];   // a device-px offset in glyph space
-      if (shK > 0.01) { const near = clamp(p.kp, 0.6, 1.6), sa = A * up.ua * (1 - up.uq * 0.6);
+      if (shK > 0.01) { const near = clamp(p.kp, 0.6, 1.6), sa = A * up.ua * (1 - up.uq * 0.35);
         // the wide ambient shadow (further down, very soft), then the contact shadow close under the glyph
         { const off = Gpx * 0.07 * near * shK, [lx, ly] = toLocal(off * 0.3, off); g.save(); g.translate(lx, ly); g.fillStyle = shadowC;
           g.globalAlpha = sa * Math.min(0.5, 0.3 * shK); blurGlyph(g, u.c, Math.max(2, Gpx * 0.11 * near + bpx * 0.8), Gpx); g.restore(); }
         { const off = Gpx * 0.025 * near * shK, [lx, ly] = toLocal(off * 0.35, off); g.save(); g.translate(lx, ly); g.fillStyle = shadowC;
           g.globalAlpha = sa * Math.min(0.85, 0.5 * shK); blurGlyph(g, u.c, Math.max(1, Gpx * 0.03 * near + bpx * 0.6), Gpx); g.restore(); } }
       // the edge of thickness: a few close copies stepping back from the face, only while the glyph is sharp
-      if (!trail && !blurred && Gpx > 14 && view > 0.5) { const step = Math.min(1.1, Gpx * 0.011), nE = Gpx > 40 ? 3 : 2; g.fillStyle = edgeC;
-        for (let e = nE; e >= 1; e--) { const [lx, ly] = toLocal(ex * step * e, ey * step * e); g.globalAlpha = A * up.ua * 0.55 * (1 - (e - 1) / (nE + 1)); g.fillText(u.c, lx, ly); } }
+      // (it is there from the first frame of the entrance, growing as the glyph comes into focus, never popping in after)
+      const eK = trail ? 0 : clamp(1 - bpx / 6) * clamp(Gpx / 14 - 0.5) * view;
+      if (eK > 0.02) { const step = Math.min(1.1, Gpx * 0.011), nE = Gpx > 40 ? 3 : 2; g.fillStyle = edgeC;
+        for (let e = nE; e >= 1; e--) { const [lx, ly] = toLocal(ex * step * e, ey * step * e); g.globalAlpha = A * up.ua * 0.55 * eK * (1 - (e - 1) / (nE + 1)); g.fillText(u.c, lx, ly); } }
       g.fillStyle = inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : inkG);
       g.restore();
     }

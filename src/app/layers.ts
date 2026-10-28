@@ -27,8 +27,8 @@ const measure = () => {
   B = npCover ? restRect(npCover) : null;
   C = card && card.isConnected ? rectOf(card) : null;
   // the resting corner, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
-  if (npCover) { const keep = npCover.style.borderRadius; npCover.style.borderRadius = ''; coverR = parseFloat(getComputedStyle(npCover).borderTopLeftRadius) || 22; npCover.style.borderRadius = keep; }
-  if (mini) miniR = parseFloat(getComputedStyle(mini).borderTopLeftRadius) || 9;
+  if (npCover) { const keep = npCover.style.borderRadius; npCover.style.borderRadius = ''; { const v = parseFloat(getComputedStyle(npCover).borderTopLeftRadius); coverR = Number.isFinite(v) ? v : 0; } npCover.style.borderRadius = keep; }
+  if (mini) { const v = parseFloat(getComputedStyle(mini).borderTopLeftRadius); miniR = Number.isFinite(v) ? v : 9; }
 };
 function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;
@@ -45,13 +45,16 @@ function applyNp(p: number) {
     const r = miniR + (coverR - miniR) * part(p, 0, 1); npCover.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
-  // the picture: out of the card behind the cover, then over the whole window
-  const c = C || { left: W * 0.2, top: H - 90, width: W * 0.6, height: 76 };
-  const sp = part(p, 0.06, 0.9), tp = part(p, 0, 0.62);
-  let top = c.top + (0 - c.top) * tp; if (npCover && B && p < 0.999) top = Math.min(top, coverTop - 26 * (1 - p));
-  const left = c.left * (1 - sp), right = (W - c.left - c.width) * (1 - sp), bottom = (H - c.top - c.height) * (1 - sp), rad = 20 * (1 - part(p, 0.55, 1));
+  // the picture: it grows out of the card, first toward the left — where the cover flies and the window has the most
+  // room — then upward ahead of the cover, then to the right and down; its corners square off as it reaches the edges.
+  // Near the card it fades into the card's own colour, so opening starts from the card and closing ends on it (the
+  // picture never stays in the card's place and then vanishes at once)
+  const c = C || { left: W * 0.2, top: H - 90, width: W * 0.6, height: 76 }, eo = (u: number) => 1 - (1 - u) ** 3;
+  const lp = eo(part(p, 0, 0.6)), tp = eo(part(p, 0.02, 0.72)), rp = part(p, 0.14, 0.95), bp = part(p, 0.04, 0.8);
+  let top = c.top * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - 26 * (1 - p));
+  const left = c.left * (1 - lp), right = (W - c.left - c.width) * (1 - rp), bottom = (H - c.top - c.height) * (1 - bp), rad = 20 * (1 - part(p, 0.5, 1));
   const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${right.toFixed(1)}px ${bottom.toFixed(1)}px ${left.toFixed(1)}px round ${rad.toFixed(1)}px)`;
-  stage.style.clipPath = clip;
+  stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.16).toFixed(3);
   // the page's shade covers exactly the picture and deepens with it, so the window never darkens ahead of the picture
   const veil = np.firstElementChild as HTMLElement | null; if (veil) veil.style.clipPath = clip;
   np.style.setProperty('--np', part(p, 0.1, 0.85).toFixed(3));

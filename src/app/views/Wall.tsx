@@ -60,7 +60,7 @@ function Poster({ t, play, span = 1, delay = 0 }: { t: Track; play: (t: Track) =
 // the gallery: a position that eases toward the chosen poster; every poster is placed from its distance to it
 function Gallery({ list, play }: { list: Track[]; play: (t: Track) => void }) {
   const [i, setI] = useState(() => Math.max(0, list.findIndex(t => t.id === player.get().id)));
-  const pos = useRef(i), raf = useRef(0), box = useRef<HTMLDivElement>(null), els = useRef<(HTMLButtonElement | null)[]>([]), drag = useRef<{ x: number; s: number } | null>(null);
+  const pos = useRef(i), raf = useRef(0), box = useRef<HTMLDivElement>(null), els = useRef<(HTMLButtonElement | null)[]>([]), drag = useRef<{ x: number; s: number; on: boolean } | null>(null), dragged = useRef(0);
   const n = list.length, target = useRef(i);
   const go = (k: number) => { target.current = Math.max(0, Math.min(n - 1, k)); setI(Math.round(target.current)); };
   useEffect(() => {
@@ -77,9 +77,15 @@ function Gallery({ list, play }: { list: Track[]; play: (t: Track) => void }) {
   const t = list[i];
   return (
     <div className={s.gallery} ref={box} onWheel={e => go(target.current + Math.sign(e.deltaY || e.deltaX) * (Math.abs(e.deltaY) > 60 ? 1 : 0.5))}
-      onPointerDown={e => { drag.current = { x: e.clientX, s: target.current }; e.currentTarget.setPointerCapture(e.pointerId); }}
-      onPointerMove={e => { if (drag.current) target.current = Math.max(0, Math.min(n - 1, drag.current.s - (e.clientX - drag.current.x) / 160)); }}
-      onPointerUp={() => { if (drag.current) { go(Math.round(target.current)); drag.current = null; } }}>
+      // a press only becomes a drag once it moves: until then the pointer is not captured, so a click reaches the poster
+      // (or the play button) under it; after a drag, the click that ends it is swallowed
+      onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.clientX, s: target.current, on: false }; }}
+      onPointerMove={e => { const d = drag.current; if (!d) return;
+        if (!d.on && Math.abs(e.clientX - d.x) > 6) { d.on = true; e.currentTarget.setPointerCapture(e.pointerId); }
+        if (d.on) target.current = Math.max(0, Math.min(n - 1, d.s - (e.clientX - d.x) / 160)); }}
+      onPointerUp={() => { const d = drag.current; drag.current = null; if (d?.on) { go(Math.round(target.current)); dragged.current = performance.now(); } }}
+      onPointerCancel={() => { drag.current = null; }}
+      onClickCapture={e => { if (performance.now() - dragged.current < 250) { e.stopPropagation(); e.preventDefault(); } }}>
       <div className={s.shelf}>
         {list.map((x, k) => (
           <button key={x.id} type="button" className={s.gpost} ref={el => { els.current[k] = el; }} onClick={() => (k === i ? play(x) : go(k))}>

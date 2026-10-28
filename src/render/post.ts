@@ -13,7 +13,7 @@ import type { Ctx } from './effects/registry';
    edges extended so the borders blur like the middle, the radius growing with the transition ---- */
 const TB1 = makeCanvas(16, 16) as HTMLCanvasElement, TB2 = makeCanvas(16, 16) as HTMLCanvasElement;
 export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
-  const cv = g.canvas as HTMLCanvasElement, w = cv.width, h = cv.height, r = k ** 0.8 * Math.max(w, h) * 0.018; if (r < 0.25) return;
+  const cv = g.canvas as HTMLCanvasElement, w = cv.width, h = cv.height, r = k ** 0.9 * Math.max(w, h) * 0.014; if (r < 0.25) return;
   const W1 = w + 64, H1 = h + 64; if (TB1.width < W1 || TB1.height < H1) { TB1.width = W1; TB1.height = H1; } if (TB2.width < W1 || TB2.height < H1) { TB2.width = W1; TB2.height = H1; }
   const a = TB1.getContext('2d')!, b = TB2.getContext('2d')!; a.imageSmoothingEnabled = b.imageSmoothingEnabled = true; a.imageSmoothingQuality = b.imageSmoothingQuality = 'high';
   const fct = filterSupported ? 2 ** (Math.floor(Math.log2(Math.max(1, r / 3)) * 2) / 2) : 1, w1 = Math.ceil(w / fct), h1 = Math.ceil(h / fct), rb = r / fct, m = Math.min(30, Math.ceil(rb * 2.6) + 2);
@@ -23,8 +23,10 @@ export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   if (filterSupported) { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(TB1, 0, 0, w1 + 2 * m, h1 + 2 * m, 0, 0, w1 + 2 * m, h1 + 2 * m); b.filter = 'none'; }
   else b.drawImage(TB1, 0, 0);
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high';
-  g.globalAlpha = Math.min(1, k * 3); g.drawImage(TB2, m, m, w1, h1, 0, 0, w, h);
-  g.globalAlpha = k * 0.3; g.fillStyle = hexOf(f.pal.bg); g.fillRect(0, 0, w, h); g.restore();
+  // the blur is a loss of focus, not a curtain: the softened picture comes in over the sharp one, and only a faint
+  // veil of the ground colour lies over it at the very peak
+  g.globalAlpha = Math.min(1, k * 1.6) * 0.92; g.drawImage(TB2, m, m, w1, h1, 0, 0, w, h);
+  g.globalAlpha = k * k * 0.12; g.fillStyle = hexOf(f.pal.bg); g.fillRect(0, 0, w, h); g.restore();
 }
 
 /* ---- titles ---- */

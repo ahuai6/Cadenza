@@ -60,8 +60,10 @@ export function coverRest(f: RenderFrame, bd: Pick<BackdropView, 'ox' | 'oy'>): 
   return { x: f.W / 2 - S / 2 + bd.ox * 0.6 - (album ? S * 0.16 : 0), y: f.H * 0.47 - S / 2 + bd.oy * 0.6, S };
 }
 /** The cover itself at (x, y, S) in the current transform: sleeve with its record (vinyl: how far it is out), float, or blend. */
-export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S: number, vinyl: number, alpha = 1) {
-  const L = coverLayers(f), edge = f.style.coverEdge || 'album', dark = f.pal.dark;
+/** o.finish (0..1): how much of the scene's own finish the cover wears (its sheen, rim light and groove) — the hand-over
+ *  grows it from the page's plain cover; o.shadow false: the caller draws the shadow itself. */
+export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S: number, vinyl: number, alpha = 1, o: { finish?: number; shadow?: boolean } = {}) {
+  const L = coverLayers(f), edge = f.style.coverEdge || 'album', dark = f.pal.dark, fin = o.finish ?? 1, shOn = o.shadow !== false;
   g.save(); g.globalAlpha = alpha; (g as CanvasRenderingContext2D).imageSmoothingQuality = 'high';
   if (edge === 'album') {
     if (L.vinyl && vinyl > 0.001) {
@@ -71,19 +73,22 @@ export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S
       if (sh) { for (const [p, a] of [[0, 0], [0.08, 0.1], [0.16, 0], [0.5, 0], [0.58, 0.07], [0.66, 0], [1, 0]]) sh.addColorStop(p, `rgba(255,255,255,${a})`);
         g.fillStyle = sh; g.beginPath(); g.arc(cx, cy, R * 0.98, 0, 6.283); g.arc(cx, cy, R * 0.34, 0, 6.283, true); g.fill(); }
     }
-    g.shadowColor = dark ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.3)'; g.shadowBlur = S * 0.08; g.shadowOffsetY = S * 0.025;
+    if (shOn) { g.shadowColor = dark ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.3)'; g.shadowBlur = S * 0.08; g.shadowOffsetY = S * 0.025; }
     g.drawImage(L.subj, x, y, S, S); g.shadowColor = 'transparent';
-    const sheen = g.createLinearGradient(x, y, x + S, y + S); sheen.addColorStop(0, 'rgba(255,255,255,.16)'); sheen.addColorStop(0.35, 'rgba(255,255,255,0)'); sheen.addColorStop(1, 'rgba(0,0,0,.12)');
-    g.fillStyle = sheen; g.fillRect(x, y, S, S);
-    g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = S * 0.012; g.beginPath(); g.arc(x + S * 0.5, y + S * 0.5, S * 0.4, 0, 6.283); g.stroke();
-    g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + 0.5, y + S); g.lineTo(x + 0.5, y + 0.5); g.lineTo(x + S, y + 0.5); g.stroke();
+    if (fin > 0.003) { const a0 = g.globalAlpha; g.globalAlpha = a0 * fin;
+      const sheen = g.createLinearGradient(x, y, x + S, y + S); sheen.addColorStop(0, 'rgba(255,255,255,.16)'); sheen.addColorStop(0.35, 'rgba(255,255,255,0)'); sheen.addColorStop(1, 'rgba(0,0,0,.12)');
+      g.fillStyle = sheen; g.fillRect(x, y, S, S);
+      g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = S * 0.012; g.beginPath(); g.arc(x + S * 0.5, y + S * 0.5, S * 0.4, 0, 6.283); g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + 0.5, y + S); g.lineTo(x + 0.5, y + 0.5); g.lineTo(x + S, y + 0.5); g.stroke(); g.globalAlpha = a0; }
   } else if (edge === 'float') {
-    const r = S * 0.045; g.shadowColor = dark ? 'rgba(0,0,0,.6)' : 'rgba(0,0,0,.28)'; g.shadowBlur = S * 0.16; g.shadowOffsetY = S * 0.06;
+    const r = S * 0.045; if (shOn) { g.shadowColor = dark ? 'rgba(0,0,0,.6)' : 'rgba(0,0,0,.28)'; g.shadowBlur = S * 0.16; g.shadowOffsetY = S * 0.06; }
     g.beginPath(); g.roundRect(x, y, S, S, r); g.fillStyle = hexOf(f.pal.bg); g.fill(); g.shadowColor = 'transparent'; g.clip(); g.drawImage(L.subj, x, y, S, S);
   } else if (L.blend) { const k = 1.5; g.drawImage(L.blend, x + S / 2 - S * k / 2, y + S / 2 - S * k / 2, S * k, S * k); }
   g.restore();
 }
 /** The corner radius the cover has on screen (for the handoff to match): reference px at size S. */
+/** The shadow the cover casts in the scene (reference px at size S), for the hand-over to grow into. */
+export const coverShadow = (edge: string | undefined, S: number, dark: boolean) => (edge === 'float' ? { blur: S * 0.16, oy: S * 0.06, a: dark ? 0.6 : 0.28 } : edge === 'blend' ? { blur: 0, oy: 0, a: 0 } : { blur: S * 0.08, oy: S * 0.025, a: dark ? 0.55 : 0.3 });
 export const coverRadius = (edge: string | undefined, S: number) => (edge === 'float' ? S * 0.045 : edge === 'blend' ? S * 0.09 : 0);
 
 register({ id: 'cover', label: 'bg.cover', layer: 'backdrop', kind: 'backdrop',
