@@ -9,6 +9,7 @@ import { layout, assignSections } from './layout';
 import { planCamera } from './camera';
 import { planCues } from './cues';
 import { planTitles, type SongInfo } from './titles';
+import { planEntries } from './entry';
 
 export const ASPECTS: Record<string, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 export interface PlanInput {
@@ -33,6 +34,8 @@ export function plan(inp: PlanInput): ScenePlan {
   for (const P of lay.lines) if (isFinite(P.secEnd)) { P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd - 0.4) }; }
   const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle);
   const drawOrder = [...lay.words].sort((a, b) => a.order - b.order);
-  return { doc, map, style, W, H, dur: inp.musicEnd + inp.endLen, endLen: inp.endLen, musicEnd: inp.musicEnd,
+  const out: ScenePlan = { doc, map, style, W, H, dur: inp.musicEnd + inp.endLen, endLen: inp.endLen, musicEnd: inp.musicEnd,
     lines: lay.lines, words: lay.words, drawOrder, passages, camera, cues, titles, dmin: lay.dmin, hasSubs: doc.lines.some(L => L.subs.length > 0) };
+  planEntries(out);
+  return out;
 }

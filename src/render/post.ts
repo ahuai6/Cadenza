@@ -17,24 +17,24 @@ const WORK = new Map<string, [HTMLCanvasElement, HTMLCanvasElement]>();
 function work(w: number, h: number) { const key = w + 'x' + h; let p = WORK.get(key);
   if (!p) { p = [makeCanvas(w, h) as HTMLCanvasElement, makeCanvas(w, h) as HTMLCanvasElement]; WORK.set(key, p); if (WORK.size > 10) WORK.delete(WORK.keys().next().value!); } return p; }
 export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
-  const cv = g.canvas as HTMLCanvasElement, w = cv.width, h = cv.height, r = k ** 0.9 * Math.max(w, h) * 0.014; if (r < 0.25) return;
-  // the working scale: at least half size, and small enough that the blur there is about 3 px (sizes in √2 steps)
-  // (the working picture is exactly 1/fct of the frame — fractional sizes, so the blurred copy lands on the sharp one at
-  // every step of the working scale and nothing shifts as the blur clears)
-  const fct = filterSupported ? Math.max(2, 2 ** (Math.floor(Math.log2(Math.max(1, r / 3)) * 2) / 2)) : 1, w1 = w / fct, h1 = h / fct, rb = r / fct, m = Math.min(30, Math.ceil(rb * 2.6) + 2);
+  const cv = g.canvas as HTMLCanvasElement, w = cv.width, h = cv.height, R = Math.max(w, h) * 0.014, r = k ** 0.9 * R; if (r < 0.25) return;
+  // one working scale for the whole transition (from its peak blur), so only the blur itself changes as it rises and
+  // clears — a scale stepping with the blur re-sampled the picture at every step, which read as grain and a twitch
+  const fct = filterSupported ? Math.max(2, R / 4) : 1, w1 = w / fct, h1 = h / fct, rb = r / fct, m = Math.min(30, Math.ceil(R / fct * 2.6) + 2);
   const [TA, TB] = work(Math.ceil(w1) + 2 * m, Math.ceil(h1) + 2 * m), a = TA.getContext('2d')!, b = TB.getContext('2d')!;
-  // (plain bilinear copies: the picture is blurred right after, and a high-quality resample of a full frame costs ~100×)
+  // (plain bilinear copies down: the picture is blurred right after, and a high-quality resample of a full frame costs ~100×)
   a.imageSmoothingEnabled = b.imageSmoothingEnabled = true; a.imageSmoothingQuality = b.imageSmoothingQuality = 'low';
   a.setTransform(1, 0, 0, 1, 0, 0); a.globalAlpha = 1; a.filter = 'none'; a.clearRect(0, 0, TA.width, TA.height);
   a.drawImage(cv, 0, 0, w, h, 0, 0, w1 + 2 * m, h1 + 2 * m); a.drawImage(cv, 0, 0, w, h, m, m, w1, h1);
   b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1; b.clearRect(0, 0, TB.width, TB.height);
   if (filterSupported) { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(TA, 0, 0); b.filter = 'none'; }
   else b.drawImage(TA, 0, 0);
-  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'medium';
-  // the blur is a loss of focus, not a curtain: the softened picture comes in over the sharp one, and only a faint
-  // veil of the ground colour lies over it at the very peak
-  g.globalAlpha = Math.min(1, k * 1.6) * 0.92; g.drawImage(TB, m, m, w1, h1, 0, 0, w, h);
-  g.globalAlpha = k * k * 0.12; g.fillStyle = hexOf(f.pal.bg); g.fillRect(0, 0, w, h); g.restore();
+  // frosted glass: the softened picture comes in over the sharp one (smoothly scaled up, no blocks), with a faint light
+  // veil at the peak — a loss of focus, never a curtain
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high';
+  g.globalAlpha = Math.min(1, k * 1.6) * 0.94; g.drawImage(TB, m, m, w1, h1, 0, 0, w, h);
+  g.globalAlpha = k * k * (f.pal.dark ? 0.07 : 0.1); g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
+  g.globalAlpha = k * k * 0.06; g.fillStyle = hexOf(f.pal.bg); g.fillRect(0, 0, w, h); g.restore();
 }
 
 /* ---- titles ---- */

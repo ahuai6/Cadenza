@@ -199,8 +199,9 @@ export function drawVideo(g: Ctx, f: RenderFrame, src: { frame: CanvasImageSourc
 }
 register({ id: 'video', label: 'bg.video', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
   const st = f.style, open = 1 - (a.bd.rest ?? 0); drawVideo(g, f, f.media.video, 1, { dark: (st.vidDark ?? 0.6) * open, blur: st.vidBlur ?? 0.35, desat: st.vidDesat ?? 0.35 }, a.bd.roll, a.bd.zoom, a.bd.ox, a.bd.oy, a.bd.E, true, a.bd.fit); } });
-/** MV mode: the song's own video over the theme's backdrop, fading in with a soft focus pull; everything in front stays. */
-register({ id: 'mv', label: 'mv', layer: 'backdrop', kind: 'effect', z: 100, draw(g, f, a) {
+/** MV mode: the song's own video over the theme's backdrop, fading in with a soft focus pull; the backdrop's own effects
+ *  (motes, feathers, rings…) and everything in front stay above it. */
+register({ id: 'mv', label: 'mv', layer: 'backdrop', kind: 'effect', z: -1, draw(g, f, a) {
   const mv = f.media.mv; if (!mv || mv.k <= 0 || !mv.frame) return; const k = mv.k * mv.k * (3 - 2 * mv.k), blurPx = (1 - k) * 22;
   if (blurPx > 0.3) g.filter = `blur(${(blurPx * f.px).toFixed(1)}px)`;
   const L = f.media.mvLook || MV_LOOK, open = 1 - (a.bd.rest ?? 0);

@@ -11,12 +11,45 @@ import type { Cues, PLine } from './types';
 function density<T extends { t: number; k?: number }>(ev: T[], all: number[], bar: number): (T & { k: number })[] {
   return ev.map(e => { let d = 0; for (const t2 of all) { const u = (t2 - e.t) / bar; if (Math.abs(u) <= 4.5) d += Math.exp(-u * u / 8); } return { ...e, k: clamp((d - 1) / 3) }; });
 }
+const norm = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+/** The moments a chorus comes in, which the accents above all should land on. Three ways to hear one: a section that
+ *  comes in clearly louder (or drops); a section that comes in only a little louder but fuller (denser, brighter, its
+ *  level rising across the boundary) in an already lively part of the song; and the lyrics' own chorus — the first of a
+ *  run of lines the song sings again — where the music doesn't fall away. A subtle chorus entry (the band filling in
+ *  under the same tempo) is caught by the second or the third even when its energy barely moves. */
+export function sectionEntries(map: RhythmMap, lines: PLine[], inSong: (t: number) => boolean) {
+  const S = map.sections, out: number[] = [], bar = (t: number) => map.meter * map.beatLen(t);
+  const avg = (f: (t: number) => number, a: number, b: number) => { let v = 0, n = 0; for (let t = a; t < b; t += 0.1) { v += f(t); n++; } return n ? v / n : 0; };
+  const hi = (t: number) => { const sp = map.spec(t); return sp ? (sp[sp.length - 1] + sp[sp.length - 2]) / 2 : 0; };
+  // across a boundary at t: how much the level and the top of the spectrum rise from the two bars before to the two after
+  const rise = (t: number) => { const B = bar(t); return { lv: avg(x => map.level(x), t, t + 2 * B) - avg(x => map.level(x), t - 2 * B, t), hi: avg(hi, t, t + 2 * B) - avg(hi, t - 2 * B, t), at: avg(x => map.level(x), t, t + 2 * B) }; };
+  for (let i = 1; i < S.length; i++) {
+    const s = S[i], p = S[i - 1]; if (!inSong(s.t0)) continue;
+    const de = s.energy - p.energy, r = rise(s.t0), fuller = s.density > p.density * 1.2;
+    const signs = +(de > 0.07) + +(r.lv > 0.06) + +(r.hi > 0.05) + +fuller;
+    if (s.drop || de > 0.18 || (s.energy >= 0.5 && de > -0.02 && (de > 0.1 || signs >= 2))) out.push(s.t0);
+  }
+  // the lyrics' chorus: lines sung again later (not a song made only of repeats), the first of each such run
+  const key = lines.map(l => norm(l.L.text)), count = new Map<string, number>();
+  for (const k of key) if (k.length >= 2) count.set(k, (count.get(k) || 0) + 1);
+  const rep = key.map(k => (count.get(k) || 0) >= 2);
+  if (rep.filter(Boolean).length <= lines.length * 0.75) for (let i = 0; i < lines.length; i++) {
+    if (!rep[i] || !rep[i + 1] || (i > 0 && rep[i - 1] && lines[i].L.t - lines[i - 1].L.sung < bar(lines[i].L.t))) continue;
+    // the chorus comes in on the downbeat at (or just before, under a pickup) its first sung word
+    const t0 = lines[i].L.t, B = bar(t0), d = map.beatAt(t0), down = map.barTime(d.bar + (d.inBar + d.phase < map.meter * 0.5 ? 0 : 1));
+    const at = Math.abs(down - t0) <= B * 0.5 ? down : t0, r = rise(at);
+    if (inSong(at) && r.at >= 0.4 && r.lv > -0.04) out.push(at);
+  }
+  out.sort((a, b) => a - b);
+  const es = out.filter((t, i) => i === 0 || t - out[i - 1] > bar(t) * 2).map(t => map.eventNear(t, map.beatLen(t) * 0.6, 1)).filter((e): e is NonNullable<typeof e> => !!e);
+  return es.filter((e, i) => i === 0 || e.t !== es[i - 1].t);
+}
 export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number }[]): Cues {
   const M = st.m, bar = map.meter * map.beatLen(musicEnd / 2), inSong = (t: number) => t >= 0.5 && t <= musicEnd - 0.5;
   // flash, invert and glass land on the beat's own accents — a strong hit on a beat (a downbeat first), never a syncopated
   // one — and above all on the hit that opens a section that comes in louder (into a chorus, a drop)
   const onBeat = (e: { t: number; off?: boolean; pos: number }) => !e.off && Math.abs(e.pos - Math.round(e.pos)) < 0.12;
-  const entries = map.sections.filter((S, i) => i > 0 && (S.drop || S.energy - map.sections[i - 1].energy > 0.18) && inSong(S.t0)).map(S => map.eventNear(S.t0, map.beatLen(S.t0) * 0.6, 1)).filter((e): e is NonNullable<typeof e> => !!e);
+  const entries = sectionEntries(map, lines, inSong);
   const withEntries = <T extends { t: number }>(sel: T[], es: T[], gap: number) => { const out = [...es]; for (const e of sel) if (!out.some(x => Math.abs(x.t - e.t) < gap)) out.push(e); return out.sort((a, b) => a.t - b.t); };
   // flashes: at most one a bar in the loudest parts, one every two bars elsewhere (closer together when more sensitive)
   const fs = clamp(M.flash ?? 1, 0, 2);

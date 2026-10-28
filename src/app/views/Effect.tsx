@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import { D, Lib } from '../bridge';
 import { ui, useStore, trackOf, toast, openMenu } from '../state';
-import { Button, IconButton, Seg, Row, Slider, Note, Badge } from '../ui/kit';
+import { Button, IconButton, Seg, Row, Slider, Note, Badge, Section } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
 import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setMvOn, unbindMv } from '../playback/player';
@@ -15,6 +15,7 @@ import { Progress, Transport, QueueButton } from './Player';
 import { NpLyrics } from './NowPlaying';
 import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, ExportPanel } from './panes';
 import { askMv, askMvOffset } from './Modals';
+import { MvLook } from './Settings';
 import s from './Effect.module.css';
 
 const IDLE_MS = 2600;
@@ -74,6 +75,20 @@ function MvButton() {
 }
 
 /* ---------- this song's settings ---------- */
+/** The song's MV: bind or change it, and how it sits behind the lyrics (the look is app-wide). */
+function MvPane() {
+  const mv = useStore(player, x => x.mv);
+  return (
+    <Section title={tx('s.set.mv')} note={tx(mv.bound ? 's.set.mvHelp' : 's.mvBindHelp')}>
+      <Row>
+        <Button size="sm" onClick={() => askMv()}>{tx(mv.bound ? 's.mvChange' : 's.mvBind')}</Button>
+        {mv.bound && <Button size="sm" onClick={() => askMvOffset()}>{tx('s.mvOffset')}</Button>}
+        {mv.bound && mv.ready && <Button kind="ghost" size="sm" onClick={() => setMvOn(!mv.on)}>{tx(mv.on ? 's.mvOff' : 's.mv')}</Button>}
+      </Row>
+      <MvLook />
+    </Section>
+  );
+}
 const TABS: [string, string][] = [['theme', 's.sec.theme'], ['lyrics', 's.sec.lyrics'], ['bg', 's.sec.bg'], ['text', 's.sec.text'], ['motion', 's.sec.motion'], ['fx', 's.sec.fx'], ['export', 's.sec.export']];   // (the ending's card follows the song's own details, like its title)
 function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   useStore(player, x => x.rev);
@@ -104,7 +119,7 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
       <div className={s.pbody} data-locked={locked}>
         {tab === 'theme' && <ThemePane {...props} />}
         {tab === 'lyrics' && <LyricsTab />}
-        {tab === 'bg' && <LookPane {...props} />}
+        {tab === 'bg' && <><LookPane {...props} /><MvPane /></>}
         {tab === 'text' && <TextPane {...props} />}
         {tab === 'motion' && <MotionPane {...props} />}
         {tab === 'fx' && <EffectsPane {...props} />}

@@ -53,12 +53,13 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const ids = await C(() => window.cadenzaLib.get().then(v => Object.fromEntries(v.tracks.map(t => [t.title, t.id]))));
   const cached = await C(id => window.cadenzaLib.analysis(id, 2).then(a => a && { v: a.version, beats: a.beats.length, events: a.events.length, bpm: Math.round(a.tempo.bpm), spec: (a.spec || []).length }), ids['晨光']);
   ok('rhythm cache: the SDK\'s own analysis, versioned', cached && cached.v === 2 && cached.beats > 20 && cached.events > 20 && cached.spec === 6, JSON.stringify(cached));
-  await win.getByRole('tab', { name: '歌曲' }).click(); await W(500); await shot('songs');
+  await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '歌曲', exact: true }).click(); await W(500); await shot('songs');
+  ok('sidebar: the library\'s sections listed right under it, the chosen one marked', await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '歌曲', exact: true }).getAttribute('aria-current') === 'page' && await win.locator('h1', { hasText: '歌曲' }).count() > 0);
   // the song rows line up: every column starts at the same x in every row
   const cols = await C(() => [...document.querySelectorAll('[role=list] [role=listitem]')].map(r => [...r.children].map(c => Math.round(c.getBoundingClientRect().left))));
   ok('library: every row\'s columns line up', cols.length === 4 && cols.every(r => r.join() === cols[0].join()), JSON.stringify(cols.map(r => r.slice(1, 6))));
-  await win.getByRole('tab', { name: '專輯' }).click(); await W(400); await shot('albums');
-  await win.getByRole('tab', { name: '歌曲' }).click(); await W(300);
+  await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '專輯', exact: true }).click(); await W(400); await shot('albums');
+  await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '歌曲', exact: true }).click(); await W(300);
 
   /* ---------- play ---------- */
   await win.locator('[role=listitem]', { hasText: '晨光' }).dblclick();
@@ -137,6 +138,9 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await C(async id => window.__cadenza.api.playIds([id], 0), ids['晨光']); await W(1500);
   await win.mouse.move(1436, 450, { steps: 6 }); await W(800); await win.mouse.move(1250, 300, { steps: 8 }); await W(200);
   ok('song panel: slides in from the right edge', await C(() => document.querySelector('[data-test=song-panel]').dataset.open === 'true'));
+  await win.locator('[data-test=song-panel]').getByRole('tab', { name: '背景' }).click(); await W(300); await shot('fx-panel-bg');
+  { const sp = win.locator('[data-test=song-panel]'), heads = await sp.locator('h2, h3, header').allInnerTexts();
+    ok('song panel: the background tab holds the MV settings (no empty section)', await sp.getByText('MV 畫面').count() > 0 && await sp.getByRole('slider').count() >= 3, JSON.stringify(heads)); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click(); await W(300); await shot('fx-panel-lyrics');
   const ime = {};
   await win.locator('[data-test=song-panel] textarea').click(); await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ㄋ' })));

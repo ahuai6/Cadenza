@@ -13,21 +13,19 @@ import { askText, pickPlaylist, editMeta, exportTrack } from './Modals';
 import { sendToWorkshop } from './workshop/Workshop';
 import s from './Library.module.css';
 
-const SECTIONS: [string, string, string][] = [['favorites', 's.favorites', 'heart'], ['playlists', 's.playlists', 'lyrics'], ['songs', 's.songs', 'note'], ['albums', 's.albums', 'disc'], ['artists', 's.artists', 'user'], ['genres', 's.genres', 'tag']];
+export const SECTIONS: [string, string, string][] = [['favorites', 's.favorites', 'heart'], ['playlists', 's.playlists', 'lyrics'], ['songs', 's.songs', 'note'], ['albums', 's.albums', 'disc'], ['artists', 's.artists', 'user'], ['genres', 's.genres', 'tag']];
 
 export function LibraryView() {
   const loaded = useStore(lib, x => x.loaded), folders = useStore(lib, x => x.folders), tracks = useStore(lib, x => x.tracks), favorites = useStore(lib, x => x.favorites), idx = useIndex();
   const section = useStore(ui, x => x.section) || (favorites.length ? 'favorites' : 'songs');
   const detail = useStore(ui, x => x.detail), search = useStore(ui, x => x.search).trim().toLowerCase();
-  const setSection = (k: string) => { ui.set({ section: k, detail: null }); keep('section', k); };
   if (loaded && !folders.length && !tracks.length) return <EmptyLibrary />;
   return (
     <div className={s.libWrap}>
       {detail ? <Detail idx={idx} search={search} /> : (
         <>
           <header className={s.head}>
-            <h1>{tx('s.library')}</h1>
-            <Seg role="tablist" fit value={section} onChange={setSection} options={SECTIONS.map(([k, l, ic]) => [k, tx(l), ic])} />
+            <h1>{tx(SECTIONS.find(x => x[0] === section)?.[1] || 's.library')}</h1>
           </header>
           <div key={section} className="enter">
             {section === 'favorites' && <Favorites idx={idx} search={search} />}

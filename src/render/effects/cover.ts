@@ -25,10 +25,10 @@ function placeholder(f: RenderFrame): HTMLCanvasElement {
   g.fillStyle = rgba(P.bg, 0.35); g.beginPath(); g.arc(330, 210, 150, 0, Math.PI * 2); g.fill(); return c;
 }
 export function coverLayers(f: RenderFrame): Layers {
-  const st = f.style, key = `${f.media.coverKey}|${st.coverBlur}|${st.coverEdge}|${st.text}|${f.media.cover ? '' : st.accent + st.bg2}`;
+  const st = f.style, key = `${f.media.coverKey}|${st.coverEdge}|${st.text}|${f.media.cover ? '' : st.accent + st.bg2}`;
   if (cache && cache.key === key) return cache;
-  const src: Img = f.media.cover || placeholder(f), bl = clamp(st.coverBlur ?? 0);
-  const subj = square(src, 512, bl * 16);
+  const src: Img = f.media.cover || placeholder(f);
+  const subj = square(src, 512);
   let vinyl: HTMLCanvasElement | null = null, blend: HTMLCanvasElement | null = null;
   if (st.coverEdge === 'album' || !st.coverEdge) {
     const D = 512, v = makeCanvas(D, D) as HTMLCanvasElement, g = v.getContext('2d')!, R = D / 2;
@@ -42,13 +42,19 @@ export function coverLayers(f: RenderFrame): Layers {
     vinyl = v;
   }
   if (st.coverEdge === 'blend') {
-    // like the sun behind cloud: a rounded panel whose edges dissolve into a glow of its own colours, with a bright rim
-    const C = 768, o = 128, n = 512, rad = n * 0.09, comp = makeCanvas(C, C) as HTMLCanvasElement, g = comp.getContext('2d')!;
-    const halo = square(src, C, 60); g.globalAlpha = 0.85; g.drawImage(halo, 0, 0);
-    g.globalAlpha = 1; g.save(); g.filter = 'blur(10px)'; g.beginPath(); g.roundRect(o - 4, o - 4, n + 8, n + 8, rad); g.fillStyle = '#000'; g.globalCompositeOperation = 'destination-out'; g.fill(); g.restore();
-    g.save(); g.beginPath(); g.roundRect(o, o, n, n, rad); g.clip(); g.drawImage(subj, o, o, n, n); g.restore();
-    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.35; g.drawImage(halo, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-    g.save(); g.filter = 'blur(6px)'; g.strokeStyle = rgba(mix(f.pal.text, W3, 0.5), 0.55); g.lineWidth = 6; g.beginPath(); g.roundRect(o + 2, o + 2, n - 4, n - 4, rad); g.stroke(); g.restore();
+    // like the sun behind cloud: the cover (still a square, its corners only softened) glowing out into a haze of its own
+    // colours that thins away on every side — a round cloud of light, never a square plate behind it
+    const C = 1024, n = 512, o = (C - n) / 2, comp = makeCanvas(C, C) as HTMLCanvasElement, g = comp.getContext('2d')!;
+    const glow = makeCanvas(C, C) as HTMLCanvasElement, gg = glow.getContext('2d')!;
+    gg.filter = 'blur(70px)'; gg.drawImage(subj, o - n * 0.18, o - n * 0.18, n * 1.36, n * 1.36); gg.filter = 'none';
+    gg.globalCompositeOperation = 'destination-in'; const fade = gg.createRadialGradient(C / 2, C / 2, n * 0.35, C / 2, C / 2, C / 2);
+    fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(0.55, 'rgba(0,0,0,0.55)'); fade.addColorStop(1, 'rgba(0,0,0,0)'); gg.fillStyle = fade; gg.fillRect(0, 0, C, C);
+    g.globalAlpha = 0.9; g.drawImage(glow, 0, 0);
+    // the cover with its edges dissolving into the glow (a feathered mask, not a hard edge)
+    const face = makeCanvas(C, C) as HTMLCanvasElement, fg = face.getContext('2d')!; fg.drawImage(subj, o, o, n, n);
+    fg.globalCompositeOperation = 'destination-in'; fg.filter = 'blur(14px)'; fg.fillStyle = '#000'; fg.beginPath(); fg.roundRect(o + 10, o + 10, n - 20, n - 20, n * 0.06); fg.fill(); fg.filter = 'none';
+    g.globalAlpha = 1; g.drawImage(face, 0, 0);
+    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.28; g.drawImage(glow, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     blend = comp;
   }
   cache = { key, subj, vinyl, blend }; return cache;
@@ -63,6 +69,21 @@ export function coverRest(f: RenderFrame, bd: Pick<BackdropView, 'ox' | 'oy'>): 
 /** o.finish (0..1): how much of the scene's own finish the cover wears (its sheen, rim light and groove) — the hand-over
  *  grows it from the page's plain cover; o.shadow false: the caller draws the shadow itself. */
 export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S: number, vinyl: number, alpha = 1, o: { finish?: number; shadow?: boolean } = {}) {
+  // the cover blur is a focus pull on the whole cover — sleeve, record, rim, shadow, glow — as a lens would blur it: the
+  // group is drawn on a canvas just its size, blurred there (a filter costs as much as the canvas it works on), and set in
+  const bl = clamp(f.style.coverBlur ?? 0);
+  if (bl < 0.01) { coverGroup(g, f, x, y, S, vinyl, alpha, o); return; }
+  const mt = g.getTransform(), q = Math.min(2.5, Math.hypot(mt.a, mt.b)), edge = f.style.coverEdge || 'album';
+  const pl = edge === 'blend' ? S * 0.55 : S * 0.2, pr = edge === 'album' ? S * 0.62 : pl, pv = edge === 'blend' ? S * 0.55 : S * 0.25;
+  const bw = S + pl + pr, bh = S + pv * 2, W = Math.min(2048, Math.ceil(bw * q)), H = Math.min(2048, Math.ceil(bh * q)), k = W / bw;
+  const A = groupCanvas(0, W, H), B = groupCanvas(1, W, H), a = A.getContext('2d')!, b = B.getContext('2d')!;
+  a.setTransform(1, 0, 0, 1, 0, 0); a.clearRect(0, 0, W, H); a.setTransform(k, 0, 0, k, (pl - x) * k, (pv - y) * k); coverGroup(a, f, x, y, S, vinyl, 1, o);
+  b.setTransform(1, 0, 0, 1, 0, 0); b.clearRect(0, 0, W, H); b.filter = `blur(${(bl * S * k * 0.035).toFixed(2)}px)`; b.drawImage(A, 0, 0); b.filter = 'none';
+  g.save(); g.globalAlpha *= alpha; g.drawImage(B, 0, 0, W, H, x - pl, y - pv, bw, bh); g.restore();
+}
+const GROUP: (HTMLCanvasElement | null)[] = [null, null];
+function groupCanvas(i: number, w: number, h: number) { let c = GROUP[i]; if (!c || c.width < w || c.height < h || c.width > w * 1.5 || c.height > h * 1.5) { c = makeCanvas(w, h) as HTMLCanvasElement; GROUP[i] = c; } if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } return c; }
+function coverGroup(g: Ctx, f: RenderFrame, x: number, y: number, S: number, vinyl: number, alpha = 1, o: { finish?: number; shadow?: boolean } = {}) {
   const L = coverLayers(f), edge = f.style.coverEdge || 'album', dark = f.pal.dark, fin = o.finish ?? 1, shOn = o.shadow !== false;
   g.save(); g.globalAlpha = alpha; (g as CanvasRenderingContext2D).imageSmoothingQuality = 'high';
   if (edge === 'album') {
@@ -83,7 +104,7 @@ export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S
   } else if (edge === 'float') {
     const r = S * 0.045; if (shOn) { g.shadowColor = dark ? 'rgba(0,0,0,.6)' : 'rgba(0,0,0,.28)'; g.shadowBlur = S * 0.16; g.shadowOffsetY = S * 0.06; }
     g.beginPath(); g.roundRect(x, y, S, S, r); g.fillStyle = hexOf(f.pal.bg); g.fill(); g.shadowColor = 'transparent'; g.clip(); g.drawImage(L.subj, x, y, S, S);
-  } else if (L.blend) { const k = 1.5; g.drawImage(L.blend, x + S / 2 - S * k / 2, y + S / 2 - S * k / 2, S * k, S * k); }
+  } else if (L.blend) { const k = 2; g.drawImage(L.blend, x + S / 2 - S * k / 2, y + S / 2 - S * k / 2, S * k, S * k); }
   g.restore();
 }
 /** The corner radius the cover has on screen (for the handoff to match): reference px at size S. */

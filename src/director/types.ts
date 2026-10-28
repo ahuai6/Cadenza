@@ -20,6 +20,8 @@ export interface PWord {
   ang: number;
   /** a lyric frame around this word (and up to two before it) */
   frame: FrameRef | null;
+  /** appearing nudged inside the frame (world offset), gliding to its own place between t0 and t1 (entry.ts) */
+  entry?: { dx: number; dy: number; t0: number; t1: number } | null;
   /** draw order: fixed at plan time (back to front), never view-dependent */
   order: number;
   /** when it appears (a little before it is sung), when it is over */
@@ -41,7 +43,7 @@ export interface PLine {
 export interface FrameRef { words: PWord[]; ts: number; corner: boolean; pad: number }
 
 /** A full-frame blur transition: the blur rises over [t-inn, t], the camera cuts at t, clears over [t, t+out]. */
-export interface Passage { t: number; inn: number; out: number; line: number; quick: boolean; reason: 'gap' | 'layout' | 'distance' }
+export interface Passage { t: number; inn: number; out: number; line: number; quick: boolean; reason: 'gap' | 'layout' | 'distance' | 'crowd' }
 
 export interface Pose { x: number; y: number; z: number; r: number; d: number }
 /** A camera stop: what is framed, from when. */

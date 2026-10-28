@@ -65,7 +65,14 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
   let ua = 1, um = 1, dx = 0, dy = 0, ur = 0, uq = 1 - ws.pe, ghost = false, outline = 0;
   if (S.w.timed && u.t != null && ov === 0) {
     const lt = t - u.t;
-    if (lt < 0) { if (c.future === 'hide' || trail) return null; ghost = true; uq = 0; }
+    if (lt < 0) { if (c.future === 'hide' || trail) return null; ghost = true; uq = 0;
+      // the ghost arrives with the word's entrance (as the word's own type would), then waits for its moment
+      if (ov === 0) { const pu = eOut(clamp((t - S.show - ui * 0.055) / ws.dur)), qq = 1 - pu; ua = eSine(clamp((t - S.show - ui * 0.055) / Math.max(0.22, c.enter * 0.9 * c.tempo)));
+        if (ws.tin === 'rise') { dy = 48 * qq; ur = (ui % 2 ? 6 : -6) * qq; }
+        else if (ws.tin === 'pop') um = 1 + qq * (c.smooth ? 0.12 : 0.45) * c.motion;
+        else if (ws.tin === 'track') dx = rx * 0.55 * qq;
+        else if (ws.tin === 'blur') um = 1 + 0.12 * qq;
+        else dy = 30 * qq; } }
     else {
       const pu = eOut(clamp(lt / ws.dur)), qq = 1 - pu; uq = qq;
       ua = eSine(clamp(lt / Math.max(0.22, c.enter * 0.9 * c.tempo)));

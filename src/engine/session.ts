@@ -39,7 +39,7 @@ export function loadImage(url: string): Promise<HTMLImageElement | null> {
 
 export class Session {
   spec: SessionSpec; style!: Style; pal!: Palette; ambient!: Ambient;
-  cover: Img | null = null; coverKey = '';
+  cover: Img | null = null; coverKey = ''; private fontsLate = false;
   map!: RhythmMap; sig!: Signals; doc!: LyricDoc; plan!: ScenePlan;
   hasLyrics = false; audioStart = 0; musicEnd = 0; dur = 0; endLen = 3.5;
   version = 0;                        // bumps on every replan (views re-read the plan)
@@ -73,7 +73,7 @@ export class Session {
     // song time 0 is the range start; the lyric shift moves the music under the lyrics (it is in audioStart), so the
     // layout, the beats, the audio and the video stay in agreement
     const text = parsed.lines.map(L => L.text).join('');
-    await ensureFontSoon(this.style.font, text + sp.song.title, this.env.lang, 1200, () => { this.dirty |= 1; });
+    await ensureFontSoon(this.style.font, text + sp.song.title, this.env.lang, 1200, () => { this.fontsLate = true; this.dirty |= 1; });
     const last = parsed.lines[parsed.lines.length - 1];
     this.musicEnd = buf ? Math.max(1, fileEnd - this.audioStart) : (last ? (last.stop ?? last.t + 3) + 1.6 : 10);
     this.dur = this.musicEnd + this.endLen;
@@ -85,7 +85,9 @@ export class Session {
   replan() {
     const fc = fontStack(this.style.font, this.doc.lines.map(L => L.text).join('').slice(0, 400), this.env.lang);
     const aspect = ASPECTS[this.style.aspect] ?? this.env.viewAspect();
-    clearGlyphCache();
+    // the glyph bitmaps are keyed by face: they stay valid across a replan, unless the face itself arrived late (the ones
+    // drawn before then are of a stand-in face under the same name)
+    if (this.fontsLate) { clearGlyphCache(); this.fontsLate = false; }
     this.plan = makePlan({ doc: this.doc, map: this.map, style: this.style, measure: canvasMeasurer(`${fc.w} ${EM}px ${fc.stack}`), aspect,
       musicEnd: this.musicEnd, endLen: this.endLen, song: this.spec.song, labels: this.env.labels });
     this.version++; this.dirty = 0;

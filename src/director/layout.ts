@@ -223,10 +223,15 @@ export function layout(inp: LayoutInput): LayoutResult {
     S0 = { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN };
     return !bad;
   };
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', scenes = scenesOf(lines, map);
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', scenes = scenesOf(lines, map), CROWD = 10; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
-    if (i > 0 && startsAt.has(i)) newPassage();
+    // ten lines on the page are enough: the next line that leaves room for one clears the picture (the words stay few
+    // enough to draw lightly, and the page never gets crowded)
+    if (i > 0 && !startsAt.has(i) && canClear && onPage >= CROWD) { const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
+      if (roomForQuick(endA, Lp.words[0].show)) { passages.push({ ...timePassage(endA, Lp.words[0].show, map, true), line: i, quick: true, reason: 'crowd' }); startsAt.add(i); } }
+    if (i > 0 && startsAt.has(i)) { newPassage(); onPage = 0; }
+    onPage++;
     const before = save();
     // a scene's own arrangement first (a dash runs on to the right); the ordinary tries after it
     Lp.scene = scenes[i];
@@ -240,7 +245,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     restore(before);
     const tm = timePassage(endA, Lp.words[0].show, map, true);
     passages.push({ ...tm, line: i, quick: true, reason: 'layout' }); startsAt.add(i);
-    newPassage(); placeLine(Lp, i, null);
+    newPassage(); onPage = 1; placeLine(Lp, i, null);
   });
   passages.sort((a, b) => a.t - b.t);
   assignSections(lines, passages);

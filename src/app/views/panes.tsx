@@ -58,7 +58,7 @@ export function LookPane({ s: ss, edit, ctx, media }: PaneProps & { media?: Reac
   const st = ss.style, custom = st.preset === 'custom', set = (k: string, v: unknown) => edit(x => x.setStyle(k, v));
   return (
     <>
-      <Section title={tx('bg')} note={ctx === 'song' ? tx('s.coverFromMeta') : undefined}>
+      {(custom || media || st.bgStyle === 'cover' || ctx === 'workshop') && <Section title={tx('s.sec.bg')} note={ctx === 'song' && st.bgStyle === 'cover' ? tx('s.coverFromMeta') : undefined}>
         {custom && <Select label={tx('bg')} value={st.bgStyle} options={opts(BG_STYLES.filter(v => ctx === 'workshop' || v !== 'video'), 'bg.')} onChange={v => set('bgStyle', v)} />}
         {media}
         {st.bgStyle === 'cover' && <>
@@ -71,7 +71,7 @@ export function LookPane({ s: ss, edit, ctx, media }: PaneProps & { media?: Reac
           <Select label={tx('aa')} value={st.aa || 'off'} options={opts(['off', 'ssaa', 'ssaa3'], 'aa.')} onChange={v => set('aa', v)} />
         </Row>}
         {ctx === 'workshop' && <Note>{tx('aa.help')}</Note>}
-      </Section>
+      </Section>}
       {custom && <Section title={tx('col.h')}>
         <Row><Button size="sm" onClick={() => edit(x => x.coverPalette())} disabled={!ss.cover}>{tx('cv.pal')}</Button></Row>
         <div className={s.colors}>{(['bg', 'bg2', 'text', 'accent', 'flash'] as const).map(k => (

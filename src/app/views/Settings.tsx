@@ -19,6 +19,17 @@ export async function setSettings(patch: Partial<Settings>) {
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
   if (Object.keys(patch).some(k => k.startsWith('mv'))) { engine.mvLook = mvLook(n); engine.invalidate(); }
 }
+const pc = (v: number | string) => Math.round(+v * 100) + '%';
+/** How a song's own MV sits behind the lyrics (app-wide: shown here and in a song's panel). */
+export function MvLook() {
+  const st = useStore(settings), set = setSettings;
+  return <>
+    <Slider label={tx('vd.dark')} min={0} max={0.9} step={0.01} value={st.mvDark ?? 0.34} format={pc} onChange={v => set({ mvDark: +v })} />
+    <Slider label={tx('vd.blur')} min={0} max={1} step={0.01} value={st.mvBlur ?? 0.12} format={pc} onChange={v => set({ mvBlur: +v })} />
+    <Slider label={tx('vd.desat')} min={0} max={1} step={0.01} value={st.mvDesat ?? 0} format={pc} onChange={v => set({ mvDesat: +v })} />
+    <Toggle label={tx('vd.fit')} help={tx('vd.fitHelp')} on={!!st.mvFit} set={v => set({ mvFit: v })} />
+  </>;
+}
 export function SettingsView() {
   const st = useStore(settings), folders = useStore(lib, x => x.folders);
   useEffect(() => { D?.settings().then(v => settings.set(v)); }, []);
@@ -49,10 +60,7 @@ export function SettingsView() {
       </Group>
       <AudioGroup st={st} />
       <Group title={tx('s.set.mv')} help={tx('s.set.mvHelp')}>
-        <Slider label={tx('vd.dark')} min={0} max={0.9} step={0.01} value={st.mvDark ?? 0.34} format={v => Math.round(+v * 100) + '%'} onChange={v => set({ mvDark: +v })} />
-        <Slider label={tx('vd.blur')} min={0} max={1} step={0.01} value={st.mvBlur ?? 0.12} format={v => Math.round(+v * 100) + '%'} onChange={v => set({ mvBlur: +v })} />
-        <Slider label={tx('vd.desat')} min={0} max={1} step={0.01} value={st.mvDesat ?? 0} format={v => Math.round(+v * 100) + '%'} onChange={v => set({ mvDesat: +v })} />
-        <Toggle label={tx('vd.fit')} help={tx('vd.fitHelp')} on={!!st.mvFit} set={v => set({ mvFit: v })} />
+        <MvLook />
       </Group>
       <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
         <Field label={tx('s.set.scale')}><Seg size="sm" fit value={String(st.scale)} onChange={v => set({ scale: v === 'auto' ? 'auto' : +v })} options={SCALES.map(v => [String(v), v === 'auto' ? tx('s.set.scale.auto') : tx('s.set.scale.p', { n: Math.round(v * 100) })])} /></Field>

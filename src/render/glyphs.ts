@@ -65,10 +65,48 @@ export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as Ima
  *  are drawn straight onto the frame (no scratch canvas: at close-up sizes a per-glyph scratch cost more than the rest of
  *  the frame): the sharp glyph at its share of the opacity, and the blurred one under it at whatever keeps the glyph's
  *  body at exactly the word's opacity (source-over: a + b·(1 − a) = A). */
+/* Large sharp glyphs. Past a size the browser keeps no glyph cache and draws every glyph from its outline, on the CPU,
+   for every layer (the face, its edge copies, its gradient) and every frame — a close-up of a short word (a number, a
+   single word) made the whole picture fall behind. So past LARGE device pixels a glyph is drawn from a bitmap of
+   itself made once at a size on a 1/8-octave ladder (sharp at that size, scaled by at most 4 % to the size asked),
+   which costs a texture copy instead. */
+const LARGE = 150;
+type Paint = string | InkGrad | { stroke: string; w: number };
+const paintKey = (f: Paint) => (typeof f === 'string' ? f : Array.isArray(f) ? f.join('>') : 'K' + f.stroke + '/' + f.w);
+function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
+  const S = Math.min(1400, Math.round(2 ** (Math.round(Math.log2(G) * 8) / 8))), key = 'S|' + font + '|' + paintKey(fill) + '|' + S + '|' + txt;
+  let e = CACHE.get(key); if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
+  STATS.miss++; STATS.keys?.push('sharp|' + S + '|' + txt);
+  const q = S / EM; if (sg.font !== font) sg.font = font;
+  const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(S * 0.14 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.4 + pad * 2);
+  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d') as CanvasRenderingContext2D;
+  c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.setTransform(q, 0, 0, q, w / 2, h / 2);
+  if (typeof fill === 'string') { c.fillStyle = fill; c.fillText(txt, 0, 0); }
+  else if (Array.isArray(fill)) { const gr = c.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6); gr.addColorStop(0, fill[0]); gr.addColorStop(0.55, fill[1]); gr.addColorStop(1, fill[2]); c.fillStyle = gr; c.fillText(txt, 0, 0); }
+  else { c.strokeStyle = fill.stroke; c.lineWidth = fill.w; c.lineJoin = 'round'; c.strokeText(txt, 0, 0); }
+  const bm: any = oc.transferToImageBitmap ? oc.transferToImageBitmap() : oc;
+  e = { bm, w, h, s: EM / S }; CACHE.set(key, e); PIX += w * h;
+  while (PIX > MAX && CACHE.size > 1) { const [k0, o] = CACHE.entries().next().value!; CACHE.delete(k0); PIX -= o.w * o.h; (o.bm as ImageBitmap).close?.(); }
+  return e;
+}
+/** The outline of `txt` (line width w in EM units), the same way: from a bitmap past LARGE. */
+export function strokeGlyph(g: Ctx, txt: string, G: number, w: number, x = 0, y = 0) {
+  if (G < LARGE) { g.lineWidth = w; g.strokeText(txt, x, y); return; }
+  const e = sharpBm(g.font, txt, G, { stroke: g.strokeStyle as string, w });
+  g.drawImage(e.bm, 0, 0, e.w, e.h, x - e.w / 2 * e.s, y - e.h / 2 * e.s, e.w * e.s, e.h * e.s);
+}
+/** Draw `txt` sharp at em size G device px, at (x, y) in the context's EM units: from the text below LARGE, from its
+ *  bitmap above. fill: a colour, or the lit gradient (null: the context's fill colour). */
+export function sharpGlyph(g: Ctx, txt: string, G: number, fill?: InkGrad | null, x = 0, y = 0) {
+  if (G < LARGE) { if (fill) { const c = g.fillStyle, gr = g.createLinearGradient(x, y - EM * 0.55, x, y + EM * 0.6); gr.addColorStop(0, fill[0]); gr.addColorStop(0.55, fill[1]); gr.addColorStop(1, fill[2]); g.fillStyle = gr; g.fillText(txt, x, y); g.fillStyle = c; } else g.fillText(txt, x, y); return; }
+  const e = sharpBm(g.font, txt, G, fill || (g.fillStyle as string));
+  g.drawImage(e.bm, 0, 0, e.w, e.h, x - e.w / 2 * e.s, y - e.h / 2 * e.s, e.w * e.s, e.h * e.s);
+}
+
 /** (the hand-over spans from the finest level's own blur — a close-up glyph's finest level is softer than 1.6 px)  */
 export const focusW = (bpx: number, G = 0) => { const top = Math.max(1.6, B0 * G / TOP * 1.15); return bpx > 0.4 ? clamp((top - bpx) / (top - 0.4)) : 1; };
 export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number, sharp?: CanvasGradient | null, grad?: InkGrad | null) {
-  const w = focusW(bpx, G), sharpFill = () => { if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
+  const w = focusW(bpx, G), sharpFill = () => { if (G >= LARGE) { sharpGlyph(g, ch, G, grad); return; } if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
   if (w >= 1) { g.globalAlpha = A; sharpFill(); return; }
   if (w <= 0) { g.globalAlpha = A; blurGlyph(g, ch, bpx, G, grad); return; }
   const sA = A * w, bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));

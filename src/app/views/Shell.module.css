@@ -30,6 +30,16 @@
 .navi[aria-current="page"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
 .navi[aria-current="page"] svg { color: var(--accent); }
 .sideFoot { display: grid; gap: 8px; }
+/* the library's sections, right under it */
+.navGroup { display: grid; gap: 2px; }
+.sub { display: grid; gap: 1px; padding-left: 14px; margin: 2px 0 6px; }
+.subi { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 12px; border-radius: var(--r-xs); color: var(--fg-3); font-weight: 540; font-size: 13.5px; text-align: left; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.subi:hover { background: var(--hover); color: var(--fg); }
+.subi[aria-current="page"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+.subi[aria-current="page"] svg { color: var(--accent); }
+.navi[data-open="true"]:not([aria-current]) { color: var(--fg); }
+/* the output switch: two even halves, the width of the sidebar */
+.out > div { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
 .chip { position: relative; overflow: hidden; height: 30px; border-radius: var(--r-xs); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); display: flex; align-items: center; padding: 0 10px; font-size: 12px; color: var(--fg-2); }
 .chip i { position: absolute; inset: 0; background: var(--accent-soft); clip-path: inset(0 calc(100% - var(--p, 0%)) 0 0); transition: clip-path 300ms var(--ease); }
 .chip span { position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

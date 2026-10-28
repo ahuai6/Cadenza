@@ -6,11 +6,12 @@ import { clamp, D2R } from '../core/math';
 import { mix, rgba } from '../core/color';
 import { rnd } from '../core/rng';
 import { project, onScreen, type Projected } from '../director/project';
+import { entryK } from '../director/entry';
 import { wordState, unitPose, TIN_SPEC, type WordCtx, type WordState } from '../director/words';
 import type { PWord } from '../director/types';
 import { fontStack } from '../text/fonts';
 import { EM } from '../text/metrics';
-import { blurGlyph, drawFocus, focusW, type InkGrad } from './glyphs';
+import { blurGlyph, drawFocus, focusW, sharpGlyph, strokeGlyph, type InkGrad } from './glyphs';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
 
@@ -27,7 +28,7 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
   for (const S of f.plan.drawOrder) {
     if (f.t < S.show && ov <= 0) continue;
     const ws = wordState(S, f.t, ov, card, c); if (!ws) continue;
-    const p = project(S.x, S.y, S.d, cam, fx, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + 60;
+    const ek = entryK(S, f.t), p = project(S.x + (ek ? S.entry!.dx * ek : 0), S.y + (ek ? S.entry!.dy * ek : 0), S.d, cam, fx, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + 60;
     if (CULL && !onScreen(p, half, W, H)) continue;
     const fog = clamp(1 - (S.d - dmin) / (1300 * 4), 0.55, 1), wa = f.wordAlpha ? f.wordAlpha(S.line.i, S.k) : 1;
     out.push({ S, ws, p, o: ws.o * fog * wa, glyphPx: EM * S.s * ws.sc * p.k });
@@ -79,17 +80,18 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       const u = S.units[ui], up = unitPose(S, ui, f.t, ws, ov, c, !!trail); if (!up) continue;
       let jx = 0, jy = 0; if (JT > 0 && ws.live) { jx = (rnd(fr * 13 + ui * 7 + S.k) - 0.5) * JT * pulse * 22; jy = (rnd(fr * 7 + ui * 3 + S.k) - 0.5) * JT * pulse * 14; }
       // ghost of an unsung unit, and the outline that marks a unit just sung: both at the unit's rest pose
+      // (an unsung ghost comes in with the word's own entrance — it rises, focuses or drifts in with it — never pops up)
       if (up.ghost || up.outline > 0) {
-        g.save(); g.translate(up.rx, up.ry); if (u.rot) g.rotate(Math.PI / 2);
-        g.globalAlpha = A * (up.ghost ? 0.4 : up.outline); g.strokeStyle = inkC; g.lineWidth = 2.4; g.strokeText(u.c, 0, 0); g.restore();
+        g.save(); g.translate(up.rx + (up.ghost ? up.dx : 0), up.ry + (up.ghost ? up.dy : 0)); if (up.ghost && up.ur) g.rotate(up.ur * D2R); if (up.ghost && up.um !== 1) g.scale(up.um, up.um); if (u.rot) g.rotate(Math.PI / 2);
+        g.globalAlpha = A * (up.ghost ? 0.4 * up.ua : up.outline); g.strokeStyle = inkC; strokeGlyph(g, u.c, v.glyphPx * f.px * (up.ghost ? up.um : 1), 2.4); g.restore();
         if (up.ghost) continue;
       }
       const bpx = blurOn ? blurMax * up.uq * f.px : 0, blurred = bpx > 0.4;
       if (trail && blurred) continue;
       g.save(); g.translate(up.rx + up.dx + jx, up.ry + up.dy + jy); if (up.ur) g.rotate(up.ur * D2R); if (up.um !== 1) g.scale(up.um, up.um); if (u.rot) g.rotate(Math.PI / 2);
       const sp = sp0 * focusW(bpx);
-      if (sp > 0.4) { g.fillStyle = g1; g.globalAlpha = A * up.ua * 0.35; g.fillText(u.c, sp, 0); g.fillStyle = g2; g.globalAlpha = A * up.ua * 0.25; g.fillText(u.c, -sp, 0); }
       const Gpx = v.glyphPx * f.px * up.um;
+      if (sp > 0.4) { g.fillStyle = g1; g.globalAlpha = A * up.ua * 0.35; sharpGlyph(g, u.c, Gpx, null, sp, 0); g.fillStyle = g2; g.globalAlpha = A * up.ua * 0.25; sharpGlyph(g, u.c, Gpx, null, -sp, 0); }
       const gk2 = M.glow > 0 && !trail ? (1 - up.uq) ** 2 * ws.gk : 0;
       if (gk2 > 0.01) { g.fillStyle = glowC; g.globalAlpha = A * up.ua * gk2; blurGlyph(g, u.c, glowB * 0.5, Gpx); }
       const shK = trail ? 0 : Math.max(0.35, M.shadow ?? 0), mt = g.getTransform(), det = mt.a * mt.d - mt.b * mt.c || 1;
@@ -104,7 +106,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       // (it is there from the first frame of the entrance, growing as the glyph comes into focus, never popping in after)
       const eK = trail ? 0 : clamp(1 - bpx / 6) * clamp(Gpx / 14 - 0.5) * view;
       if (eK > 0.02) { const step = Math.min(1.1, Gpx * 0.011), nE = Gpx > 40 ? 3 : 2; g.fillStyle = edgeC;
-        for (let e = nE; e >= 1; e--) { const [lx, ly] = toLocal(ex * step * e, ey * step * e); g.globalAlpha = A * up.ua * 0.55 * eK * (1 - (e - 1) / (nE + 1)); g.fillText(u.c, lx, ly); } }
+        for (let e = nE; e >= 1; e--) { const [lx, ly] = toLocal(ex * step * e, ey * step * e); g.globalAlpha = A * up.ua * 0.55 * eK * (1 - (e - 1) / (nE + 1)); sharpGlyph(g, u.c, Gpx, null, lx, ly); } }
       g.fillStyle = inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : inkG, trail ? null : grad);   // (blurred, the same light: no change on focusing)
       g.restore();
     }

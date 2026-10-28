@@ -9,6 +9,7 @@ import { presetStyle, normalizeStyle } from '../../src/theme/style';
 import { approxMeasurer } from '../../src/text/metrics';
 import { plan, cameraAt, basePose, project, corners, NO_FX, transK, type ScenePlan } from '../../src/director';
 import { rawPose } from '../../src/director/camera';
+import { sectionEntries } from '../../src/director/cues';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
 function make(cut: 'punch' | 'glide' | 'waltz', src = LRC, opts: { frame?: boolean } = {}) {
@@ -79,6 +80,22 @@ describe.each(styles)('transitions (%s)', cut => {
   });
 });
 
+describe.each(styles)('entrances (%s)', cut => {
+  const P = make(cut);
+  it('a word never appears cut off on an edge the camera is not heading for', () => {
+    let bad = 0, n = 0; const worst: string[] = [];
+    for (const S of P.words) { const t = S.show + 0.03; if (transK(P.passages, t) > 0.02) continue; n++;
+      const b = basePose(P.camera, t), cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 }, b2 = basePose(P.camera, t + 0.25), cam2 = { ...cam, x: b2.x, y: b2.y, z: b2.z, r: b2.r };
+      const ek = S.entry && t > S.entry.t0 ? 1 - ((u: number) => u * u * (3 - 2 * u))(Math.min(1, (t - S.entry.t0) / (S.entry.t1 - S.entry.t0))) : S.entry ? 1 : 0;
+      const X = S.x + (S.entry ? S.entry.dx * ek : 0), Y = S.y + (S.entry ? S.entry.dy * ek : 0), sh = { ...S, x: X, y: Y };
+      const pts = corners(sh).map(([x, y]) => project(x, y, S.d, cam, NO_FX, P.W, P.H)), c0 = project(S.x, S.y, S.d, cam, NO_FX, P.W, P.H), c1 = project(S.x, S.y, S.d, cam2, NO_FX, P.W, P.H);
+      const vx = c1.sx - c0.sx, vy = c1.sy - c0.sy, lim = 0.5 * 1.02;
+      const out = pts.some(q => (q.sx > P.W * lim && !(vx < -0.015 * P.W)) || (q.sx < -P.W * lim && !(vx > 0.015 * P.W)) || (q.sy > P.H * lim && !(vy < -0.015 * P.W)) || (q.sy < -P.H * lim && !(vy > 0.015 * P.W)));
+      if (out) { bad++; if (worst.length < 4) worst.push(`${S.show.toFixed(2)} "${S.w.text}"`); } }
+    expect(bad / n, worst.join(', ')).toBeLessThan(0.02);
+  });
+});
+
 describe('director: specific cases', () => {
   it('a fast run of word timings starts one camera move, not one per word', () => {
     const src = '[00:02.00]起點\n[00:05.57]<00:05.570>１ <00:05.600>２ <00:05.630>３<00:05.660>\n[00:09.00]下一句 歌詞';
@@ -146,5 +163,23 @@ describe('quick runs', () => {
     for (const cut of ['glide', 'waltz'] as const) { const P = make(cut);
       P.camera.moves.forEach((m, i) => { const B = P.camera.stops[i], A = P.camera.stops[i - 1]; if (!A || !B || m.ease === 'cut' || B.over || Math.hypot(m.dx, m.dy) * 1.5 / P.W < 0.08) return;
         expect(m.a - m.s).toBeGreaterThan(Math.min(0.29, 0.85 * (B.t - A.t) - 0.01)); }); }
+  });
+});
+
+describe('chorus entries', () => {
+  // a flat grid (no section boundaries, no level change): only the lyrics can tell where the chorus comes in
+  const ts = (s: number) => `[${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}]`;
+  const b = 60 / 112, bar = 4 * b, at = (k: number) => 0.3 + k * bar;
+  const V1 = ['街の灯りが遠くなる', 'ひとりきりの帰り道', '言えなかった言葉たち', 'ポケットの中で眠る'], V2 = ['窓の外は雨模様', '時計の針が止まる', '昨日の夢を数えて', '静かに朝を待つ'];
+  const C = ['夜を駆けていく', '二人だけの空へ', '手を伸ばしたその先に', '光が見えるから'];
+  const rows: [number, string][] = [];
+  V1.forEach((l, i) => rows.push([at(2 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(10 + i * 2) - b * 0.5, l]));
+  V2.forEach((l, i) => rows.push([at(20 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(28 + i * 2) - b * 0.5, l]));
+  const P = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'));
+  it('finds the downbeat each lyric chorus comes in on (under its pickup), and no other', () => {
+    const es = sectionEntries(P.map, P.lines, t => t > 0.5 && t < P.musicEnd - 0.5).map(e => e.t);
+    expect(es.length, es.join(', ')).toBe(2);
+    for (const k of [10, 28]) expect(es.some(t => Math.abs(t - at(k)) < 0.06), `bar ${k}: ${es.join(', ')}`).toBe(true);
+    for (const k of [10, 28]) expect(P.cues.flash.some(q => Math.abs(q.t - at(k)) < 0.06), `flash at bar ${k}`).toBe(true);
   });
 });

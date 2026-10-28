@@ -76,12 +76,15 @@ export class Engine extends Emitter<EngineEvents> {
     Object.assign(this.canvas.style, { position: 'absolute', left: this.box.x + 'px', top: this.box.y + 'px', width: w + 'px', height: hh + 'px' });
     h.style.background = this.aspectBox === 'fill' || cover ? '' : this.letterbox;
     this.applyScale(); this.session?.aspectChanged(); this.dirty = true;
+    this.redrawNow();
   }
+  /** Draw at once (a resize clears the canvas: waiting for the next frame showed it black for a moment). */
+  private redrawNow() { const s = this.session; if (!s || this.view === 'hidden' || s.needsFlush) return; try { this.draw(s); this.dirty = false; } catch (e) { console.warn(e); } }
   setAspectBox(a: AspectBox, letterbox = '#000') { const same = JSON.stringify(a) === JSON.stringify(this.aspectBox); this.aspectBox = a; this.letterbox = letterbox; if (!same) this.fit(); }
   /** The aspect of the picture's box (for sessions whose style fills the view). */
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
-  private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; } }
+  private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.redrawNow(); } }
   setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
   /** A window rect (CSS px) in the picture's reference px. */
   toRef(r: WinRect) { const c = this.canvas.getBoundingClientRect(), s = this.session, H = s ? s.plan.H : 720, k = H / Math.max(1, c.height);

@@ -6,16 +6,17 @@ import { tx, setLang as setI18n, detectLang, LANGS, type Lang, lang as langStore
 import { D, Lib } from '../bridge';
 import { ui, lib, settings, useStore, keep, type Page } from '../state';
 import { Icon } from '../ui/icons';
-import { ContextMenu, Toast } from '../ui/kit';
+import { ContextMenu, Toast, Seg } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { player, toggle, seekBy } from '../playback/player';
 import { startAnalysis } from '../playback/analysis';
 import { back } from '../layers';
 import { applyUiFont } from '../uifont';
 import mark from '../brand/mark.svg';
-import { LibraryView } from './Library';
+import { LibraryView, SECTIONS } from './Library';
+import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { PosterWall } from './Wall';
-import { SettingsView } from './Settings';
+import { SettingsView, setSettings } from './Settings';
 import { PlayerCard, QueuePanel } from './Player';
 import { Stage, NowPlaying } from './NowPlaying';
 import { EffectView } from './Effect';
@@ -125,22 +126,41 @@ const NAV: [Page, string, string][] = [['library', 'library', 's.library'], ['wa
 export function go(page: Page) { const u = ui.get(); if (u.page === page && !u.detail) return; ui.set({ page, detail: null, layer: 'none', queue: false }); }
 function Sidebar() {
   const page = useStore(ui, x => x.page), prog = useStore(lib, x => x.progress), tracks = useStore(lib, x => x.tracks), an = useStore(lib, x => x.analysis);
+  const favorites = useStore(lib, x => x.favorites), section = useStore(ui, x => x.section) || (favorites.length ? 'favorites' : 'songs'), detail = useStore(ui, x => x.detail);
   let done = 0, total = 0;
   if (an) { done = an.done; total = an.total; } else { const playable = tracks.filter(t => !t.protected); total = playable.length; done = playable.filter(t => t.analyzed > 0).length; }
   return (
     <nav className={s.side} aria-label="Cadenza">
       <div className={s.nav}>
         {NAV.map(([k, ic, label]) => (
-          <button key={k} type="button" className={s.navi} aria-current={page === k ? 'page' : undefined} onClick={() => go(k)}><Icon n={ic} size={19} /><span>{tx(label)}</span></button>
+          <div key={k} className={s.navGroup}>
+            <button type="button" className={s.navi} aria-current={page === k && (k !== 'library' || !!detail) ? 'page' : undefined} data-open={page === k} onClick={() => go(k)}><Icon n={ic} size={19} /><span>{tx(label)}</span></button>
+            {/* the library's own sections sit right under it: one click to any of them */}
+            {k === 'library' && <div className={s.sub}>
+              {SECTIONS.map(([sk, sl, sic]) => (
+                <button key={sk} type="button" className={s.subi} aria-current={page === 'library' && !detail && section === sk ? 'page' : undefined}
+                  onClick={() => { ui.set({ page: 'library', section: sk, detail: null, layer: 'none', queue: false }); keep('section', sk); }}><Icon n={sic} size={16} /><span>{tx(sl)}</span></button>
+              ))}
+            </div>}
+          </div>
         ))}
       </div>
       <div className={s.sideFoot}>
         {prog.phase === 'scan' && <div className={s.chip} style={{ ['--p' as string]: `${(prog.done / Math.max(1, prog.total)) * 100}%` }}><i /><span>{tx('s.scanning', prog)}</span></div>}
         {prog.phase !== 'scan' && done < total && <div className={s.chip} style={{ ['--p' as string]: `${(done / Math.max(1, total)) * 100}%` }}><i /><span>{tx('s.analyzing', { done, total })}</span></div>}
+        <OutputSwitch />
         <button type="button" className={s.navi} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><Icon n="settings" size={19} /><span>{tx('s.settings')}</span></button>
       </div>
     </nav>
   );
+}
+/** The audio output at hand: standard or Hi-Fi passthrough, one click (only where Hi-Fi is offered). */
+function OutputSwitch() {
+  const h = useStore(hifi), out = useStore(settings, x => x.audioOut);
+  useEffect(() => { hifiRefresh(); }, []);
+  if (!h.supported) return null;
+  return <div className={s.out}><Seg size="sm" value={out === 'hifi' ? 'hifi' : 'standard'} label={tx('s.set.out')} onChange={v => setSettings({ audioOut: v as 'standard' | 'hifi' })}
+    options={[['standard', tx('s.set.out.std')], ['hifi', tx('s.set.out.hifi')]]} /></div>;
 }
 export { keep };
 // read by the desktop tests
