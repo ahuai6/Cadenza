@@ -74,6 +74,8 @@ export class RhythmMap {
     const i = Math.floor(bt); return B[i] + (bt - i) * (B[i + 1] - B[i]);
   }
   beatLen(t: number) { return this.beatAt(t).len; }
+  /** Song time of the downbeat of bar `bar` (bar 0 = the first downbeat). */
+  barTime(bar: number) { return this.timeOf(this.downIdx + bar * this.meter); }
   /** Grid points between t0 and t1: beats subdivided into `div` parts (2: eighths, 3: triplets, 4: sixteenths). */
   grid(t0: number, t1: number, div = 2): number[] {
     const a = this.beatAt(t0), out: number[] = [];

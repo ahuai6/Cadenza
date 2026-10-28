@@ -1,0 +1,32 @@
+/* The effect system. An effect is a module that registers itself: where it draws (its layer), what it is called, the
+   parameters it takes (the interface builds its controls from this schema), and how it draws a frame. A theme is a
+   backdrop plus a set of effects with their parameters; adding an effect never touches the renderer or the director.
+   Effects read everything from the RenderFrame (time, rhythm sample, camera, palette, plan) and keep their own caches
+   (sprites, geometry), keyed by what they depend on. */
+import type { RenderFrame } from '../frame';
+
+export type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+export type Layer = 'backdrop' | 'world-back' | 'world-front' | 'foreground' | 'screen';
+export interface Param { key: string; label: string; kind: 'range' | 'toggle' | 'select'; min?: number; max?: number; step?: number; options?: [string, string][]; def: number | boolean | string }
+/** What the backdrop layer adds to a frame: the backdrop's own camera (it never cuts) and the bleed beyond the frame. */
+export interface BackdropView { roll: number; zoom: number; ox: number; oy: number; E: number; Ev: number }
+export interface DrawArgs { bd: BackdropView; params: Record<string, number | boolean | string> }
+
+export interface Effect {
+  id: string; label: string; layer: Layer;
+  /** 'backdrop': chosen by the theme's backdrop style (one at a time); 'effect': switched on and off */
+  kind: 'backdrop' | 'effect';
+  params?: Param[];
+  /** order inside its layer (lower first) */
+  z?: number;
+  draw(g: Ctx, f: RenderFrame, a: DrawArgs): void;
+  /** optional: build what a coming frame will need, in idle time */
+  prepare?(f: RenderFrame): void;
+}
+const REG = new Map<string, Effect>();
+export function register(e: Effect) { REG.set(e.id, e); return e; }
+export const effect = (id: string) => REG.get(id);
+export const effects = (kind?: Effect['kind']) => [...REG.values()].filter(e => !kind || e.kind === kind);
+export function paramsFor(e: Effect, stored?: Record<string, number | string | boolean>) {
+  const out: Record<string, number | string | boolean> = {}; for (const p of e.params || []) out[p.key] = stored?.[p.key] ?? p.def; return out;
+}

@@ -16,7 +16,8 @@ import { basePose } from './camera';
 import type { Cam, Fx } from './project';
 import { transK } from './passages';
 
-export interface CamFrame { cam: Cam; fx: Fx; /** the backdrop's camera: the same, but without the cuts */ cont: Cam; split: number; idle: number; trans: number; ov: number; calm: number; rs: RhythmSample }
+export interface CamFrame { cam: Cam; fx: Fx; /** the backdrop's camera: the same, but without the cuts */ cont: Cam; split: number; idle: number; trans: number; ov: number; calm: number; rs: RhythmSample;
+  /** the handheld float, as a screen offset (px): the backdrop moves against it a little (parallax) */ hand: [number, number] }
 
 export function idleK(plan: ScenePlan, t: number) {
   for (const I of plan.camera.idle) if (t > I.a && t < I.b) return Math.min(sstep((t - I.a) / 1.6), sstep((I.b - t) / 0.7));
@@ -27,9 +28,8 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   const ik = idleK(plan, t), rs = sig.sample(t, ik), calm = 1 - clamp((t - plan.musicEnd) / 0.3), still = 1 - rs.still;
   const cam: Cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
   // handheld float
-  const A = c.dyn.float * motion;
-  cam.x += (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16 / b.z;
-  cam.y += (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12 / b.z;
+  const A = c.dyn.float * motion, hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
+  cam.x += hx / b.z; cam.y += hy / b.z;
   cam.r += Math.sin(t * 0.19 + 0.7) * 0.9 * A;
   cam.yaw = Math.sin(t * 0.21 + 0.4) * 2.2 * A; cam.pitch = Math.cos(t * 0.17 + 1.1) * 2.6 * A;
   cam.yaw = clamp(cam.yaw, -4, 4); cam.pitch = clamp(cam.pitch, -4, 4);
@@ -57,6 +57,6 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   }
   // the backdrop's camera skips the cuts (they are hidden by the blur; the backdrop must not turn or jump with them)
   const cont = { ...cam }; for (const k of c.cuts) if (t >= k.t) { cont.x -= k.dx; cont.y -= k.dy; cont.r -= k.dr; cont.z /= Math.exp(k.dz); }
-  return { cam, fx, cont, split, idle: ik, trans: transK(plan.passages, t), ov: clamp((t - plan.musicEnd) / 0.7), calm, rs };
+  return { cam, fx, cont, split, idle: ik, trans: transK(plan.passages, t), ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
 }
 export const lerpCam = (a: Cam, b: Cam, k: number): Cam => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)), r: lerp(a.r, b.r, k), d: lerp(a.d, b.d, k), yaw: lerp(a.yaw, b.yaw, k), pitch: lerp(a.pitch, b.pitch, k) });

@@ -94,3 +94,23 @@ describe('director: specific cases', () => {
   });
 });
 export type { ScenePlan };
+
+describe('word poses', () => {
+  it('a unit settles exactly where its ghost and outline were drawn (no twitch when it is sung)', async () => {
+    const { wordState, unitPose } = await import('../../src/director/words');
+    const P = make('glide', '[00:01.00]<00:01.00>一<00:01.40>二<00:01.80>三<00:02.60>\n[00:05.00]next');
+    const S = P.words[0], c = { enter: 0.35, tempo: 1, float: 0.6, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false };
+    for (let ui = 0; ui < S.units.length; ui++) {
+      const u = S.units[ui];
+      const tGhost = u.t! - 0.02, ws0 = wordState(S, tGhost, 0, false, c)!, g = unitPose(S, ui, tGhost, ws0, 0, c)!;
+      const tSung = u.t! + 0.001, ws1 = wordState(S, tSung, 0, false, c)!, o = unitPose(S, ui, tSung, ws1, 0, c)!;
+      const tDone = u.t! + 3, ws2 = wordState(S, tDone, 0, false, c)!, d = unitPose(S, ui, tDone, ws2, 0, c)!;
+      if (ui > 0) expect(g.ghost).toBe(true);
+      // the rest pose moves only with the slow float: 20 ms apart it is (almost) the same point
+      expect(Math.hypot(o.rx - g.rx, o.ry - g.ry)).toBeLessThan(0.5);
+      expect(o.outline).toBeGreaterThan(0);
+      // settled: the glyph sits on its rest pose (no leftover entrance offset)
+      expect(Math.hypot(d.dx, d.dy)).toBeLessThan(0.01); expect(d.um).toBeCloseTo(1, 3);
+    }
+  });
+});
