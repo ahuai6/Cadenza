@@ -20,6 +20,10 @@ input[type="text"], input[type="search"], input[type="number"], select, textarea
 }
 input:hover, select:hover, textarea:hover { border-color: var(--line-2); }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* a select's list is drawn by the system: give it solid colours of its own (a see-through surface left it white on white) */
+select option, select optgroup { background-color: var(--menu-bg); color: var(--menu-fg); }
+/* a field never grows past its column: long choices shorten with an ellipsis */
+select { width: 100%; min-width: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
 select { appearance: none; padding-right: 30px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 9.5l5.5 5.5 5.5-5.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
 textarea { resize: vertical; font-family: ui-monospace, "Cascadia Mono", "Noto Sans Mono", monospace; font-size: 12.5px; line-height: 1.55; }
 ::placeholder { color: var(--fg-3); }

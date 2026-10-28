@@ -42,13 +42,13 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   const font = `${fc.w} ${EM}px ${fc.stack}`;
   const g1 = rgba(pal.accent, 1), g2 = rgba(pal.flash, 1), inkC = rgba(o.ink as any, 1);
   const glowC = st.bgStyle === 'cover' ? rgba(pal.bg, 0.9) : rgba(pal.accent, 0.85), glowB = M.glow * 26 * f.px;
-  const JT = (M.jitter ?? 0) * f.motion, pulse = f.rs.pulse, fr = Math.floor(f.t * 12), blurOn = ov <= 0 && f.motion > 0.5;
+  const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion, pulse = f.rs.pulse, fr = Math.floor(f.t * 12), blurOn = ov <= 0 && f.motion > 0.5;
   g.save(); g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font;
   for (const v of vis) {
     const { S, ws, p } = v, n = S.units.length, spec = TIN_SPEC[ws.tin] || TIN_SPEC.blur, blurMax = Math.min(32, v.glyphPx * spec.blur);
     const A = v.o * AK * view; if (A < 0.003) continue;
     const k = S.s * ws.sc * p.k;
-    g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(f.W / 2 + p.sx + (trail?.dx ?? 0), f.H / 2 + p.sy + (trail?.dy ?? 0));
+    g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(f.W / 2 + p.sx + (trail?.dx ?? 0), f.H / 2 + p.sy + (trail?.dy ?? 0)); if (sk) g.transform(1, sk[0], sk[1], 1, 0, 0);
     g.rotate((S.tilt + p.rot + ws.frot) * D2R); g.scale(k, k); g.translate(ws.ox, ws.oy);
     const sp0 = !trail ? o.split * ws.gk / Math.max(1e-3, k) : 0;
     for (let ui = 0; ui < n; ui++) {

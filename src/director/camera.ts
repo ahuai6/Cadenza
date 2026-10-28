@@ -12,7 +12,7 @@
    - the ending pulls straight back until every line is in the picture.
    Styles: punch (a firm, short move landing exactly on each word), glide (continuous, unhurried, arriving a moment
    early), waltz (glide's path with livelier moves; its springy kicks come from the rhythm's cone signal at render). */
-import { clamp, dirv, angDiff, lerp } from '../core/math';
+import { clamp, dirv, angDiff, lerp, mcubic } from '../core/math';
 import { rnd } from '../core/rng';
 import { eGlide, eWaltz, ePunch, eSettle, minJerk, type Ease } from '../core/ease';
 import type { RhythmMap } from '../rhythm/map';
@@ -124,16 +124,19 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     if (!isCut) {
       // stay until A's words are (nearly) sung, then go decisively
       s = Math.max(s, Math.min(A.sungEnd - 0.12, B.t - 0.25 / sp), A.arrive + 0.05);
-      if (arrive - s < 0.1) arrive = Math.min(B.t + 0.12, s + Math.max(0.1, dur * 0.5));
+      // a move always takes its time: a tight gap lands a moment late rather than snapping across
+      // (in a quick succession of words the moves are as quick as the words: never longer than the time between them)
+      const minDur = Math.min((smooth ? 0.45 : 0.4) / sp, Math.max(0.12, 0.85 * (B.t - A.t)));
+      arrive = Math.max(arrive, Math.min(s + minDur, smooth ? Math.max(B.t + 0.12, s + Math.min(0.3, minDur)) : B.t + 0.12));
       // the words still being sung while the camera moves must stay in the safe area: B's framing holds them too
       // when that is a reasonable framing; otherwise the camera sets off only once they are sung
       if (A.sungEnd > s + 0.02) {
         const still = A.words.filter(S => S.end > s + 0.02);
         if (still.length && !fits([...still, ...B.words], B, W, H)) {
           const both = fitPose([...still, ...B.words], B.box.tilt, B.r, W, H, T), ub = boxIn([...still, ...B.words], B.box.tilt);
-          if (both.z > B.z * 0.6 && fits([...still, ...B.words], { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)) { B.z = Math.min(B.z, both.z); compose(B, ub);
+          if (both.z > B.z * (smooth ? 0.5 : 0.6) && fits([...still, ...B.words], { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)) { B.z = Math.min(B.z, both.z); compose(B, ub);
             if (!fits([...still, ...B.words], B, W, H)) { B.x = both.x; B.y = both.y; B.drift = 0; } }
-          else if (smooth) { s = Math.max(s, A.sungEnd - 0.12); if (arrive - s < 0.12) arrive = s + Math.min(0.3, Math.max(0.12, dur * 0.6)); }
+          else if (smooth) { s = Math.max(s, A.sungEnd - 0.12); arrive = Math.max(arrive, Math.min(s + Math.max(0.45 / sp, dur * 0.8), Math.max(B.t + 0.2, s + Math.min(0.3, Math.max(0.12, 0.85 * (B.t - A.t)))))); }
           // the hard cut lands on the word: the last moment of the word before (its sustain) may leave the frame first
         }
       }
@@ -178,6 +181,12 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     dyn: { cone: (cut === 'punch' ? 0.03 : waltz ? 0.026 : 0.016) * clamp(M.punch + 0.4, 0.2, 2), coneRoll: (cut === 'punch' ? 0.5 : waltz ? 1.1 : 0.35) * TK * clamp(M.shake + 0.3, 0, 2),
       float: (0.45 + (M.float ?? 0)), sway: M.sway } };
   for (const m of moves) if (m.ease === 'cut') plan.cuts.push({ t: m.s, dx: m.dx, dy: m.dy, dz: m.dz, dr: m.dr });
+  // the frame's answer to arrivals: a spring kick for the waltz, a firm nudge for punch, sized by how hard the music hits
+  const sounding = (t: number) => map.sounding(t);
+  if (waltz) plan.kicks = stops.filter(s => !s.over && s.t > 0.3 && (s.words[0].k === 0 || map.accentAt(s.t) >= 1.3)).map(s => ({ t: map.snap(s.t, 0.09),
+    a: clamp(map.accentAt(s.t) - 0.45, 0.15, 1.05) * (0.6 + 0.6 * intensity(s.t)) * sounding(s.t), sg: rnd(s.t * 13.7) < 0.5 ? -1 : 1, px: Math.cos(rnd(s.t * 7.3) * 6.283), py: Math.sin(rnd(s.t * 7.3) * 6.283) }));
+  if (!smooth) plan.arrivals = stops.filter(s => !s.over && !s.cut && s.t > 0.3).map(s => ({ t: s.arrive, ang: rnd(s.t * 7.13) * 6.283, sg: rnd(s.t * 3.3) < 0.5 ? -1 : 1, k: (0.5 + 0.7 * intensity(s.t)) * (s.words[0].k === 0 ? 1 : 0.6) }));
+  plan.path = smoothPath(plan, inp.dur, cut, sp, stops.find(s => s.over) ? moves[moves.length - 1].s : Infinity);
   return { camera: plan, extraPassages: extraPass };
 }
 
@@ -206,8 +215,41 @@ function emptyPlan(st: Style): CameraPlan {
   return { style: st.cut, start: p, stops: [], moves: [], drifts: [], cuts: [], idle: [], dyn: { cone: 0, coneRoll: 0, float: 0, sway: 0 } };
 }
 
-/** The planned camera at t: start + every move and drift so far, each through its own ease. Pure. */
+/** The path the camera really follows: the planned moves sampled, then given inertia — a light gaussian rounds off every
+ *  start and landing, distance changes are smoothed longer and softer than the pan, and a zoom envelope looks a little
+ *  ahead and holds the widest framing coming up, so the camera eases out once instead of pushing in and pulling out
+ *  within a couple of seconds. Nothing is smoothed or looked ahead across a cut, nor into the ending's pull-back. */
+const RATE = 60;
+function smoothPath(c: CameraPlan, dur: number, style: string, sp: number, overStart: number): NonNullable<CameraPlan['path']> {
+  const n = Math.ceil((dur + 1) * RATE) + 1, waltz = style === 'waltz', punch = style === 'punch';
+  const X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), R = new Float32Array(n), Dd = new Float32Array(n), seg = new Int32Array(n);
+  const cuts = c.cuts.map(k => k.t).sort((a, b) => a - b);
+  for (let f = 0, ci = 0; f < n; f++) { const t = f / RATE; while (ci < cuts.length && t >= cuts[ci]) ci++; seg[f] = ci;
+    const b = rawPose(c, t); X[f] = b.x; Y[f] = b.y; Z[f] = Math.log(b.z); R[f] = b.r; Dd[f] = b.d; }
+  const lo = new Int32Array(n), hi = new Int32Array(n);
+  for (let f = 0; f < n; f++) lo[f] = f > 0 && seg[f - 1] === seg[f] ? lo[f - 1] : f;
+  for (let f = n - 1; f >= 0; f--) hi[f] = f < n - 1 && seg[f + 1] === seg[f] ? hi[f + 1] : f;
+  const overF = Math.min(n, Math.floor(overStart * RATE));
+  // zoom envelope (the widest framing a moment ahead, never more than 1.25x wider than now)
+  if (!punch) { const ahead = Math.round(Math.min(1.4, (waltz ? 0.6 : 0.9) / sp) * RATE), back = Math.round(0.35 * RATE), Zr = Z.slice(), maxWide = Math.log(1.25);
+    for (let f = 0; f < overF; f++) { let m = Zr[f]; const a = Math.max(lo[f], f - back), b = Math.min(overF - 1, hi[f], f + ahead); for (let j = a; j <= b; j++) if (Zr[j] < m) m = Zr[j]; Z[f] = Math.max(m, Zr[f] - maxWide); } }
+  const gauss = (a: Float32Array, sig: number) => { const rad = Math.max(1, Math.round(sig * RATE * 3)), ker: number[] = []; let ks = 0;
+    for (let k = -rad; k <= rad; k++) { const v = Math.exp(-0.5 * (k / (sig * RATE)) ** 2); ker.push(v); ks += v; }
+    const o = new Float32Array(n); for (let f = 0; f < n; f++) { let v = 0; for (let k = -rad; k <= rad; k++) { const g = f + k; v += a[g < lo[f] ? lo[f] : g > hi[f] ? hi[f] : g] * ker[k + rad]; } o[f] = v / ks; } return o; };
+  const ps = punch ? 0.035 : waltz ? 0.08 : 0.12, zsig = (punch ? 0.12 : waltz ? 0.3 : 0.45) / sp;
+  return { rate: RATE, n, seg, x: gauss(X, ps), y: gauss(Y, ps), lz: gauss(Z, zsig), r: gauss(R, ps), d: gauss(Dd, ps) };
+}
+/** The planned camera at t (on its smoothed path when there is one). Pure. */
 export function basePose(c: CameraPlan, t: number): Pose & { tx: number; ty: number } {
+  const P = c.path; if (!P) return rawPose(c, t);
+  // read along a curve through the samples that never overshoots them, and never across a cut
+  const u = clamp(t * P.rate, 0, P.n - 1), f = Math.floor(u), k = u - f, n1 = P.n - 1, sg = P.seg;
+  let f0 = Math.max(0, f - 1), f2 = Math.min(n1, f + 1), f3 = Math.min(n1, f + 2); if (sg[f0] !== sg[f]) f0 = f; if (sg[f2] !== sg[f]) f2 = f; if (sg[f3] !== sg[f2]) f3 = f2;
+  const L = (a: Float32Array) => mcubic(a[f0], a[f], a[f2], a[f3], k);
+  return { x: L(P.x), y: L(P.y), z: Math.exp(L(P.lz)), r: L(P.r), d: L(P.d), tx: 0, ty: 0 };
+}
+/** The planned camera at t, before smoothing: start + every move and drift so far, each through its own ease. */
+export function rawPose(c: CameraPlan, t: number): Pose & { tx: number; ty: number } {
   let x = c.start.x, y = c.start.y, lz = Math.log(c.start.z), r = c.start.r, d = c.start.d;
   for (const m of c.moves) {
     if (t <= m.s) continue;

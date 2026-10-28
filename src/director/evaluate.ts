@@ -7,7 +7,7 @@
    - builds lean in toward the drop, and everything holds still in the half beat before it;
    - after a cut the new passage opens a touch wide and eases in.
    All of it is a function of t: preview, export and look-ahead see the same frame. */
-import { clamp, sstep, lerp } from '../core/math';
+import { clamp, sstep, lerp, D2R } from '../core/math';
 import { eIO } from '../core/ease';
 import { impulse } from '../core/spring';
 import type { Signals, RhythmSample } from '../rhythm/signals';
@@ -44,8 +44,28 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   const fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still;
   fx.z *= 1 + c.dyn.cone * rs.cone * mo;
   fx.r += c.dyn.coneRoll * rs.coneRoll * mo;
-  const sw = clamp(0.35 + 0.65 * rs.level) * mo * (c.dyn.sway ?? 0);
-  fx.r += Math.sin(rs.bt * Math.PI / 2) * 0.9 * sw;
+  // the beat sway: a slow roll on the half bar and the lyric plane rocking in depth (a slight shear) over the bar
+  const sw = clamp(0.35 + 0.65 * rs.level) * mo * (c.dyn.sway ?? 0), tempo = Math.sqrt(clamp(plan.map.beatLen(t) / 0.5, 0.5, 2));
+  fx.r += Math.sin(rs.bt * Math.PI / 2) * 1.4 * sw;
+  fx.sk = [Math.tan(Math.cos(rs.bt * Math.PI / 4) * 3 * sw * D2R) * 0.15, Math.tan(Math.sin(rs.bt * Math.PI / 4) * 5 * sw * D2R) * 0.3];
+  const lobe = (u: number, tau: number) => (u <= 0 ? 0 : (u / tau) * Math.exp(1 - u / tau));    // one swing out and back to rest, no crossing
+  // waltz: elegant disorder — every accented arrival pushes the frame once in roll, distance and position, over a
+  // never-repeating sway; the path stays smooth while the frame breathes and staggers
+  if (c.kicks && mo > 0) {
+    let kr = 0, kz = 0, kx = 0, ky = 0;
+    for (const q of c.kicks) { const dt = t - q.t; if (dt < 0) break; if (dt > 2.2) continue;
+      const u = dt / tempo, on = 1 - Math.exp(-u * 22), k1 = lobe(u, 0.16), k2 = on * Math.exp(-u * 4.5);
+      kr += q.sg * q.a * 7 * k1; kz += q.a * 0.045 * k2; kx += q.px * q.a * W * 0.012 * k1; ky += q.py * q.a * W * 0.012 * k1; }
+    const s2 = (c.dyn.sway ?? 0) * mo, sh = M.shake;
+    fx.r += (kr * sh + (Math.sin(t * 0.73 + 1.1) + 0.6 * Math.sin(t * 1.37 + 2.3) + 0.35 * Math.sin(t * 2.83 + 0.4)) * 0.8 * s2) * mo;
+    fx.x += (kx * sh + (Math.sin(t * 0.61) + 0.5 * Math.sin(t * 1.7 + 1)) * W * 0.003 * s2) * mo;
+    fx.y += (ky * sh + (Math.cos(t * 0.53 + 0.7) + 0.5 * Math.sin(t * 1.9 + 2)) * W * 0.003 * s2) * mo;
+    fx.z *= 1 + kz * M.punch * mo;
+  }
+  // punch: an arrival nudges the frame once in one direction and lets it settle back — firm, never rattling
+  if (c.arrivals && mo > 0) for (const q of c.arrivals) { const dt = t - q.t; if (dt < 0) break; if (dt > 0.6) continue;
+    const lb = lobe(dt, 0.05) * q.k, amp = (6 + 16 * rs.level) * lb * M.shake * (W / 1280);
+    fx.x += Math.cos(q.ang) * amp * mo; fx.y += Math.sin(q.ang) * amp * mo; fx.r += q.sg * lb * 1.6 * M.shake * mo; }
   fx.z *= 1 + 0.05 * rs.build * motion * calm;
   let split = 0;
   const IK = (M.impk ?? 0.8) * mo;

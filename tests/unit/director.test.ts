@@ -8,6 +8,7 @@ import { Signals } from '../../src/rhythm/signals';
 import { presetStyle, normalizeStyle } from '../../src/theme/style';
 import { approxMeasurer } from '../../src/text/metrics';
 import { plan, cameraAt, basePose, project, corners, NO_FX, transK, type ScenePlan } from '../../src/director';
+import { rawPose } from '../../src/director/camera';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
 function make(cut: 'punch' | 'glide' | 'waltz', src = LRC, opts: { frame?: boolean } = {}) {
@@ -39,7 +40,7 @@ describe.each(styles)('director (%s)', cut => {
       if (m.ease === 'cut' || m.a - m.s < 0.05) continue;
       const L = Math.hypot(m.dx, m.dy); if (L < 5) continue;
       const ux = m.dx / L, uy = m.dy / L; let prev = -Infinity;
-      for (let t = m.s; t <= m.a; t += (m.a - m.s) / 40) { const b = basePose(P.camera, t), v = b.x * ux + b.y * uy; expect(v).toBeGreaterThanOrEqual(prev - 0.5); prev = v; }
+      for (let t = m.s; t <= m.a; t += (m.a - m.s) / 40) { const b = rawPose(P.camera, t), v = b.x * ux + b.y * uy; expect(v).toBeGreaterThanOrEqual(prev - 0.5); prev = v; }   // the plan; the smoothed path only rounds its junctions
       // how far the picture actually slides on screen during the move
       let D = 0, p0 = basePose(P.camera, m.s); for (let k = 1; k <= 40; k++) { const p1 = basePose(P.camera, m.s + (m.a - m.s) * k / 40); D += Math.hypot(p1.x - p0.x, p1.y - p0.y) * Math.sqrt(p0.z * p1.z) / P.W; p0 = p1; }
       const st = P.camera.stops.find(x => Math.abs(x.arrive - m.a) < 1e-6), i = st ? P.camera.stops.indexOf(st) : -1, A = i > 0 ? P.camera.stops[i - 1] : null;
@@ -112,5 +113,23 @@ describe('word poses', () => {
       // settled: the glyph sits on its rest pose (no leftover entrance offset)
       expect(Math.hypot(d.dx, d.dy)).toBeLessThan(0.01); expect(d.um).toBeCloseTo(1, 3);
     }
+  });
+});
+
+describe('quick runs', () => {
+  it('words sung as one quick run share one size, one entrance and one appearance (no stutter)', () => {
+    const P = make('waltz', '[00:20.00] 前面的一句歌詞\n[00:25.57]<00:25.570>１ <00:25.600>２ <00:25.630>３<00:25.660>\n[00:27.50] 下一句 慢慢唱\n');
+    const ws = P.lines[1].words;
+    expect(ws.length).toBe(3);
+    expect(new Set(ws.map(w => w.s.toFixed(4))).size).toBe(1);
+    expect(new Set(ws.map(w => w.tin)).size).toBe(1);
+    expect(new Set(ws.map(w => w.show.toFixed(4))).size).toBe(1);
+    // the camera frames the run as one stop
+    expect(P.camera.stops.filter(s => s.words.some(w => ws.includes(w))).length).toBe(1);
+  });
+  it('a smooth camera never makes a snap move (every move takes its time)', () => {
+    for (const cut of ['glide', 'waltz'] as const) { const P = make(cut);
+      P.camera.moves.forEach((m, i) => { const B = P.camera.stops[i], A = P.camera.stops[i - 1]; if (!A || !B || m.ease === 'cut' || B.over || Math.hypot(m.dx, m.dy) * 1.5 / P.W < 0.08) return;
+        expect(m.a - m.s).toBeGreaterThan(Math.min(0.29, 0.85 * (B.t - A.t) - 0.01)); }); }
   });
 });

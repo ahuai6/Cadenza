@@ -47,16 +47,21 @@ export function layout(inp: LayoutInput): LayoutResult {
   const lines: PLine[] = [], words: PWord[] = [];
   for (const L of doc.lines) {
     const P: PLine = { L, i: L.i, words: [], sec: 0, secEnd: Infinity, secIn: 0.4, ax: 0, ay: 0, bw: 0, bh: 0, prot: 0, d: 0, back: false, rtl: L.rtl };
+    let prev: { group: number; s0: number; tin: string; show: number } | null = null;
     for (const Wd of L.words) {
       const k = Wd.k, n = Wd.units.length;
       const vert = Wd.cjk && n >= 2 && n <= 5 && k > 0 && rnd(L.i * 37 + k * 11.3) < 0.34;
       const mb = measure.word(Wd.units.map(u => u.c), { vertical: vert, rtl: L.rtl });
       let s0 = Wd.latin ? 1.1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
-      const s = s0 * T, tinV = st.tin || 'mix', tin = tinV === 'mix' ? TIN_MIX[Math.floor(rnd(L.i * 13.7 + k * 7.1 + 2) * TIN_MIX.length)] : tinV;
+      // words sung as one quick run (one gesture) share one size and one entrance, so they read as one beat, not a stutter
+      const fused: boolean = !!prev && prev.group === Wd.group; if (fused) s0 = prev!.s0;
+      const tinV = st.tin || 'mix', tin: string = fused ? prev!.tin : tinV === 'mix' ? TIN_MIX[Math.floor(rnd(L.i * 13.7 + k * 7.1 + 2) * TIN_MIX.length)] : tinV, s = s0 * T;
+      const show: number = fused ? prev!.show : Wd.t - ANTIC(st);
+      prev = { group: Wd.group, s0, tin, show };
       const pw: PWord = { w: Wd, line: P, k, x: 0, y: 0, tilt: 0, d: 0, s, lw: mb.w0 * s, lh: mb.h0 * s, w0: mb.w0, h0: mb.h0, vert,
         units: Wd.units.map((u, ui) => ({ c: u.c, t: u.t, ox: mb.units[ui].cx * s, oy: mb.units[ui].cy * s, w: mb.units[ui].w * s, h: mb.units[ui].h * s, rot: mb.units[ui].rot })),
-        ang: 0, frame: null, order: 0, show: Wd.t - ANTIC(st), end: Wd.end, tin, seed: L.i * 101 + k * 7 + 1 };
+        ang: 0, frame: null, order: 0, show, end: Wd.end, tin, seed: L.i * 101 + k * 7 + 1 };
       P.words.push(pw); words.push(pw);
     }
     lines.push(P);

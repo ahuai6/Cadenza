@@ -82,7 +82,10 @@
 .section > h3 > button { margin-left: auto; }
 .note { margin: 0; color: var(--fg-3); font-size: 12.5px; line-height: 1.5; }
 .row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-.row > .field { flex: 1 1 120px; }
+.row > .field { flex: 1 1 0; min-width: 0; }
+.row > * { min-width: 0; }
+.field select, .field input { width: 100%; min-width: 0; }
+.field > label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 6px; background: var(--surface-3); color: var(--fg-2); font-size: 11px; font-weight: 600; font-style: normal; white-space: nowrap; }
 .badge[data-k="warn"] { background: color-mix(in oklab, var(--warn) 18%, transparent); color: var(--warn); }
 .badge[data-k="accent"] { background: var(--accent-soft); color: var(--accent); }

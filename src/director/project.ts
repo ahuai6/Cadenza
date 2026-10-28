@@ -10,7 +10,8 @@ import { clamp, D2R } from '../core/math';
 
 export const FOCAL = 1300;
 export interface Cam { x: number; y: number; z: number; r: number; d: number; yaw: number; pitch: number }
-export interface Fx { x: number; y: number; r: number; z: number }
+/** the frame's own motion: offset, roll, scale, and a slight shear (b, c of a canvas transform) that rocks the lyric plane in depth */
+export interface Fx { x: number; y: number; r: number; z: number; sk?: [number, number] }
 export const NO_FX: Fx = { x: 0, y: 0, r: 0, z: 1 };
 export interface Projected { sx: number; sy: number; k: number; rot: number; kp: number }
 
@@ -22,8 +23,9 @@ export function project(X: number, Y: number, D: number, cam: Cam, fx: Fx, W: nu
   const nx = clamp(qx / (W / 2), -1.6, 1.6), ny = clamp(qy / (H / 2), -1.6, 1.6);
   const kt = 1 / (1 + 0.9 * (nx * Math.tan(cam.yaw * D2R) + ny * Math.tan(cam.pitch * D2R)));
   qx *= kt; qy *= kt;
-  const fc = Math.cos(fx.r * D2R), fs = Math.sin(fx.r * D2R);
-  return { sx: (qx * fc - qy * fs) * fx.z + fx.x, sy: (qx * fs + qy * fc) * fx.z + fx.y, k: kp * cam.z * kt * fx.z, rot: -cam.r + fx.r, kp };
+  const fc = Math.cos(fx.r * D2R), fs = Math.sin(fx.r * D2R), b = fx.sk ? fx.sk[0] : 0, c2 = fx.sk ? fx.sk[1] : 0;
+  const rx = qx * fc - qy * fs, ry = qx * fs + qy * fc;
+  return { sx: (rx + c2 * ry) * fx.z + fx.x, sy: (b * rx + ry) * fx.z + fx.y, k: kp * cam.z * kt * fx.z, rot: -cam.r + fx.r, kp };
 }
 /** Is a box (centre, half-diagonal in screen px) at least partly inside the frame, with a margin? */
 export const onScreen = (p: Projected, halfDiag: number, W: number, H: number, margin = 40) =>

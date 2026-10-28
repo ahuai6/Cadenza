@@ -6,7 +6,7 @@
 .body > label + label { border-top: 1px solid var(--line); }
 .field { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 46px; }
 .field > span { color: var(--fg-2); font-weight: 520; }
-.field select { min-width: 200px; }
+.field select { width: 240px; flex: none; }
 .segWrap { display: flex; }
 .folders { display: grid; gap: 6px; }
 .folder { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 6px 6px 6px 12px; border-radius: var(--r-md); background: var(--surface-2); color: var(--fg-2); }

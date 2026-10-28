@@ -69,6 +69,12 @@ export interface CameraPlan {
   /** idle stretches (long instrumentals) */
   idle: { a: number; b: number }[];
   dyn: { cone: number; coneRoll: number; float: number; sway: number };
+  /** waltz: each accented arrival pushes the frame once (roll, distance, position), critically damped */
+  kicks?: { t: number; a: number; sg: number; px: number; py: number }[];
+  /** punch: each arrival nudges the frame once in one direction and lets it settle */
+  arrivals?: { t: number; ang: number; sg: number; k: number }[];
+  /** the path the camera follows: the moves sampled and given inertia (see smoothPath) */
+  path?: { rate: number; n: number; seg: Int32Array; x: Float32Array; y: Float32Array; lz: Float32Array; r: Float32Array; d: Float32Array };
 }
 
 export interface Cues {
