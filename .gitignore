@@ -7,3 +7,4 @@ tests/.cache/
 *.log
 .DS_Store
 build/.ico.html
+dist-harness/

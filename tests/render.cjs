@@ -32,6 +32,17 @@ const CHECKS = {
       ts.sort((a, b) => a - b); out[th] = { med: +ts[45].toFixed(1), p95: +ts[85].toFixed(1) }; } return out; });
     ok('perf: frames draw well inside a frame budget (software canvas, 1280×720)', Object.values(r).every(x => x.med < 40), JSON.stringify(r));
   },
+  async export(p) {
+    // a short song with audio (a synthetic click track), exported at 360p: the MP4 has the right size, length and a soundtrack
+    const r = await p.evaluate(async () => {
+      const sr = 48000, dur = 6, ac = new OfflineAudioContext(2, sr * dur, sr), buf = ac.createBuffer(2, sr * dur, sr);
+      for (let c = 0; c < 2; c++) { const d = buf.getChannelData(c); for (let b = 0; b < dur * 2; b++) { const i0 = Math.round((0.25 + b * 0.5) * sr); for (let i = 0; i < 2000 && i0 + i < d.length; i++) d[i0 + i] += Math.sin(i * 0.05) * Math.exp(-i / 400) * 0.8; } }
+      const ses = await H.open({ theme: 'liquid', lyrics: '[00:00.50]第一句 歌詞\n[00:03.00]第二句 歌詞', audio: buf, song: { on: true, title: '測試', artist: '' } });
+      const res = await H.exportVideo(H.engine, ses, { res: 360, fps: 24, quality: 'q1', codec: 'avc' });
+      return { ok: res.ok, w: res.w, h: res.h, size: res.size, audio: res.audio, reason: res.reason, e: res.e, dur: ses.dur };
+    });
+    ok('export: an MP4 at the asked size with its soundtrack', r.ok && r.h === 360 && r.size > 20000 && r.audio !== 'x.silent', JSON.stringify(r));
+  },
 };
 (async () => {
   if (!fs.existsSync(path.join(DIST, 'harness.html')) || process.env.BUILD !== '0') execSync('npx vite build --mode harness', { cwd: ROOT, stdio: 'ignore' });
