@@ -35,13 +35,21 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
   return out;
 }
 
+/** What the lyric pass blurs (face, colours, glyphs), so the glyph ladder can be baked before the song needs it. */
+export function lyricBake(f: Pick<RenderFrame, 'plan' | 'style' | 'pal'>) {
+  const st = f.style, fc = fontStack(st.font, f.plan.doc.lines.map(L => L.text).join('').slice(0, 400)), pal = f.pal;
+  const chars = [...new Set(f.plan.words.flatMap(S => S.units.map(u => u.c)))];
+  return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [rgba(pal.text, 1), shadowOf(pal), glowOf(st, pal)], chars };
+}
+const shadowOf = (pal: RenderFrame['pal']) => rgba(mix(pal.bg, [0, 0, 0], 0.75), 1);
+const glowOf = (st: RenderFrame['style'], pal: RenderFrame['pal']) => (st.bgStyle === 'cover' ? rgba(pal.bg, 0.9) : rgba(pal.accent, 0.85));
 /** Draw the lyrics. trail: a faint copy offset along the camera's travel (motion trail). */
 export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: number[]; split: number; trail?: { k: number; dx: number; dy: number } }) {
   const st = f.style, M = st.m, pal = f.pal, c = wordCtx(f), ov = f.cam.ov, trail = o.trail, AK = trail ? trail.k : 1, view = f.view.effect;
   const fc = fontStack(st.font, f.plan.doc.lines.map(L => L.text).join('').slice(0, 400));
   const font = `${fc.w} ${EM}px ${fc.stack}`;
   const g1 = rgba(pal.accent, 1), g2 = rgba(pal.flash, 1), inkC = rgba(o.ink as any, 1);
-  const glowC = st.bgStyle === 'cover' ? rgba(pal.bg, 0.9) : rgba(pal.accent, 0.85), glowB = M.glow * 26 * f.px;
+  const glowC = glowOf(st, pal), glowB = M.glow * 26 * f.px;
   const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion, pulse = f.rs.pulse, fr = Math.floor(f.t * 12), blurOn = ov <= 0 && f.motion > 0.5;
   // the finish of a sharp glyph: lit from above (a soft gradient from the ink to a touch of the theme's light below, so the
   // type reads as translucent light rather than flat paint), a thin edge of thickness that leans against the camera's turn
@@ -50,7 +58,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   inkG.addColorStop(0, rgba(mix(o.ink as any, [255, 255, 255], 0.35), 1)); inkG.addColorStop(0.55, inkC); inkG.addColorStop(1, rgba(mix(o.ink as any, pal.accent, 0.22), 0.92));
   const edgeC = rgba(mix(pal.bg, o.ink as any, 0.25), 1), yaw = f.cam.cam.yaw ?? 0, pitch = f.cam.cam.pitch ?? 0;
   const ex = clamp(0.35 - yaw * 0.12, -0.6, 0.9), ey = clamp(1 - pitch * 0.12, 0.4, 1.4);
-  const shadowC = rgba(mix(pal.bg, [0, 0, 0], 0.75), 1);
+  const shadowC = shadowOf(pal);
   g.save(); g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font;
   for (const v of vis) {
     const { S, ws, p } = v, n = S.units.length, spec = TIN_SPEC[ws.tin] || TIN_SPEC.blur, blurMax = Math.min(32, v.glyphPx * spec.blur);

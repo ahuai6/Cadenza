@@ -10,22 +10,28 @@ import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
 
 /* ---- transition blur: a true gaussian of the finished frame at a working size the blur allows (no mosaic), with its
-   edges extended so the borders blur like the middle, the radius growing with the transition ---- */
-const TB1 = makeCanvas(16, 16) as HTMLCanvasElement, TB2 = makeCanvas(16, 16) as HTMLCanvasElement;
+   edges extended so the borders blur like the middle, the radius growing with the transition. The working canvases are
+   exactly the working size: a canvas filter costs as much as the canvas it draws on, so blurring a small picture on a
+   full-size canvas cost twenty times more than the blur itself. ---- */
+const WORK = new Map<string, [HTMLCanvasElement, HTMLCanvasElement]>();
+function work(w: number, h: number) { const key = w + 'x' + h; let p = WORK.get(key);
+  if (!p) { p = [makeCanvas(w, h) as HTMLCanvasElement, makeCanvas(w, h) as HTMLCanvasElement]; WORK.set(key, p); if (WORK.size > 10) WORK.delete(WORK.keys().next().value!); } return p; }
 export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   const cv = g.canvas as HTMLCanvasElement, w = cv.width, h = cv.height, r = k ** 0.9 * Math.max(w, h) * 0.014; if (r < 0.25) return;
-  const W1 = w + 64, H1 = h + 64; if (TB1.width < W1 || TB1.height < H1) { TB1.width = W1; TB1.height = H1; } if (TB2.width < W1 || TB2.height < H1) { TB2.width = W1; TB2.height = H1; }
-  const a = TB1.getContext('2d')!, b = TB2.getContext('2d')!; a.imageSmoothingEnabled = b.imageSmoothingEnabled = true; a.imageSmoothingQuality = b.imageSmoothingQuality = 'high';
-  const fct = filterSupported ? 2 ** (Math.floor(Math.log2(Math.max(1, r / 3)) * 2) / 2) : 1, w1 = Math.ceil(w / fct), h1 = Math.ceil(h / fct), rb = r / fct, m = Math.min(30, Math.ceil(rb * 2.6) + 2);
-  a.setTransform(1, 0, 0, 1, 0, 0); a.globalAlpha = 1; a.filter = 'none'; a.clearRect(0, 0, w1 + 2 * m, h1 + 2 * m);
+  // the working scale: at least half size, and small enough that the blur there is about 3 px (sizes in √2 steps)
+  const fct = filterSupported ? Math.max(2, 2 ** (Math.floor(Math.log2(Math.max(1, r / 3)) * 2) / 2)) : 1, w1 = Math.ceil(w / fct), h1 = Math.ceil(h / fct), rb = r / fct, m = Math.min(30, Math.ceil(rb * 2.6) + 2);
+  const [TA, TB] = work(w1 + 2 * m, h1 + 2 * m), a = TA.getContext('2d')!, b = TB.getContext('2d')!;
+  // (plain bilinear copies: the picture is blurred right after, and a high-quality resample of a full frame costs ~100×)
+  a.imageSmoothingEnabled = b.imageSmoothingEnabled = true; a.imageSmoothingQuality = b.imageSmoothingQuality = 'low';
+  a.setTransform(1, 0, 0, 1, 0, 0); a.globalAlpha = 1; a.filter = 'none'; a.clearRect(0, 0, TA.width, TA.height);
   a.drawImage(cv, 0, 0, w, h, 0, 0, w1 + 2 * m, h1 + 2 * m); a.drawImage(cv, 0, 0, w, h, m, m, w1, h1);
-  b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1; b.clearRect(0, 0, w1 + 2 * m, h1 + 2 * m);
-  if (filterSupported) { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(TB1, 0, 0, w1 + 2 * m, h1 + 2 * m, 0, 0, w1 + 2 * m, h1 + 2 * m); b.filter = 'none'; }
-  else b.drawImage(TB1, 0, 0);
-  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high';
+  b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1; b.clearRect(0, 0, TB.width, TB.height);
+  if (filterSupported) { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(TA, 0, 0); b.filter = 'none'; }
+  else b.drawImage(TA, 0, 0);
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'medium';
   // the blur is a loss of focus, not a curtain: the softened picture comes in over the sharp one, and only a faint
   // veil of the ground colour lies over it at the very peak
-  g.globalAlpha = Math.min(1, k * 1.6) * 0.92; g.drawImage(TB2, m, m, w1, h1, 0, 0, w, h);
+  g.globalAlpha = Math.min(1, k * 1.6) * 0.92; g.drawImage(TB, m, m, w1, h1, 0, 0, w, h);
   g.globalAlpha = k * k * 0.12; g.fillStyle = hexOf(f.pal.bg); g.fillRect(0, 0, w, h); g.restore();
 }
 
@@ -74,10 +80,17 @@ function capSprite(txt: string, font: string, sz: number, ls: number, maxW: numb
   g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.shadowColor = shadow; g.shadowBlur = 8; g.fillStyle = fill; g.fillText(txt, w / 2 + ls / 2, base, maxW);
   e = { cv, w, h, base }; CAPS.set(key, e); if (CAPS.size > 160) CAPS.delete(CAPS.keys().next().value!); return e;
 }
+/** Where the captions of these sub-lines sit (centre y, size, face), bottom up as drawCaptions stacks them. */
+export function captionLayout(f: Pick<RenderFrame, 'W' | 'H'>, subs: string[], bottom: number) {
+  const base = Math.min(f.H, f.W * 1.2), out: { y: number; sz: number; font: string }[] = []; let y = bottom;
+  for (let k = subs.length - 1; k >= 0; k--) { const s = subs[k], lat = isLatin(s), sz = Math.max(lat ? 11 : 12, base * (lat ? 0.019 : 0.021));
+    out[k] = { y: y - sz * 0.35, sz, font: `${lat ? 600 : 500} ${sz}px ${captionStack(s)}` }; y -= sz * 1.75; }
+  return out;
+}
 export function drawCaptions(g: Ctx, f: RenderFrame, bottom: number) {
   if (f.cam.ov > 0 || !f.plan.hasSubs) return; const w = f.W, h = f.H, T = f.pal.text;
   for (const P of f.plan.lines) { const L = P.L; if (!L.subs.length) continue;
-    const o = (f.t >= L.t ? clamp((f.t - L.t - 0.1) / 0.3) : 0) * (1 - clamp((f.t - L.end + 0.15) / 0.25)) * f.view.effect; if (o <= 0) continue;
+    const o = (f.t >= L.t ? clamp((f.t - L.t - 0.1) / 0.3) : 0) * (1 - clamp((f.t - L.end + 0.15) / 0.25)) * sstep(clamp((f.view.effect - 0.55) / 0.45)); if (o <= 0) continue;   // (in a hand-over: after the page's own lines have come down)
     const base = Math.min(h, w * 1.2); let y = bottom + (1 - o) * 8;
     for (let k = L.subs.length - 1; k >= 0; k--) { const s = L.subs[k], lat = isLatin(s), sz = Math.max(lat ? 11 : 12, base * (lat ? 0.019 : 0.021)), ls = sz * (lat ? 0.28 : 0.24);
       const font = lat ? `600 ${sz}px ${captionStack(s)}` : `500 ${sz}px ${captionStack(s)}`, sp = capSprite(lat ? s.toLowerCase() : s, font, sz, ls, w * 0.92, rgba(T, 1), rgba(f.pal.bg, 0.95), f.px);

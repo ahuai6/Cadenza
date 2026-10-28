@@ -6,6 +6,7 @@
 import { clamp, lerp, sstep, D2R } from '../core/math';
 import { fontStack } from '../text/fonts';
 import { rgba } from '../core/color';
+import { captionLayout } from '../render/post';
 import type { RenderFrame } from '../render/frame';
 import type { Ctx } from '../render/effects/registry';
 import { coverRest, drawCoverSubject, coverRadius, coverShadow } from '../render/effects/cover';
@@ -14,7 +15,8 @@ export interface WinRect { left: number; top: number; width: number; height: num
 export interface HandoffCover { rect: WinRect; radius: number }
 /** A lyric line on the page: its box, its text and type, and (when the page wraps it) its rows. */
 /** A lyric line on the page: its box, its text and type, its rows (as the page wraps it) and each word's own box. */
-export interface HandoffLine { i: number; rect: WinRect; text: string; font: string; px: number; color: string; alpha?: number; rows?: { rect: WinRect; text: string }[]; words?: { rect: WinRect; text: string }[] }
+export interface HandoffLine { i: number; rect: WinRect; text: string; font: string; px: number; color: string; alpha?: number; rows?: { rect: WinRect; text: string }[]; words?: { rect: WinRect; text: string }[];
+  /** its translation / romanisation lines as the page shows them (they fly down to the captions) */ subs?: { rect: WinRect; text: string; font: string; px: number }[] }
 export interface HandoffSpec { cover?: HandoffCover | null; lines?: HandoffLine[] }
 
 /** The timeline of a hand-over, as a function of its progress p (0 = the page, 1 = the picture). p itself moves on a
@@ -110,6 +112,14 @@ export class Handoff {
         if (mixT > 0) { g.globalAlpha = al * mixT; g.font = sceneFont(pxs); g.fillText(Wd.text, 0, 0); }
         g.restore();
       });
+      // the sung line's translation and romanisation glide down to where the picture shows them as captions (and grow or
+      // shrink to their size there); the other lines' fade out with their lines
+      if (L.subs?.length) { const cur = li === 0, cap = captionLayout(f, L.subs.map(x => x.text), f.H * 0.9), u = ease(clamp(ph.line(li) * 1.3));
+        L.subs.forEach((sb, k) => { const b = this.toRef(sb.rect), x0 = b.x + b.w / 2, y0 = b.y + b.h / 2, px0 = sb.px * kr;
+          const x = cur ? lerp(x0, f.W / 2, u) : x0, y = cur ? lerp(y0, cap[k].y, u) : y0 - 18 * u, pxs = cur ? lerp(px0, cap[k].sz, u) : px0;
+          const al = (cur ? 1 - sstep(clamp((u - 0.7) / 0.3)) : (1 - sstep(clamp(u / 0.5)))) * (L.alpha ?? 1) * 0.75; if (al < 0.01) return;
+          g.save(); g.fillStyle = L.color; g.globalAlpha = al; g.font = sb.font.replace(/(\d+(\.\d+)?)px/, `${pxs.toFixed(2)}px`); g.fillText(sb.text, x, y); g.restore(); });
+      }
     });
     g.restore();
   }

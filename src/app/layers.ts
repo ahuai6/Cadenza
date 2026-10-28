@@ -45,19 +45,15 @@ function applyNp(p: number) {
     const r = miniR + (coverR - miniR) * part(p, 0, 1); npCover.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
-  // the picture: it grows out of the card, first toward the left — where the cover flies and the window has the most
-  // room — then upward ahead of the cover, then to the right and down; its corners square off as it reaches the edges.
-  // Near the card it fades into the card's own colour, so opening starts from the card and closing ends on it (the
-  // picture never stays in the card's place and then vanishes at once)
-  const c = C || { left: W * 0.2, top: H - 90, width: W * 0.6, height: 76 }, eo = (u: number) => 1 - (1 - u) ** 3;
-  const lp = eo(part(p, 0, 0.6)), tp = eo(part(p, 0.02, 0.72)), rp = part(p, 0.14, 0.95), bp = part(p, 0.04, 0.8);
-  let top = c.top * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - 26 * (1 - p));
-  const left = c.left * (1 - lp), right = (W - c.left - c.width) * (1 - rp), bottom = (H - c.top - c.height) * (1 - bp), rad = 20 * (1 - part(p, 0.5, 1));
+  // the picture: it grows out of the card in step with the cover — every edge moves by the same progress as the cover's
+  // flight, so the two read as one movement (its top never falls behind the cover). Near the card it fades into the
+  // card's own colour, so opening starts from the card and closing ends on it
+  const c = C || { left: W * 0.2, top: H - 90, width: W * 0.6, height: 76 };
+  let top = c.top * (1 - p); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - 26 * (1 - p));
+  const left = c.left * (1 - p), right = (W - c.left - c.width) * (1 - p), bottom = (H - c.top - c.height) * (1 - p), rad = 20 * (1 - p);
   const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${right.toFixed(1)}px ${bottom.toFixed(1)}px ${left.toFixed(1)}px round ${rad.toFixed(1)}px)`;
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.16).toFixed(3);
-  // the page's shade covers exactly the picture and deepens with it, so the window never darkens ahead of the picture
-  const veil = np.firstElementChild as HTMLElement | null; if (veil) veil.style.clipPath = clip;
-  np.style.setProperty('--np', part(p, 0.1, 0.85).toFixed(3));
+  // (the page's shade is drawn in the picture itself, so it is clipped and faded with it)
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
   for (const el of refs.npParts) if (el) { el.style.opacity = String(q); el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`; }

@@ -17,6 +17,10 @@ import { VideoSource, MvSource } from './media';
 import { Handoff, type HandoffSpec, type WinRect } from './handoff';
 import type { Session } from './session';
 import { ssDown, ssFactor } from './ssaa';
+import { prewarmGlyphs } from '../render/glyphs';
+import { EM } from '../text/metrics';
+
+const idle = (fn: (d?: { timeRemaining(): number }) => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(d => fn(d), { timeout: 400 }) : setTimeout(() => fn(), 30));
 
 export type View = 'hidden' | 'ambient' | 'effect';
 export interface Tick { t: number; dur: number; musicEnd: number; playing: boolean; rs: RhythmSample | null; session: Session | null }
@@ -157,6 +161,7 @@ export class Engine extends Emitter<EngineEvents> {
     if (this.view === 'ambient') this.dirty = true;        // the ambient field is alive even while paused
     const cap = this.render.fps > 0 ? 1000 / this.render.fps : 0, due = !cap || now - this.lastDraw >= cap - 1.5;
     if (vis && this.dirty && due) { this.dirty = false; this.lastDraw = now; try { this.draw(s); } catch (e) { console.warn(e); } }
+    if (!s.needsFlush && (!this.bake || this.bake.plan !== s.plan)) this.startBake(s);
     const f = this.playing ? this.frameRs(s) : null;
     this.emit('tick', { t: this.t, dur: s.dur, musicEnd: s.musicEnd, playing: this.playing, rs: f, session: s });
     // adapt the resolution while playing (never below one CSS pixel), restore it when paused
@@ -183,6 +188,44 @@ export class Engine extends Emitter<EngineEvents> {
   private ss: HTMLCanvasElement | null = null;
   private ssCanvas(w: number, h: number) { if (!this.ss) this.ss = makeCanvas(w, h) as HTMLCanvasElement; if (this.ss.width !== w || this.ss.height !== h) { this.ss.width = w; this.ss.height = h; } return this.ss; }
   private warm: CanvasRenderingContext2D | null = null;
+  /* ---------- baking ahead ----------
+     Once a song is planned, idle time is spent making what it will need before it is needed: the glyph ladder of every
+     character in its lyrics (in the colours the lyric pass blurs), then one full frame drawn off screen at each moment
+     that first uses something costly — each transition's blur, each glyph contour, the start of the words, and a frame
+     half-way through the hand-over (its layer, the cover's layers) — so no transition is slow the first time it plays. */
+  private bake: { plan: unknown; steps: (() => boolean)[]; i: number; heavy: boolean[] } | null = null; private probeCv: HTMLCanvasElement | null = null;
+  private startBake(s: Session) {
+    const f0 = this.frameAt(0); if (!f0) return; const plan = s.plan, { lyricBake } = require_lyrics(), spec = lyricBake(f0);
+    const glyphs = prewarmGlyphs(spec.font, spec.cols, spec.chars, [1, 2, 3, 4, 5]), steps: (() => boolean)[] = [], heavy: boolean[] = [];
+    steps.push(() => glyphs(3)); heavy.push(false);
+    // the large levels only for the glyphs the camera will frame large (the plan knows each framing's closeness)
+    const pxK = this.canvas.height / plan.H, big = new Set<string>();
+    for (const st of plan.camera.stops) for (const S of st.words) if (EM * S.s * st.z * pxK > 150) for (const u of S.units) big.add(u.c);
+    if (big.size) { const large = prewarmGlyphs(spec.font, spec.cols.slice(0, 1), [...big], [0, 1]); steps.push(() => large(3)); heavy.push(false); }
+    // (the first transition at several depths of its blur: each depth works at its own size)
+    const first = plan.words[0]?.show ?? 0, p0 = plan.passages[0], ramp = p0 ? [0.2, 0.4, 0.6, 0.8].map(u => p0.t - p0.inn * (1 - u)) : [];
+    const times = [first + 0.3, ...ramp, ...plan.passages.map(p => p.t), ...plan.cues.glyphSlots.map(g => g.t + 0.6)];
+    for (const T of [...new Set(times.map(x => Math.round(x * 10) / 10))].filter(x => x >= 0 && x < plan.dur)) { steps.push(() => { this.probe(s, T, false); return false; }); heavy.push(true); }
+    steps.push(() => { this.probe(s, first + 0.3, true); return false; }); heavy.push(true);
+    this.bake = { plan, steps, i: 0, heavy }; idle(this.runBake);
+  }
+  private runBake = (dl?: { timeRemaining(): number }) => {
+    const b = this.bake, s = this.session; if (!b || !s || b.plan !== s.plan) return;
+    const t0 = performance.now(), budget = () => (dl ? dl.timeRemaining() : (this.playing ? 3 : 8) - (performance.now() - t0));
+    while (b.i < b.steps.length) {
+      if (b.heavy[b.i] && this.playing && budget() < 16) break;             // a full frame only when there is room for it
+      if (!b.heavy[b.i] && budget() < 1) break;
+      try { if (!b.steps[b.i]()) b.i++; } catch (e) { console.warn(e); b.i++; }
+      if (b.heavy[b.i - 1]) break;
+    }
+    if (b.i < b.steps.length) idle(this.runBake); else this.probeCv = null;
+  };
+  private probe(s: Session, t: number, mid: boolean) {
+    const f = this.frameAt(t); if (!f) return; const W = this.canvas.width, H = this.canvas.height; if (W < 4 || H < 4) return;
+    if (!this.probeCv || this.probeCv.width !== W || this.probeCv.height !== H) { this.probeCv = makeCanvas(W, H) as HTMLCanvasElement; }
+    const g = this.probeCv.getContext('2d')!; f.px = H / s.plan.H; if (mid) { f.view = { effect: 0.5 }; f.coverOwner = 'backdrop'; } else f.view = { effect: 1 };
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); drawFrame(g, f, { sig: s.sig });
+  }
   private lookAhead(s: Session, t: number) {
     if (t >= s.dur) return; if (!this.warm) this.warm = (makeCanvas(2, 2) as HTMLCanvasElement).getContext('2d')!;
     const f = this.frameAt(t); if (!f) return; f.px = this.canvas.height / s.plan.H;

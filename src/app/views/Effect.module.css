@@ -27,8 +27,9 @@
 .phead > div { display: grid; }
 .phead b { font-size: 15px; font-weight: 680; }
 .phead small { color: var(--fg-2); font-size: 12px; }
-.tabs { padding: 0 14px 8px; overflow-x: auto; scrollbar-width: none; }
-.tabs > div { width: max-content; max-width: none; }
+/* eight tabs: two even rows of four, always inside the panel (never a row running out of it) */
+.tabs { padding: 0 14px 8px; }
+.tabs > div { display: grid; grid-auto-flow: row; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
 .pbody { overflow: auto; padding: 4px 18px 18px; position: relative; }
 .pbody[data-locked="true"] > :not(.lockCover) { opacity: 0.4; pointer-events: none; }
 .lockCover { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--fg); font-weight: 600; }

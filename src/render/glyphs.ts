@@ -1,64 +1,74 @@
-/* Blurred glyphs. A word focusing in asks for a new blur radius nearly every frame; drawing each fresh is what made lines
-   with many characters (or digits) hitch. So blurred glyphs are drawn small (a blurred glyph holds no fine detail: never
-   more than ~3 px of blur at its working size), with a real gaussian (canvas filter; a shadow where filters are missing),
-   kept as bitmaps keyed by glyph, face, colour, working size and blur (sizes in 1/24-octave steps, blur in quarter
-   pixels), and scaled into place. The end of a focus pull cross-fades into the sharp glyph without dimming it. */
+/* Blurred glyphs, as a mip ladder. Each glyph (in a face and colour) is kept as a few pre-blurred bitmaps at power-of-two
+   working sizes, every level with the same small gaussian at its own resolution: scaled up to the glyph's size, level k
+   shows a blur of B0·G/size(k). Any blur is drawn from the two nearest levels, blended. So the bitmaps a glyph needs do
+   not depend on how blurred it is nor on how close the camera is: a focus pull, a zoom and a shadow all reuse the same
+   handful, made once (and baked ahead by prewarmGlyphs when a song is planned) — never one per frame. */
 import { clamp } from '../core/math';
 import { makeCanvas } from './palette';
 import type { Ctx } from './effects/registry';
 import { EM } from '../text/metrics';
 
 const HAS_FILTER = (() => { try { const g = (makeCanvas(2, 2) as HTMLCanvasElement).getContext('2d')!; g.filter = 'blur(2px)'; return g.filter === 'blur(2px)'; } catch { return false; } })();
-const scratch = makeCanvas(64, 64) as HTMLCanvasElement, sg = scratch.getContext('2d', { willReadFrequently: false }) as CanvasRenderingContext2D;
-const CACHE = new Map<string, { bm: ImageBitmap | HTMLCanvasElement | OffscreenCanvas; w: number; h: number }>(); let PIX = 0; const MAX = 40e6;
-const oct = (x: number, n: number) => 2 ** (Math.round(Math.log2(Math.max(1e-3, x)) * n) / n);
+const sg = (makeCanvas(4, 4) as HTMLCanvasElement).getContext('2d') as CanvasRenderingContext2D;     // for measuring
+type Bm = { bm: ImageBitmap | HTMLCanvasElement | OffscreenCanvas; w: number; h: number; s: number };
+const CACHE = new Map<string, Bm>(); let PIX = 0; const MAX = 48e6;
 export const filterSupported = HAS_FILTER;
+/** bitmaps made (for profiling) */
+export const STATS: { miss: number; keys?: string[] } = { miss: 0 };
+const TOP = 256, LEVELS = 6, B0 = 1.1;          // level k: working size TOP / 2^k (256 … 8), blur B0 px at that size
+
+function level(font: string, col: string, txt: string, k: number): Bm {
+  const key = font + '|' + col + '|' + k + '|' + txt; let e = CACHE.get(key);
+  if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
+  STATS.miss++; STATS.keys?.push(col + '|' + k + '|' + txt);
+  const S = TOP >> k, q = S / EM; if (sg.font !== font) sg.font = font;
+  const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(B0 * 3 + S * 0.12 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.35 + pad * 2);
+  // drawn straight into a canvas of exactly its size (a filter costs as much as the canvas it draws on)
+  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d') as CanvasRenderingContext2D;
+  c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = col; c.setTransform(q, 0, 0, q, w / 2, h / 2);
+  if (HAS_FILTER) { c.filter = `blur(${B0}px)`; c.fillText(txt, 0, 0); c.filter = 'none'; }
+  else { const D = (w + h) * 1.5 / q; c.shadowColor = col; c.shadowBlur = B0 * 2; c.shadowOffsetX = q * D; c.shadowOffsetY = 0; c.fillText(txt, -D, 0); }
+  const bm: any = oc.transferToImageBitmap ? oc.transferToImageBitmap() : oc;
+  e = { bm, w, h, s: EM / S }; CACHE.set(key, e); PIX += w * h;
+  while (PIX > MAX && CACHE.size > 1) { const [k0, o] = CACHE.entries().next().value!; CACHE.delete(k0); PIX -= o.w * o.h; (o.bm as ImageBitmap).close?.(); }
+  return e;
+}
+const put = (g: Ctx, e: Bm) => g.drawImage(e.bm, 0, 0, e.w, e.h, -e.w / 2 * e.s, -e.h / 2 * e.s, e.w * e.s, e.h * e.s);
 
 /** Draw `txt` blurred by bpx device pixels at glyph em size G device pixels, centred at the context's origin (whose
- *  transform scales EM units to the glyph's size). */
+ *  transform scales EM units to the glyph's size), at the context's current alpha. */
 export function blurGlyph(g: Ctx, txt: string, bpx: number, G: number) {
-  const hs = clamp(Math.round(oct(G, 12)), 24, 256), bw = Math.max(0.5, bpx * hs / G);
-  const hq = bw > 3 ? Math.max(8, Math.round(oct(hs * 3 / bw, 24))) : hs, b = bw > 3 ? Math.max(0.5, Math.round(bw * hq / hs * 4) / 4) : Math.round(bw * 4) / 4;
-  const font = g.font, col = g.fillStyle as string, key = font + '|' + col + '|' + hq + '|' + b + '|' + txt;
-  let e = CACHE.get(key);
-  if (e) { CACHE.delete(key); CACHE.set(key, e); }
-  else {
-    const q = hq / EM; if (sg.font !== font) sg.font = font;
-    const tw = Math.max(hq, sg.measureText(txt).width * q), pad = Math.ceil(b * 3 + hq * 0.12), w = Math.ceil(tw + pad * 2), h = Math.ceil(hq * 1.35 + pad * 2);
-    if (scratch.width < w || scratch.height < h) { scratch.width = Math.max(w, scratch.width); scratch.height = Math.max(h, scratch.height); }
-    sg.setTransform(1, 0, 0, 1, 0, 0); sg.clearRect(0, 0, w, h); sg.globalAlpha = 1; sg.font = font; sg.textAlign = 'center'; sg.textBaseline = 'middle'; sg.fillStyle = col;
-    sg.setTransform(q, 0, 0, q, w / 2, h / 2);
-    if (HAS_FILTER) { sg.filter = `blur(${b}px)`; sg.fillText(txt, 0, 0); sg.filter = 'none'; }
-    else { const D = (w + h) * 1.5 / q; sg.shadowColor = col; sg.shadowBlur = b * 2; sg.shadowOffsetX = q * D; sg.shadowOffsetY = 0; sg.fillText(txt, -D, 0); sg.shadowBlur = 0; sg.shadowOffsetX = 0; }
-    sg.setTransform(1, 0, 0, 1, 0, 0);
-    let bm: any; if (typeof OffscreenCanvas !== 'undefined') { const oc = new OffscreenCanvas(w, h); oc.getContext('2d')!.drawImage(scratch, 0, 0, w, h, 0, 0, w, h); bm = oc.transferToImageBitmap(); }
-    else { bm = makeCanvas(w, h); bm.getContext('2d').drawImage(scratch, 0, 0, w, h, 0, 0, w, h); }
-    e = { bm, w, h }; CACHE.set(key, e); PIX += w * h;
-    while (PIX > MAX && CACHE.size > 1) { const [k0, o] = CACHE.entries().next().value!; CACHE.delete(k0); PIX -= o.w * o.h; (o.bm as ImageBitmap).close?.(); }
-  }
-  const s = EM / hq; g.drawImage(e.bm, 0, 0, e.w, e.h, -e.w / 2 * s, -e.h / 2 * s, e.w * s, e.h * s);
+  const font = g.font, col = g.fillStyle as string, A = g.globalAlpha;
+  const L = clamp(Math.log2(Math.max(1e-3, bpx) * TOP / (B0 * Math.max(1, G))), 0, LEVELS - 1), k0 = Math.floor(L), f = L - k0;
+  if (f < 0.02 || k0 >= LEVELS - 1) { put(g, level(font, col, txt, k0)); return; }
+  // between two levels: the blurrier under the sharper, so that together they keep the glyph's body at exactly A
+  const sA = A * (1 - f), bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));
+  if (bA > 0.003) { g.globalAlpha = bA; put(g, level(font, col, txt, k0 + 1)); }
+  g.globalAlpha = sA; put(g, level(font, col, txt, k0)); g.globalAlpha = A;
+}
+/** Bake the levels a song will use for these glyphs ahead of time, a slice at a time (the strong blurs and shadows use
+ *  the small levels; the large ones are made as glyphs come close). Returns a function that does the next slice and
+ *  says whether there is more. */
+export function prewarmGlyphs(font: string, cols: string[], chars: string[], levels = [3, 4, 5, 6]) {
+  // (keys use the face and colour as a canvas reports them back, which is how the lyric pass reads them)
+  const ng = (makeCanvas(1, 1) as HTMLCanvasElement).getContext('2d')!; ng.font = font; font = ng.font;
+  const ncols = cols.map(c => { ng.fillStyle = c; return ng.fillStyle as string; });
+  const todo: [string, string, number][] = []; for (const c of chars) for (const col of ncols) for (const k of levels) todo.push([col, c, k]);
+  let i = 0; return (budgetMs = 4) => { const t0 = performance.now(); while (i < todo.length && performance.now() - t0 < budgetMs) { const [col, c, k] = todo[i++]; level(font, col, c, k); } return i < todo.length; };
 }
 export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as ImageBitmap).close?.(); CACHE.clear(); PIX = 0; }
 
-/** The last 1.6 px of a focus pull: sharp at full strength with the blurred glyph fading over it (never dimmer than
- *  either); a word still fading in mixes the two additively on a scratch canvas first. */
-export const focusW = (bpx: number) => (bpx > 0.4 ? clamp((1.6 - bpx) / 1.2) : 1);
-const POOL = new Map<number, HTMLCanvasElement | OffscreenCanvas>();
+/** The last 1.6 px of a focus pull: the sharp glyph takes over from the blurred one without the word ever dimming. Both
+ *  are drawn straight onto the frame (no scratch canvas: at close-up sizes a per-glyph scratch cost more than the rest of
+ *  the frame): the sharp glyph at its share of the opacity, and the blurred one under it at whatever keeps the glyph's
+ *  body at exactly the word's opacity (source-over: a + b·(1 − a) = A). */
+/** (the hand-over spans from the finest level's own blur — a close-up glyph's finest level is softer than 1.6 px)  */
+export const focusW = (bpx: number, G = 0) => { const top = Math.max(1.6, B0 * G / TOP * 1.15); return bpx > 0.4 ? clamp((top - bpx) / (top - 0.4)) : 1; };
 export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number, sharp?: CanvasGradient | null) {
-  const w = focusW(bpx), sharpFill = () => { if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
+  const w = focusW(bpx, G), sharpFill = () => { if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
   if (w >= 1) { g.globalAlpha = A; sharpFill(); return; }
   if (w <= 0) { g.globalAlpha = A; blurGlyph(g, ch, bpx, G); return; }
-  if (A >= 0.995) { g.globalAlpha = A; sharpFill(); g.globalAlpha = A * (1 - w); blurGlyph(g, ch, bpx, G); return; }
-  // the scratch holds the whole unit with its blur: a unit may be a whole word, much wider than one em (a square of a
-  // couple of ems cut its sides off while it focused in, and they flickered back when it turned sharp)
-  if (sg.font !== g.font) sg.font = g.font;
-  const k = Math.max(0.05, G / EM), tw = Math.max(EM, sg.measureText(ch).width) * 1.15 + EM * 0.4;
-  const NW = Math.max(64, 1 << Math.ceil(Math.log2(Math.ceil(tw * k + bpx * 8)))), NH = Math.max(64, 1 << Math.ceil(Math.log2(Math.ceil(EM * 1.8 * k + bpx * 8)))), key = NW * 65536 + NH;
-  let cv = POOL.get(key); if (!cv) { cv = makeCanvas(NW, NH); POOL.set(key, cv); }
-  const c = (cv as HTMLCanvasElement).getContext('2d')!;
-  c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, NW, NH);
-  c.setTransform(k, 0, 0, k, NW / 2, NH / 2); c.font = g.font; c.fillStyle = g.fillStyle; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.globalAlpha = 1 - w; blurGlyph(c, ch, bpx, G);
-  c.globalCompositeOperation = 'lighter'; c.globalAlpha = w; c.fillText(ch, 0, 0); c.globalCompositeOperation = 'source-over';
-  g.globalAlpha = A; g.drawImage(cv, 0, 0, NW, NH, -NW / 2 / k, -NH / 2 / k, NW / k, NH / k);
+  const sA = A * w, bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));
+  if (bA > 0.003) { g.globalAlpha = bA; blurGlyph(g, ch, bpx, G); }
+  g.globalAlpha = sA; sharpFill();
 }

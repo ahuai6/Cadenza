@@ -47,6 +47,10 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
       g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = sstep(view); g.drawImage(LAYER, 0, 0); g.restore();
     }
   }
+  // the now-playing page's shade, part of the ambient picture: over the backdrop, under the flying cover and the words,
+  // leaving as the scene takes over — so nothing that crosses from the page into the picture changes brightness
+  if (view < 0.999 && !f.offline) { const k = 1 - sstep(view); if (k > 0.003) { const R = Math.hypot(W * 1.2, H * 0.9) * 0.5, sh = g.createRadialGradient(W * 0.3, H * 0.55, 0, W * 0.3, H * 0.55, R);
+    sh.addColorStop(0, 'rgba(8,6,14,0.12)'); sh.addColorStop(1, 'rgba(8,6,14,0.46)'); g.save(); g.globalAlpha = k; g.fillStyle = sh; g.fillRect(0, 0, W, H); g.restore(); } }
   o.under?.(g, f); g.setTransform(f.px, 0, 0, f.px, 0, 0);
   /* ---- flashes ---- */
   const bl = f.plan.map.beatLen(f.t), tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)), calm = cf.calm;

@@ -38,7 +38,6 @@ export function NowPlaying() {
   const live = layer === 'np';
   return (
     <section data-test="np" className={s.np + ' on-picture'} ref={root} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
-      <i className={s.veil} />
       <header className={s.top} ref={top}>
         <div className={s.fade}><IconButton n="chevronDown" glass label={tx('s.collapse')} onClick={back} /></div>
         <div className={s.topR + ' ' + s.fade}>
@@ -164,7 +163,8 @@ function handoffLines(lines: Line[], els: (HTMLElement | null)[], cur: number): 
     const u = rows.reduce((a, x) => ({ l: Math.min(a.l, x.rect.left), t: Math.min(a.t, x.rect.top), r: Math.max(a.r, x.rect.right), b: Math.max(a.b, x.rect.bottom) }), { l: 1e9, t: 1e9, r: -1e9, b: -1e9 });
     el.dataset.handed = 'true';
     out.push({ i, rect: { left: u.l, top: u.t, width: u.r - u.l, height: u.b - u.t }, text: lines[i].text, font: `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, px: parseFloat(cs.fontSize), color: '#ffffff',
-      alpha: i === cur ? 1 : 0.38, words: ws.map(w => { const b = w.getBoundingClientRect(); return { rect: { left: b.left, top: b.top, width: b.width, height: b.height }, text: (w.textContent || '').trim() }; }), rows: rows.map(x => ({ rect: { left: x.rect.left, top: x.rect.top, width: x.rect.width, height: x.rect.height }, text: x.text.trim() })) });
+      alpha: i === cur ? 1 : 0.38, words: ws.map(w => { const b = w.getBoundingClientRect(); return { rect: { left: b.left, top: b.top, width: b.width, height: b.height }, text: (w.textContent || '').trim() }; }),
+      subs: [...el.querySelectorAll<HTMLElement>('small')].map(e => { const b = e.getBoundingClientRect(), c = getComputedStyle(e); return { rect: { left: b.left, top: b.top, width: b.width, height: b.height }, text: (e.textContent || '').trim(), font: `${c.fontWeight} ${c.fontSize} ${c.fontFamily}`, px: parseFloat(c.fontSize) }; }), rows: rows.map(x => ({ rect: { left: x.rect.left, top: x.rect.top, width: x.rect.width, height: x.rect.height }, text: x.text.trim() })) });
   }
   return out;
 }
