@@ -59,3 +59,10 @@
 /* the sound's label, centred just above the progress bar */
 .qrow { display: flex; justify-content: center; min-height: 22px; margin-bottom: -6px; }
 .qrow:empty { display: none; }
+
+/* in a window the page has the main area's own shape: its top-left corner rounded and the same thin edge along the top
+   and left (drawn as light on the picture), arriving as the expansion lands */
+.np { border-top-left-radius: var(--r-xl); }
+.np::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-top-left-radius: inherit; box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.16), inset 2px 2px 6px -4px rgba(0, 0, 0, 0.35); opacity: var(--np-edge, 1); }
+:global(html[data-winfull="true"]) .np { border-top-left-radius: 0; }
+:global(html[data-winfull="true"]) .np::after { display: none; }

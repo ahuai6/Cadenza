@@ -17,7 +17,7 @@ export const refs = {
 };
 
 /* ---------- none ⇄ np ---------- */
-let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9, cardR = 20;
+let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9, cardR = 20, pageR = 20;
 const radiusOf = (el: Element) => { const v = parseFloat(getComputedStyle(el).borderTopLeftRadius); return Number.isFinite(v) ? v : 0; };
 const measure = () => {
   const { mini, npCover, card, stage } = refs;
@@ -28,6 +28,7 @@ const measure = () => {
   // the resting corners, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
   if (npCover) { const keep = npCover.style.borderRadius; npCover.style.borderRadius = ''; coverR = radiusOf(npCover); npCover.style.borderRadius = keep; }
   if (mini) miniR = radiusOf(mini) || 9; if (card) cardR = radiusOf(card) || 20;
+  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = radiusOf(pg) || 20; }
 };
 const eo = (u: number) => 1 - (1 - u) ** 3;
 function applyNp(p: number) {
@@ -50,8 +51,11 @@ function applyNp(p: number) {
   const tp = eo(p), sp = part(p, 0.08, 1), bp = eo(part(p, 0, 0.85));
   let top = (c.top + c.height - Rb.top) * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - Rb.top - 26 * (1 - p));
   const left = (c.left - Rb.left) * (1 - sp), right = (Rb.left + Rb.width - c.left - c.width) * (1 - sp), bottom = (Rb.top + Rb.height - c.top - c.height) * (1 - bp);
-  const rad = cardR * (1 - part(p, 0.55, 1));
-  const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rad.toFixed(1)}px)`;
+  // the corners: the card's all round, landing on the main area's own shape (its top-left corner rounded, like the page
+  // under it; in full screen, square)
+  const k = part(p, 0.55, 1), full = document.documentElement.dataset.winfull === 'true', rTL = cardR + ((full ? 0 : pageR) - cardR) * k, rO = cardR * (1 - k);
+  const clip = p >= 0.9995 ? (full ? '' : `inset(0 round ${pageR}px 0 0 0)`) : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
+  np.style.setProperty('--np-edge', part(p, 0.7, 1).toFixed(3));
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
@@ -82,8 +86,8 @@ async function blurSwap(swap: () => void, my: number) {
   swap(); await frame(); await frame(); if (my !== tok) return false;
   return tween(0, 460, easeOut, my);
 }
-const toFx = () => { document.documentElement.dataset.fxmode = 'true'; engine.setAspectBox(16 / 9, '#07060b'); engine.setView('effect', {}, { instant: true }); syncFx(); };
-const toNp = () => { document.documentElement.dataset.fxmode = 'false'; engine.setAspectBox({ cover: 16 / 9 }); engine.setView('ambient', {}, { instant: true }); syncFx(); };
+const toFx = () => { document.documentElement.dataset.fxmode = 'true'; if (refs.stage) refs.stage.style.clipPath = ''; engine.setAspectBox(16 / 9, '#07060b'); engine.setView('effect', {}, { instant: true }); syncFx(); };
+const toNp = () => { document.documentElement.dataset.fxmode = 'false'; engine.setAspectBox({ cover: 16 / 9 }); engine.setView('ambient', {}, { instant: true }); syncFx(); applyNp(np.x); };
 // the page and the effect controls follow the view (the page hides under the effect lyrics; their controls show)
 function syncFx() {
   const h = engine.view === 'effect' ? 1 : 0, el = refs.np, s = String(h);
@@ -114,7 +118,7 @@ async function go(target: 'none' | 'np' | 'fx') {
   if (target === 'np') { if (engine.view === 'effect') await blurSwap(toNp, my); return; }
   if (engine.view !== 'effect') await blurSwap(toFx, my);
 }
-ui.subscribe((s, prev) => { if (s.layer !== prev.layer) go(s.layer); if (s.win.full !== prev.win.full) document.documentElement.dataset.winfull = String(s.win.full); });
+ui.subscribe((s, prev) => { if (s.layer !== prev.layer) go(s.layer); if (s.win.full !== prev.win.full) { document.documentElement.dataset.winfull = String(s.win.full); if (np.x > 0 && engine.view !== 'effect') { measure(); applyNp(np.x); } } });
 document.documentElement.dataset.winfull = String(ui.get().win.full);
 export const openNp = () => ui.set({ layer: 'np', queue: false });
 export const openFx = () => ui.set({ layer: 'fx', queue: false });
