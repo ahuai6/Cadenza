@@ -4,6 +4,8 @@
 export interface Track {
   id: string; file: string; folder: string; title: string; artist: string; album: string; albumArtist: string; genre: string[];
   year: number | null; track: number | null; disc: number | null; duration: number; codec: string; bitrate: number;
+  /** the sound: sample rate (Hz), bit depth, lossless, the file's extension */ sampleRate: number; bits: number; lossless: boolean; ext: string;
+  composer: string; lyricist: string;
   cover: string | null; lrc: boolean; embedded: boolean; protected: boolean; analyzed: number;
   added: number; plays: number; last: number; looked: boolean; edited: boolean; coverSet: boolean;
   tags: { title: string; artist: string; album: string; albumArtist: string; year: number | null; genre: string[]; track: number | null; disc: number | null };

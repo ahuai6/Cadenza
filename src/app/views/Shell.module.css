@@ -36,5 +36,6 @@
 
 .page { position: relative; min-height: 0; overflow: auto; background: var(--bg); border-top-left-radius: var(--r-xl); box-shadow: inset 1px 1px 0 var(--line); scrollbar-gutter: stable; }
 .pageInner { padding: 22px 30px calc(var(--card-h) + 48px); max-width: 1500px; margin: 0 auto; }
+.pageInner > * { animation: enter 380ms var(--ease) both; }        /* each page eases in as it opens */
 .shell[data-page="workshop"] .page { overflow: hidden; }
 .shell[data-page="workshop"] .pageInner { padding: 0; max-width: none; height: 100%; }

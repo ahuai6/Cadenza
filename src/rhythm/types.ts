@@ -1,7 +1,7 @@
 // The rhythm SDK's data: what an analysis of a song contains. Plain arrays only, so it can be cached as JSON, sent
 // between threads, and read by any part of the app. Times are in seconds of the audio file.
 
-export const RHYTHM_VERSION = 1;
+export const RHYTHM_VERSION = 2;              // 2: the coarse spectrum (spec)
 
 /** How strong a rhythmic event is felt: 0 light (hats, ghost notes), 1 medium (backbeats, ordinary kicks), 2 strong (重拍:
  *  downbeat hits, accents, drops). */
@@ -60,4 +60,6 @@ export interface RhythmAnalysis {
   loud: number[];
   /** onset strength per frame at `rate` (normalised), for displays */
   odf: number[];
+  /** a coarse spectrum at `rate`: a few bands, low to high, each 0..1 song-relative (for displays) */
+  spec?: number[][];
 }

@@ -5,7 +5,8 @@ import { tx } from '../../i18n';
 import { Lib } from '../bridge';
 import { ui, lib, settings, useStore, useIndex, fmtTime, trackOf } from '../state';
 import { Icon } from '../ui/icons';
-import { IconButton, Seg, Cover, Eq, kit } from '../ui/kit';
+import { IconButton, Seg, Cover, kit } from '../ui/kit';
+import { LiveEq } from '../ui/LiveEq';
 import { useReorder } from '../ui/reorder';
 import { Drive } from '../motion';
 import { engine } from '../playback/stage';
@@ -150,7 +151,7 @@ function QueueBody({ box }: { box: React.MutableRefObject<HTMLElement | null> })
         {shown.map((x, k) => { const isCur = x.id === p.id, i = p.queue.indexOf(x.id); return (
           <div key={x.id} role="listitem" className={s.qrow} data-cur={isCur} onPointerDown={e => down(e, k)} onDoubleClick={() => playQueueAt(i)}>
             <span className={s.qgrip} aria-hidden="true"><Icon n="grip" size={14} /></span>
-            <span className={s.qcover} onClick={() => playQueueAt(i)}><Cover k={x.t!.cover} />{isCur && p.playing && <span className={s.qeq}><Eq /></span>}</span>
+            <span className={s.qcover} onClick={() => playQueueAt(i)}><Cover k={x.t!.cover} />{isCur && p.playing && <span className={s.qeq}><LiveEq /></span>}</span>
             <span className={s.qtext} onClick={() => playQueueAt(i)}><b>{x.t!.title}</b><small>{x.t!.artist || tx('s.unknownArtist')}</small></span>
             <span className={s.qtime}>{fmtTime(x.t!.duration)}</span>
             {isCur ? <span /> : <IconButton n="close" size="sm" iconSize={14} className={s.qx} data-x label={tx('s.queue.remove')} onClick={() => removeFromQueue(i)} />}

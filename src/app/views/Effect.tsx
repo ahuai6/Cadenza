@@ -13,7 +13,7 @@ import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setM
 import { refs, back } from '../layers';
 import { Progress, Transport, QueueButton } from './Player';
 import { NpLyrics } from './NowPlaying';
-import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, EndPane, ExportPanel } from './panes';
+import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, ExportPanel } from './panes';
 import { askMv, askMvOffset } from './Modals';
 import s from './Effect.module.css';
 
@@ -74,7 +74,7 @@ function MvButton() {
 }
 
 /* ---------- this song's settings ---------- */
-const TABS: [string, string][] = [['theme', 's.sec.theme'], ['lyrics', 's.sec.lyrics'], ['bg', 's.sec.bg'], ['text', 's.sec.text'], ['motion', 's.sec.motion'], ['fx', 's.sec.fx'], ['end', 's.sec.end'], ['export', 's.sec.export']];
+const TABS: [string, string][] = [['theme', 's.sec.theme'], ['lyrics', 's.sec.lyrics'], ['bg', 's.sec.bg'], ['text', 's.sec.text'], ['motion', 's.sec.motion'], ['fx', 's.sec.fx'], ['export', 's.sec.export']];   // (the ending's card follows the song's own details, like its title)
 function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   useStore(player, x => x.rev);
   const session = useStore(player, x => x.session)!, song = useStore(player, x => x.song), locked = !!song?.locked;
@@ -108,7 +108,6 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
         {tab === 'text' && <TextPane {...props} />}
         {tab === 'motion' && <MotionPane {...props} />}
         {tab === 'fx' && <EffectsPane {...props} />}
-        {tab === 'end' && <EndPane {...props} />}
         {tab === 'export' && <ExportPanel engine={engine} s={session} before={() => engine.pause()} />}
         {locked && <div className={s.lockCover} onDoubleClick={() => saveSong({ locked: false })}><Icon n="lock" size={22} /><span>{tx('s.locked')}</span></div>}
       </div>

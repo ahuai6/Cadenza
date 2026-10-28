@@ -86,8 +86,8 @@ async function loadAt(index: number, play: boolean, at = 0) {
       prep = await prepare(id, 'std'); if (my !== gen) return;
     }
     const t = trackOf(id) || track!;
-    const s = await Session.open({ key: id, lyrics: lyr?.text || '', style: song?.style, song: { on: true, title: t.title, artist: t.artist || '' },
-      coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, fade: true, aspect: 'fill' }, sessionEnv());
+    const s = await Session.open({ key: id, lyrics: lyr?.text || '', style: song?.style, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '' },
+      coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, fade: true, aspect: '16:9' }, sessionEnv());
     if (my !== gen) return;
     stale = false;
     engine.pause();                                   // before the output changes: nothing replays on the way

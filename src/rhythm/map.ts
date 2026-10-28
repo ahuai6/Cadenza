@@ -106,6 +106,8 @@ export class RhythmMap {
   /** Song-relative level 0..1 (slow: the section's loudness) and loudness (fast). */
   level(t: number) { return sampleSeries(this.a.level, this.a.rate, t + this.offset); }
   loud(t: number) { return sampleSeries(this.a.loud, this.a.rate, t + this.offset); }
+  /** The coarse spectrum at t (bands low to high, 0..1), or null without audio analysis. */
+  spec(t: number, out: number[] = []): number[] | null { const S = this.a.spec; if (!S || !S.length) return null; for (let k = 0; k < S.length; k++) out[k] = sampleSeries(S[k], this.a.rate, t + this.offset); out.length = S.length; return out; }
   /** How much music is really sounding at t (0..1): soft threshold on the fast loudness; `idle` lowers it. */
   sounding(t: number, idle = 0): number { if (!this.hasAudio) return 1; const th = lerp(0.18, 0.08, idle); return sstep(clamp((this.loud(t) - th) / 0.3)); }
   section(t: number): { i: number; s: Section | null } {

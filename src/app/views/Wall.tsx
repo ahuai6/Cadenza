@@ -9,7 +9,8 @@ import { coverUrl, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, keep } from '../state';
 import { player, playIds } from '../playback/player';
 import { Icon } from '../ui/icons';
-import { Button, Seg, Empty, Eq } from '../ui/kit';
+import { Button, Seg, Empty } from '../ui/kit';
+import { LiveEq } from '../ui/LiveEq';
 import { hashStr } from '../../core/rng';
 import s from './Wall.module.css';
 
@@ -52,7 +53,7 @@ function Poster({ t, play, span = 1, delay = 0 }: { t: Track; play: (t: Track) =
   return (
     <button type="button" className={s.poster} data-span={span} style={{ animationDelay: `${delay}ms` }} onClick={() => play(t)} title={`${t.title} — ${t.artist}`}>
       {t.cover ? <img src={coverUrl(t.cover, span > 1)} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className={s.ph}><Icon n="note" size={28} /></span>}
-      {cur && playing && <span className={s.now}><Eq /></span>}
+      {cur && playing && <span className={s.now}><LiveEq /></span>}
       <span className={s.cap}><b>{t.title}</b><small>{t.artist}</small></span>
     </button>
   );

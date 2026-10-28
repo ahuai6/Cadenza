@@ -1,15 +1,20 @@
 /* the stage: the engine's picture, behind the now-playing page and under the effect controls */
-.stage { position: fixed; inset: 0; z-index: 40; background: #07060b; visibility: hidden; contain: strict; }
+/* the page and its picture take the main area (the sidebar and the title bar stay); in full screen, and for the effect
+   lyrics, the whole window */
+.stage, .np { --pad-t: 0px; }
+.stage { position: fixed; inset: var(--tb-h) 0 0 var(--side-w); z-index: 40; background: #07060b; visibility: hidden; contain: strict; }
+:global(html[data-winfull="true"]) .stage, :global(html[data-fxmode="true"]) .stage { inset: 0; }
 .stage[data-vis="true"] { visibility: visible; }
 
-.np { position: fixed; inset: 0; z-index: 41; display: none; --h: 0; }
+.np { position: fixed; inset: var(--tb-h) 0 0 var(--side-w); z-index: 41; display: none; --h: 0; }
+:global(html[data-winfull="true"]) .np { inset: 0; --pad-t: var(--tb-h); }
 .np[data-vis="true"] { display: block; }
 .np[data-fx="true"] { pointer-events: none; }
 .fade { opacity: calc(1 - min(1, var(--h) * 3.2)); }
 
-.top { position: absolute; left: 0; right: 0; top: var(--tb-h); height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; }
+.top { position: absolute; left: 0; right: 0; top: var(--pad-t); height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; }
 .topR { display: flex; gap: 8px; }
-.main { position: absolute; inset: calc(var(--tb-h) + 52px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(320px, 1.1fr); gap: clamp(24px, 4vw, 72px); padding: 0 clamp(24px, 5vw, 88px) 40px; }
+.main { position: absolute; inset: calc(var(--pad-t) + 52px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(320px, 1.1fr); gap: clamp(24px, 4vw, 72px); padding: 0 clamp(24px, 5vw, 88px) 40px; }
 .left { display: grid; align-content: center; justify-items: center; gap: 26px; min-height: 0; }
 .cover { width: min(44vh, 34vw, 460px); aspect-ratio: 1; border-radius: 0; overflow: hidden; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45); transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform; }
 .cover > span { width: 100%; height: 100%; --cover-r: 0; border-radius: 0; }
@@ -43,3 +48,14 @@
 .none b { color: #fff; font-size: 18px; }
 .none p { margin: 0; max-width: 340px; }
 .np[data-fx="true"] .lyr { opacity: calc(1 - min(1, var(--h) * 3.2)); }
+
+/* full screen: the lyrics sit a little further right (a better balance with the cover), and the page's controls fade
+   away while the pointer rests, coming back as soon as it moves */
+:global(html[data-winfull="true"]) .right { margin-left: clamp(0px, 3vw, 56px); }
+.top > *, .info > * { transition: opacity 520ms var(--ease); }
+.np[data-idle="true"] .top > *, .np[data-idle="true"] .info > * { opacity: 0; pointer-events: none; }
+.np[data-idle="true"] { cursor: none; }
+
+/* the sound's label, centred just above the progress bar */
+.qrow { display: flex; justify-content: center; min-height: 22px; margin-bottom: -6px; }
+.qrow:empty { display: none; }

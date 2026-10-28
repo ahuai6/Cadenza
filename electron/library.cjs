@@ -65,6 +65,7 @@ function trackView(t) {
   return { id: t.id, file: path.basename(t.path), folder: path.basename(path.dirname(t.path)), title: o.title || t.title || path.parse(t.path).name,
     artist: o.artist || t.artist || '', album: o.album || t.album || '', albumArtist: o.albumArtist || t.albumArtist || '', genre: o.genre || t.genre || [],
     year: o.year || t.year || null, track: o.track || t.track || null, disc: o.disc || t.disc || null, duration: t.duration || 0, codec: t.codec || '', bitrate: t.bitrate || 0,
+    sampleRate: t.sampleRate || 0, bits: t.bits || 0, lossless: !!t.lossless, ext: path.extname(t.path).slice(1).toLowerCase(), composer: t.composer || '', lyricist: t.lyricist || '',
     cover: o.coverKey || t.coverKey || null, lrc: !!t.lrc, embedded: !!t.embedded, protected: !!t.protected, analyzed: t.analyzed || 0,
     added: t.added, plays: t.plays || 0, last: t.last || 0, looked: !!o.mbid, edited: Object.keys(o).some(k => k !== 'coverKey'), coverSet: !!o.coverKey,
     // what the file itself says, for the edit form's placeholders and per-field reset
@@ -103,13 +104,16 @@ async function walk(dir, out, depth = 0) {
     if (e.isDirectory()) await walk(p, out, depth + 1);
     else { const x = path.extname(e.name).toLowerCase(); if (PLAYABLE.has(x) || PROTECTED.has(x)) out.push(p); } }
 }
+const TAGS_V = 2;       // what readTags reads; files read by an older version are read again once
 async function readTags(p) {
   mm ||= await import('music-metadata');
   const r = await mm.parseFile(p, { duration: false, skipCovers: false });
   const c = r.common, f = r.format, pic = c.picture && c.picture[0];
   return { title: c.title || '', artist: c.artist || (c.artists || []).join(', '), album: c.album || '', albumArtist: c.albumartist || '', genre: c.genre || [],
     year: c.year || null, track: c.track && c.track.no || null, disc: c.disk && c.disk.no || null, duration: f.duration || 0, codec: f.codec || f.container || '',
-    bitrate: f.bitrate || 0, cover: pic ? pic.data : null, embedded: !!(c.lyrics && c.lyrics.length) };
+    bitrate: f.bitrate || 0, cover: pic ? pic.data : null, embedded: !!(c.lyrics && c.lyrics.length),
+    // the sound itself (for the quality label) and the credits (for the ending card)
+    sampleRate: f.sampleRate || 0, bits: f.bitsPerSample || 0, lossless: !!f.lossless, composer: (c.composer || []).join(', '), lyricist: (c.lyricist || []).join(', '), tv: TAGS_V };
 }
 let scanning = false, rescan = false;
 async function scan() {
@@ -120,7 +124,8 @@ async function scan() {
     let done = 0; send('lib:progress', { phase: 'scan', done, total: files.length });
     const queue = files.slice(), work = async () => { for (let p; (p = queue.shift());) {
       try { const st = await fsp.stat(p), old = byPath.get(p);
-        if (old && old.size === st.size && old.mtime === st.mtimeMs) { old.lrc = !!sidecar(p); }
+        if (old && old.size === st.size && old.mtime === st.mtimeMs) { old.lrc = !!sidecar(p);
+          if (!old.protected && old.tv !== TAGS_V) { const tg = await readTags(p).catch(() => null); if (tg) { delete tg.cover; Object.assign(old, tg); } } }
         else {
           const id = await fileId(p, st.size), x = path.extname(p).toLowerCase(), prev = db.tracks[id];
           const base = { id, path: p, size: st.size, mtime: st.mtimeMs, added: prev?.added || Date.now(), plays: prev?.plays || 0, last: prev?.last || 0, lrc: !!sidecar(p), failed: false };

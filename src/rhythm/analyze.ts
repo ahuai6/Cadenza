@@ -28,6 +28,21 @@ const ONSET_BIAS = 0.037;
 
 export interface AnalyzeOptions { /** report progress 0..1 */ progress?: (k: number) => void }
 
+/** A coarse spectrum for displays: the compressed band energies in SPEC_BANDS groups, low to high, each lightly smoothed
+ *  and scaled song-relative (0 its quiet floor, 1 its loud peaks), so a display moves with the music whatever the mix. */
+export const SPEC_BANDS = 6;
+function specBands(L: Float32Array, F: number, nb: number): Float32Array[] {
+  const per = nb / SPEC_BANDS, out: Float32Array[] = [];
+  for (let k = 0; k < SPEC_BANDS; k++) {
+    const b0 = Math.floor(k * per), b1 = Math.floor((k + 1) * per), v = new Float32Array(F);
+    for (let f = 0; f < F; f++) { let a = 0; for (let b = b0; b < b1; b++) a += L[f * nb + b]; v[f] = a / Math.max(1, b1 - b0); }
+    const g = smooth(v, 1), lo = quantile(g, 0.08), hi = quantile(g, 0.985) || 1;
+    for (let f = 0; f < F; f++) v[f] = clamp((g[f] - lo) / Math.max(1e-6, hi - lo));
+    out.push(v);
+  }
+  return out;
+}
+
 export function analyze(channels: Float32Array[], sampleRate: number, opts: AnalyzeOptions = {}): RhythmAnalysis {
   const prog = opts.progress || (() => {});
   const x = toMono(channels, sampleRate, RATE); prog(0.1);
@@ -293,6 +308,6 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     version: RHYTHM_VERSION, duration, rate: OUT_RATE, tempo: { bpm, confidence: +confidence.toFixed(3) },
     beats: beats.map(b => +b.toFixed(4)), meter, downbeat, phrase, halfTime, events,
     sections: sections.map(s => ({ ...s, energy: +s.energy.toFixed(3), density: +s.density.toFixed(3) })),
-    builds, level: ds(level), loud: ds(loud), odf: ds(odf),
+    builds, level: ds(level), loud: ds(loud), odf: ds(odf), spec: specBands(L, F, nb).map(ds),
   };
 }

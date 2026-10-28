@@ -5,7 +5,9 @@ import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match, type MenuItem } from '../state';
 import { player, playIds, enqueue, setMode, shufflePick } from '../playback/player';
 import { Icon } from '../ui/icons';
-import { Button, IconButton, Seg, Cover, Mosaic, Empty, Badge, Eq } from '../ui/kit';
+import { Button, IconButton, Seg, Cover, Mosaic, Empty, Badge } from '../ui/kit';
+import { LiveEq } from '../ui/LiveEq';
+import { QualityTag } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
 import { askText, pickPlaylist, editMeta, exportTrack } from './Modals';
 import { sendToWorkshop } from './workshop/Workshop';
@@ -27,7 +29,7 @@ export function LibraryView() {
             <h1>{tx('s.library')}</h1>
             <Seg role="tablist" fit value={section} onChange={setSection} options={SECTIONS.map(([k, l, ic]) => [k, tx(l), ic])} />
           </header>
-          <div key={section}>
+          <div key={section} className="enter">
             {section === 'favorites' && <Favorites idx={idx} search={search} />}
             {section === 'playlists' && <Playlists idx={idx} search={search} />}
             {section === 'songs' && <Songs tracks={tracks} search={search} />}
@@ -69,10 +71,19 @@ function Songs({ tracks, search }: { tracks: Track[]; search: string }) {
   );
 }
 function PlayButtons({ ids }: { ids: string[] }) {
+  const cur = useStore(player, x => x.id), here = !!cur && ids.includes(cur);
   return <>
     <Button kind="primary" size="sm" icon="play" disabled={!ids.length} onClick={() => playIds(ids, 0)}>{tx('s.playAll')}</Button>
     <Button size="sm" icon="shuffle" disabled={!ids.length} onClick={() => { setMode('shuffle'); playIds(ids, Math.max(0, shufflePick(ids, -1))); }}>{tx('s.shuffle')}</Button>
+    {here && <IconButton n="locate" size="sm" label={tx('s.locate')} onClick={locatePlaying} />}
   </>;
+}
+/** Bring the playing song's row into view, centred, and light it up for a moment. */
+export function locatePlaying() {
+  const row = document.querySelector<HTMLElement>('[role="list"] [data-cur="true"]'); if (!row) return;
+  row.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  row.dataset.flash = 'false'; void row.offsetWidth; row.dataset.flash = 'true'; row.focus({ preventScroll: true });
+  setTimeout(() => { row.dataset.flash = 'false'; }, 1600);
 }
 export function trackMenu(e: React.MouseEvent, t: Track, list: Track[], extra?: MenuItem | null) {
   const fav = lib.get().favorites.includes(t.id), ids = list.map(x => x.id);
@@ -94,19 +105,19 @@ export const TrackList = memo(function TrackList({ tracks, numbered, menuExtra, 
   const { shown, down, listProps } = useReorder(tracks, onReorder && (list => onReorder(list.map(t => t.id))));
   const play = (t: Track) => { if (t.protected) { toast(tx('s.protectedHelp'), 4200); return; } const ids = shown.map(x => x.id); playIds(ids, ids.indexOf(t.id)); };
   return (
-    <div className={s.tracks} role="list" data-reorder={!!onReorder} {...listProps}>
+    <div className={s.tracks + ' stagger'} role="list" data-reorder={!!onReorder} {...listProps}>
       {shown.map((t, i) => { const on = fav.has(t.id), isCur = t.id === cur; return (
-        <div key={t.id} role="listitem" className={s.row} data-cur={isCur} data-protected={t.protected} tabIndex={0}
+        <div key={t.id} role="listitem" className={s.row} data-cur={isCur} data-protected={t.protected} tabIndex={0} style={{ '--i': i } as React.CSSProperties}
           onPointerDown={e => down(e, i)} onDoubleClick={() => play(t)} onKeyDown={e => { if (e.key === 'Enter') play(t); }} onContextMenu={e => trackMenu(e, t, shown, menuExtra?.(t))}>
           <span className={s.grip} aria-hidden="true">{onReorder && <Icon n="grip" size={15} />}</span>
           <span className={s.lead}>
             {numbered ? <span>{t.track || i + 1}</span> : <Cover k={t.cover} />}
-            {isCur && playing ? <span className={s.playOver} style={{ opacity: 1 }}><Eq /></span>
+            {isCur && playing ? <span className={s.playOver} style={{ opacity: 1 }}><LiveEq /></span>
               : !t.protected && <button type="button" className={s.playOver} aria-label={tx('s.play')} onClick={() => play(t)}><Icon n="play" size={16} /></button>}
           </span>
           <span className={s.main}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span>
           <span className={s.album}>{t.album}</span>
-          <span className={s.badges}>{t.protected ? <Badge k="warn"><Icon n="lock" size={11} />{tx('s.badge.protected')}</Badge> : t.lrc || t.embedded ? <Badge>{tx('s.badge.lrc')}</Badge> : null}</span>
+          <span className={s.badges}>{t.protected ? <Badge k="warn"><Icon n="lock" size={11} />{tx('s.badge.protected')}</Badge> : <><QualityTag t={t} />{t.lrc || t.embedded ? <Badge>{tx('s.badge.lrc')}</Badge> : null}</>}</span>
           {t.protected ? <span /> : <IconButton n="plus" size="sm" label={tx('s.queue.add')} className={s.hide + ' ' + s.qadd} onClick={() => enqueue([t.id])} />}
           <IconButton n="heart" size="sm" filled={on} on={on} data-on={on} className={s.hide} label={tx(on ? 's.unfav' : 's.fav')} onClick={() => Lib!.favorite(t.id, !on)} />
           <span className={s.time}>{fmtTime(t.duration)}</span>
@@ -128,10 +139,10 @@ function Playlists({ idx, search }: { idx: Idx; search: string }) {
   const pls = useStore(lib, x => x.playlists).filter(p => match(search, p.name));
   const create = async () => { const name = await askText(tx('s.newPlaylist'), tx('s.plName'), tx('s.untitledPl')); if (name != null) Lib!.playlist('create', name || tx('s.untitledPl'), []); };
   return (
-    <div className={s.cards}>
+    <div className={s.cards + ' stagger'}>
       <button type="button" className={s.card + ' ' + s.newCard} onClick={create}><span><Icon n="plus" size={30} /></span><b>{tx('s.newPlaylist')}</b></button>
-      {pls.map(p => (
-        <button key={p.id} type="button" className={s.card} onClick={() => ui.set({ detail: { kind: 'playlist', key: p.id } })} onContextMenu={e => openMenu(e, [
+      {pls.map((p, pi) => (
+        <button key={p.id} type="button" className={s.card} style={{ '--i': pi } as React.CSSProperties} onClick={() => ui.set({ detail: { kind: 'playlist', key: p.id } })} onContextMenu={e => openMenu(e, [
           { label: tx('s.play'), icon: 'play', run: () => playIds(p.tracks, 0) },
           { label: tx('s.rename'), icon: 'lyrics', run: async () => { const n = await askText(tx('s.rename'), tx('s.plName'), p.name); if (n) Lib!.playlist('rename', p.id, n); } },
           '-', { label: tx('s.delete'), icon: 'trash', danger: true, run: () => Lib!.playlist('delete', p.id) }])}>
@@ -147,9 +158,9 @@ function Playlists({ idx, search }: { idx: Idx; search: string }) {
 function CardGrid({ items, kind }: { items: Idx['albums']; kind: 'album' | 'artist' | 'genre' }) {
   if (!items.length) return <Empty title={tx('s.empty.results')} icon="search" />;
   return (
-    <div className={s.cards} data-kind={kind}>
-      {items.map(g => (
-        <button key={g.key || '-'} type="button" className={s.card} onClick={() => ui.set({ detail: { kind, key: g.key } })}
+    <div className={s.cards + ' stagger'} data-kind={kind}>
+      {items.map((g, gi) => (
+        <button key={g.key || '-'} type="button" className={s.card} style={{ '--i': gi } as React.CSSProperties} onClick={() => ui.set({ detail: { kind, key: g.key } })}
           onContextMenu={e => openMenu(e, [{ label: tx('s.play'), icon: 'play', run: () => playIds(g.tracks.map(t => t.id), 0) }])}>
           {kind === 'genre' ? <Mosaic keys={g.tracks.map(t => t.cover)} /> : <Cover k={g.cover} round={kind === 'artist'} />}
           <b>{g.name || tx(kind === 'album' ? 's.unknownAlbum' : kind === 'artist' ? 's.unknownArtist' : 's.unknownGenre')}</b>

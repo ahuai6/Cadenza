@@ -23,6 +23,7 @@ import { EM } from '../text/metrics';
 const idle = (fn: (d?: { timeRemaining(): number }) => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(d => fn(d), { timeout: 400 }) : setTimeout(() => fn(), 30));
 
 export type View = 'hidden' | 'ambient' | 'effect';
+export type AspectBox = 'fill' | number | { cover: number };
 export interface Tick { t: number; dur: number; musicEnd: number; playing: boolean; rs: RhythmSample | null; session: Session | null }
 export interface EngineEvents extends Record<string, unknown> { tick: Tick; change: void; musicend: Session; ended: Session; session: Session | null; frame: number }
 export interface RenderSettings { scale: 'auto' | number; fps: number; prerender: boolean }
@@ -44,7 +45,7 @@ export class Engine extends Emitter<EngineEvents> {
   private box = { x: 0, y: 0, w: 1, h: 1 }; private cssW = 1; private cssH = 1; private dpr = 1;
   private ro: ResizeObserver | null = null; private host: HTMLElement | null = null; private raf = 0;
   private endedFired = false; private musicEndFired = false;
-  aspectBox: 'fill' | number = 'fill';         // fill the host, or letterbox to an aspect inside it
+  aspectBox: AspectBox = 'fill';               // fill the host, letterbox an aspect inside it, or cover the host with it
   letterbox = '#000';
 
   constructor(canvas: HTMLCanvasElement, opts: { audioContext: () => AudioContext }) {
@@ -62,15 +63,19 @@ export class Engine extends Emitter<EngineEvents> {
   private fit() {
     const h = this.host; if (!h) return; const r = h.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return;
     this.cssW = Math.round(r.width); this.cssH = Math.round(r.height);
-    const a = this.aspectBox === 'fill' ? this.cssW / this.cssH : this.aspectBox;
-    let w = this.cssW, hh = this.cssH; if (w / hh > a) w = Math.round(hh * a); else hh = Math.round(w / a);
+    // 'fill': the host's own shape; a number: that aspect inside the host (letterboxed); { cover }: that aspect over the
+    // whole host (cropped by the host, as a backdrop is)
+    const ab = this.aspectBox, cover = typeof ab === 'object', a = ab === 'fill' ? this.cssW / this.cssH : cover ? ab.cover : ab;
+    let w = this.cssW, hh = this.cssH;
+    if (cover) { if (w / hh > a) hh = Math.round(w / a); else w = Math.round(hh * a); }
+    else if (w / hh > a) w = Math.round(hh * a); else hh = Math.round(w / a);
     this.box = { x: Math.round((this.cssW - w) / 2), y: Math.round((this.cssH - hh) / 2), w, h: hh };
     // the canvas is exactly the picture's box; the host shows the letterbox around it
     Object.assign(this.canvas.style, { position: 'absolute', left: this.box.x + 'px', top: this.box.y + 'px', width: w + 'px', height: hh + 'px' });
-    h.style.background = this.aspectBox === 'fill' ? '' : this.letterbox;
+    h.style.background = this.aspectBox === 'fill' || cover ? '' : this.letterbox;
     this.applyScale(); this.session?.aspectChanged(); this.dirty = true;
   }
-  setAspectBox(a: 'fill' | number, letterbox = '#000') { this.aspectBox = a; this.letterbox = letterbox; this.fit(); }
+  setAspectBox(a: AspectBox, letterbox = '#000') { const same = JSON.stringify(a) === JSON.stringify(this.aspectBox); this.aspectBox = a; this.letterbox = letterbox; if (!same) this.fit(); }
   /** The aspect of the picture's box (for sessions whose style fills the view). */
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
@@ -116,8 +121,9 @@ export class Engine extends Emitter<EngineEvents> {
 
   /* ---------- views ---------- */
   /** Change what is drawn. ambient ↔ effect runs the shared-element handoff (spec: where the page's elements are). */
-  setView(v: View, spec: HandoffSpec = {}): Promise<void> {
+  setView(v: View, spec: HandoffSpec = {}, o: { instant?: boolean } = {}): Promise<void> {
     const prev = this.view; this.view = v; this.dirty = true;
+    if (o.instant) { this.handoff.jump(v === 'effect' ? 1 : 0); return Promise.resolve(); }
     if (v === 'hidden') { this.handoff.jump(0); return Promise.resolve(); }
     // coming out of hidden: draw now, so the stage never shows a stale picture for the frame it becomes visible
     if (prev === 'hidden' && this.session) { this.handoff.jump(0); try { this.draw(this.session); this.dirty = false; } catch (e) { console.warn(e); } }

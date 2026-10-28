@@ -10,8 +10,8 @@ import { Drive } from '../motion';
 import { engine, canvas } from '../playback/stage';
 import { player } from '../playback/player';
 import { refs, openFx, back } from '../layers';
-import type { HandoffLine } from '../../engine';
 import type { Line } from '../../lyrics/model';
+import { QualityTag } from '../ui/quality';
 import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, QueueButton } from './Player';
 import { pickPlaylist, editMeta } from './Modals';
 import s from './NowPlaying.module.css';
@@ -29,7 +29,15 @@ export function NowPlaying() {
   const root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null);
   const layer = useStore(ui, x => x.layer);
   useLayoutEffect(() => { refs.np = root.current; refs.npCover = cover.current; refs.npParts = [top.current, info.current, right.current]; });
-  useEffect(() => () => { refs.np = null; refs.npCover = null; refs.npParts = []; refs.lines = null; refs.syncLines = null; }, []);
+  useEffect(() => () => { refs.np = null; refs.npCover = null; refs.npParts = []; }, []);
+  // full screen: the controls rest out of sight while the pointer does (any move, key or wheel brings them back)
+  const full = useStore(ui, x => x.win.full);
+  useEffect(() => {
+    const el = root.current; if (!el || !full || layer !== 'np') { if (el) el.dataset.idle = 'false'; return; }
+    let tm = 0; const wake = () => { el.dataset.idle = 'false'; clearTimeout(tm); tm = window.setTimeout(() => { if (!el.querySelector(':focus-visible, [aria-expanded="true"]')) el.dataset.idle = 'true'; }, 2600); };
+    wake(); const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const; evs.forEach(e => addEventListener(e, wake, { passive: true }));
+    return () => { clearTimeout(tm); evs.forEach(e => removeEventListener(e, wake)); el.dataset.idle = 'false'; };
+  }, [full, layer]);
   if (!t) return null;
   const more = (e: React.MouseEvent) => openMenu(e, [
     { label: tx('s.addToPl'), icon: 'plus', run: () => pickPlaylist([t.id]) },
@@ -54,6 +62,7 @@ export function NowPlaying() {
                 <div><b>{t.title}</b><small>{[t.artist || tx('s.unknownArtist'), t.album].filter(Boolean).join(' — ')}</small><HifiBadge /></div>
                 <Heart id={t.id} />
               </div>
+              <div className={s.qrow}><QualityTag t={t} look="glass" /></div>
               <Progress />
               <div className={s.ctl}>
                 <div><ModeButton /></div>
@@ -115,13 +124,6 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     if (box.current) ro.observe(box.current);
     return () => { cancelAnimationFrame(S.raf); S.raf = 0; ro.disconnect(); };
   }, [lines]);
-  // the hand-over to the effect view measures these lines where they rest
-  useEffect(() => {
-    if (compact) return;
-    refs.syncLines = () => { const S = st.current, i = Math.max(0, findLine(engine.time)); S.manual = 0; S.cur = i; mark(i); aim(i, false, true); };
-    refs.lines = () => handoffLines(lines, lineEls.current, st.current.cur);
-    return () => { refs.syncLines = null; refs.lines = null; };
-  }, [lines, compact]);
   useEffect(() => {
     if (!live) return;
     const S = st.current, i0 = Math.max(0, findLine(engine.time)); if (i0 !== S.cur) { S.cur = i0; mark(i0); aim(i0, false, true); }   // catch up after being away
@@ -148,24 +150,5 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       ))}
     </div>
   );
-}
-/** The lines worth flying into the scene: the current one and the next two on screen, with their rows as the page wraps them. */
-function handoffLines(lines: Line[], els: (HTMLElement | null)[], cur: number): HandoffLine[] {
-  const out: HandoffLine[] = [];
-  els.forEach(el => el && delete el.dataset.handed);
-  for (let i = Math.max(0, cur); i < Math.min(lines.length, Math.max(0, cur) + 3); i++) {
-    const el = els[i]; if (!el) continue; const r = el.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) continue;
-    const ws = [...el.querySelectorAll<HTMLElement>('[data-w]')]; if (!ws.length) continue;
-    const cs = getComputedStyle(ws[0]), rows: { rect: DOMRect; text: string }[] = [];
-    for (const w of ws) { const b = w.getBoundingClientRect(), row = rows.find(x => Math.abs(x.rect.top - b.top) < b.height * 0.5);
-      if (row) { const l = Math.min(row.rect.left, b.left), rr = Math.max(row.rect.right, b.right); row.rect = new DOMRect(l, row.rect.top, rr - l, row.rect.height); row.text += w.textContent; }
-      else rows.push({ rect: new DOMRect(b.left, b.top, b.width, b.height), text: w.textContent || '' }); }
-    const u = rows.reduce((a, x) => ({ l: Math.min(a.l, x.rect.left), t: Math.min(a.t, x.rect.top), r: Math.max(a.r, x.rect.right), b: Math.max(a.b, x.rect.bottom) }), { l: 1e9, t: 1e9, r: -1e9, b: -1e9 });
-    el.dataset.handed = 'true';
-    out.push({ i, rect: { left: u.l, top: u.t, width: u.r - u.l, height: u.b - u.t }, text: lines[i].text, font: `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, px: parseFloat(cs.fontSize), color: '#ffffff',
-      alpha: i === cur ? 1 : 0.38, words: ws.map(w => { const b = w.getBoundingClientRect(); return { rect: { left: b.left, top: b.top, width: b.width, height: b.height }, text: (w.textContent || '').trim() }; }),
-      subs: [...el.querySelectorAll<HTMLElement>('small')].map(e => { const b = e.getBoundingClientRect(), c = getComputedStyle(e); return { rect: { left: b.left, top: b.top, width: b.width, height: b.height }, text: (e.textContent || '').trim(), font: `${c.fontWeight} ${c.fontSize} ${c.fontFamily}`, px: parseFloat(c.fontSize) }; }), rows: rows.map(x => ({ rect: { left: x.rect.left, top: x.rect.top, width: x.rect.width, height: x.rect.height }, text: x.text.trim() })) });
-  }
-  return out;
 }
 export { Drive };

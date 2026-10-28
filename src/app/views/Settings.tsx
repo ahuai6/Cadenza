@@ -82,5 +82,5 @@ function AudioGroup({ st }: { st: Settings }) {
     </Group>
   );
 }
-const Group = ({ title, help, children }: { title: string; help?: string; children: ReactNode }) => <section className={s.group}><h2>{title}</h2>{help && <Note>{help}</Note>}<div className={s.body}>{children}</div></section>;
+const Group = ({ title, help, children }: { title: string; help?: string; children: ReactNode }) => <section className={s.group + ' enter'}><h2>{title}</h2>{help && <Note>{help}</Note>}<div className={s.body}>{children}</div></section>;
 const Field = ({ label, children }: { label: string; children: ReactNode }) => <div className={s.field}><span>{label}</span>{children}</div>;
