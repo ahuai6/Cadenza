@@ -1,0 +1,42 @@
+# Builds the Windows installer and the portable app on a Windows runner and publishes them as the release of the version
+# in package.json (once: a version that already has a release is skipped).
+name: release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" >/dev/null 2>&1; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.v.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - if: steps.v.outputs.skip == 'false'
+        shell: bash
+        run: |
+          npm ci
+          npx tsc --noEmit -p .
+          npx vitest run
+          npm run build:app
+          cargo build --release --manifest-path native/cadenza-audio/Cargo.toml
+          mkdir -p native/cadenza-audio/target/x86_64-pc-windows-gnu/release
+          cp native/cadenza-audio/target/release/cadenza-audio.exe native/cadenza-audio/target/x86_64-pc-windows-gnu/release/
+          npx electron-builder --win --x64 --publish never
+      - if: steps.v.outputs.skip == 'false'
+        shell: bash
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          v=${{ steps.v.outputs.version }}
+          gh release create "v$v" --target "$GITHUB_SHA" --title "Cadenza $v" --notes-file docs/RELEASE.md \
+            "release/Cadenza-Setup-$v.exe" "release/Cadenza-Setup-$v.exe.blockmap" "release/Cadenza-$v-portable.exe"
