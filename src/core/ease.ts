@@ -1,0 +1,46 @@
+// Timing curves. Every move in Cadenza leaves and lands at rest and never passes its target unless a curve says so.
+import { clamp } from './math';
+
+export type Ease = (u: number) => number;
+
+export const linear: Ease = u => clamp(u);
+export const eOut: Ease = u => { u = clamp(u); return 1 - (1 - u) ** 3; };
+export const eIn: Ease = u => { u = clamp(u); return u * u * u; };
+export const eSine: Ease = u => Math.sin(clamp(u) * Math.PI / 2);
+export const eIO: Ease = u => { u = clamp(u); return u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2; };
+export const eExpo: Ease = u => (u >= 1 ? 1 : 1 - 2 ** (-10 * clamp(u)));
+
+/** CSS-style cubic Bézier timing function. */
+export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Ease {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = (s: number) => ((ax * s + bx) * s + cx) * s, Y = (s: number) => ((ay * s + by) * s + cy) * s, dX = (s: number) => (3 * ax * s + 2 * bx) * s + cx;
+  return u => {
+    if (u <= 0) return 0; if (u >= 1) return 1;
+    let s = u;
+    for (let i = 0; i < 8; i++) { const e = X(s) - u, d = dX(s); if (Math.abs(e) < 1e-7) return Y(s); if (Math.abs(d) < 1e-6) break; s -= e / d; }
+    let lo = 0, hi = 1; s = u;
+    for (let i = 0; i < 30; i++) { const e = X(s) - u; if (Math.abs(e) < 1e-7) break; if (e > 0) hi = s; else lo = s; s = (lo + hi) / 2; }
+    return Y(s);
+  };
+}
+
+/** Minimum-jerk profile: the smoothest way from rest to rest (zero velocity and acceleration at both ends). */
+export const minJerk: Ease = u => { u = clamp(u); return u * u * u * (10 - 15 * u + 6 * u * u); };
+
+/** A rest-to-rest move whose acceleration and deceleration take different shares of the time: `a` is the share spent
+ *  speeding up (0.5 = symmetric). Built from two joined minimum-jerk halves with matched peak velocity. */
+export function asymMove(a: number): Ease {
+  a = clamp(a, 0.1, 0.9);
+  // velocity of minJerk peaks at 1.875 at u=0.5; scale halves so the peak speed matches at the join
+  return u => {
+    u = clamp(u);
+    if (u <= a) { const k = u / a; return a * 2 * 0.5 * minJerk(k * 0.5) / 0.5; }
+    const k = (u - a) / (1 - a); return a + (1 - a) * (minJerk(0.5 + k * 0.5) - 0.5) / 0.5;
+  };
+}
+
+// The camera's curves: they gather speed smoothly (no instant start), peak early and settle longer.
+export const eGlide = cubicBezier(0.4, 0, 0.22, 1);   // smooth scrolling: an unhurried push off, a long soft landing
+export const eWaltz = cubicBezier(0.36, 0, 0.2, 1);   // livelier off the mark, the same soft landing
+export const ePunch = cubicBezier(0.55, 0, 0.3, 1);   // a brief wind-up, a decisive drive, a firm but rounded stop
+export const eSettle = cubicBezier(0.3, 0, 0.1, 1);   // small moves: leave at once but smoothly

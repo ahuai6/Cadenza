@@ -1,0 +1,9 @@
+node_modules/
+dist-web/
+dist-app/
+release/
+native/*/target/
+tests/.cache/
+*.log
+.DS_Store
+build/.ico.html

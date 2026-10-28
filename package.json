@@ -1,0 +1,86 @@
+{
+  "name": "cadenza",
+  "productName": "Cadenza",
+  "version": "1.0.0",
+  "description": "Cadenza: a personal music library whose songs play with lyrics that move to the music, exportable as lyric videos",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build:web": "vite build --mode web",
+    "build:app": "vite build --mode app && node scripts/fonts.mjs dist-app/fonts",
+    "build:native": "cargo build --release --manifest-path native/cadenza-audio/Cargo.toml --target x86_64-pc-windows-gnu",
+    "test:render": "node tests/render.cjs",
+    "test:desktop": "node tests/desktop.cjs",
+    "test:hifi": "cargo build --release --manifest-path native/cadenza-audio/Cargo.toml && node tests/hifi.cjs && node tests/desktop-hifi.cjs",
+    "electron": "npm run build:app && electron .",
+    "dist:win": "npm run build:app && npm run build:native && electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "app.cadenza.desktop",
+    "productName": "Cadenza",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**",
+      "dist-app/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Cadenza-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Cadenza-${version}-portable.${ext}"
+    },
+    "publish": null,
+    "extraResources": [
+      {
+        "from": "native/cadenza-audio/target/x86_64-pc-windows-gnu/release/cadenza-audio.exe",
+        "to": "cadenza-audio.exe"
+      }
+    ]
+  },
+  "author": "Cadenza",
+  "dependencies": {
+    "music-metadata": "^12.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.0.0",
+    "electron-builder": "26.18.0",
+    "mp4-muxer": "5.2.1",
+    "mp4box": "0.5.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vite-plugin-singlefile": "2.3.4",
+    "vitest": "5.0.5"
+  }
+}
