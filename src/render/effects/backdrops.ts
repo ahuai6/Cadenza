@@ -125,7 +125,9 @@ function shadowed(col: RGB, bg: RGB) {
 }
 export function gothicSprites(f: RenderFrame) {
   const key = f.style.bg + f.style.accent + f.style.text; if (GOTH && GOTH.key === key) return GOTH;
-  const P = f.pal, sil = mix(P.bg, K3, 0.68), bloom = mix(P.accent, K3, 0.38), bloomFar = mix(P.accent, P.bg, 0.35);
+  // (the papercut silhouettes — vines and the dark roses — a deep shade of the background lifted a touch towards the
+  // text's warm grey: near black, never a flat black hole)
+  const P = f.pal, sil = mix(mix(P.bg, K3, 0.6), P.text, 0.065), bloom = mix(P.accent, K3, 0.38), bloomFar = mix(P.accent, P.bg, 0.35);
   // the vines as vector paths in a 1024-unit square (drawn at whatever size the frame needs, always sharp): the stems in
   // runs of a few segments each at their own width (thinning towards the tip), thorns and leaves as one filled shape;
   // the roses on them from small sprites

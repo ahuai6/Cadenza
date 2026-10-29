@@ -39,6 +39,18 @@ const CHECKS = {
       ts.sort((a, b) => a - b); out[th] = { med: +ts[45].toFixed(1), p95: +ts[85].toFixed(1) }; } return out; });
     ok('perf: frames draw well inside a frame budget (software canvas, 1280×720)', Object.values(r).every(x => x.med < 40), JSON.stringify(r));
   },
+  async glass(p) {
+    // the shatter's own cost: the same moments drawn with the glass and, as a separate run, without it (gothic theme,
+    // 1280×720, each frame finished — read back — so what is drawn is really paid for, not just recorded)
+    const r = await p.evaluate(async () => { const ses = await H.open({ theme: 'gothic', coverUrl: 'cover.jpg' }); const ev = H.engine.frameAt(1).plan.cues.glass[0]; if (!ev) return { n: 0 };
+      const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720; const g = cv.getContext('2d');
+      const gl = H.effects().filter(e => e.id.startsWith('glass')), keep = gl.map(e => e.draw);
+      const run = async on => { gl.forEach((e, k) => { e.draw = on ? keep[k] : () => {}; }); const d = [];
+        for (let i = 0; i < 30; i++) { const f = H.engine.frameAt(ev.t + 0.02 + i * 0.05, { px: 1 }), a = performance.now(); H.drawFrame(g, f, { sig: ses.sig }); g.getImageData(0, 0, 1, 1); d.push(performance.now() - a); await new Promise(r => setTimeout(r, 0)); }
+        d.sort((x, y) => x - y); return +d[15].toFixed(1); };
+      await run(true); const off = await run(false), on = await run(true); gl.forEach((e, k) => { e.draw = keep[k]; }); return { n: 1, off, on }; });
+    ok('glass: the shatter adds little to a frame', r.n > 0 && r.on < r.off * 1.25 + 4, JSON.stringify(r));
+  },
   async export(p) {
     // a short song with audio (a synthetic click track), exported at 360p: the MP4 has the right size, length and a soundtrack
     const r = await p.evaluate(async () => {

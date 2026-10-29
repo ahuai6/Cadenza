@@ -184,8 +184,9 @@ function crackPaths(g: Ctx, G: any, Rr: number, reach: number, fade: number, pas
 }
 /** when a piece leaves: a few hundredths of a second after the blow, the ones nearest it first */
 const burstAt = (sh: { r0: number; delay: number }) => 0.03 + sh.r0 * 0.07 + sh.delay * 0.12;
-/** How far a piece that breaks out has gone (0 still there .. 1 gone), as the shards' own pass times it. */
-const goneK = (sh: { r0: number; delay: number; fly: boolean }, dt: number, reach: number, fade: number) => { if (!sh.fly || sh.r0 > reach) return 0; const st = Math.max(0, dt - burstAt(sh)); return sstep(clamp(st / 0.25)) * fade * (1 - clamp((st - 0.9) / 0.8)); };
+/** How far a piece that breaks out has gone (0 still there .. 1 gone), as the shards' own pass times it. Once gone it
+ *  stays gone: the opening fades with the rest of the pane, it never closes up again (glass does not heal). */
+const goneK = (sh: { r0: number; delay: number; fly: boolean }, dt: number, reach: number, fade: number) => { if (!sh.fly || sh.r0 > reach) return 0; const st = Math.max(0, dt - burstAt(sh)); return sstep(clamp(st / 0.25)) * fade; };
 register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z: 40, draw(g, f) {
   const w = f.W, h = f.H, t = f.t, dark = f.pal.dark;
   for (const ev of f.plan.cues.glass) { const dt = t - ev.t; if (dt < 0 || dt > 2.2) continue;
@@ -196,11 +197,14 @@ register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z:
     // crack remains on its side (its broken edge)
     const holes = new Path2D(); let nh = 0;
     for (const sh of G.shards) if (goneK(sh, dt, reach, 1) > 0.3) { nh++; sh.poly.forEach((p: number[], i: number) => (i ? holes.lineTo(p[0] * Rr, p[1] * Rr) : holes.moveTo(p[0] * Rr, p[1] * Rr))); holes.closePath(); }
-    g.save(); if (nh) { const out = new Path2D(); out.rect(-w * 2, -h * 2, w * 4, h * 4); out.addPath(holes); g.clip(out, 'evenodd'); }
+    // (the clip only round the cracks, not four frames' worth)
+    g.save(); if (nh) { const out = new Path2D(), E = Rr * 1.3; out.rect(-E, -E, E * 2, E * 2); out.addPath(holes); g.clip(out, 'evenodd'); }
+    // (plain and additive blends only — no multiply or soft-light: on the GPU those read the picture back for every
+    // stroke, which is what made the shatter drop frames)
     // the cracks as light, not as etched dark lines: a faint shade under each, a hairline of the theme's light on it and
     // a wide soft glow along it — fine, a little luminous, never heavy
-    g.globalCompositeOperation = 'multiply'; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.35), 1); crackPaths(g, G, Rr, reach, fade * 0.42 * (ev.k ?? 1), 0);
-    g.globalCompositeOperation = dark ? 'screen' : 'soft-light'; g.strokeStyle = rgba(glow, 1); g.save(); g.lineWidth = 1; crackPaths(g, G, Rr, reach, Math.min(1, fade * 0.35), 2); g.restore();
+    g.globalCompositeOperation = 'source-over'; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.75), 1); crackPaths(g, G, Rr, reach, fade * 0.3 * (ev.k ?? 1), 0);
+    g.globalCompositeOperation = dark ? 'screen' : 'source-over'; g.strokeStyle = rgba(glow, 1); g.save(); g.lineWidth = 1; crackPaths(g, G, Rr, reach, Math.min(1, fade * (dark ? 0.35 : 0.18)), 2); g.restore();
     g.strokeStyle = rgba(hot, 1); g.save(); g.translate(-0.6, -0.6); crackPaths(g, G, Rr, reach, Math.min(1, fade * 1.1), 1); g.restore();
     g.restore();
     // the openings themselves, a shade darker (what was behind the glass)
@@ -220,12 +224,25 @@ const GSNAP = makeCanvas(16, 16) as HTMLCanvasElement;
 
 register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'effect', z: 0, draw(g, f) {
   if (!f.style.fx.glass) return; const t = f.t, act = f.plan.cues.glass.filter(ev => t >= ev.t && t - ev.t <= 2.2); if (!act.length) return;
-  const w = f.W, h = f.H, cv = g.canvas as HTMLCanvasElement; if (GSNAP.width !== cv.width || GSNAP.height !== cv.height) { GSNAP.width = cv.width; GSNAP.height = cv.height; }
-  const sg = C2(GSNAP); sg.setTransform(1, 0, 0, 1, 0, 0); sg.clearRect(0, 0, cv.width, cv.height); sg.drawImage(cv, 0, 0);
+  const w = f.W, h = f.H, cv = g.canvas as HTMLCanvasElement;
   const roll = f.cam.fx.r - f.cam.cont.r, zoom = f.cam.fx.z, Mbg = new DOMMatrix().translate(w / 2, h / 2).rotate(roll).scale(zoom).translate(-w / 2, -h / 2), inv = Mbg.inverse(), dark = f.pal.dark;
+  // what each flying piece carries is only the picture where it was: the frame is copied for those places alone, and
+  // each piece draws only its own part of it (a piece no longer reads the whole frame — the cost of the shatter)
+  // (a large frame is copied at a little under its full size: the pieces are in flight, a hair of softness is not seen)
+  const sk = cv.width > 1600 ? 1600 / cv.width : 1, SW = Math.round(cv.width * sk), SH = Math.round(cv.height * sk); if (GSNAP.width !== SW || GSNAP.height !== SH) { GSNAP.width = SW; GSNAP.height = SH; }
+  const kx = SW / w, ky = SH / h, BOX = new Map<any, number[]>(); let U = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, reach = sstep(clamp(dt / 0.07)) * 1.2;
+    for (const sh of G.shards) { if (sh.r0 > reach || !sh.fly) continue; const b = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const p of sh.poly) { const q = Mbg.transformPoint({ x: cx + p[0] * Rr, y: cy + p[1] * Rr }); b[0] = Math.min(b[0], q.x); b[1] = Math.min(b[1], q.y); b[2] = Math.max(b[2], q.x); b[3] = Math.max(b[3], q.y); }
+      b[0] = Math.max(0, Math.floor(b[0] - 2)); b[1] = Math.max(0, Math.floor(b[1] - 2)); b[2] = Math.min(w, Math.ceil(b[2] + 2)); b[3] = Math.min(h, Math.ceil(b[3] + 2));
+      if (b[2] - b[0] < 1 || b[3] - b[1] < 1) continue; BOX.set(sh, b); U = [Math.min(U[0], b[0]), Math.min(U[1], b[1]), Math.max(U[2], b[2]), Math.max(U[3], b[3])]; } }
+  if (U[2] > U[0]) { const sg = C2(GSNAP), x0 = Math.floor(U[0] * kx), y0 = Math.floor(U[1] * ky), x1 = Math.min(SW, Math.ceil(U[2] * kx)), y1 = Math.min(SH, Math.ceil(U[3] * ky));
+    sg.setTransform(1, 0, 0, 1, 0, 0); sg.clearRect(x0, y0, x1 - x0, y1 - y0); sg.drawImage(cv, x0 / sk, y0 / sk, (x1 - x0) / sk, (y1 - y0) / sk, x0, y0, x1 - x0, y1 - y0); }
+  // (the copy as a pattern laid where the picture was: a piece filled with it carries its part of the frame wherever it flies)
+  const pat = U[2] > U[0] ? g.createPattern(GSNAP, 'no-repeat') : null; pat?.setTransform(inv.multiply(new DOMMatrix().scale(1 / kx, 1 / ky)));
   const light = dark ? mix(f.pal.text, [255, 255, 255], 0.2) : mix(f.pal.text, f.pal.bg, 0.35);
   for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, reach = sstep(clamp(dt / 0.07)) * 1.2, fade = 1 - clamp((dt - 0.9) / 1.2), split = sstep(clamp(dt / 0.08)) * 0.035;
-    g.save(); g.transform(Mbg.a, Mbg.b, Mbg.c, Mbg.d, Mbg.e, Mbg.f); g.globalCompositeOperation = 'multiply';
+    g.save(); g.transform(Mbg.a, Mbg.b, Mbg.c, Mbg.d, Mbg.e, Mbg.f); g.globalCompositeOperation = 'source-over';
     { let kk = 0, n = 0; g.beginPath(); for (const sh of G.shards) { const gone = goneK(sh, dt, reach, fade); if (gone < 0.01) continue; kk += gone; n++;
         sh.poly.forEach((p: number[], k: number) => { const x = cx + p[0] * Rr, y = cy + p[1] * Rr; k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); }
       if (n) { g.globalAlpha = (dark ? 0.16 : 0.08) * kk / n; g.fillStyle = rgba(mix(f.pal.bg, K3, dark ? 0.5 : 0.35), 1); g.fill('nonzero'); } }
@@ -237,13 +254,14 @@ register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'ef
       const ox = cx + sh.c[0] * Rr, oy = cy + sh.c[1] * Rr, dx = sh.c[0] * Rr * split + ux * run, dy = sh.c[1] * Rr * split + uy * run + st * st * h * 0.5, near = 1 + st * 1.3 * (1 - clamp(sh.r0 / 0.6));
       const M = Mbg.multiply(new DOMMatrix().translate(ox + dx, oy + dy).rotate(sh.vr * st * 57.3 * 2.4).scale(near).translate(-ox, -oy));
       g.save(); g.transform(M.a, M.b, M.c, M.d, M.e, M.f); g.beginPath(); sh.poly.forEach((p: number[], k: number) => { const x = cx + p[0] * Rr, y = cy + p[1] * Rr; k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
-      g.save(); g.clip(); g.save(); g.transform(inv.a, inv.b, inv.c, inv.d, inv.e, inv.f); g.globalAlpha = 0.8 * op; g.drawImage(GSNAP, 0, 0, cv.width, cv.height, 0, 0, w, h); g.restore();
+      // (the piece filled with the picture it carries, and its glint filled into the same shape: no clip per piece)
+      if (pat && BOX.has(sh)) { g.globalAlpha = 0.8 * op; g.fillStyle = pat; g.fill(); }
       const ex = sh.poly.reduce((m: number, p: number[]) => Math.max(m, Math.hypot(p[0] - sh.c[0], p[1] - sh.c[1])), 0) * Rr, band = -0.6 + ((st * 0.9 + rnd(sh.c[0] * 31 + sh.c[1] * 17) * 0.6) % 1.6);
       const sgd = g.createLinearGradient(ox - ex, oy - ex, ox + ex, oy + ex), b0 = clamp(band + 0.5);
       sgd.addColorStop(0, 'rgba(255,255,255,0)'); sgd.addColorStop(clamp(b0 - 0.08), 'rgba(255,255,255,0)'); sgd.addColorStop(b0, `rgba(255,255,255,${(dark ? 0.32 : 0.45) * op})`); sgd.addColorStop(clamp(b0 + 0.08), 'rgba(255,255,255,0)'); sgd.addColorStop(1, 'rgba(255,255,255,0)');
-      g.globalCompositeOperation = dark ? 'screen' : 'source-over'; g.globalAlpha = 1; g.fillStyle = sgd; g.fillRect(ox - ex, oy - ex, ex * 2, ex * 2); g.restore();
-      g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.14 * op; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.45), 1); g.lineWidth = 1.4; g.stroke();
-      g.globalCompositeOperation = dark ? 'screen' : 'soft-light'; g.globalAlpha = 0.5 * op; g.strokeStyle = rgba(mix(mix(light, f.pal.accent, 0.25), [255, 255, 255], 0.45), 1); g.lineWidth = 0.8; g.stroke(); g.restore(); } } } });
+      g.globalCompositeOperation = dark ? 'screen' : 'source-over'; g.globalAlpha = 1; g.fillStyle = sgd; g.fill();
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.1 * op; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.8), 1); g.lineWidth = 1.4; g.stroke();
+      g.globalCompositeOperation = dark ? 'screen' : 'source-over'; g.globalAlpha = (dark ? 0.5 : 0.28) * op; g.strokeStyle = rgba(mix(mix(light, f.pal.accent, 0.25), [255, 255, 255], 0.45), 1); g.lineWidth = 0.8; g.stroke(); g.restore(); } } } });
 
 /* ---------- glyph contours: one character of the current line, traced as vector outline rings, huge behind it ---------- */
 const KEYCH = new WeakMap<PLine, string | null>();
@@ -312,12 +330,17 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z:
       const fin = eSine(clamp((t - sl.t + 0.2) / 1.8)), fout = sl.cut ? 1 - sstep(clamp((t - (sl.end - TR_IN)) / TR_IN)) : 1 - eSine(clamp((t - sl.end + 0.2) / 1.8));
       const al = Math.min(1, fin * fout * (1 - ov) * f.view.effect * k0); if (al < 0.01) continue;
       // where the words are not (a large shape filling the empty part of the picture, most of a frame high), floating
-      // there on its own: a slow wandering drift that never repeats, a slow sway and a breath — not pinned to the frame,
-      // nor following the camera
-      const at = glyphSpot(sl, f), ph = P.i * 1.37, br = 1 + 0.035 * Math.sin(t * 0.19 + ph), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br;
+      // there on its own, as a pane of glass adrift in water would: it travels slowly across its place over its whole
+      // time (each its own way), bobs and sways on a few slow waves that never line up, breathes, and turns a little in
+      // depth (narrowing as it turns); it lies a good way behind the words, so the camera's moves slide it a little
+      // against them (part of the backdrop's own parallax) — never pinned to the frame
+      const at = glyphSpot(sl, f), ph = P.i * 1.37, life = Math.max(2, sl.end + 1.8 - (sl.t - 0.2)), u = clamp((t - sl.t + 0.2) / life) - 0.5, da = rnd(P.i * 5.3) * 6.283;
+      const br = 1 + 0.03 * Math.sin(t * 0.47 + ph) + 0.015 * Math.sin(t * 0.83 + ph * 1.9), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br;
       const ly = glyphPane(ch, fc.w, fc.stack); if (!ly) continue;
-      const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + Math.sin(t * 0.13 + ph) * 4 + Math.sin(t * 0.31 + ph * 2.1) * 1.5) * D2R;
-      const cx = f.W / 2 + at.x + (Math.sin(t * 0.11 + ph) * 0.05 + Math.sin(t * 0.29 + ph * 1.7) * 0.022) * f.W, cy = f.H / 2 + at.y + (Math.cos(t * 0.09 + ph * 0.8) * 0.045 + Math.sin(t * 0.23 + ph * 2.3) * 0.02) * f.H, w = size * ly.S, half = w * 0.72;
+      const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + u * 7 * (rnd(P.i * 1.1) < 0.5 ? -1 : 1) + Math.sin(t * 0.37 + ph) * 3.5 + Math.sin(t * 0.71 + ph * 2.1) * 1.3) * D2R;
+      const yaw = 1 - 0.07 * (0.5 + 0.5 * Math.sin(t * 0.29 + ph * 1.3)), pitch = 1 - 0.035 * (0.5 + 0.5 * Math.sin(t * 0.41 + ph * 0.7));
+      const cx = f.W / 2 + at.x + Math.cos(da) * u * 0.09 * f.W + (Math.sin(t * 0.43 + ph) * 0.02 + Math.sin(t * 0.79 + ph * 1.7) * 0.008) * f.W + a.bd.ox * 0.5,
+        cy = f.H / 2 + at.y + Math.sin(da) * u * 0.07 * f.H + (Math.sin(t * 0.53 + ph * 0.8) * 0.026 + Math.sin(t * 0.97 + ph * 2.3) * 0.01) * f.H + a.bd.oy * 0.5, w = size * ly.S, half = w * 0.72;
       // the picture under the pane, small, blurred, lifted, cut to the glyph
       // (worked small: a quarter of its size on screen, never over 160 px — it is blurred, so nothing is lost, and a large
       // pane up close no longer costs a large blur)
@@ -330,9 +353,9 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z:
       bx.setTransform(1, 0, 0, 1, 0, 0); bx.globalCompositeOperation = 'copy'; bx.filter = `blur(${Math.max(2, sw * 0.022).toFixed(1)}px)`; bx.drawImage(A, 0, 0); bx.filter = 'none';
       bx.globalCompositeOperation = 'source-over'; bx.fillStyle = rgba(veil, f.pal.dark ? 0.1 : 0.22); bx.fillRect(0, 0, sw, sw);
       bx.globalCompositeOperation = 'destination-in'; bx.translate(sw / 2, sw / 2); bx.rotate(rot); const mw = w / (half * 2) * sw; bx.drawImage((mw <= 400 ? ly.small : ly.mask) as CanvasImageSource, -mw / 2, -mw / 2, mw, mw);
-      g.save(); g.globalAlpha = al * 0.92; g.drawImage(B, cx - half, cy - half, half * 2, half * 2);
+      g.save(); g.translate(cx, cy); g.scale(yaw, pitch); g.globalAlpha = al * 0.92; g.drawImage(B, -half, -half, half * 2, half * 2);
       // its edge: a fine rim of light (with its own soft glow: the glass has thickness)
-      g.translate(cx, cy); g.rotate(rot); g.globalCompositeOperation = f.pal.dark ? 'screen' : 'source-over';
+      g.rotate(rot); g.globalCompositeOperation = f.pal.dark ? 'screen' : 'source-over';
       g.globalAlpha = al * (f.pal.dark ? 0.3 : 0.22); g.drawImage(ly.rim as CanvasImageSource, -w / 2, -w / 2, w, w);
       g.restore();
     } } });

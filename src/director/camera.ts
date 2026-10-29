@@ -44,7 +44,10 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   // (hover: the camera of before the follow — it rests over the middle of the words — on the waltz's curves)
   const smooth = cut !== 'punch', hover = cut === 'hover', waltz = cut === 'waltz' || hover, close = cut === 'close', TK = M.tilt;
   const passByLine = new Map(inp.passages.map(p => [p.line, p]));
-  const med = new Map(lines.map(P => { const hs = P.words.filter(S => !S.vert).map(S => S.lh).sort((a, b) => a - b); return [P, hs.length ? hs[hs.length >> 1] : (P.words[0]?.lh ?? 150)]; }));
+  // (a line set in columns: its characters' size is the columns' width, not their length — so a column is framed a few
+  // characters at a time and travelled down as it is sung, as a long row is travelled along)
+  const med = new Map(lines.map(P => { const hs = P.words.filter(S => !S.vert).map(S => S.lh).sort((a, b) => a - b), vs = P.words.map(S => S.lw).sort((a, b) => a - b);
+    return [P, hs.length ? hs[hs.length >> 1] : vs.length ? vs[vs.length >> 1] : 150]; }));
   const zOf = (S: PWord) => wordZoom(S, med.get(S.line)!, W, H, T);
 
   /* ---- stops ---- */
@@ -59,7 +62,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         const fused = Q.w.group === last.w.group;                                   // one gesture: always together
         const quick = Q.w.t - last.end < 0.2 || Q.w.t - last.w.t < 0.45;
         if (!fused) {
-          if (grp.length >= (close ? 1 : 3) || !quick || Math.abs(angDiff(Q.tilt, S0.tilt)) > 8) break;
+          // (a column is a stop of its own: the camera goes down it, then on to the next, as from row to row)
+          if (grp.length >= (close || S0.vert ? 1 : 3) || !quick || Math.abs(angDiff(Q.tilt, S0.tilt)) > 8) break;
           const B = boxIn([...grp, Q], S0.tilt); if (Math.min(W * 0.82 / B.w, H * 0.52 / B.h) < z1 * 0.6) break;
         }
         grp.push(Q); j++;
@@ -72,6 +76,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       // (the words' height sets the closeness; a group wider than the frame is not shrunk to fit: the camera follows the
       // singing along it, so it stays as close as one word would be framed)
       let z = hover ? Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1) : Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, z1);
+      // (a column: its characters' size sets the closeness, as a row's height does — about three of them down the frame,
+      // the rest travelled as they are sung — never the whole column shrunk to fit the frame's height)
+      if (!hover && grp.every(S => S.vert)) { const cw = Math.max(1, ...grp.map(S => S.lw)); z = Math.min(H * 0.5 / cw * T, H * 0.6 / cw, H * 0.72 / clamp(B.h, cw * 2, cw * 3.2), W * 0.8 / B.w); }
       if (F) z = Math.min(z, W * 0.8 / B.w, H * 0.58 / B.h);
       // close up: a character about two fifths of the frame high (the one being sung always wholly in view)
       if (close && !F) { const us = grp.flatMap(S => S.units), uh = us.map(u => u.h).sort((a, b) => a - b)[us.length >> 1] || B.h, uw = Math.max(...us.map(u => u.w), 1), uhm = Math.max(...us.map(u => u.h), 1);
@@ -116,7 +123,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     const across = s.words.every(w => w.vert), ax: [number, number] = across ? dirv(s.box.tilt + 90) : s.dir; s.fax = ax;
     const V = (across ? H * SAFE_Y : W * SAFE_X) / s.z * 0.94;
     const pos = U.map(u => (u.x - s.box.x) * ax[0] + (u.y - s.box.y) * ax[1]), half = U.map(u => (across ? u.lh : u.lw) / 2);
-    const leadW = LEADK * W / s.z;
+    const leadW = LEADK * (across ? H * 1.2 : W) / s.z;
     // the centre a little behind the character being sung: the character sits just right of the middle, what was
     // sung trailing to its left — the camera follows the voice, never runs ahead of it — and always in view
     const c: number[] = [];

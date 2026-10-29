@@ -317,6 +317,14 @@ describe('vertical lines', () => {
     const rows = P.lines.filter(L => !L.vert).flatMap(L => L.words);
     expect(rows.filter(S => Math.abs(S.ang) > 1).length, 'turns among the rows').toBeGreaterThan(0);
   });
+  it.each(['punch', 'glide', 'waltz', 'close'] as const)('the camera follows a column down as it is sung, as it follows a row along (%s)', cut => {
+    const P = make(cut, src, { frame: false }); let n = 0, moved = 0;
+    for (const st of P.camera.stops) { const S = st.words[0]; if (!S.vert || st.words.length > 1 || S.units.length < 4) continue; const us = S.units, t0 = Math.max(st.arrive, us[0].t ?? S.w.t), t1 = us[us.length - 1].t ?? S.end; if (t1 - t0 < 0.3) continue; n++;
+      const a = basePose(P.camera, t0 + 0.02), b = basePose(P.camera, t1 + 0.15), down = Math.hypot(us[us.length - 1].ox - us[0].ox, us[us.length - 1].oy - us[0].oy);
+      if ((b.y - a.y) > down * 0.2) moved++; }
+    expect(n).toBeGreaterThan(0);
+    expect(moved / n, `${moved} of ${n} columns`).toBeGreaterThan(0.6);
+  });
   it('the centred stage keeps every line level', () => {
     const p = parse(src), map = RhythmMap.grid(112, 0.3, 160), musicEnd = 140, doc = buildLyrics(p, map, musicEnd);
     const st = normalizeStyle({ ...presetStyle('cover'), preset: 'custom', cut: 'center' });

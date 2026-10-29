@@ -249,7 +249,10 @@ export class Engine extends Emitter<EngineEvents> {
       if (items.length) { const sharp = prewarmSharp(spec.font, items.slice(0, 600), [spec.grad, spec.edge, { stroke: spec.ink, w: 2.4 }]); steps.push(() => sharp(3)); heavy.push(false); } }
     // (the first transition at several depths of its blur: each depth works at its own size)
     const first = plan.words[0]?.show ?? 0, p0 = plan.passages[0], ramp = p0 ? [0.2, 0.4, 0.6, 0.8].map(u => p0.t - p0.inn * (1 - u)) : [];
-    const times = [first + 0.3, ...ramp, ...plan.passages.map(p => p.t), ...plan.cues.glyphSlots.map(g => g.t + 0.6)];
+    const times = [first + 0.3, ...ramp, ...plan.passages.map(p => p.t), ...plan.cues.glyphSlots.map(g => g.t + 0.6),
+      // (and the first shatter at a few moments of it: the cracks, the pieces breaking out, flying — its first frames were
+      // the slow ones; once drawn, every later shatter is as quick as any frame)
+      ...plan.cues.glass.slice(0, 1).flatMap(g => [g.t + 0.04, g.t + 0.15, g.t + 0.4, g.t + 0.9])];
     for (const T of [...new Set(times.map(x => Math.round(x * 10) / 10))].filter(x => x >= 0 && x < plan.dur)) { steps.push(() => { this.probe(s, T, false); return false; }); heavy.push(true); }
     steps.push(() => { this.probe(s, first + 0.3, true); return false; }); heavy.push(true);
     this.bake = { plan, steps, i: 0, heavy }; idle(this.runBake);
