@@ -41,7 +41,10 @@ function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;
   const on = p > 0.0005, H = innerHeight;
   np.dataset.vis = String(on); stage.dataset.vis = String(on || engine.view === 'effect');
-  if (mini) mini.style.visibility = on ? 'hidden' : '';
+  // the mini cover back in the card: its own shadow comes in as it does on hover (the card's transition), from none —
+  // the flying cover's shadow has faded out on its way down, so nothing jumps where the two hand over
+  if (mini) { const was = mini.style.visibility === 'hidden'; mini.style.visibility = on ? 'hidden' : '';
+    if (!on && was) { mini.style.boxShadow = 'none'; void mini.offsetWidth; requestAnimationFrame(() => { mini.style.boxShadow = ''; }); } }
   // the cover: from the card to its place, its corners from the card's to the page's
   let coverTop = 0;
   if (npCover && B) {
@@ -51,8 +54,9 @@ function applyNp(p: number) {
     npCover.style.transform = p >= 0.9995 ? '' : `translate(${(x - B.left).toFixed(2)}px, ${(y - B.top).toFixed(2)}px) scale(${sc.toFixed(4)})`;
     const r = miniR + (coverR - miniR) * part(p, 0, 1); npCover.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
     // its shadow: from the mini cover's to the page's as it flies (on screen; the element is scaled), so neither end jumps
-    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20, u2 = part(p, 0, 1);
-      npCover.style.boxShadow = `0 ${((miniSh.oy + (PAGE_SH.oy - miniSh.oy) * u2) * k).toFixed(2)}px ${((miniSh.blur + (PAGE_SH.blur - miniSh.blur) * u2) * k).toFixed(2)}px rgba(0,0,0,${(miniSh.a + (PAGE_SH.a - miniSh.a) * u2).toFixed(3)})`; }
+    // (closing, it fades out over the last stretch, the mini cover's own then fading in: see above)
+    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20, u2 = part(p, 0, 1), fadeK = npDrive.target === 0 ? part(p, 0, 0.22) : 1;
+      npCover.style.boxShadow = `0 ${((miniSh.oy + (PAGE_SH.oy - miniSh.oy) * u2) * k).toFixed(2)}px ${((miniSh.blur + (PAGE_SH.blur - miniSh.blur) * u2) * k).toFixed(2)}px rgba(0,0,0,${((miniSh.a + (PAGE_SH.a - miniSh.a) * u2) * fadeK).toFixed(3)})`; }
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
   // the page: from the card's bottom edge upward over the area (its own box), sides and bottom following the top
@@ -66,10 +70,22 @@ function applyNp(p: number) {
   const k = part(p, 0.55, 1), full = document.documentElement.dataset.winfull === 'true', rTL = cardR + ((full ? 0 : pageR) - cardR) * k, rO = cardR * (1 - k);
   const clip = p >= 0.9995 ? (full ? '' : `inset(0 round ${pageR}px 0 0 0)`) : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
+  // while it rises, the page casts a soft shade up onto what it is covering: a wide falloff above its leading edge,
+  // fading out at the sides, deepest mid-way through the move and gone once it has landed (or closed) — a sheet sliding
+  // over the library, not a line drawn on it
+  { const sh = edgeShade(), k2 = on && p < 0.9995 ? Math.sin(Math.PI * Math.min(1, p)) ** 0.8 : 0;
+    if (k2 < 0.01) sh.style.display = 'none'; else { const h = Math.min(140, 40 + Rb.height * 0.12), L = Rb.left + Math.max(0, left), Wd = Rb.width - Math.max(0, left) - Math.max(0, right);
+      Object.assign(sh.style, { display: '', left: L.toFixed(1) + 'px', width: Math.max(0, Wd).toFixed(1) + 'px', top: (Rb.top + Math.max(0, top) - h + 2).toFixed(1) + 'px', height: h.toFixed(1) + 'px', opacity: (0.9 * k2).toFixed(3) }); } }
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
   for (const el of refs.npParts) if (el) { el.style.opacity = String(q); el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`; }
 }
+let shadeEl: HTMLDivElement | null = null;
+function edgeShade() { if (shadeEl) return shadeEl; const d = document.createElement('div'); d.setAttribute('aria-hidden', 'true');
+  Object.assign(d.style, { position: 'fixed', zIndex: '39', pointerEvents: 'none', display: 'none',
+    background: 'linear-gradient(to top, rgba(6,4,12,0.32), rgba(6,4,12,0.14) 35%, rgba(6,4,12,0.04) 70%, rgba(6,4,12,0))',
+    WebkitMaskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)', maskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)' });
+  document.body.appendChild(d); return (shadeEl = d); }
 const np = new Drive(0, x => applyNp(x), { stiffness: 150, damping: 23 });
 export const npProgress = () => np.x;
 /** for the tests: the expand progress itself */
