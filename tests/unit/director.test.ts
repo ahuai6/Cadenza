@@ -12,14 +12,14 @@ import { rawPose } from '../../src/director/camera';
 import { markedEntries, entryFloor, MARK_K } from '../../src/director/cues';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
-function make(cut: 'punch' | 'glide' | 'waltz' | 'close', src = LRC, opts: { frame?: boolean; trigger?: number } = {}) {
+function make(cut: 'punch' | 'glide' | 'waltz' | 'close' | 'hover', src = LRC, opts: { frame?: boolean; trigger?: number } = {}) {
   const map = RhythmMap.grid(112, 0.3, 160);
   const p = parse(src), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6;
   const doc = buildLyrics(p, map, musicEnd);
   const base = presetStyle(cut === 'punch' ? 'liquid' : 'cover'), st = normalizeStyle({ ...base, preset: 'custom', cut, fx: { ...presetStyle('cover').fx, frame: opts.frame ?? true }, ...(opts.trigger ? { k: { ...base.k, trigger: opts.trigger } } : {}) });
   return plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
 }
-const styles = ['punch', 'glide', 'waltz', 'close'] as const;
+const styles = ['punch', 'glide', 'waltz', 'close', 'hover'] as const;
 /** The corners of the character of S being sung at t (the last one already reached; the first before any). */
 function singing(S: ScenePlan['words'][0], t: number, first = false): [number, number][] {
   const n = S.units.length, span = Math.max(0.05, S.end - S.w.t); let k = 0;
@@ -56,12 +56,13 @@ describe.each(styles)('director (%s)', cut => {
       expect(D).toBeLessThan(canCut ? 1.4 : 2.8);      // beyond about a screen, a transition where one fits; a longer move only where none does
     }
   });
-  it('follows the singing along the words, never backwards, and leads it', () => {
+  it('follows the singing along the words, never backwards, a little behind it', () => {
     const stops = P.camera.stops.filter(s => !s.over && !s.words.some(w => w.frame) && s.fax);
-    // the camera's centre sits at or ahead of the first character on arrival (room ahead in the singing direction)…
-    const lead = stops.filter(s => { const U = singing(s.words[0], s.words[0].w.t, true), cx = (U[0][0] + U[2][0]) / 2, cy = (U[0][1] + U[2][1]) / 2;
-      return (s.x - cx) * s.fax![0] + (s.y - cy) * s.fax![1] > -1; });
-    expect(lead.length / stops.length).toBeGreaterThan(0.6);
+    // the character being sung sits just right of the middle on arrival (the camera follows the voice, never ahead)…
+    // (hovering, the words are framed whole instead)
+    const lead = stops.filter(s => { const U = singing(s.words[0], s.words[0].w.t, true), cx = (U[0][0] + U[2][0]) / 2, cy = (U[0][1] + U[2][1]) / 2, c = rawPose(P.camera, s.arrive + 1e-3);
+      return (c.x - cx) * s.fax![0] + (c.y - cy) * s.fax![1] < 1; });
+    if (cut !== 'hover') expect(lead.length / stops.length).toBeGreaterThan(0.6);
     // …and every step of a follow goes forward along the words
     for (const [, , dx, dy] of P.camera.drifts) expect(Math.hypot(dx, dy)).toBeGreaterThan(0);
   });
@@ -349,5 +350,21 @@ describe('lyric types', () => {
     const line = mk('line'), flow = mk('flow');
     for (const L of line.lines) { for (const S of L.words) expect(S.show).toBe(L.words[0].show); expect(new Set(L.words.filter(S => !S.w.latin).map(S => S.s)).size).toBeLessThanOrEqual(1); }
     expect(flow.lines.some(L => L.words.some(S => S.show > L.words[0].show + 0.1))).toBe(true);
+  });
+});
+
+describe('where a new line goes', () => {
+  it('a line that starts back to the left sits above or below the line before, its last character over that line\'s second-to-last', () => {
+    for (const cut of ['glide', 'punch', 'close'] as const) {
+      const P = make(cut, LRC, { frame: false }); let n = 0, ok = 0;
+      const unitsAt = (L: typeof P.lines[0]) => L.words.flatMap(S => S.units.map(u => { const c = Math.cos(S.tilt * Math.PI / 180), sn = Math.sin(S.tilt * Math.PI / 180); return [S.x + c * u.ox - sn * u.oy, S.y + sn * u.ox + c * u.oy, u.w] as const; }));
+      for (let i = 1; i < P.lines.length; i++) { const A = P.lines[i - 1], B = P.lines[i]; if (A.sec !== B.sec || A.vert || B.vert || !A.words.length || !B.words.length) continue;
+        const d = [Math.cos(A.words[A.words.length - 1].ang * Math.PI / 180), Math.sin(A.words[A.words.length - 1].ang * Math.PI / 180)], ua = unitsAt(A), ub = unitsAt(B);
+        if (Math.abs(B.words[0].ang - A.words[A.words.length - 1].ang) > 1 || B.words.some(S => S.roll || Math.abs(S.ang - B.words[0].ang) > 1)) continue;
+        const along = (p: readonly number[]) => p[0] * d[0] + p[1] * d[1], endA = along(ua[ua.length - 1]), startB = along(ub[0]);
+        if (startB >= endA - 1) continue;                                   // (one that runs on to the right)
+        n++; const pen = ua[Math.max(0, ua.length - 2)], last = ub[ub.length - 1];
+        if (Math.abs(along(last) - along(pen)) < Math.max(pen[2], last[2]) * 0.75) ok++; }
+      expect(n, cut).toBeGreaterThan(3); expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThan(0.7); }
   });
 });

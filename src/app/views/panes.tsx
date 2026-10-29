@@ -21,7 +21,7 @@ export type Edit = (fn: (s: Session) => unknown) => void;
 export interface PaneProps { s: Session; edit: Edit; ctx: 'song' | 'workshop' }
 export const BG_STYLES = ['cover', 'vinyl', 'liquid', 'gothic', 'stage', 'minimal', 'bokeh', 'geo', 'video'];
 const COVER_EDGE = ['album', 'float', 'blend'], ASPECTS: [string, string][] = [['16:9', 'aspect.169'], ['9:16', 'aspect.916'], ['1:1', 'aspect.11'], ['4:5', 'aspect.45'], ['fill', 'aspect.fill']];
-const CUTS = ['punch', 'waltz', 'glide', 'close', 'center'], TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
+const CUTS = ['punch', 'waltz', 'glide', 'close', 'hover', 'center'], TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
 const f2 = (v: number) => (+v).toFixed(2), fmtK = (v: number) => `${(+v).toFixed(2)}×`;
 const opts = (list: string[], prefix: string): [string, string][] => list.map(v => [v, tx(prefix + v)]);
 

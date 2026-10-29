@@ -41,7 +41,7 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
 export function lyricBake(f: Pick<RenderFrame, 'plan' | 'style' | 'pal'>) {
   const st = f.style, fc = fontStack(st.font, f.plan.doc.lines.map(L => L.text).join('').slice(0, 400)), pal = f.pal;
   const chars = [...new Set(f.plan.words.flatMap(S => S.units.map(u => u.c)))];
-  return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [shadowOf(pal), glowOf(st, pal)], grad: inkGrad(pal.text, pal), chars };
+  return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [shadowOf(pal), glowOf(st, pal)], grad: inkGrad(pal.text, pal), chars, edge: rgba(mix(pal.bg, pal.text, 0.25), 1), ink: rgba(pal.text, 1) };
 }
 /** The lit fill of the sharp glyphs (top, middle, bottom), shared with their blurred versions. */
 export const inkGrad = (ink: RenderFrame['pal']['text'], pal: RenderFrame['pal']): InkGrad => [rgba(mix(ink, [255, 255, 255], 0.35), 1), rgba(ink, 1), rgba(mix(ink, pal.accent, 0.22), 0.92)];

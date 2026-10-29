@@ -59,6 +59,15 @@ export function prewarmGlyphs(font: string, cols: string[], chars: string[], lev
   const todo: [string | InkGrad, string, number][] = []; for (const c of chars) for (const col of ncols) for (const k of levels) todo.push([col, c, k]);
   let i = 0; return (budgetMs = 4) => { const t0 = performance.now(); while (i < todo.length && performance.now() - t0 < budgetMs) { const [col, c, k] = todo[i++]; typeof col === 'string' ? level(font, col, c, k) : level(font, '', c, k, col); } return i < todo.length; };
 }
+/** Bake ahead the sharp bitmaps large glyphs will be drawn from: each [character, size in device px] in each paint
+ *  (the lit fill, the edge colour, the faint outline of an unsung character), a slice at a time. */
+export function prewarmSharp(font: string, items: [string, number][], fills: Paint[]) {
+  const ng = (makeCanvas(1, 1) as HTMLCanvasElement).getContext('2d')!; ng.font = font; font = ng.font;
+  const norm = (c: string) => { ng.fillStyle = c; return ng.fillStyle as string; };
+  const ps: Paint[] = fills.map(p => (typeof p === 'string' ? norm(p) : Array.isArray(p) ? p : { stroke: norm(p.stroke), w: p.w }));
+  const todo: [string, number, Paint][] = []; for (const [c, G] of items) if (G >= LARGE) for (const p of ps) todo.push([c, G, p]);
+  let i = 0; return (budgetMs = 4) => { const t0 = performance.now(); while (i < todo.length && performance.now() - t0 < budgetMs) { const [c, G, p] = todo[i++]; sharpBm(font, c, G, p); } return i < todo.length; };
+}
 export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as ImageBitmap).close?.(); CACHE.clear(); PIX = 0; }
 
 /** The last 1.6 px of a focus pull: the sharp glyph takes over from the blurred one without the word ever dimming. Both
@@ -73,8 +82,12 @@ export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as Ima
 const LARGE = 150;
 type Paint = string | InkGrad | { stroke: string; w: number };
 const paintKey = (f: Paint) => (typeof f === 'string' ? f : Array.isArray(f) ? f.join('>') : 'K' + f.stroke + '/' + f.w);
+/** The ladder of sizes a sharp bitmap is made at: an eighth of an octave up to 400 px, a quarter above (a close-up's
+ *  glyphs change size all the time — its breathing, the entrances — and each new step was a new bitmap, made in the
+ *  frame that first needed it), always the step at or above the size asked (drawn a little smaller: never soft). */
+const ladder = (G: number) => { const st = G > 400 ? 4 : 8; return Math.min(1200, Math.round(2 ** (Math.ceil(Math.log2(G) * st - 1e-6) / st))); };
 function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
-  const S = Math.min(1400, Math.round(2 ** (Math.round(Math.log2(G) * 8) / 8))), key = 'S|' + font + '|' + paintKey(fill) + '|' + S + '|' + txt;
+  const S = ladder(G), key = 'S|' + font + '|' + paintKey(fill) + '|' + S + '|' + txt;
   let e = CACHE.get(key); if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
   STATS.miss++; STATS.keys?.push('sharp|' + S + '|' + txt);
   const q = S / EM; if (sg.font !== font) sg.font = font;
@@ -83,15 +96,21 @@ function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
   c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.setTransform(q, 0, 0, q, w / 2, h / 2);
   if (typeof fill === 'string') { c.fillStyle = fill; c.fillText(txt, 0, 0); }
   else if (Array.isArray(fill)) { const gr = c.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6); gr.addColorStop(0, fill[0]); gr.addColorStop(0.55, fill[1]); gr.addColorStop(1, fill[2]); c.fillStyle = gr; c.fillText(txt, 0, 0); }
-  else { c.strokeStyle = fill.stroke; c.lineWidth = fill.w; c.lineJoin = 'round'; c.strokeText(txt, 0, 0); }
+  else {
+    // an outline traced round the character's silhouette: the filled shape grown by the line's width, the shape itself
+    // taken out — one clean edge of the whole character, never the overlapping contours of its strokes
+    const r = Math.max(0.6, fill.w * q * 0.6), n = r > 3 ? 16 : 10; c.fillStyle = '#fff';
+    for (let k = 0; k < n; k++) { const a = k / n * 6.283; c.fillText(txt, Math.cos(a) * r / q, Math.sin(a) * r / q); }
+    c.globalCompositeOperation = 'destination-out'; c.fillText(txt, 0, 0);
+    c.globalCompositeOperation = 'source-in'; c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = fill.stroke; c.fillRect(0, 0, w, h); }
   const bm: any = oc.transferToImageBitmap ? oc.transferToImageBitmap() : oc;
   e = { bm, w, h, s: EM / S }; CACHE.set(key, e); PIX += w * h;
   while (PIX > MAX && CACHE.size > 1) { const [k0, o] = CACHE.entries().next().value!; CACHE.delete(k0); PIX -= o.w * o.h; (o.bm as ImageBitmap).close?.(); }
   return e;
 }
-/** The outline of `txt` (line width w in EM units), the same way: from a bitmap past LARGE. */
+/** The outline of `txt` round its silhouette (line width w in EM units), from a bitmap. */
 export function strokeGlyph(g: Ctx, txt: string, G: number, w: number, x = 0, y = 0) {
-  if (G < LARGE) { g.lineWidth = w; g.strokeText(txt, x, y); return; }
+  // (from a bitmap at every size: the silhouette's outline is made once per size step, see sharpBm)
   const e = sharpBm(g.font, txt, G, { stroke: g.strokeStyle as string, w });
   g.drawImage(e.bm, 0, 0, e.w, e.h, x - e.w / 2 * e.s, y - e.h / 2 * e.s, e.w * e.s, e.h * e.s);
 }

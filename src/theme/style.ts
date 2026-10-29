@@ -4,7 +4,7 @@
    theme's tuning; one knob drives a family of related values. m is derived, never stored. Plain data only. */
 import { clamp } from '../core/math';
 
-export type CameraStyleId = 'punch' | 'glide' | 'waltz' | 'close' | 'center';
+export type CameraStyleId = 'punch' | 'glide' | 'waltz' | 'close' | 'hover' | 'center';
 export interface Motion {
   shake: number; sway: number; punch: number; flash: number; flashk: number; impact: number; impk: number; speed: number; pulse: number; /** the beat-and-melody motion's strength (from the groove knob; 1 = the theme's) */ groove?: number;
   tilt: number; turn: number; tang: number; drift: number; split: number; glow: number; shadow: number; enter: number; lead: number;

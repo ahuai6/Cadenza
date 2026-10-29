@@ -73,5 +73,5 @@
 
 /* in a window the page has the main area's own shape: its top-left corner rounded and the same thin edge along the top
    and left (drawn as light on the picture), arriving as the expansion lands */
-.np { border-top-left-radius: var(--r-xl); }   /* (the area's own radius, a pixel in: see layers.ts) */
+.np { border-top-left-radius: calc(var(--r-xl) - 5px); }   /* (meeting the area's edge line: see layers.ts) */
 :global(html[data-winfull="true"]) .np { border-top-left-radius: 0; }

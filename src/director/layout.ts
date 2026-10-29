@@ -46,7 +46,7 @@ const ANTIC = (st: Style) => clamp((st.m.enter ?? 0.3) * 0.3, 0.05, 0.14);
 export function layout(inp: LayoutInput): LayoutResult {
   const { doc, map, style: st, measure, W, H } = inp, M = st.m, T = tsz(st);
   const BASE = EM, gap = BASE * 0.14 * T, TURN = clamp(M.turn ?? 0.4, 0, 1), TA = M.tang ?? 90, TK = M.tilt, DEP = M.depth ?? 1;
-  const waltz = st.cut === 'waltz', smooth = st.cut !== 'punch', LT = lyricType(st.ltype);
+  const waltz = st.cut === 'waltz' || st.cut === 'hover', smooth = st.cut !== 'punch', LT = lyricType(st.ltype);
 
   /* ---- words, measured ---- */
   const lines: PLine[] = [], words: PWord[] = [], vruns = st.cut === 'center' ? new Set<number>() : vertRuns(doc.lines);
@@ -75,7 +75,9 @@ export function layout(inp: LayoutInput): LayoutResult {
   }
   const medLh = (P: PLine) => { const hs = P.words.filter(S => !S.vert).map(S => S.lh).sort((a, b) => a - b); return hs.length ? hs[hs.length >> 1] : P.words[0]?.lh ?? BASE; };
   const med = new Map(lines.map(P => [P, medLh(P)]));
-  const zOf = (S: PWord) => wordZoom(S, med.get(S.line)!, W, H, T);
+  // how close each camera style holds a word: what the layout's limits (how far apart words may sit, in frames) are measured in
+  const close = st.cut === 'close', hover = st.cut === 'hover';
+  const zOf = (S: PWord) => close ? closeZoom(S, H, W, T) : wordZoom(S, med.get(S.line)!, W, H, T);
 
   /* ---- passages at pauses ---- */
   const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off', st.bgStyle === 'video');
@@ -135,7 +137,10 @@ export function layout(inp: LayoutInput): LayoutResult {
     return null;
   };
   // the empty space between two neighbours, in frames at the wider framing of the two
-  const SPAN = 0.55, BACK_REACH = 0.7, FOLD = 0.9;
+  const SPAN = ({ punch: 0.6, waltz: 0.55, glide: 0.55, close: 0.4, hover: 0.5 } as Record<string, number>)[st.cut] ?? 0.55, BACK_REACH = 0.7, FOLD = 0.9;
+  // where a new line goes, by style: below the line before, above it, or on to the right (the rest); close up it mostly
+  // runs on (a short way, seen travelling), hovering it spreads round the middle
+  const [P_BELOW, P_ABOVE] = ({ punch: [0.3, 0.25], waltz: [0.3, 0.3], glide: [0.3, 0.25], close: [0.2, 0.15], hover: [0.35, 0.3] } as Record<string, number[]>)[st.cut] ?? [0.34, 0.26];
   const blankOf = (A: PWord, B: PWord) => { const z = Math.min(zOf(A), zOf(B)), d = dirv(A.tilt), n = dirv(A.tilt + 90), dx = B.x - A.x, dy = B.y - A.y;
     const ext = (Q: PWord, ax: number) => Math.abs(Q.lw / 2 * Math.cos((Q.tilt - A.tilt) * D2R + (ax ? Math.PI / 2 : 0))) + Math.abs(Q.lh / 2 * Math.sin((Q.tilt - A.tilt) * D2R + (ax ? Math.PI / 2 : 0)));
     return Math.max((Math.abs(dx * d[0] + dy * d[1]) - ext(A, 0) - ext(B, 0)) / (W / z), (Math.abs(dx * n[0] + dy * n[1]) - ext(A, 1) - ext(B, 1)) / (H / z)); };
@@ -145,10 +150,16 @@ export function layout(inp: LayoutInput): LayoutResult {
     const vx = Pv ? A.x - Pv.x : Math.cos(A.ang * D2R), vy = Pv ? A.y - Pv.y : Math.sin(A.ang * D2R), vl = Math.hypot(vx, vy) || 1, dx = B.x - A.x, dy = B.y - A.y, dl = Math.hypot(dx, dy) || 1;
     return (vx * dx + vy * dy) / (vl * dl) > Math.cos(60 * D2R); };
 
-  // how far before the last character a new line above or below starts: a share of the new line (so it sits around that
-  // character), never more than most of the line before
-  const spawnBack = (Lp: PLine, prevLine: PLine, w: number, i: number) => { const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1);
-    return Math.max(w * 0.2, Math.min(Lw * (0.3 + 0.3 * rnd(i * 3.9)), (prevLine.bw || w) * 0.8, Lw - w * 0.5)); };
+  // a line that starts back to the left goes above or below the line before, its last character over (under) that
+  // line's second-to-last: how far back from the end P of the line before it starts, along d
+  const alignBack = (Lp: PLine, prevLine: PLine, Pe: [number, number], d: [number, number]) => {
+    const us: [number, number][] = []; for (const Q of prevLine.words) { const c = Math.cos(Q.tilt * D2R), sn = Math.sin(Q.tilt * D2R); for (const u of Q.units) us.push([Q.x + c * u.ox - sn * u.oy, Q.y + sn * u.ox + c * u.oy]); }
+    const X = us[Math.max(0, us.length - 2)] || Pe, along = (X[0] - Pe[0]) * d[0] + (X[1] - Pe[1]) * d[1];
+    const lw = Lp.words[Lp.words.length - 1], lu = lw?.units[lw.units.length - 1], Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * (Lp.words.some(Q => Q.w.latin) ? 2.2 : 1);
+    return Math.max(0, Lw - (lu ? lu.w / 2 : 0) - along); };
+  const penult = (prevLine: PLine, Pe: [number, number]): [number, number] => { const us: [number, number][] = [];
+    for (const Q of prevLine.words) { const c = Math.cos(Q.tilt * D2R), sn = Math.sin(Q.tilt * D2R); for (const u of Q.units) us.push([Q.x + c * u.ox - sn * u.oy, Q.y + sn * u.ox + c * u.oy]); }
+    return us[Math.max(0, us.length - 2)] || Pe; };
   type St = { P: [number, number]; th: number; lineStart: [number, number]; prevH: number; lastTurn: number; prevLine: PLine | null; prevSeg: PWord | null; secFirst: boolean; flow: number; flowFrom: number | null; backN: number; colN: number; n?: number };
   let S0: St = { P: [0, 0], th: 0, lineStart: [0, 0], prevH: BASE, lastTurn: -9, prevLine: null, prevSeg: null, secFirst: false, flow: 1, flowFrom: null, backN: 0, colN: 0 };
   const save = (): St => ({ ...S0, P: [...S0.P] as [number, number], lineStart: [...S0.lineStart] as [number, number], n: placed.length });
@@ -162,7 +173,7 @@ export function layout(inp: LayoutInput): LayoutResult {
 
   const placeLine = (Lp: PLine, i: number, mode: string | null): boolean => {
     let { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN } = S0, bad = false;
-    Lp.back = false;
+    Lp.back = false; let align: { X: [number, number]; d: [number, number] } | null = null;
     Lp.words.forEach((S, k) => {
       const w = S.lw, h = S.lh, first = (i === 0 && k === 0) || (secFirst && k === 0);
       const tilt0 = rnd(i * 5 + k * 9.1) < 0.3 ? (rnd(i * 3 + k) - 0.5) * 12 : 0;
@@ -199,7 +210,7 @@ export function layout(inp: LayoutInput): LayoutResult {
           backMax = FOLD * 0.9 * W / zz - (run - prevSeg.lw - w); }
         let cc: [number, number] | null = null;
         if (backMax > -0.5 * run) {
-          const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, back = Math.min(backMax, Lw * (0.55 + 0.35 * rnd(i * 2.9)) + gap * 3);
+          const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, back = alignBack(Lp, prevLine!, P, d) - run;   // (from the line before's start)
           const a0 = -back - gap * 2, a1 = -back + Lw + gap * 2, side = [0, 0];
           for (const Q of [...placed, ...prevLine!.words]) { const cs = corners(Q, padOf(Q)); let u0 = 1e9, u1 = -1e9;
             for (const p of cs) { const u = (p[0] - lineStart[0]) * d[0] + (p[1] - lineStart[1]) * d[1]; u0 = Math.min(u0, u); u1 = Math.max(u1, u); }
@@ -207,23 +218,23 @@ export function layout(inp: LayoutInput): LayoutResult {
             for (const p of cs) { const v = (p[0] - lineStart[0]) * nrm[0] + (p[1] - lineStart[1]) * nrm[1]; side[0] = Math.max(side[0], -v); side[1] = Math.max(side[1], v); } }
           const upw = Math.abs(side[0] - side[1]) < gap ? rnd(i * 4.1 + 2) < 0.5 : side[0] < side[1], ext = upw ? side[0] : side[1];
           const off = (ext + gap * 2.2 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [lineStart[0] + nrm[0] * off - d[0] * back, lineStart[1] + nrm[1] * off - d[1] * back];
-          cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0; Lp.back = true;
-        } else if (k === 0 && !first && prevLine && !mode && lr >= 0.34 && lr < 0.6 && !Lp.vert) {
-          // above or below the line before, around its last character: the new line starts a little before it, so the
-          // singing carries on from where it was, left to right, instead of going back to where the line before began
-          const upw = lr < 0.47, back = spawnBack(Lp, prevLine, w, i);
+          cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0; Lp.back = true; align = { X: penult(prevLine!, P), d };
+        } else if (k === 0 && !first && prevLine && !mode && lr >= P_BELOW && lr < P_BELOW + P_ABOVE && !Lp.vert) {
+          // above the line before (or below), ending over its second-to-last character: the singing carries on from where
+          // it was instead of jumping back to where the line before began
+          const upw = lr < P_BELOW + P_ABOVE * 0.75, back = alignBack(Lp, prevLine, P, d); align = { X: penult(prevLine, P), d };
           let ext = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) { const v = (p[0] - lineStart[0]) * nrm[0] + (p[1] - lineStart[1]) * nrm[1]; ext = Math.max(ext, upw ? -v : v); }
           const off = (ext + gap * 2.5 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [P[0] + nrm[0] * off - d[0] * back, P[1] + nrm[1] * off - d[1] * back];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
-        } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < 0.34)) && !(Lp.vert && prevLine.vert)) {
-          const bk = spawnBack(Lp, prevLine, w, i + 0.5), ref: [number, number] = [P[0] - d[0] * bk, P[1] - d[1] * bk];
+        } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < P_BELOW)) && !(Lp.vert && prevLine.vert)) {
+          const bk = alignBack(Lp, prevLine, P, d); align = { X: penult(prevLine, P), d }; const ref: [number, number] = [P[0] - d[0] * bk, P[1] - d[1] * bk];
           let below = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) below = Math.max(below, (p[0] - ref[0]) * nrm[0] + (p[1] - ref[1]) * nrm[1]);
           const s0: [number, number] = [ref[0] + nrm[0] * (below + gap * 2.5 + h / 2), ref[1] + nrm[1] * (below + gap * 2.5 + h / 2)];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
         } else if (k > 0 && !S.vert && prevSeg && !prevSeg.vert && mode !== 'right' && mode !== 'dash' && (cc = placeNext(S, prevSeg, w, h, d, nrm, i, k))) {
           P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2];
         } else {
-          const g2 = first ? 0 : k === 0 ? gap * (mode === 'dash' ? 2 : 3) : S.w.latin && prevSeg && prevSeg.w.latin ? Math.max(gap, h * 0.32) : gap, jit = first ? 0 : (rnd(i + k * 2.2) - 0.5) * h * 0.2;
+          const g2 = first ? 0 : k === 0 ? gap * (mode === 'dash' ? 2 : 3 + 5 * rnd(i * 6.1 + 2) ** 2) : S.w.latin && prevSeg && prevSeg.w.latin ? Math.max(gap, h * 0.32) : gap, jit = first ? 0 : (rnd(i + k * 2.2) - 0.5) * h * 0.2;
           // a dash rises and dips with the beat as it runs on (a wave across the bar), instead of a random jitter
           const wave = mode === 'dash' ? Math.sin((S.w.t / map.beatLen(S.w.t)) * Math.PI / 2 + i * 0.7) * h * 0.42 : jit;
           // a column hangs from the row's top; the columns of a run step down a little one after another, like a poem set
@@ -252,6 +263,14 @@ export function layout(inp: LayoutInput): LayoutResult {
       S.d = first ? 0 : Lp.d + DEP * ((rnd(i * 13 + k * 3.3) - 0.5) * 260 + (k % 2 ? 80 : -60));
       if (!S.vert) prevH = h;
     });
+    // a line that went back to the left: moved along so that its last character stands exactly over (under) the line
+    // before's second-to-last, as placed (its words may have stepped off a straight row) — unless that would collide
+    const al = align as { X: [number, number]; d: [number, number] } | null;   // (set inside the loop above)
+    if (al && Lp.words.length) { const L = Lp.words[Lp.words.length - 1], lu = L.units[L.units.length - 1], c = Math.cos(L.tilt * D2R), sn = Math.sin(L.tilt * D2R);
+      const ux = L.x + c * lu.ox - sn * lu.oy, uy = L.y + sn * lu.ox + c * lu.oy, sh = (al.X[0] - ux) * al.d[0] + (al.X[1] - uy) * al.d[1], dx = al.d[0] * sh, dy = al.d[1] * sh;
+      const mine = new Set(Lp.words), clashes = () => Lp.words.some(S => placed.some(Q => !mine.has(Q) && !(Q.frame && Q.frame === S.frame) && clash(S, Q)));
+      for (const S of Lp.words) { S.x += dx; S.y += dy; }
+      if (clashes()) for (const S of Lp.words) { S.x -= dx; S.y -= dy; } else { P = [P[0] + dx, P[1] + dy]; lineStart = [lineStart[0] + dx, lineStart[1] + dy]; } }
     const fa = Lp.words[0]?.ang ?? th, B = boxIn(Lp.words, fa);
     Lp.ax = B.x; Lp.ay = B.y; Lp.bw = B.w; Lp.bh = B.h; Lp.prot = fa;
     { const d0 = dirv(fa), pos = B.x * d0[0] + B.y * d0[1];
@@ -262,7 +281,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     return !bad;
   };
   // (close up, a page holds fewer lines: more of the song is crossed by quick blur transitions)
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = st.cut === 'close' ? 4 : 10; let onPage = 0;
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = 5; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
     // ten lines on the page at most: from two lines before that, a line with room for a quick clear clears the picture;
@@ -318,6 +337,11 @@ export function vertRuns(ls: LyricDoc['lines']): Set<number> {
   return out;
 }
 
+/** How close the close-up holds a word: a character about two fifths of the frame high (as camera.ts frames it). */
+export function closeZoom(S: { units: { w: number; h: number }[]; lh: number }, H: number, W: number, T: number) {
+  const hs = S.units.map(u => u.h).sort((a, b) => a - b), uh = hs[hs.length >> 1] || S.lh, uw = Math.max(1, ...S.units.map(u => u.w));
+  return Math.min(H * 0.4 / uh * T, W * 0.5 / uw, H * 0.62 / Math.max(1, ...S.units.map(u => u.h)));
+}
 /** How close the camera holds the centred stage: the lyric type a steady size on screen (its typical word about 12 %
  *  of the frame's height), whatever the song. */
 export function centerZoom(words: PWord[], H: number, T: number) {

@@ -32,9 +32,10 @@ const measure = () => {
   // the mini cover's own shadow (y offset, blur, alpha), which the flying cover's shadow turns into
   if (mini) { const m = /rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+))?\)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px/.exec(getComputedStyle(mini).boxShadow || '');
     miniSh = m ? { a: m[1] != null ? +m[1] : 1, oy: +m[3], blur: +m[4] } : { a: 0.25, oy: 2, blur: 8 }; }
-  // the area's edge is a 1 px line drawn as its own shape moved in by a pixel (an inset shadow): its inner side is the
-  // area's corner, radius and all, one pixel in — exactly where the picture sits, so the picture takes the same radius
-  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, radiusOf(pg) || 20); }
+  // the area's edge is a 1 px line (an inset shadow moved in by a pixel); the picture one pixel inside meets that line
+  // all the way round the corner at the area's radius less 5 px (measured on the rendered corner: larger left a sliver of
+  // the page between them, smaller covered the line)
+  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, (radiusOf(pg) || 22) - 5); }
 };
 function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;

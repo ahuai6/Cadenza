@@ -17,7 +17,7 @@ import { VideoSource, MvSource } from './media';
 import { Handoff, type HandoffSpec, type WinRect } from './handoff';
 import type { Session } from './session';
 import { ssDown, ssFactor } from './ssaa';
-import { prewarmGlyphs } from '../render/glyphs';
+import { prewarmGlyphs, prewarmSharp } from '../render/glyphs';
 import { EM } from '../text/metrics';
 
 const idle = (fn: (d?: { timeRemaining(): number }) => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(d => fn(d), { timeout: 400 }) : setTimeout(() => fn(), 30));
@@ -239,6 +239,12 @@ export class Engine extends Emitter<EngineEvents> {
     const pxK = this.canvas.height / plan.H, big = new Set<string>();
     for (const st of plan.camera.stops) for (const S of st.words) if (EM * S.s * st.z * pxK > 150) for (const u of S.units) big.add(u.c);
     if (big.size) { const large = prewarmGlyphs(spec.font, [], [...big], [0, 1], spec.grad); steps.push(() => large(3)); heavy.push(false); }
+    // and the sharp bitmaps they are drawn from at those sizes (the face, its edge, an unsung character's outline): a
+    // close-up otherwise made them in the frames that first showed them
+    { const seen = new Set<string>(), items: [string, number][] = [];
+      for (const st of plan.camera.stops) for (const S of st.words) { const G = EM * S.s * st.z * pxK; if (G < 150) continue;
+        for (const u of S.units) for (const g of [G, G * 1.12]) { const k = u.c + '|' + Math.round(Math.log2(g) * 4); if (!seen.has(k)) { seen.add(k); items.push([u.c, g]); } } }
+      if (items.length) { const sharp = prewarmSharp(spec.font, items.slice(0, 600), [spec.grad, spec.edge, { stroke: spec.ink, w: 2.4 }]); steps.push(() => sharp(3)); heavy.push(false); } }
     // (the first transition at several depths of its blur: each depth works at its own size)
     const first = plan.words[0]?.show ?? 0, p0 = plan.passages[0], ramp = p0 ? [0.2, 0.4, 0.6, 0.8].map(u => p0.t - p0.inn * (1 - u)) : [];
     const times = [first + 0.3, ...ramp, ...plan.passages.map(p => p.t), ...plan.cues.glyphSlots.map(g => g.t + 0.6)];
