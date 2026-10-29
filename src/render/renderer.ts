@@ -43,14 +43,20 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   if (bgFx.front) bdEffects.push({ id: bgFx.id + ':front', label: '', layer: 'backdrop', kind: 'effect', z: bgFx.frontZ ?? 0, draw: bgFx.front });
   bdEffects.sort(byZ);
   const inBackdrop = (c: Ctx) => { c.save(); c.translate(W / 2, H / 2); c.rotate(roll * D2R); c.scale(zoom, zoom); c.translate(-W / 2, -H / 2); };
-  const drawTheme = (c: Ctx) => { inBackdrop(c); bgFx.draw(c, f, { bd, params: paramsFor(bgFx, st.fxp?.[bgFx.id]) }); for (const e of bdEffects) e.draw(c, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); c.restore(); };
+  // the deep effects (the glyph pane): over the backdrop's ground and under its elements, by the backdrop's own hook (or
+  // right after it, for one without elements); over the song's video when one is up
+  const deepFx = bdEffects.filter(e => e.deep), flatFx = bdEffects.filter(e => !e.deep), mvUp = !!f.media.mv && f.media.mv.k > 0.02;
+  const deepOnce = (c: Ctx) => { let done = false; return () => { if (done) return; done = true;
+    for (const e of deepFx) { c.save(); c.setTransform(f.px, 0, 0, f.px, 0, 0); e.draw(c, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); c.restore(); } }; };
+  const drawTheme = (c: Ctx) => { const deep = deepOnce(c); inBackdrop(c); bgFx.draw(c, f, { bd, params: paramsFor(bgFx, st.fxp?.[bgFx.id]), under: mvUp ? undefined : deep }); if (!mvUp) deep();
+    for (const e of flatFx) { e.draw(c, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); if (e.id === 'mv') deep(); } deep(); c.restore(); };
   if (view >= 0.999) drawTheme(g);
   else {
     inBackdrop(g); effect('ambient')!.draw(g, f, { bd, params: {} }); g.restore();
     if (view > 0.001) {
       const cv = g.canvas as HTMLCanvasElement; if (LAYER.width !== cv.width || LAYER.height !== cv.height) { LAYER.width = cv.width; LAYER.height = cv.height; }
       const lg = LAYER.getContext('2d')!; lg.setTransform(1, 0, 0, 1, 0, 0); lg.clearRect(0, 0, LAYER.width, LAYER.height); lg.setTransform(f.px, 0, 0, f.px, 0, 0);
-      if (sameAsAmbient) { inBackdrop(lg); for (const e of bdEffects) e.draw(lg, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); if (f.coverOwner === 'backdrop') bgFx.draw(lg, f, { bd, params: {} }); lg.restore(); }
+      if (sameAsAmbient) { const deep = deepOnce(lg); inBackdrop(lg); for (const e of flatFx) e.draw(lg, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); deep(); if (f.coverOwner === 'backdrop') bgFx.draw(lg, f, { bd, params: {} }); lg.restore(); }
       else drawTheme(lg);
       g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = sstep(view); g.drawImage(LAYER, 0, 0); g.restore();
     }

@@ -114,6 +114,15 @@ function roseSil(g: Ctx, x: number, y: number, r: number, rot: number, col: RGB)
   g.lineWidth = r * 0.06; for (let k = 0; k < 5; k++) { const a = k / 5 * 6.283 + 0.5; g.beginPath(); g.arc(Math.cos(a) * r * 0.2, Math.sin(a) * r * 0.2, r * 0.62, a + 0.9, a + 1.9); g.stroke(); }
   g.restore();
 }
+/** A rose sprite with its own soft shadow baked in (a little down and to the side, the colour of the deep background):
+ *  where one rose lies over another it reads as a layer in front, not a blot of the same colour. 256 px, the rose's
+ *  radius 120 at its middle. */
+function shadowed(col: RGB, bg: RGB) {
+  const a = makeCanvas(256, 256) as HTMLCanvasElement; roseSil(C2(a), 128, 128, 112, 0.3, col);
+  const c = makeCanvas(256, 256) as HTMLCanvasElement, g = C2(c) as CanvasRenderingContext2D;
+  g.filter = 'blur(7px) brightness(0.25)'; g.globalAlpha = 0.7; g.drawImage(a, 5, 9); g.filter = 'none'; g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over'; g.drawImage(a, 0, 0); void bg; return c;
+}
 export function gothicSprites(f: RenderFrame) {
   const key = f.style.bg + f.style.accent + f.style.text; if (GOTH && GOTH.key === key) return GOTH;
   const P = f.pal, sil = mix(P.bg, K3, 0.68), bloom = mix(P.accent, K3, 0.38), bloomFar = mix(P.accent, P.bg, 0.35);
@@ -136,9 +145,9 @@ export function gothicSprites(f: RenderFrame) {
     const sp = new Path2D(); for (let k = 0; k < 40; k++) { const r = 26 * (1 - k / 40), px = x + Math.cos(a + k * 0.32) * r, py = y + Math.sin(a + k * 0.32) * r; k ? sp.lineTo(px, py) : sp.moveTo(px, py); } runs.push({ p: sp, w: 2.4 });
     roses.push([x, y, 34 + rnd(v * 6.6) * 28, rnd(v * 2) * 6, 0]); }
   roses.forEach((r, k) => { r[4] = k % 3 === 1 ? 0 : 1; });
-  const roseOf = (col: RGB) => { const c = makeCanvas(256, 256) as HTMLCanvasElement; roseSil(C2(c), 128, 128, 120, 0, col); return c; };
+  const roseOf = (col: RGB) => shadowed(col, P.bg);
   const vines = { runs, fill, roses, col: sil, sprites: [roseOf(sil), roseOf(bloom)] };
-  const rc = makeCanvas(256, 256) as HTMLCanvasElement; roseSil(C2(rc), 128, 128, 120, 0.3, bloomFar);
+  const rc = shadowed(bloomFar, P.bg);
   const pc = makeCanvas(48, 48) as HTMLCanvasElement, pg = C2(pc); pg.fillStyle = rgba(bloom, 1); pg.beginPath(); pg.moveTo(24, 4); pg.quadraticCurveTo(44, 24, 24, 44); pg.quadraticCurveTo(32, 24, 24, 4); pg.fill();
   GOTH = { key, vines, rose: rc, petal: pc, chain: mix(P.bg, K3, 0.82), rim: mix(P.accent, P.text, 0.35) }; return GOTH;
 }
@@ -147,15 +156,18 @@ function drawVines(g: Ctx, V: any) {
   g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = g.fillStyle = rgba(V.col, 1);
   for (const r of V.runs) { g.lineWidth = r.w; g.stroke(r.p); }
   g.fill(V.fill);
-  for (const [x, y, r, rot, c] of V.roses) { g.save(); g.translate(x, y); g.rotate(rot); g.drawImage(V.sprites[c], -r * 256 / 240, -r * 256 / 240, r * 512 / 240, r * 512 / 240); g.restore(); }
+  for (const [x, y, r, rot, c] of V.roses) { g.save(); g.translate(x, y); g.rotate(rot); g.drawImage(V.sprites[c], -r * 256 / 224, -r * 256 / 224, r * 512 / 224, r * 512 / 224); g.restore(); }
 }
+const ROSES_FAR: [number, number, number, number, number, number][] = [[0, 0.82, 0.26, 0.1, 0.14, 0.06], [1, 0.14, 0.7, 0.14, 0.2, 0.1], [2, 0.6, 0.78, 0.2, 0.26, 0.16]];
 const PETALS = Array.from({ length: 14 }, (_, i) => ({ x: rnd(i * 7.1 + 3), p: rnd(i * 3.3 + 9), s: 0.03 + rnd(i * 5.9) * 0.04, f: 0.4 + rnd(i * 2.2) * 0.8, ph: rnd(i * 8.8) * 6.28, z: 0.4 + rnd(i * 1.9) * 0.6 }));
 register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
   const Gs = gothicSprites(f), P = f.P, w = f.W, h = f.H, m = Math.min(w, h), t = f.t, E = a.bd.Ev, ox = a.bd.ox, oy = a.bd.oy;
   const flick = 0.94 + 0.06 * Math.sin(t * 7.1) * Math.sin(t * 3.3 + 1) + 0.03 * P, gr = g.createRadialGradient(w / 2, h * 0.42, m * 0.05, w / 2, h * 0.5, Math.max(w, h) * 0.85);
-  gr.addColorStop(0, hexOf(mix(f.pal.bg2, K3, 1 - flick))); gr.addColorStop(0.55, hexOf(f.pal.bg)); gr.addColorStop(1, hexOf(mix(f.pal.bg, K3, 0.7))); g.fillStyle = gr; g.fillRect(-E, -E, w + 2 * E, h + 2 * E);
-  for (let k = 0; k < 3; k++) { const x = (0.16 + k * 0.34 + rnd(k * 3.1) * 0.1) * w + ox * 0.15, y = (0.22 + rnd(k * 7.7) * 0.56) * h + oy * 0.15, r = m * (0.16 + rnd(k * 2.2) * 0.1) * (1 + P * 0.015);
-    g.save(); g.globalAlpha = 0.3; g.translate(x, y); g.rotate(t * 0.02 * (k % 2 ? 1 : -1) + k); g.drawImage(Gs.rose, -r, -r, r * 2, r * 2); g.restore(); }
+  gr.addColorStop(0, hexOf(mix(f.pal.bg2, K3, 1 - flick))); gr.addColorStop(0.55, hexOf(f.pal.bg)); gr.addColorStop(1, hexOf(mix(f.pal.bg, K3, 0.7))); g.fillStyle = gr; g.fillRect(-E, -E, w + 2 * E, h + 2 * E); a.under?.();
+  // the far roses: three at their own depths (the farthest smallest and faintest, the nearest largest), set apart so
+  // they never pile up on each other, drawn far to near
+  for (const [k, x0, y0, rs, al, par] of ROSES_FAR) { const x = x0 * w + ox * par, y = y0 * h + oy * par, r = m * rs * (1 + P * 0.015);
+    g.save(); g.globalAlpha = al; g.translate(x, y); g.rotate(t * 0.02 * (k % 2 ? 1 : -1) + k); g.drawImage(Gs.rose, -r, -r, r * 2, r * 2); g.restore(); }
   g.save(); g.translate(w / 2 + ox * 0.35, h / 2 + oy * 0.35); g.rotate(Math.sin(t * 0.21) * 0.012); const vs = Math.max(w, h) * 1.15 / 1024 * (1 + P * 0.006); g.scale(vs, vs); g.translate(-512, -512); drawVines(g, Gs.vines); g.restore();
   for (const pt of PETALS) { const y = ((pt.p + t * pt.s) % 1.3 - 0.15) * h + oy * pt.z, x = (pt.x + Math.sin(t * pt.f + pt.ph) * 0.04) * w + ox * pt.z, sz = m * 0.022 * (0.6 + pt.z);
     g.save(); g.globalAlpha = 0.4 + 0.45 * pt.z; g.translate(x, y); g.rotate(t * pt.f + pt.ph); g.scale(Math.cos(t * pt.f * 1.3 + pt.ph), 1); g.drawImage(Gs.petal, -sz, -sz, sz * 2, sz * 2); g.restore(); }

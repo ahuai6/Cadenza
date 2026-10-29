@@ -323,12 +323,15 @@ export function layout(inp: LayoutInput): LayoutResult {
 
 /** Which lines are set vertically: whole lines, in runs of two to four (a few lines down the page, then rows again),
  *  never a lone column among rows nor columns and rows mixed within a line. A line can stand as a column when it is all
- *  CJK in short words (two to seven characters each) and not a quick run; runs start now and then, with rows between. */
+ *  CJK, two to ten characters long (in at most five words) and not a quick run; runs start now and then, rows between. */
 export function vertRuns(ls: LyricDoc['lines']): Set<number> {
-  const ok = (L: LyricDoc['lines'][number]) => !!L && L.words.length > 0 && L.words.length <= 4 && !fastLine(L) && L.words.every(w => w.cjk && !w.latin && w.units.length >= 2 && w.units.length <= 7);
+  // (a line is mostly one word now — words break only at spaces — so it is the line's length that counts: two to ten
+  // characters down a column, in at most five words)
+  const ok = (L: LyricDoc['lines'][number]) => { if (!L || !L.words.length || L.words.length > 5 || fastLine(L) || !L.words.every(w => w.cjk && !w.latin)) return false;
+    const n = L.words.reduce((a, w) => a + w.units.length, 0); return n >= 2 && n <= 10; };
   const out = new Set<number>(); let last = -9;
   for (let i = 1; i < ls.length; i++) {
-    if (i - last < 5 || !ok(ls[i]) || rnd(ls[i].i * 37 + 5.3) >= 0.24) continue;
+    if (i - last < 6 || !ok(ls[i]) || rnd(ls[i].i * 37 + 5.3) >= 0.26) continue;
     const want = 2 + Math.floor(rnd(ls[i].i * 11.3 + 2) * 3); let j = i; while (j < ls.length && j - i < want && ok(ls[j])) j++;
     if (j - i < 2) continue;
     for (let k = i; k < j; k++) out.add(k);

@@ -33,41 +33,50 @@ export class Signals {
     }
     return (1 - Math.exp(-s * 1.2)) * this.map.sounding(t, idle);
   }
-  /* The groove's hits: the accents a listener feels and nods to, not every note an onset detector finds. An event counts
-     when it stands out from what is around it (louder than the bar's usual events) and sits where the ear expects
-     weight — the downbeat, the backbeat, the other beats, and a syncopated push ("卡點") between them when it really
-     stands out; the small, busy notes are left to the background's pulse. And a beat that keeps hammering — a hit on
-     every beat as strong as the song's usual ones (pop's steady kick, which mixed with the snare and the hats is often
-     heard as a mid-band onset) — counts on every beat even though none of them stands out from the others: it is what
-     the body follows. At most one hit a fifth of a beat apart. */
+  /* The groove's hits: one on every felt beat, each as hard as the beat lands — the way a listener nods along. A beat's
+     impact is how much it rises (the strongest onset on it, the low end counting most) and how loud the music is around
+     it (about a quarter second each way), each placed in the whole song's own range (its 10th to 90th percentile) and
+     mixed, the loudness weighing more: a sparse intro, where every hit stands out of the quiet, is not the strongest
+     part, nor a full chorus, where the hits land on an already loud mix, the weakest. A gentle curve lifts the middle
+     and a floor keeps a weak beat seen, so a driving song shakes on every beat with its downbeats and loud passages
+     strongest. A bar with no onset on any of its beats (a held pad, a free intro) shakes not at all. A song whose beats
+     barely rise (a ballad) moves less overall. Besides the beats, a clearly standing-out push between them (a syncopated
+     hit, 卡點) is a hit of its own. A beat counted twice as fast as it is felt (above ~165 BPM) is felt every other beat. */
   private hits: { t: number; a: number }[] | null = null;
   grooveHits(): { t: number; a: number }[] {
     if (this.hits) return this.hits;
-    const meter = this.map.meter, out: { t: number; a: number; s: number }[] = [];
-    const onBeat = (e: RhythmEvent) => { const fr = e.pos - Math.floor(e.pos); return fr < 0.12 || fr > 0.88; }, lowish = (e: RhythmEvent) => e.band === 'low' || e.band === 'broad';
-    const firm = (e: RhythmEvent) => onBeat(e) && e.band !== 'high';
-    const ev = this.map.events.filter(e => e.tier > 0 || firm(e));
-    // the song's usual hit on a beat: a steady run of hits about as strong as that is felt on every beat
-    const ons = ev.filter(firm), ss = ons.map(e => e.s).sort((a, b) => a - b), typ = ss.length ? ss[ss.length >> 1] : 1;
-    const steadyAt = (i: number) => { const e = ev[i], bl = this.map.beatLen(e.t), w = 2 * meter * bl; let n = 0;
-      for (let j = i; j >= 0 && e.t - ev[j].t <= w; j--) if (firm(ev[j]) && ev[j].s >= 0.45 * typ) n++;
-      for (let j = i + 1; j < ev.length && ev[j].t - e.t <= w; j++) if (firm(ev[j]) && ev[j].s >= 0.45 * typ) n++;
-      return n >= 0.75 * (2 * w / bl); };   // (a hit on three beats of four, or more, around it)
-    for (let i = 0; i < ev.length; i++) {
-      const e = ev[i], bar = meter * this.map.beatLen(e.t), around: number[] = [];
-      for (let j = i - 1; j >= 0 && e.t - ev[j].t <= bar; j--) around.push(ev[j].s);
-      for (let j = i + 1; j < ev.length && ev[j].t - e.t <= bar; j++) around.push(ev[j].s);
-      around.sort((a, b) => a - b); const med = around.length ? around[around.length >> 1] : e.s, stand = e.s / Math.max(0.05, med);
-      const fr = e.pos - Math.floor(e.pos), onB = fr < 0.12 || fr > 0.88, beat = ((Math.round(e.pos) % meter) + meter) % meter;
-      const place = onB ? (beat === 0 ? 1 : meter === 4 && beat % 2 === 1 ? 0.85 : 0.7) : Math.abs(fr - 0.5) < 0.1 ? (stand >= 1.25 ? 0.6 : 0) : stand >= 1.6 ? 0.3 : 0;
-      const low = lowish(e), prom = place * clamp((stand - 0.85) / 0.6, 0, 1.4) * (low ? 1 : 0.75) * clamp(e.s / 1.4, 0.3, 1.2);
-      const steady = firm(e) && ons.length >= 8 && steadyAt(i) ? place * 0.75 * clamp((e.s / Math.max(0.05, typ) - 0.3) / 0.45, 0, 1.15) : 0, score = Math.max(prom, steady);
-      if (score < 0.28) continue;
-      const a = clamp(score, 0, 1.3) * (e.tier === 2 ? 1 : 0.8), last = out[out.length - 1], gap = 0.2 * this.map.beatLen(e.t);
-      if (last && e.t - last.t < gap) { if (a > last.a) out[out.length - 1] = { t: e.t, a, s: e.s }; continue; }
-      out.push({ t: e.t, a, s: e.s });
+    const map = this.map, B = map.beats, meter = map.meter, ev = map.events, n = B.length;
+    if (n < 4) return (this.hits = ev.filter(e => e.tier > 0).map(e => ({ t: e.t, a: clamp(e.s / 1.4, 0.3, 1) })));
+    const bw = (e: RhythmEvent) => (e.band === 'low' || e.band === 'broad' ? 1 : e.band === 'mid' ? 0.8 : 0.45);
+    const near = (t: number, tol: number) => { let lo = 0, hi = ev.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t < t - tol) lo = m + 1; else hi = m; }
+      let best = 0; for (let i = lo; i < ev.length && ev[i].t <= t + tol; i++) best = Math.max(best, ev[i].s * bw(ev[i])); return best; };
+    const loudAt = (t: number) => { let v = 0; for (const d of [-0.25, -0.12, 0, 0.12, 0.25]) v += map.loud(t + d); return v / 5; };
+    const half = map.bpm >= 165 ? 2 : 1;                                   // (felt at half the counted pace)
+    const rise: number[] = [], loud: number[] = [], pos: number[] = [];
+    for (let i = 0; i < n; i++) { const tol = Math.min(0.07, 0.18 * map.beatLen(B[i])); rise.push(near(B[i], tol)); loud.push(loudAt(B[i])); pos.push(map.beatAt(B[i] + 1e-4).inBar); }
+    const pct = (a: number[], q: number) => { const s = a.filter(x => x > 0).sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : 0; };
+    const r10 = pct(rise, 0.1), r90 = pct(rise, 0.9), l10 = pct(loud, 0.1), l90 = pct(loud, 0.9), rMed = pct(rise, 0.5);
+    const norm = (v: number, a: number, b: number) => clamp((v - a) / Math.max(1e-6, b - a));
+    const scale = clamp(0.45 + 0.55 * (rMed / Math.max(0.05, r90)) * 1.4, 0.45, 1);   // a song whose beats barely rise moves less
+    const out: { t: number; a: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      if (half > 1 && pos[i] % 2 === 1) continue;
+      // a bar with no onset on any of its beats: no hits there
+      const b0 = i - pos[i], barHas = (() => { for (let j = Math.max(0, b0); j < Math.min(n, b0 + meter); j++) if (rise[j] > 0) return true; return false; })(); if (!barHas) continue;
+      // (a beat with no onset of its own counts only inside a running groove: a hit just before it and just after)
+      if (rise[i] <= 0 && !(i > 0 && rise[i - 1] > 0 && i + 1 < n && rise[i + 1] > 0)) continue;
+      const imp = 0.4 * norm(rise[i], r10, r90) + 0.6 * norm(loud[i], l10, l90), place = pos[i] === 0 ? 1 : meter === 4 && pos[i] % 2 === 1 ? 0.92 : 0.84;
+      const a = (0.28 + 0.72 * imp ** 0.75) * place * scale * (rise[i] > 0 ? 1 : 0.6);
+      out.push({ t: B[i], a: clamp(a * 1.15, 0, 1.25) });
     }
-    return (this.hits = out.map(({ t, a }) => ({ t, a })));
+    // the pushes between the beats: a strong hit off the beat that stands well above the bar's usual onset
+    for (let k = 0; k < ev.length; k++) { const e = ev[k]; if (!e.off || e.tier < 2) continue; const bl = map.beatLen(e.t);
+      const around: number[] = []; for (let j = k - 1; j >= 0 && e.t - ev[j].t <= meter * bl; j--) around.push(ev[j].s); for (let j = k + 1; j < ev.length && ev[j].t - e.t <= meter * bl; j++) around.push(ev[j].s);
+      around.sort((x, y) => x - y); const med = around.length ? around[around.length >> 1] : e.s; if (e.s / Math.max(0.05, med) < 1.6) continue;
+      if (out.some(h => Math.abs(h.t - e.t) < 0.3 * bl)) continue;
+      out.push({ t: e.t, a: clamp(0.5 + 0.35 * clamp((e.s / med - 1.6) / 1.2), 0, 1) * scale }); }
+    out.sort((x, y) => x.t - y.t);
+    return (this.hits = out);
   }
   /** The cone's displacement (about -0.3 .. 1.5) and its alternating roll partner: kicked by the groove's hits only. */
   coneAt(t: number, idle = 0): { z: number; r: number } {

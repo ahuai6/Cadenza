@@ -175,9 +175,10 @@ function glassGeom(ev: Glass) {
   geo = { rays, segs, shards, branches, crush }; GEO.set(ev.seed, geo); if (GEO.size > 64) GEO.delete(GEO.keys().next().value!); return geo;
 }
 function crackPaths(g: Ctx, G: any, Rr: number, reach: number, fade: number, pass: number) {
-  for (const ray of G.rays) { g.globalAlpha = (pass ? 0.42 : 0.5) * fade; g.lineWidth = pass ? 0.9 : 2.2; g.beginPath(); let st = false; for (const p of ray.pts) { if (p[2] > reach) break; st ? g.lineTo(p[0] * Rr, p[1] * Rr) : g.moveTo(p[0] * Rr, p[1] * Rr); st = true; } g.stroke(); }
-  for (const sg of G.segs) { const r = Math.hypot(sg[0][0], sg[0][1]); if (r > reach * 0.95) continue; g.globalAlpha = (pass ? 0.35 : 0.42) * fade * clamp((reach * 0.95 - r) / 0.15); g.lineWidth = pass ? 0.8 : 1.8; g.beginPath(); g.moveTo(sg[0][0] * Rr, sg[0][1] * Rr); g.quadraticCurveTo(sg[1][0] * Rr, sg[1][1] * Rr, sg[2][0] * Rr, sg[2][1] * Rr); g.stroke(); }
-  g.globalAlpha = (pass ? 0.25 : 0.32) * fade; g.lineWidth = pass ? 0.6 : 1.3;
+  const LW = pass === 2 ? [5, 4, 3] : pass ? [0.8, 0.7, 0.5] : [1.6, 1.3, 1];
+  for (const ray of G.rays) { g.globalAlpha = (pass ? 0.42 : 0.5) * fade; g.lineWidth = LW[0]; g.beginPath(); let st = false; for (const p of ray.pts) { if (p[2] > reach) break; st ? g.lineTo(p[0] * Rr, p[1] * Rr) : g.moveTo(p[0] * Rr, p[1] * Rr); st = true; } g.stroke(); }
+  for (const sg of G.segs) { const r = Math.hypot(sg[0][0], sg[0][1]); if (r > reach * 0.95) continue; g.globalAlpha = (pass ? 0.35 : 0.42) * fade * clamp((reach * 0.95 - r) / 0.15); g.lineWidth = LW[1]; g.beginPath(); g.moveTo(sg[0][0] * Rr, sg[0][1] * Rr); g.quadraticCurveTo(sg[1][0] * Rr, sg[1][1] * Rr, sg[2][0] * Rr, sg[2][1] * Rr); g.stroke(); }
+  g.globalAlpha = (pass ? 0.25 : 0.32) * fade; g.lineWidth = LW[2];
   for (const br of G.branches) { if (br.r > reach) continue; g.beginPath(); br.pts.forEach((p: number[], k: number) => (k ? g.lineTo(p[0] * Rr, p[1] * Rr) : g.moveTo(p[0] * Rr, p[1] * Rr))); g.stroke(); }
   g.beginPath(); for (const [p, q] of G.crush) { g.moveTo(p[0] * Rr, p[1] * Rr); g.lineTo(q[0] * Rr, q[1] * Rr); } g.stroke();
 }
@@ -188,7 +189,7 @@ const goneK = (sh: { r0: number; delay: number; fly: boolean }, dt: number, reac
 register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z: 40, draw(g, f) {
   const w = f.W, h = f.H, t = f.t, dark = f.pal.dark;
   for (const ev of f.plan.cues.glass) { const dt = t - ev.t; if (dt < 0 || dt > 2.2) continue;
-    const G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, grow = sstep(clamp(dt / 0.07)), fade = 1 - clamp((dt - 0.9) / 1.2), reach = grow * 1.2, hot = mix(f.pal.text, [255, 255, 255], 0.6);
+    const G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, grow = sstep(clamp(dt / 0.07)), fade = 1 - clamp((dt - 0.9) / 1.2), reach = grow * 1.2, hot = mix(mix(f.pal.text, f.pal.accent, 0.3), [255, 255, 255], 0.55), glow = mix(f.pal.accent, [255, 255, 255], 0.35);
     g.save(); g.translate(cx, cy); g.lineJoin = 'round'; g.lineCap = 'round';
     // the openings (pieces that have broken out): their cracks went with them — the cracks are drawn round them only,
     // so between two neighbours that both fell out no line is left, and at the edge of a piece that stays half the
@@ -196,8 +197,11 @@ register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z:
     const holes = new Path2D(); let nh = 0;
     for (const sh of G.shards) if (goneK(sh, dt, reach, 1) > 0.3) { nh++; sh.poly.forEach((p: number[], i: number) => (i ? holes.lineTo(p[0] * Rr, p[1] * Rr) : holes.moveTo(p[0] * Rr, p[1] * Rr))); holes.closePath(); }
     g.save(); if (nh) { const out = new Path2D(); out.rect(-w * 2, -h * 2, w * 4, h * 4); out.addPath(holes); g.clip(out, 'evenodd'); }
-    g.globalCompositeOperation = 'multiply'; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.6), 1); crackPaths(g, G, Rr, reach, fade * 1.5 * (ev.k ?? 1), 0);
-    g.globalCompositeOperation = dark ? 'screen' : 'soft-light'; g.strokeStyle = rgba(hot, 1); g.save(); g.translate(-0.8, -0.8); crackPaths(g, G, Rr, reach, Math.min(1, fade * 1.6), 1); g.restore();
+    // the cracks as light, not as etched dark lines: a faint shade under each, a hairline of the theme's light on it and
+    // a wide soft glow along it — fine, a little luminous, never heavy
+    g.globalCompositeOperation = 'multiply'; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.35), 1); crackPaths(g, G, Rr, reach, fade * 0.42 * (ev.k ?? 1), 0);
+    g.globalCompositeOperation = dark ? 'screen' : 'soft-light'; g.strokeStyle = rgba(glow, 1); g.save(); g.lineWidth = 1; crackPaths(g, G, Rr, reach, Math.min(1, fade * 0.35), 2); g.restore();
+    g.strokeStyle = rgba(hot, 1); g.save(); g.translate(-0.6, -0.6); crackPaths(g, G, Rr, reach, Math.min(1, fade * 1.1), 1); g.restore();
     g.restore();
     // the openings themselves, a shade darker (what was behind the glass)
     g.globalCompositeOperation = 'source-over'; g.fillStyle = g.strokeStyle = rgba(mix(f.pal.bg, K3, dark ? 0.35 : 0.22), 1); g.lineWidth = 1.6; g.lineJoin = 'round';
@@ -238,11 +242,17 @@ register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'ef
       const sgd = g.createLinearGradient(ox - ex, oy - ex, ox + ex, oy + ex), b0 = clamp(band + 0.5);
       sgd.addColorStop(0, 'rgba(255,255,255,0)'); sgd.addColorStop(clamp(b0 - 0.08), 'rgba(255,255,255,0)'); sgd.addColorStop(b0, `rgba(255,255,255,${(dark ? 0.32 : 0.45) * op})`); sgd.addColorStop(clamp(b0 + 0.08), 'rgba(255,255,255,0)'); sgd.addColorStop(1, 'rgba(255,255,255,0)');
       g.globalCompositeOperation = dark ? 'screen' : 'source-over'; g.globalAlpha = 1; g.fillStyle = sgd; g.fillRect(ox - ex, oy - ex, ex * 2, ex * 2); g.restore();
-      g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.45 * op; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.55), 1); g.lineWidth = 1.8; g.stroke();
-      g.globalCompositeOperation = dark ? 'screen' : 'soft-light'; g.globalAlpha = 0.6 * op; g.strokeStyle = rgba(mix(light, [255, 255, 255], 0.4), 1); g.lineWidth = 1; g.stroke(); g.restore(); } } } });
+      g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.14 * op; g.strokeStyle = rgba(mix(f.pal.bg, K3, 0.45), 1); g.lineWidth = 1.4; g.stroke();
+      g.globalCompositeOperation = dark ? 'screen' : 'soft-light'; g.globalAlpha = 0.5 * op; g.strokeStyle = rgba(mix(mix(light, f.pal.accent, 0.25), [255, 255, 255], 0.45), 1); g.lineWidth = 0.8; g.stroke(); g.restore(); } } } });
 
 /* ---------- glyph contours: one character of the current line, traced as vector outline rings, huge behind it ---------- */
 const KEYCH = new WeakMap<PLine, string | null>();
+/** Make ahead the panes a song's glyph slots will show (each is costly the first time: its mask, small mask and rim), one
+ *  per call; returns whether there is more to do. */
+export function glyphPaneWarm(f: Pick<RenderFrame, 'plan' | 'style'>) {
+  const fc = fontStack(f.style.font), todo = f.style.fx.glyph ? [...new Set(f.plan.cues.glyphSlots.map(sl => keyChar(sl.line)).filter(Boolean) as string[])] : [];
+  let i = 0; return () => { while (i < todo.length) { const ch = todo[i]; if (!glyphPane(ch, fc.w, fc.stack)) return true; i++; return i < todo.length; } return false; };
+}
 function keyChar(P: PLine) {
   if (KEYCH.has(P)) return KEYCH.get(P)!; let best: any = null; for (const S of P.words) if (!best || S.lw * S.lh > best.lw * best.lh) best = S;
   const cands = best ? graphemes(best.w.text).filter((ch: string) => !/[\p{P}\p{S}\s]/u.test(ch)) : [];
@@ -264,11 +274,12 @@ function glyphPane(ch: string, w: number, stack: string) {
   // its edge traced round the character's silhouette (the filled shape grown by a few pixels, the shape itself taken
   // out): one clean outline of the whole character, never the overlapping contours of its strokes; and a soft glow of
   // the same, wider
-  const ring = (wd: number) => { const c = makeCanvas(S, S), g = C2(c) as CanvasRenderingContext2D;
-    for (let k = 0; k < 16; k++) { const a = k / 16 * 6.283; g.drawImage(mask as CanvasImageSource, Math.cos(a) * wd, Math.sin(a) * wd); }
-    g.globalCompositeOperation = 'destination-out'; g.drawImage(mask as CanvasImageSource, 0, 0); return c; };
-  const rim = makeCanvas(S, S); { const g = C2(rim) as CanvasRenderingContext2D, fine = ring(R * 0.005), soft = ring(R * 0.014);
-    g.drawImage(fine as CanvasImageSource, 0, 0); g.globalAlpha = 0.45; g.filter = 'blur(3px)'; g.drawImage(soft as CanvasImageSource, 0, 0); g.filter = 'none'; }
+  // (made cheaply, once, ahead of time — see glyphPaneWarm: eight offsets for the fine line, and the soft glow as the
+  // shape blurred once with the shape taken out, all on one canvas)
+  const rim = makeCanvas(S, S); { const g = C2(rim) as CanvasRenderingContext2D, wd = R * 0.005;
+    g.globalAlpha = 0.45; g.filter = `blur(${(R * 0.01).toFixed(1)}px)`; g.drawImage(mask as CanvasImageSource, 0, 0); g.filter = 'none'; g.globalAlpha = 1;
+    for (let k = 0; k < 8; k++) { const a = k / 8 * 6.283; g.drawImage(mask as CanvasImageSource, Math.cos(a) * wd, Math.sin(a) * wd); }
+    g.globalCompositeOperation = 'destination-out'; g.drawImage(mask as CanvasImageSource, 0, 0); g.globalCompositeOperation = 'source-over'; }
   // (the mask also small: the pane is worked at a couple of hundred pixels, and cutting it with the full mask read a
   // million pixels a frame)
   const small = makeCanvas(256, 256); { const sg = C2(small); sg.imageSmoothingQuality = 'high'; sg.drawImage(mask as CanvasImageSource, 0, 0, 256, 256); }
@@ -291,7 +302,8 @@ function glyphSpot(sl: RenderFrame['plan']['cues']['glyphSlots'][number], f: Ren
   let bi = sl.side ? 1 : 0; score.forEach((v, i) => { if (v < score[bi] - 1e-6) bi = i; });
   o = { x: SPOTS[bi][0] * W, y: SPOTS[bi][1] * H, r: r0 }; SPOT.set(sl, o); return o;
 }
-register({ id: 'glyph', label: 'fx.glyph', layer: 'world-back', kind: 'effect', z: 0, params: [{ key: 'contrast', label: 'p.contrast', kind: 'range', min: 0.3, max: 2, step: 0.05, def: 1 }],
+// (deep in the backdrop: behind its roses, its cover, its record — over a song's video when one is up)
+register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z: 0, deep: true, params: [{ key: 'contrast', label: 'p.contrast', kind: 'range', min: 0.05, max: 1, step: 0.05, def: 0.2 }],
   draw(g, f, a) {
     const t = f.t, ov = f.cam.ov, k0 = +a.params.contrast, fc = fontStack(f.style.font), TR_IN = 0.4, tr = (g as CanvasRenderingContext2D).getTransform(), px = tr.a, cv = g.canvas as HTMLCanvasElement;
     const veil = f.pal.dark ? mix([255, 255, 255], f.pal.accent, 0.25) : mix(f.pal.bg, [255, 255, 255], 0.6);
@@ -299,11 +311,13 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'world-back', kind: 'effect', 
       if (t < sl.t - 0.2 || t > sl.end + 1.8) continue; const P = sl.line, ch = keyChar(P); if (!ch) continue;
       const fin = eSine(clamp((t - sl.t + 0.2) / 1.8)), fout = sl.cut ? 1 - sstep(clamp((t - (sl.end - TR_IN)) / TR_IN)) : 1 - eSine(clamp((t - sl.end + 0.2) / 1.8));
       const al = Math.min(1, fin * fout * (1 - ov) * f.view.effect * k0); if (al < 0.01) continue;
-      // where the words are not: across the frame from where its line is seen, held there (a large shape filling the
-      // empty part of the picture, drifting slowly), most of a frame high
-      const at = glyphSpot(sl, f), size = f.H * 0.95 * (0.96 + 0.04 * fin);
-      const ly = glyphPane(ch, fc.w, fc.stack); if (!ly) continue; const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + (f.cam.cam.r - at.r)) * D2R + Math.sin(t * 0.23 + P.i) * 0.035;
-      const cx = f.W / 2 + at.x + Math.sin(t * 0.37 + P.i) * f.W * 0.02, cy = f.H / 2 + at.y + Math.cos(t * 0.31 + P.i * 1.7) * f.H * 0.02, w = size * ly.S, half = w * 0.72;
+      // where the words are not (a large shape filling the empty part of the picture, most of a frame high), floating
+      // there on its own: a slow wandering drift that never repeats, a slow sway and a breath — not pinned to the frame,
+      // nor following the camera
+      const at = glyphSpot(sl, f), ph = P.i * 1.37, br = 1 + 0.035 * Math.sin(t * 0.19 + ph), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br;
+      const ly = glyphPane(ch, fc.w, fc.stack); if (!ly) continue;
+      const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + Math.sin(t * 0.13 + ph) * 4 + Math.sin(t * 0.31 + ph * 2.1) * 1.5) * D2R;
+      const cx = f.W / 2 + at.x + (Math.sin(t * 0.11 + ph) * 0.05 + Math.sin(t * 0.29 + ph * 1.7) * 0.022) * f.W, cy = f.H / 2 + at.y + (Math.cos(t * 0.09 + ph * 0.8) * 0.045 + Math.sin(t * 0.23 + ph * 2.3) * 0.02) * f.H, w = size * ly.S, half = w * 0.72;
       // the picture under the pane, small, blurred, lifted, cut to the glyph
       // (worked small: a quarter of its size on screen, never over 160 px — it is blurred, so nothing is lost, and a large
       // pane up close no longer costs a large blur)

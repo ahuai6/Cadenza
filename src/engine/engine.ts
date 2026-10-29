@@ -235,6 +235,8 @@ export class Engine extends Emitter<EngineEvents> {
     const f0 = this.frameAt(0); if (!f0) return; const plan = s.plan, { lyricBake } = require_lyrics(), spec = lyricBake(f0);
     const glyphs = prewarmGlyphs(spec.font, spec.cols, spec.chars, [1, 2, 3, 4, 5], spec.grad), steps: (() => boolean)[] = [], heavy: boolean[] = [];
     steps.push(() => glyphs(3)); heavy.push(false);
+    // the glyph panes (the large frosted character): each made once, ahead, never in the frame its slot comes in
+    { const panes = require_overlays().glyphPaneWarm(f0); steps.push(() => panes()); heavy.push(false); }
     // the large levels only for the glyphs the camera will frame large (the plan knows each framing's closeness)
     const pxK = this.canvas.height / plan.H, big = new Set<string>();
     for (const st of plan.camera.stops) for (const S of st.words) if (EM * S.s * st.z * pxK > 150) for (const u of S.units) big.add(u.c);
@@ -279,3 +281,5 @@ import * as handoffMod from './handoff';
 import * as lyricsMod from '../render/lyrics';
 const require_handoff = () => handoffMod;
 const require_lyrics = () => lyricsMod;
+import * as overlaysMod from '../render/effects/overlays';
+const require_overlays = () => overlaysMod;

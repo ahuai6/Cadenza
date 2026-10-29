@@ -16,6 +16,13 @@ const CHECKS = {
       ok(`themes: ${th} draws a picture at every moment`, r.every(x => x > 2), r.map(x => x.toFixed(1)).join(' '));
     }
   },
+  async coverDrawn(p) {
+    // the cover theme draws its sleeve: the frame with the cover differs from the one without it over a good part of the picture
+    const r = await p.evaluate(async () => { const ses = await H.open({ theme: 'cover', coverUrl: 'cover.jpg' }); const cv = document.createElement('canvas'); cv.width = 640; cv.height = 360; const g = cv.getContext('2d', { willReadFrequently: true });
+      const draw = owner => { const f = H.engine.frameAt(2, { px: 0.5 }); f.coverOwner = owner; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 640, 360); H.drawFrame(g, f, { sig: ses.sig }); return g.getImageData(0, 0, 640, 360).data; };
+      const a = draw('backdrop'), b = draw('page'); let d = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) d++; return d / (a.length / 4); });
+    ok('cover: the cover theme draws its sleeve', r > 0.04, r.toFixed(3));
+  },
   async cull(p) {
     // the culling never removes anything that would be visible: frames with and without it are identical
     const r = await p.evaluate(async () => { const out = []; for (const th of ['liquid', 'cover']) { const ses = await H.open({ theme: th });

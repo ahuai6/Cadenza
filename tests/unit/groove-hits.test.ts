@@ -20,4 +20,13 @@ describe('groove hits', () => {
     expect(H.length / beats).toBeLessThanOrEqual(1.05);
     for (const h of H) { const fr = ((h.t - 0.5) / 0.5) % 1; expect(Math.min(fr, 1 - fr), `hit at ${h.t.toFixed(2)}`).toBeLessThan(0.15); }
   });
+  it('the loud passages hit harder than the quiet ones, and a stretch with nothing on the beat stays still', () => {
+    const b = 60 / 120, t0 = 0.5, hits: any[] = [];
+    for (let k = 0; k < 64; k++) { const t = t0 + k * b; if (k >= 24 && k < 32) continue;              // two bars of nothing
+      const g = k < 24 ? 0.3 : 1; hits.push({ t, kind: 'kick', gain: g }); if (k % 2) hits.push({ t, kind: 'snare', gain: 0.8 * g }); hits.push({ t, kind: 'hat', gain: 0.4 * g }); }
+    const A = analyze([render({ sr: 44100, dur: t0 + 64 * b + 1, hits })], 44100), s = new Signals(new RhythmMap(A, 0)), H = s.grooveHits();
+    const mean = (a: number, z: number) => { const x = H.filter(h => h.t > a && h.t < z); return x.reduce((u, h) => u + h.a, 0) / Math.max(1, x.length); };
+    expect(mean(t0 + 34 * b, t0 + 62 * b)).toBeGreaterThan(mean(t0 + 2 * b, t0 + 22 * b) * 1.25);
+    expect(H.filter(h => h.t > t0 + 24.5 * b && h.t < t0 + 31.5 * b).length).toBe(0);
+  });
 });

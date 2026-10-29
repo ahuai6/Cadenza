@@ -10,7 +10,8 @@ export type Layer = 'backdrop' | 'world-back' | 'world-front' | 'foreground' | '
 export interface Param { key: string; label: string; kind: 'range' | 'toggle' | 'select'; min?: number; max?: number; step?: number; options?: [string, string][]; def: number | boolean | string }
 /** What the backdrop layer adds to a frame: the backdrop's own camera (it never cuts) and the bleed beyond the frame. */
 export interface BackdropView { roll: number; zoom: number; ox: number; oy: number; E: number; Ev: number; /** how far a video is drawn with as little crop as can be (0..1) */ fit?: number; /** a long pause's rest (0..1) */ rest?: number }
-export interface DrawArgs { bd: BackdropView; params: Record<string, number | boolean | string> }
+export interface DrawArgs { bd: BackdropView; params: Record<string, number | boolean | string>;
+  /** (a backdrop's own draw) call once its ground is painted and before its elements: the deep effects go there */ under?: () => void }
 
 export interface Effect {
   id: string; label: string; layer: Layer;
@@ -23,6 +24,9 @@ export interface Effect {
   /** a backdrop's own front layer, drawn among the backdrop's effects at depth `frontZ` (the record theme's disc stands in
    *  front of its horizon and behind the shapes floating round it) */
   front?(g: Ctx, f: RenderFrame, a: DrawArgs): void; frontZ?: number;
+  /** a backdrop effect drawn deep: behind the backdrop's own elements (its roses, its cover), over its ground — and over
+   *  a song's video when one is up (the video always lowest), in the frame's own space */
+  deep?: boolean;
   /** optional: build what a coming frame will need, in idle time */
   prepare?(f: RenderFrame): void;
 }
