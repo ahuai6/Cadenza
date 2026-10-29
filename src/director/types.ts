@@ -18,6 +18,9 @@ export interface PWord {
   vert: boolean; units: PUnit[];
   /** the path's direction where the word sits (deg) */
   ang: number;
+  /** a harmony sung with this word: drawn small at its lower right (its size measured unscaled; never part of the word's
+   *  footprint, so the layout, the camera and the drawing order never change for it) */
+  harm?: { text: string; t: number; w0: number; h0: number } | null;
   /** a lyric frame around this word (and up to two before it) */
   frame: FrameRef | null;
   /** appearing nudged inside the frame (world offset), gliding to its own place between t0 and t1 (entry.ts) */
@@ -43,6 +46,7 @@ export interface PLine {
   sec: number; secEnd: number; secIn: number;
   /** box of the line (path direction), depth */
   ax: number; ay: number; bw: number; bh: number; prot: number; d: number;
+  /** set as columns (one of a run of vertical lines, see layout.ts) */ vert?: boolean;
   back: boolean; rtl: boolean;
 }
 export interface FrameRef { words: PWord[]; ts: number; corner: boolean; pad: number }
@@ -65,16 +69,24 @@ export interface Stop extends Pose {
   rest: number;           // the pause after these words
   words: PWord[];
   roll?: number;          // the roller: reached by half a turn this way (−1 left, +1 right)
+  /** the follow: the axis the camera travels along these words' characters, and each step [t0, t1, dx, dy, ease] */
+  fax?: [number, number]; follow?: [number, number, number, number, string][];
+  /** what of these words is in view on arrival, and each character as a box (for keeping what is sung in frame) */
+  head?: UBox[]; ubox?: (UBox & { t: number; end: number })[];
 }
+export interface UBox { x: number; y: number; lw: number; lh: number; tilt: number }
 /** One move between stops: displacement added over [s, a] with an ease; moves may overlap (they superpose). */
 export interface Move { s: number; a: number; dx: number; dy: number; dz: number; dr: number; dd: number; ease: string; bow: [number, number];
   /** 'roll': the spring's force and overshoot; and how far the view breathes out at the roll's middle (log zoom) */
-  spring?: [number, number]; zb?: number }
+  spring?: [number, number]; zb?: number;
+  /** the turn on its own timing: from s + a·span over (b − a + 1)·span, with its own ease (a hard cut, a curve, a long
+   *  soft landing); a lean into the bend at the move's middle (deg); the bow's peak early (a corner taken wide first) */
+  rot?: [number, number, string]; bank?: number; apex?: boolean }
 
 export interface CameraPlan {
   style: string; start: Pose; stops: Stop[]; moves: Move[];
-  /** drifts while holding: [t0, t1, dx, dy] */
-  drifts: [number, number, number, number][];
+  /** drifts while holding, and the steps of a follow: [t0, t1, dx, dy, ease?] */
+  drifts: [number, number, number, number, string?][];
   /** cut times (passages), with the jump the base path makes there (the backdrop's camera skips these) */
   cuts: { t: number; dx: number; dy: number; dz: number; dr: number }[];
   /** idle stretches (long instrumentals) */
@@ -92,6 +104,9 @@ export interface Cues {
   flash: { t: number; k: number }[];
   impacts: { t: number; k: number; ang: number; sg: number }[];
   glass: { t: number; seed: number; x: number; y: number; size: number; k: number }[];
+  /** colour split and glitch: struck like the glass, a little more often (each only when its effect is on) */
+  chroma: { t: number; k: number }[];
+  glitch: { t: number; k: number; seed: number }[];
   glyphSlots: { t: number; end: number; cut: boolean; line: PLine; side: number }[];
   rings: RhythmEvent[];
 }

@@ -64,7 +64,7 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
   let rx = u.ox / s, ry = u.oy / s;
   if (c.float > 0) ry += Math.sin(t * 1.15 + ui * 0.7 + L.i) * c.float * 2.6;     // float: part of the rest pose
   let ua = 1, um = 1, dx = 0, dy = 0, ur = 0, uq = 1 - ws.pe, ghost = false, outline = 0;
-  if (S.w.timed && u.t != null && ov === 0) {
+  if ((S.w.timed || S.w.paced) && u.t != null && ov === 0) {   // (a paced word: its characters at their estimated moments)
     const lt = t - u.t;
     if (lt < 0) { if (c.future === 'hide' || trail) return null; ghost = true; uq = 0;
       // the ghost arrives with the word's entrance (as the word's own type would), then waits for its moment

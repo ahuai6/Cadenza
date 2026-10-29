@@ -90,7 +90,8 @@ export function geoShapes(g: Ctx, G: ReturnType<typeof geoPattern>, e: number, w
     case 5: { const [x, y] = cornerXY; g.beginPath(); g.moveTo(x, y); g.lineTo(x - Math.sign(x) * w * 1.1 * e, y); g.lineTo(x, y - Math.sign(y) * h * 1.4 * e); g.closePath(); g.fill(); break; }
     case 6: { const [x, y] = cornerXY; disc(x, y, e * m * (0.7 + G.wid * 0.3)); break; }
     case 7: { const n = 4 + Math.floor(G.wid * 5), bw = w / (n * 2); g.save(); g.rotate(diag * 0.5); for (let k = 0; k < n; k++) { const x = (k - n / 2) * bw * 2 + G.pos * bw; g.fillRect(x, lerp(k % 2 ? R0 : -R0 * 3, -R0, e), bw, R0 * 2); } g.restore(); break; }
-    case 8: { const bw = w * 0.14 * (1 + G.wid); g.save(); g.rotate(diag); g.fillRect(-bw / 2, lerp(R0 * 2, -R0, e), bw, R0 * 2); g.rotate(-2 * diag); g.fillRect(-bw / 2, lerp(-R0 * 3, -R0, e), bw, R0 * 2); g.restore(); break; }
+    // (the two bars as one shape: inverting, their crossing must not invert back into a hole)
+    case 8: { const bw = w * 0.14 * (1 + G.wid); g.save(); g.beginPath(); g.rotate(diag); g.rect(-bw / 2, lerp(R0 * 2, -R0, e), bw, R0 * 2); g.rotate(-2 * diag); g.rect(-bw / 2, lerp(-R0 * 3, -R0, e), bw, R0 * 2); g.restore(); g.fill('nonzero'); break; }
     case 9: g.beginPath(); g.arc(cx, h / 2, e * m * (0.45 + G.wid * 0.2), Math.PI, 0); g.closePath(); g.fill(); break;
     default: { const r = e * m * (0.42 + G.wid * 0.1); disc(cx, cy, r * 0.42); ring(cx, cy, r, r * 0.7); }
   }
@@ -169,13 +170,13 @@ register({ id: 'gothic-chains', label: 'bg.gothic', layer: 'foreground', kind: '
 
 /* ---------- video: a clip graded into a backdrop that sits well behind the lyrics; also the song's MV ---------- */
 const VSM = makeCanvas(96, 54) as HTMLCanvasElement, VSX = VSM.getContext('2d', { willReadFrequently: true })!, VTN = makeCanvas(24, 14) as HTMLCanvasElement, VTX = VTN.getContext('2d', { willReadFrequently: true })!;
-export function drawVideo(g: Ctx, f: RenderFrame, src: { frame: CanvasImageSource | null; w: number; h: number } | null, A: number, grade: { dark: number; blur: number; desat: number }, roll: number, zoom: number, ox: number, oy: number, E: number, placeholder: boolean, fit = false) {
+export function drawVideo(g: Ctx, f: RenderFrame, src: { frame: CanvasImageSource | null; w: number; h: number } | null, A: number, grade: { dark: number; blur: number; desat: number }, roll: number, zoom: number, ox: number, oy: number, E: number, placeholder: boolean, fit = 0) {
   const w = f.W, h = f.H, B = f.pal.bg, B2 = f.pal.bg2, v = src?.frame, ok = !!v; if (!ok && !placeholder) return;
   const a = Math.abs(roll * D2R), cw = (w * Math.abs(Math.cos(a)) + h * Math.abs(Math.sin(a))) / Math.min(1, zoom), chh = (w * Math.abs(Math.sin(a)) + h * Math.abs(Math.cos(a))) / Math.min(1, zoom);
   // parallax: the backdrop lags the camera a little (it never looks back across a transition cut)
   const t = f.t; let tb = Math.max(0, t - 0.7); for (const p of f.plan.passages) if (p.t <= t && p.t > tb) tb = p.t;
   const c0 = basePose(f.plan.camera, t), c1 = basePose(f.plan.camera, tb), lagx = clamp((c1.x - c0.x) * c0.z * 0.1, -w * 0.04, w * 0.04), lagy = clamp((c1.y - c0.y) * c0.z * 0.1, -h * 0.04, h * 0.04), lz = Math.max(1, (c0.z / c1.z) ** 0.12);
-  const sw = ok ? src!.w : 16, sh = ok ? src!.h : 9, k = Math.max(cw / sw, chh / sh) * (fit ? 1.015 : 1.09 * lz) * (1 + f.P * (fit ? 0.002 : 0.004)), dw = sw * k, dh = sh * k, mo = fit ? 0.15 : 1, dx = w / 2 - dw / 2 + (lagx + ox * 0.25) * mo, dy = h / 2 - dh / 2 + (lagy + oy * 0.25) * mo;
+  const sw = ok ? src!.w : 16, sh = ok ? src!.h : 9, k = Math.max(cw / sw, chh / sh) * lerp(1.09 * lz, 1.015, fit) * (1 + f.P * lerp(0.004, 0.002, fit)), dw = sw * k, dh = sh * k, mo = lerp(1, 0.15, fit), dx = w / 2 - dw / 2 + (lagx + ox * 0.25) * mo, dy = h / 2 - dh / 2 + (lagy + oy * 0.25) * mo;
   const sm = VSM.width, smh = Math.max(27, Math.round(sm * sh / sw)); if (VSM.height !== smh) VSM.height = smh;
   if (ok) VSX.drawImage(v!, 0, 0, sm, smh);
   else { const gr = VSX.createLinearGradient(0, 0, sm, smh); gr.addColorStop(0, hexOf(mix(B, B2, 0.25))); gr.addColorStop(1, hexOf(B)); VSX.fillStyle = gr; VSX.fillRect(0, 0, sm, smh);

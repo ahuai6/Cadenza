@@ -8,7 +8,7 @@ import { clamp, D2R } from '../core/math';
 import { sstep } from '../core/math';
 import { rgba } from '../core/color';
 import { effects, effect, paramsFor, type Ctx, type BackdropView, type Effect } from './effects/registry';
-import './effects/ambient'; import './effects/cover'; import './effects/backdrops'; import './effects/overlays'; import './effects/vinyl';
+import './effects/ambient'; import './effects/cover'; import './effects/backdrops'; import './effects/overlays'; import './effects/vinyl'; import './effects/strike';
 import type { RenderFrame } from './frame';
 import { visibleWords, drawLyrics } from './lyrics';
 import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';
@@ -31,8 +31,10 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   /* ---- backdrop ---- */
   // a video backdrop: in a long pause it rests upright and centred (the camera's turn, push and drift let go of it), and
   // with 'less crop' it never turns at all (the words still do), so it can be drawn barely larger than the frame
-  const mvOn = !!(f.media.mv && f.media.mv.k > 0.5), video = st.bgStyle === 'video' || mvOn, fit = video && (mvOn ? !!f.media.mvLook?.fit : !!st.vidFit), rest = video ? cf.rest : 0;
-  const settle = (1 - rest) * (fit ? 0 : 1), hold = (1 - rest) * (fit ? 0.35 : 1);
+  // (how much of each, continuous: an MV fading in or out takes the backdrop with it smoothly, never in one jump)
+  const mvK = f.media.mv ? sstep(clamp(f.media.mv.k)) : 0, vidK = st.bgStyle === 'video' ? 1 : mvK;
+  const fit = st.bgStyle === 'video' ? (st.vidFit ? 1 : 0) : (f.media.mvLook?.fit ? mvK : 0), rest = cf.rest * vidK;
+  const settle = (1 - rest) * (1 - fit), hold = (1 - rest) * (1 - 0.65 * fit);
   const roll = (cf.fx.r - cf.cont.r) * settle, zoom = 1 + (cf.fx.z * (1 + Math.min(0.15, mb * 0.01)) - 1) * hold, ra = Math.abs(roll * D2R), zz = Math.max(0.05, zoom), E = Math.max(W, H) * 0.7;
   const Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(ra)) + H / 2 * Math.abs(Math.sin(ra))) / zz - W / 2, (W / 2 * Math.abs(Math.sin(ra)) + H / 2 * Math.abs(Math.cos(ra))) / zz - H / 2)) + 4);
   const bd: BackdropView = { roll, zoom, ox: (cf.fx.x * 0.5 - cf.hand[0] * 0.35) * hold, oy: (cf.fx.y * 0.5 - cf.hand[1] * 0.35) * hold, E, Ev, fit, rest };
@@ -62,7 +64,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const bl = f.plan.map.beatLen(f.t), tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)), calm = cf.calm;
   let flash = 0; { const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));
     flash = env(f.rs.phase, 9, 0.05) * (f.rs.inBar === 0 ? 0.12 : 0.05) * f.I * Math.min(3, M.groove ?? 1);   // the beat's own glint follows the groove
-    const fa = st.cut === 'glide' ? 0.12 : st.cut === 'waltz' ? 0.16 : 0.05, fpk = st.cut === 'waltz' ? 0.5 : 0.6, fd = 6 / tempo;
+    const fa = st.cut === 'glide' || st.cut === 'close' ? 0.12 : st.cut === 'waltz' ? 0.16 : 0.05, fpk = st.cut === 'waltz' ? 0.5 : 0.6, fd = 6 / tempo;
     for (const q of f.plan.cues.flash) { const dt = f.t - q.t; if (dt >= 0 && dt < 1.4) flash = Math.max(flash, (dt < fa ? sstep(dt / fa) : Math.exp(-(dt - fa) * fd)) * fpk * (0.5 + 0.5 * q.k)); }
     flash *= calm * (M.flash > 0.02 ? M.flashk ?? 0.6 : 0) * view * (f.motion < 1 ? 0.3 : 1); }
   const invert = st.flashMode === 'invert';

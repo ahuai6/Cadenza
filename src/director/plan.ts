@@ -32,7 +32,7 @@ export function plan(inp: PlanInput): ScenePlan {
   assignSections(lay.lines, passages);
   // a line fades out before its passage's transition; a word is over by then too
   for (const P of lay.lines) if (isFinite(P.secEnd)) { P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd - 0.4) }; }
-  const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle);
+  const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle, inp.doc.marks || []);
   const drawOrder = [...lay.words].sort((a, b) => a.order - b.order);
   const out: ScenePlan = { doc, map, style, W, H, dur: inp.musicEnd + inp.endLen, endLen: inp.endLen, musicEnd: inp.musicEnd,
     lines: lay.lines, words: lay.words, drawOrder, passages, camera, cues, titles, dmin: lay.dmin, hasSubs: doc.lines.some(L => L.subs.length > 0) };

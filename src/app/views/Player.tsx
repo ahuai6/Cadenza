@@ -5,7 +5,7 @@ import { tx } from '../../i18n';
 import { Lib } from '../bridge';
 import { ui, lib, settings, useStore, useIndex, fmtTime, trackOf } from '../state';
 import { Icon } from '../ui/icons';
-import { IconButton, Seg, Cover, kit } from '../ui/kit';
+import { IconButton, Seg, Cover, Swap, kit } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
 import { useReorder } from '../ui/reorder';
 import { Drive } from '../motion';
@@ -81,7 +81,7 @@ export function HifiBadge() {
 }
 export function Heart({ id, size }: { id: string; size?: 'sm' | 'lg' }) {
   const on = useStore(lib, x => x.favorites.includes(id));
-  return <IconButton n="heart" size={size} filled={on} on={on} label={tx(on ? 's.unfav' : 's.fav')} onClick={() => Lib!.favorite(id, !on)} />;
+  return <IconButton n="heart" size={size} filled={on} on={on} data-fav="" label={tx(on ? 's.unfav' : 's.fav')} onClick={() => Lib!.favorite(id, !on)} />;
 }
 export function QueueButton({ glass }: { glass?: boolean }) {
   const open = useStore(ui, x => x.queue), n = useStore(player, x => x.queue.length);
@@ -92,15 +92,15 @@ let queueAnchor: DOMRect | null = null;
 
 /* ---------- the card at the bottom ---------- */
 export function PlayerCard() {
-  const id = useStore(player, x => x.id); useStore(lib, x => x.tracks);
+  const id = useStore(player, x => x.id), dir = useStore(player, x => x.dir); useStore(lib, x => x.tracks);
   const t = trackOf(id), card = useRef<HTMLDivElement>(null), mini = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => { refs.card = card.current; refs.mini = mini.current; return () => { refs.card = null; refs.mini = null; }; });
   if (!t) return null;
   return (
     <div className={s.card + ' glass'} ref={card} data-test="card">
       <button type="button" className={s.id} title={tx('s.expand')} onClick={openNp}>
-        <span ref={mini} className={s.mini}><Cover k={t.cover} className={s.mini} /></span>
-        <span className={s.text}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span>
+        <span ref={mini} className={s.mini}><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} className={s.mini} /></Swap></span>
+        <Swap k={t.id} dir={dir}><span className={s.text}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span></Swap>
       </button>
       <Transport />
       <Progress />

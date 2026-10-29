@@ -9,6 +9,7 @@ import { exportVideo, estimate, blobSink } from '../../engine';
 import { PRESETS, KNOBS, presetStyle, type Style } from '../../theme/style';
 import { FONTS } from '../../text/fonts';
 import { effects, type Param } from '../../render/effects/registry';
+import { LYRIC_MOTIONS } from '../../render/motions';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
 import { Button, Seg, Section, Row, Select, Slider, Check, TextField, Note } from '../ui/kit';
@@ -20,7 +21,7 @@ export type Edit = (fn: (s: Session) => unknown) => void;
 export interface PaneProps { s: Session; edit: Edit; ctx: 'song' | 'workshop' }
 export const BG_STYLES = ['cover', 'vinyl', 'liquid', 'gothic', 'stage', 'minimal', 'bokeh', 'geo', 'video'];
 const COVER_EDGE = ['album', 'float', 'blend'], ASPECTS: [string, string][] = [['16:9', 'aspect.169'], ['9:16', 'aspect.916'], ['1:1', 'aspect.11'], ['4:5', 'aspect.45'], ['fill', 'aspect.fill']];
-const CUTS = ['punch', 'waltz', 'glide', 'center'], TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
+const CUTS = ['punch', 'waltz', 'glide', 'close', 'center'], TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
 const f2 = (v: number) => (+v).toFixed(2), fmtK = (v: number) => `${(+v).toFixed(2)}×`;
 const opts = (list: string[], prefix: string): [string, string][] => list.map(v => [v, tx(prefix + v)]);
 
@@ -95,7 +96,7 @@ const GROUPS = [...new Set(KNOBS.map(k => k[1]))];
 export function MotionPane({ s: ss, edit }: PaneProps) {
   const st = ss.style, custom = st.preset === 'custom', set = (k: string, v: unknown) => edit(x => x.setStyle(k, v));
   const resetGroup = (g: string) => edit(x => { for (const [k, gg] of KNOBS) if (gg === g && k !== 'size') x.setKnob(k, 1); });
-  const resetAll = () => edit(x => { const b = presetStyle(x.style.from); for (const k of ['cut', 'trans', 'flashMode', 'future', 'tin', 'tout']) x.setStyle(k, (b as any)[k]); for (const [k] of KNOBS) if (k !== 'size') x.setKnob(k, 1); });
+  const resetAll = () => edit(x => { const b = presetStyle(x.style.from); for (const k of ['cut', 'trans', 'flashMode', 'future', 'tin', 'tout', 'lmo']) x.setStyle(k, (b as any)[k] ?? (k === 'lmo' ? 'none' : undefined)); for (const [k] of KNOBS) if (k !== 'size') x.setKnob(k, 1); });
   return (
     <>
       {!custom && <Note>{tx('th.locked')}</Note>}
@@ -114,6 +115,7 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
             <Select label={tx('tin')} value={st.tin || 'mix'} options={opts(TIN, 'tin.')} onChange={v => set('tin', v)} />
             <Select label={tx('tout')} value={st.tout === 'drift' ? 'drift' : 'none'} options={opts(['none', 'drift'], 'tout.')} onChange={v => set('tout', v)} />
           </Row>
+          <Select label={tx('lmo')} value={st.lmo || 'none'} options={opts(Object.keys(LYRIC_MOTIONS), 'lmo.')} onChange={v => set('lmo', v)} />
         </Section>
         {GROUPS.map(g => (
           <Section key={g} title={tx(g)} action={<Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>{tx('reset.group')}</Button>} note={g === 'grp.triggers' ? tx('help.triggers') : undefined}>

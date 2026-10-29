@@ -163,8 +163,10 @@ function LyricsPane({ s: ss }: { s: Session }) {
         <Note>{tx('lyr.intro')}</Note>
         <details className={s.help}><summary>{tx('lyr.fmt')}</summary>
           <h4>{tx('lyr.line')}</h4><pre>{'[00:04.00] 我們 沿著 街道\n[00:04.00] we walk down the street'}</pre>
-          <h4>{tx('lyr.kar')}</h4><pre>{'[01:20.81]<01:20.810>穿<01:21.240>過#<01:21.960>光<01:24.400>'}</pre>
-          <p dangerouslySetInnerHTML={{ __html: tx('lyr.karHelp') }} /><p>{tx('lyr.auto')}</p></details>
+          <h4>{tx('lyr.kar')}</h4><pre>{'[01:20.81]<01:20.810>穿<01:21.240>過 <01:21.960>光<01:24.400>'}</pre>
+          <p dangerouslySetInnerHTML={{ __html: tx('lyr.karHelp') }} />
+          <h4>{tx('lyr.marks')}</h4><pre>{'[01:02.00]#1 夜に駆ける\n[01:10.00]I love you (love you)'}</pre>
+          <p dangerouslySetInnerHTML={{ __html: tx('lyr.marksHelp') }} /><p>{tx('lyr.auto')}</p></details>
         <textarea className={s.lyrics} spellCheck={false} aria-label={tx('lyr.ta')} value={text} onFocus={() => { editing.current = true; }} onChange={e => setText(e.target.value)} />
         <Row>
           <TextField label="BPM" value={bpm} inputMode="decimal" onCommit={v => { setBpm(v); edit(x => x.setTiming({ bpm: Math.max(40, Math.min(240, +v || 120)) })); }} />

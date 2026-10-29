@@ -7,7 +7,7 @@ import { buildLyrics, type LyricDoc } from '../lyrics/model';
 import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis } from '../rhythm';
 import { plan as makePlan, ASPECTS, type ScenePlan } from '../director';
 import type { SongInfo } from '../director/titles';
-import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, PROJECT_KEYS, KNOB_REBUILD, type Style } from '../theme/style';
+import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, PROJECT_KEYS, KNOB_REBUILD, LOOK_KEYS, type Style } from '../theme/style';
 import { canvasMeasurer, EM } from '../text/metrics';
 import { fontStack, ensureFontSoon } from '../text/fonts';
 import { paletteOf, paletteFromImage, paletteVinyl, paletteForPreset, ambientFromImage, ambientFromName, type Palette, type Ambient } from '../render/palette';
@@ -28,6 +28,8 @@ export interface SessionSpec {
   fade?: boolean;
   /** the frame's aspect, whatever the stored style says ('fill': the view's own, as the player shows it) */
   aspect?: string;
+  /** another song's look in place of this one's own (album play: the first song's), for as long as the session lives */
+  look?: Partial<Style>;
 }
 export interface SessionEnv { lang: string; labels: { composer: string; lyricist: string; artist: string }; viewAspect: () => number; onAnalysis?: (a: RhythmAnalysis) => void }
 type Img = CanvasImageSource & { width: number; height: number };
@@ -52,6 +54,7 @@ export class Session {
     s.cover = await loadImage(spec.coverUrl || ''); s.coverKey = spec.coverUrl || '';
     { const id = spec.preset || 'cover'; s.style = spec.style ? styleFromStored(spec.style) : { ...presetStyle(id), ...(s.cover ? paletteForPreset(id, s.cover) || {} : {}) }; }
     if (spec.aspect) s.style.aspect = spec.aspect;
+    if (spec.look) { s.ownLook = s.lookOf(); Object.assign(s.style, spec.look); }
     s.colors();
     let a = spec.analysis && isCurrent(spec.analysis) ? spec.analysis : null;
     const buf = spec.audio;
@@ -61,12 +64,17 @@ export class Session {
     return s;
   }
   analysis: RhythmAnalysis | null = null;
+  /** the song's own look while it wears another one (see spec.look): what is kept with the song */
+  ownLook: Partial<Style> | null = null;
+  lookOf(): Partial<Style> { const o: any = {}; for (const k of LOOK_KEYS) if ((this.style as any)[k] !== undefined) o[k] = (this.style as any)[k]; return o; }
+  /** The style as the song keeps it (its own look, not one it wears for an album). */
+  ownStyle(): Style { return this.ownLook ? { ...this.style, ...this.ownLook } : this.style; }
   get audio() { return this.spec.audio ?? null; }
 
   /** Everything from the lyrics down: timing, rhythm map, lyric model, plan. */
   async build() {
     const sp = this.spec, r = parseRange(sp.range), buf = sp.audio;
-    this.audioStart = r.a - (sp.lshift || 0) / 1000; this.endLen = Math.min(8, Math.max(2, sp.endLen ?? 3.5));
+    this.audioStart = r.a - (sp.lshift || 0) / 1000; this.endLen = sp.song.album ? 0.05 : Math.min(8, Math.max(2, sp.endLen ?? 3.5));
     const fileEnd = buf ? (r.b != null ? Math.min(r.b, buf.duration) : buf.duration) : Infinity;
     const parsedLen = isFinite(fileEnd) ? fileEnd - r.a : Infinity;
     let parsed = parse(sp.lyrics || '', r.a, parsedLen); this.hasLyrics = parsed.lines.length > 0;
@@ -105,7 +113,7 @@ export class Session {
     if (!this.custom && !PROJECT_KEYS.includes(k as string)) return false;
     if (st[k] === v) return true; st[k] = v; if (!PROJECT_KEYS.includes(k as string)) st.edited = true;
     if (['bg', 'bg2', 'text', 'accent', 'flash'].includes(k as string)) { this.colors(); return true; }
-    if (['vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverSize', 'coverEdge', 'coverBlur', 'aa', 'quality'].includes(k as string)) return true;
+    if (['vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverSize', 'coverEdge', 'coverBlur', 'aa', 'quality', 'lmo'].includes(k as string)) return true;
     if (k === 'font') { this.dirty |= 2; return true; }
     if (k === 'bgStyle') { st.coverEdge ??= 'album'; st.coverBlur ??= 0; st.coverSize ??= 0.6; }
     this.dirty |= 1; return true;

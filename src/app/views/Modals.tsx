@@ -8,6 +8,8 @@ import { Button, IconButton, Seg, Cover, Badge } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { player, playIds, bindMv, setMvOffset } from '../playback/player';
 import { ExportPanel, exportBusy } from './panes';
+import { LyricsTab } from './Effect';
+import { Row, Slider, Check } from '../ui/kit';
 import s from './Modals.module.css';
 
 let resolver: ((v: unknown) => void) | null = null;
@@ -19,6 +21,8 @@ export const pickPlaylist = (ids: string[]) => open<string>({ kind: 'playlist', 
 export const editMeta = (t: Track) => open<boolean>({ kind: 'meta', id: t.id });
 export const askMv = () => open<boolean>({ kind: 'mv' });
 export const askMvOffset = () => open<boolean>({ kind: 'mvOffset' });
+/** The play page's own settings: its lyrics (edit, search online, timing) and how they are shown. */
+export const npSettings = (tab: 'lyrics' | 'view' = 'lyrics') => open<boolean>({ kind: 'np', tab });
 /** Export a library song as a video: it is opened (paused) with everything bound to it, then the export dialog. */
 export async function exportTrack(t: Track, list?: Track[]) {
   if (t.protected) return;
@@ -32,11 +36,28 @@ export function ModalHost() {
   const m = useStore(ui, x => x.modal);
   useEffect(() => { if (!m && resolver) { const r = resolver; resolver = null; r(null); } }, [m]);
   if (!m) return null;
-  const Body = ({ text: TextModal, playlist: PlaylistModal, meta: MetaModal, mv: MvModal, mvOffset: MvOffsetModal, export: ExportModal } as Record<string, (p: { m: any }) => React.ReactElement | null>)[m.kind];
+  const Body = ({ text: TextModal, playlist: PlaylistModal, meta: MetaModal, mv: MvModal, mvOffset: MvOffsetModal, export: ExportModal, np: NpModal } as Record<string, (p: { m: any }) => React.ReactElement | null>)[m.kind];
   return (
     <div className={s.scrim + ' ' + (ui.get().layer !== 'none' ? 'on-picture' : '')} onPointerDown={e => { if (e.target === e.currentTarget && !exportBusy) close(null); }}>
       <div data-test="modal" className={s.modal} role="dialog" aria-modal="true" data-kind={m.kind}><Body m={m} /></div>
     </div>
+  );
+}
+function NpModal({ m }: { m: { tab: string } }) {
+  const [tab, setTab] = useState(m.tab), o = useStore(ui, x => x.npLyr), set = (k: Partial<typeof o>) => ui.set({ npLyr: { ...o, ...k } });
+  const session = useStore(player, x => x.session);
+  return (
+    <>
+      <Head title={tx('np.set')} />
+      <Seg fit size="sm" value={tab} onChange={setTab} options={[['lyrics', tx('np.lyrics')], ['view', tx('np.view')]]} />
+      {tab === 'lyrics' && session && <div className={s.npBody}><LyricsTab /></div>}
+      {tab === 'view' && <div style={{ display: 'grid', gap: 12 }}>
+        <Slider label={tx('np.size')} min={0.75} max={1.4} step={0.05} value={o.size} format={v => Math.round(v * 100) + '%'} onChange={v => set({ size: v })} />
+        <Check label={tx('np.blur')} checked={o.blur} onChange={v => set({ blur: v })} />
+        <Check label={tx('np.subs')} checked={o.subs} onChange={v => set({ subs: v })} />
+        <Row><Button kind="ghost" size="sm" onClick={() => set({ size: 1, blur: true, subs: true })}>{tx('reset.all')}</Button></Row>
+      </div>}
+    </>
   );
 }
 const Head = ({ title }: { title: string }) => <header className={s.head}><h2>{title}</h2><IconButton n="close" size="sm" label={tx('s.close')} onClick={() => close(null)} /></header>;

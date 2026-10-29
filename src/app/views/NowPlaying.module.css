@@ -18,7 +18,10 @@
 .main { position: absolute; inset: calc(var(--pad-t) + 52px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(320px, 1.1fr); gap: clamp(24px, 4vw, 72px); padding: 0 clamp(24px, 5vw, 88px) 40px; }
 .left { display: grid; align-content: center; justify-items: center; gap: 26px; min-height: 0; }
 .cover { width: min(44vh, 34vw, 460px); aspect-ratio: 1; border-radius: 0; overflow: hidden; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45); transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform; }
-.cover > span { width: 100%; height: 100%; --cover-r: 0; border-radius: 0; }
+.cover > span, .cover [data-swap] > span > span { width: 100%; height: 100%; --cover-r: 0; border-radius: 0; }
+.swapIn { position: absolute; inset: 0; animation: swap-in 520ms var(--ease) both; }
+.meta > [data-swap] { min-width: 0; }
+.meta > [data-swap] > * > div { display: grid; gap: 3px; min-width: 0; }
 .np[data-fx="true"] .cover { visibility: hidden; }
 .info { width: min(44vh, 34vw, 460px); display: grid; gap: 14px; }
 .meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
@@ -32,9 +35,14 @@
 
 /* lyrics: every word floats on its own spring */
 .lyr { position: absolute; inset: 0; overflow: hidden; padding: 0 8px; }
-.line { display: block; width: 100%; padding: 10px 12px; margin: 0 0 4px; border-radius: var(--r-lg); text-align: left; color: #fff; font-size: clamp(22px, 2.3vw, 34px); font-weight: 760; line-height: 1.28; letter-spacing: -0.01em;
-  opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05); transition: opacity 420ms var(--ease), background var(--t-fast) var(--ease); }
-.line[data-on="true"] { opacity: 1; }
+.line { display: block; width: 100%; padding: 10px 12px; margin: 0 0 4px; border-radius: var(--r-lg); text-align: left; color: #fff; font-size: calc(clamp(22px, 2.3vw, 34px) * var(--np-fs, 1)); font-weight: 760; line-height: 1.28; letter-spacing: -0.01em;
+  opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05); filter: blur(calc(min(var(--d, 1), 5) * 0.55px));
+  transition: opacity 420ms var(--ease), filter 420ms var(--ease), background var(--t-fast) var(--ease); }
+/* like Apple Music: the line being sung is sharp, the others softer the further they are; all sharp while the user
+   scrolls through them, and the one under the pointer */
+.line[data-on="true"] { opacity: 1; filter: none; }
+.line:hover, .lyr[data-manual="true"] .line, .lyr[data-blur="false"] .line { filter: none; }
+.lyr[data-subs="false"] .line small { display: none; }
 .line:hover { background: rgba(255, 255, 255, 0.07); }
 .w { display: inline-block; white-space: pre-wrap; }
 .line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * (100% + 0.6em))); -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -42,9 +50,10 @@
 /* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
 .line .w { transition: translate 420ms var(--ease); }
 .line[data-on="true"] .w { transition: none; }
+.harm { display: inline-block; font-size: 0.55em; font-weight: 640; vertical-align: -0.45em; margin: 0 0.25em 0 0.12em; opacity: 0.72; white-space: pre-wrap; }   /* a harmony: small, at its word's lower right */
 .line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; }
 .np[data-fx="true"] .line[data-handed="true"] { visibility: hidden; }
-.compact .line { font-size: 17px; padding: 7px 10px; }
+.compact .line { font-size: calc(17px * var(--np-fs, 1)); padding: 7px 10px; }
 .none { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; color: var(--fg-2); }
 .none b { color: #fff; font-size: 18px; }
 .none p { margin: 0; max-width: 340px; }
@@ -58,10 +67,10 @@
 .np[data-idle="true"] { cursor: none; }
 
 /* the sound's label, centred just above the progress bar */
-.qrow { display: flex; justify-content: center; min-height: 22px; margin-bottom: -6px; }
+.qrow { display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 22px; margin-bottom: -6px; }
 .qrow:empty { display: none; }
 
 /* in a window the page has the main area's own shape: its top-left corner rounded and the same thin edge along the top
    and left (drawn as light on the picture), arriving as the expansion lands */
-.np { border-top-left-radius: calc(var(--r-xl) - 1px); }
+.np { border-top-left-radius: calc(var(--r-xl) - 1.6px); }
 :global(html[data-winfull="true"]) .np { border-top-left-radius: 0; }

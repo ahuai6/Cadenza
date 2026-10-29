@@ -9,28 +9,35 @@ import { presetStyle, normalizeStyle } from '../../src/theme/style';
 import { approxMeasurer } from '../../src/text/metrics';
 import { plan, cameraAt, carryCam, basePose, project, corners, NO_FX, transK, wordState, type ScenePlan } from '../../src/director';
 import { rawPose } from '../../src/director/camera';
-import { sectionEntries, entryFloor } from '../../src/director/cues';
+import { markedEntries, entryFloor, MARK_K } from '../../src/director/cues';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
-function make(cut: 'punch' | 'glide' | 'waltz', src = LRC, opts: { frame?: boolean; trigger?: number } = {}) {
+function make(cut: 'punch' | 'glide' | 'waltz' | 'close', src = LRC, opts: { frame?: boolean; trigger?: number } = {}) {
   const map = RhythmMap.grid(112, 0.3, 160);
   const p = parse(src), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6;
   const doc = buildLyrics(p, map, musicEnd);
   const base = presetStyle(cut === 'punch' ? 'liquid' : 'cover'), st = normalizeStyle({ ...base, preset: 'custom', cut, fx: { ...presetStyle('cover').fx, frame: opts.frame ?? true }, ...(opts.trigger ? { k: { ...base.k, trigger: opts.trigger } } : {}) });
   return plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
 }
-const styles = ['punch', 'glide', 'waltz'] as const;
+const styles = ['punch', 'glide', 'waltz', 'close'] as const;
+/** The corners of the character of S being sung at t (the last one already reached; the first before any). */
+function singing(S: ScenePlan['words'][0], t: number, first = false): [number, number][] {
+  const n = S.units.length, span = Math.max(0.05, S.end - S.w.t); let k = 0;
+  if (!first) S.units.forEach((u, i) => { if ((u.t ?? S.w.t + span * 0.85 * i / n) <= t) k = i; });
+  const u = S.units[k], c = Math.cos(S.tilt * Math.PI / 180), sn = Math.sin(S.tilt * Math.PI / 180);
+  return corners({ x: S.x + c * u.ox - sn * u.oy, y: S.y + sn * u.ox + c * u.oy, lw: u.w, lh: u.h, tilt: S.tilt });
+}
 
 describe.each(styles)('director (%s)', cut => {
   const P = make(cut), sig = new Signals(P.map);
-  it('keeps every word that is being sung inside the frame', () => {
+  it('keeps the character being sung inside the frame', () => {
     let n = 0, bad = 0; const worst: string[] = [];
     for (let t = P.words[0].show; t < P.musicEnd; t += 0.05) {
       if (transK(P.passages, t) > 0.02) continue;
       const f = cameraAt(P, sig, t, 0);                       // without the handheld layer: the plan itself
       for (const S of P.words) {
         if (t < S.w.t + 0.05 || t > S.end - (cut === 'punch' ? 0.25 : 0.1)) continue; n++;   // a word's last moment is its sustain
-        const out = corners(S).some(([x, y]) => { const q = project(x, y, S.d, f.cam, NO_FX, P.W, P.H); return Math.abs(q.sx) > P.W / 2 || Math.abs(q.sy) > P.H / 2; });
+        const out = singing(S, t).some(([x, y]) => { const q = project(x, y, S.d, f.cam, NO_FX, P.W, P.H); return Math.abs(q.sx) > P.W / 2 || Math.abs(q.sy) > P.H / 2; });
         if (out) { bad++; if (worst.length < 5) worst.push(`${t.toFixed(2)} "${S.w.text}"`); }
       }
     }
@@ -49,11 +56,13 @@ describe.each(styles)('director (%s)', cut => {
       expect(D).toBeLessThan(canCut ? 1.4 : 2.8);      // beyond about a screen, a transition where one fits; a longer move only where none does
     }
   });
-  it('drifts along the singing direction while it holds (not locked dead centre)', () => {
-    // each stop either leaves room ahead in the reading direction or drifts that way while it holds
-    const stops = P.camera.stops.filter(s => !s.over && !s.words.some(w => w.frame));
-    const composed = stops.filter(s => { const lead = (s.x - s.box.x) * s.dir[0] + (s.y - s.box.y) * s.dir[1]; return lead > 0.5 || P.camera.drifts.some(([a]) => Math.abs(a - s.arrive) < 1e-6); });
-    expect(composed.length / stops.length).toBeGreaterThan(0.6);
+  it('follows the singing along the words, never backwards, and leads it', () => {
+    const stops = P.camera.stops.filter(s => !s.over && !s.words.some(w => w.frame) && s.fax);
+    // the camera's centre sits at or ahead of the first character on arrival (room ahead in the singing direction)…
+    const lead = stops.filter(s => { const U = singing(s.words[0], s.words[0].w.t, true), cx = (U[0][0] + U[2][0]) / 2, cy = (U[0][1] + U[2][1]) / 2;
+      return (s.x - cx) * s.fax![0] + (s.y - cy) * s.fax![1] > -1; });
+    expect(lead.length / stops.length).toBeGreaterThan(0.6);
+    // …and every step of a follow goes forward along the words
     for (const [, , dx, dy] of P.camera.drifts) expect(Math.hypot(dx, dy)).toBeGreaterThan(0);
   });
   it('cuts on the beat during a transition, and is clear again before the next line shows', () => {
@@ -181,36 +190,36 @@ describe('quick runs', () => {
   });
 });
 
-describe('chorus entries', () => {
-  // a flat grid (no section boundaries, no level change): only the lyrics can tell where the chorus comes in
+describe('chorus entries (the lyrics mark them: #1 strongest, #2, #3 lighter)', () => {
   const ts = (s: number) => `[${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}]`;
   const b = 60 / 112, bar = 4 * b, at = (k: number) => 0.3 + k * bar;
   const V1 = ['街の灯りが遠くなる', 'ひとりきりの帰り道', '言えなかった言葉たち', 'ポケットの中で眠る'], V2 = ['窓の外は雨模様', '時計の針が止まる', '昨日の夢を数えて', '静かに朝を待つ'];
   const C = ['夜を駆けていく', '二人だけの空へ', '手を伸ばしたその先に', '光が見えるから'];
   const rows: [number, string][] = [];
-  V1.forEach((l, i) => rows.push([at(2 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(10 + i * 2) - b * 0.5, l]));
-  V2.forEach((l, i) => rows.push([at(20 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(28 + i * 2) - b * 0.5, l]));
-  const P = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'));
-  const es = sectionEntries(P.map, P.lines, t => t > 0.5 && t < P.musicEnd - 0.5), near = (t: number, k: number) => Math.abs(t - at(k)) < 0.06;
-  it('finds the downbeat each lyric chorus comes in on (under its pickup), and no other', () => {
-    const leads = es.filter(x => x.lead).map(x => x.e.t);
-    expect(leads.length, leads.join(', ')).toBe(2);
-    for (const k of [10, 28]) expect(leads.some(t => near(t, k)), `bar ${k}: ${leads.join(', ')}`).toBe(true);
+  V1.forEach((l, i) => rows.push([at(2 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(10 + i * 2) - b * 0.15, (i ? '' : '#1 ') + l]));
+  V2.forEach((l, i) => rows.push([at(20 + i * 2) + b * 0.5, l])); C.forEach((l, i) => rows.push([at(28 + i * 2) - b * 0.15, (i ? '' : '#3 ') + l]));
+  const src = rows.map(([t, l]) => ts(t) + l).join('\n'), P = make('glide', src);
+  const es = markedEntries(P.map, P.doc.marks, t => t > 0.5 && t < P.musicEnd - 0.5), near = (t: number, k: number) => Math.abs(t - at(k)) < 0.06;
+  it('an entry on the downbeat each marked chorus comes in on, and only there (nothing guessed from repeated lines)', () => {
+    const leads = es.filter(x => x.lead);
+    expect(leads.map(x => x.e.t.toFixed(2))).toHaveLength(2);
+    expect(near(leads[0].e.t, 10) && near(leads[1].e.t, 28), leads.map(x => x.e.t).join(', ')).toBe(true);
+    expect(leads[0].k).toBe(MARK_K[1]); expect(leads[1].k).toBe(MARK_K[3]);
     for (const k of [10, 28]) expect(P.cues.flash.some(q => near(q.t, k)), `flash at bar ${k}`).toBe(true);
+    const plain = make('glide', src.replace(/#[1-3] /g, '')); expect(markedEntries(plain.map, plain.doc.marks, () => true)).toHaveLength(0);
   });
   it('follows each entry with its next two hits, each weaker than the one before', () => {
     for (const k of [10, 28]) {
       const L = es.find(x => x.lead && near(x.e.t, k))!, after = es.filter(x => !x.lead && x.e.t > L.e.t && x.e.t <= at(k + 2) + 0.06);
-      expect(after.map(x => x.e.t.toFixed(2)), `after bar ${k}`).toHaveLength(2);
+      expect(after, `after bar ${k}`).toHaveLength(2);
       expect(after[0].k).toBeLessThan(L.k); expect(after[1].k).toBeLessThan(after[0].k);
     }
   });
-  it('lets the trigger sensitivity decide how many of them fire', () => {
+  it('lets the trigger sensitivity decide how many of them fire (#3 needs more than #1)', () => {
     const n = (s: number) => es.filter(x => x.k >= entryFloor(s)).length;
-    expect(n(0.3)).toBe(0); expect(n(0.75)).toBe(2); expect(n(1)).toBe(6);
+    expect(n(0.3)).toBe(1); expect(n(0.75)).toBe(3); expect(n(1)).toBe(4); expect(n(2)).toBe(6);
     for (let s = 0; s < 2; s += 0.1) expect(n(s + 0.1)).toBeGreaterThanOrEqual(n(s));
-    // and the knob really reaches it: the theme's trigger knob scales every trigger's sensitivity
-    const lo = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'), { trigger: 0.3 }), hiP = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'), { trigger: 1.6 });
+    const lo = make('glide', src, { trigger: 0.3 }), hiP = make('glide', src, { trigger: 1.6 });
     expect(lo.style.m.flash).toBeLessThan(P.style.m.flash); expect(hiP.style.m.impact).toBeGreaterThan(P.style.m.impact);
   });
 });
@@ -269,5 +278,51 @@ describe('centred stage (the record theme)', () => {
   it('a line over leaves altogether (one line at a time, never stacked on the last)', () => {
     const ctx = { enter: 0.4, tempo: 1, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false, solo: true };
     for (const L of P.lines.slice(0, -2)) for (const S of L.words) expect(wordState(S, L.L.end + 2.5, 0, false, ctx), L.L.text).toBeNull();
+  });
+});
+
+describe('idle in pauses and through the ending', () => {
+  const ts = (s: number) => `[${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}]`;
+  const src = [ts(2) + 'the night is young', ts(6) + 'under the city lights', ts(10) + 'we keep on going home', ts(16) + '♪～', ts(24) + '(間奏)', ts(32) + '……'].join('\n');
+  const map = RhythmMap.grid(112, 0.3, 120), p = parse(src), musicEnd = 60, doc = buildLyrics(p, map, musicEnd);
+  const P = plan({ doc, map, style: presetStyle('cover'), measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } }), sig = new Signals(P.map);
+  it('a long outro goes idle, whatever marks the lyrics put in it ("♪～", "(間奏)", "……")', () => {
+    expect(cameraAt(P, sig, 25, 1).idle).toBeGreaterThan(0.99); expect(cameraAt(P, sig, 50, 1).idle).toBeGreaterThan(0.99);
+  });
+  it('and stays idle through the ending: the camera does not come back before the card', () => {
+    for (let t = musicEnd - 2; t < P.dur; t += 0.1) expect(cameraAt(P, sig, t, 1).idle, `at ${t.toFixed(1)}`).toBeGreaterThan(0.99);
+    const a = cameraAt(P, sig, musicEnd - 1.5, 1).cam, b = cameraAt(P, sig, musicEnd + 0.5, 1).cam;
+    expect(Math.hypot(a.x - b.x, a.y - b.y) * a.z).toBeLessThan(P.W * 0.06);       // only the idle drift's own slow motion (the old pull-back moved ~130 px in under a second)
+  });
+});
+
+describe('vertical lines', () => {
+  const phrases = ['春风十里', '夜色温柔', '心事如潮', '灯火阑珊', '雨落无声', '远山如黛', '月光倾城', '旧梦难寻'];
+  const src = Array.from({ length: 48 }, (_, i) => { const t = 4 + i * 2.6, m = Math.floor(t / 60), sec = (t % 60).toFixed(2).padStart(5, '0');
+    return `[${String(m).padStart(2, '0')}:${sec}]${phrases[i % phrases.length]} ${phrases[(i * 3 + 1) % phrases.length]}`; }).join('\n');
+  it.each(styles)('sets whole lines vertically, in runs of two to four, and the rows still turn (%s)', cut => {
+    const P = make(cut, src, { frame: false });
+    const v = P.lines.map(L => !!L.vert);
+    expect(v.some(Boolean)).toBe(true);
+    for (const L of P.lines) for (const S of L.words) expect(S.vert).toBe(!!L.vert);     // never rows and columns within a line
+    for (let i = 0; i < v.length;) { if (!v[i]) { i++; continue; } let j = i; while (j < v.length && v[j]) j++; expect(j - i).toBeGreaterThanOrEqual(2); expect(j - i).toBeLessThanOrEqual(4); i = j; }
+    const rows = P.lines.filter(L => !L.vert).flatMap(L => L.words);
+    expect(rows.filter(S => Math.abs(S.ang) > 1).length, 'turns among the rows').toBeGreaterThan(0);
+  });
+  it('the centred stage keeps every line level', () => {
+    const p = parse(src), map = RhythmMap.grid(112, 0.3, 160), musicEnd = 140, doc = buildLyrics(p, map, musicEnd);
+    const st = normalizeStyle({ ...presetStyle('cover'), preset: 'custom', cut: 'center' });
+    const P = plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+    expect(P.words.some(S => S.vert)).toBe(false);
+  });
+});
+
+describe('album play', () => {
+  it('has only the small title at the top and no ending card (nothing that lengthens the song)', async () => {
+    const { planTitles } = await import('../../src/director/titles');
+    const map = RhythmMap.grid(112, 0.3, 160), labels = { composer: 'c', lyricist: 'l', artist: 'a' };
+    const solo = planTitles({ on: true, title: 'T', artist: 'A' }, 20, map, 180, labels), album = planTitles({ on: true, title: 'T', artist: 'A', album: true }, 20, map, 180, labels);
+    expect(solo.intro?.kind).toBe('card'); expect(solo.end).not.toBeNull();
+    expect(album.intro?.kind).toBe('top'); expect(album.end).toBeNull();
   });
 });

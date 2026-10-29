@@ -129,7 +129,7 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
     </aside>
   );
 }
-function LyricsTab() {
+export function LyricsTab() {
   const p = useStore(player), t = trackOf(p.shownId), session = p.session!;
   const [text, setText] = useState(() => (p.hasLyrics ? session.spec.lyrics : '') || ''), [msg, setMsg] = useState('');
   const [q, setQ] = useState({ title: t ? t.title : '', artist: t ? t.artist : '' }), [res, setRes] = useState<Awaited<ReturnType<NonNullable<typeof Lib>['searchLyrics']>> | null>(null);

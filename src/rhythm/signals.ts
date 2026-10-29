@@ -33,19 +33,34 @@ export class Signals {
     }
     return (1 - Math.exp(-s * 1.2)) * this.map.sounding(t, idle);
   }
-  private coneWeight(e: RhythmEvent) {
-    if (e.tier === 0) return 0;
-    const lowish = e.band === 'low' || e.band === 'broad';
-    if (e.tier === 1 && !lowish) return 0;
-    return clamp(e.s, 0, 1.8) / 1.8 * (e.tier === 2 ? 1 : 0.45) * (lowish ? 1 : 0.6);
-  }
-  /** The cone's displacement (about -0.3 .. 1.5) and its alternating roll partner. */
-  coneAt(t: number, idle = 0): { z: number; r: number } {
-    const w = 2 * Math.PI * this.cone.hz, z0 = this.cone.zeta; let z = 0, r = 0;
-    for (const e of this.map.eventsIn(t - 1.4, t)) {
-      const a = this.coneWeight(e); if (!a) continue;
-      const v = a * impulse(t - e.t, w, z0); z += v; r += v * (rnd(e.t * 13.7) < 0.5 ? -1 : 1);
+  /* The groove's hits: the accents a listener feels and nods to, not every note an onset detector finds. An event counts
+     when it stands out from what is around it (louder than the bar's usual events) and sits where the ear expects
+     weight — the downbeat, the backbeat, the other beats, and a syncopated push ("卡點") between them when it really
+     stands out; the small, busy notes are left to the background's pulse. At most one hit a fifth of a beat apart. */
+  private hits: { t: number; a: number }[] | null = null;
+  grooveHits(): { t: number; a: number }[] {
+    if (this.hits) return this.hits;
+    const ev = this.map.events.filter(e => e.tier > 0), meter = this.map.meter, out: { t: number; a: number; s: number }[] = [];
+    for (let i = 0; i < ev.length; i++) {
+      const e = ev[i], bar = meter * this.map.beatLen(e.t), around: number[] = [];
+      for (let j = i - 1; j >= 0 && e.t - ev[j].t <= bar; j--) around.push(ev[j].s);
+      for (let j = i + 1; j < ev.length && ev[j].t - e.t <= bar; j++) around.push(ev[j].s);
+      around.sort((a, b) => a - b); const med = around.length ? around[around.length >> 1] : e.s, stand = e.s / Math.max(0.05, med);
+      const fr = e.pos - Math.floor(e.pos), onB = fr < 0.12 || fr > 0.88, beat = ((Math.round(e.pos) % meter) + meter) % meter;
+      const place = onB ? (beat === 0 ? 1 : meter === 4 && beat % 2 === 1 ? 0.85 : 0.7) : Math.abs(fr - 0.5) < 0.1 ? (stand >= 1.25 ? 0.6 : 0) : stand >= 1.6 ? 0.3 : 0;
+      const lowish = e.band === 'low' || e.band === 'broad', score = place * clamp((stand - 0.85) / 0.6, 0, 1.4) * (lowish ? 1 : 0.75) * clamp(e.s / 1.4, 0.3, 1.2);
+      if (score < 0.28) continue;
+      const a = clamp(score, 0, 1.3) * (e.tier === 2 ? 1 : 0.8), last = out[out.length - 1], gap = 0.2 * this.map.beatLen(e.t);
+      if (last && e.t - last.t < gap) { if (a > last.a) out[out.length - 1] = { t: e.t, a, s: e.s }; continue; }
+      out.push({ t: e.t, a, s: e.s });
     }
+    return (this.hits = out.map(({ t, a }) => ({ t, a })));
+  }
+  /** The cone's displacement (about -0.3 .. 1.5) and its alternating roll partner: kicked by the groove's hits only. */
+  coneAt(t: number, idle = 0): { z: number; r: number } {
+    const w = 2 * Math.PI * this.cone.hz, z0 = this.cone.zeta, H = this.grooveHits(); let z = 0, r = 0;
+    let lo = 0, hi = H.length; while (lo < hi) { const m = (lo + hi) >> 1; if (H[m].t < t - 1.4) lo = m + 1; else hi = m; }
+    for (let i = lo; i < H.length && H[i].t <= t; i++) { const h = H[i], v = h.a * impulse(t - h.t, w, z0); z += v; r += v * (rnd(h.t * 13.7) < 0.5 ? -1 : 1); }
     const k = this.map.sounding(t, idle); return { z: z * k, r: r * k };
   }
   sample(t: number, idle = 0): RhythmSample {

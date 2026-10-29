@@ -31,6 +31,9 @@
 .ib[data-solid]:hover:not(:disabled) { background: var(--fg); color: var(--bg); transform: scale(1.04); }
 .ib[data-solid]:active:not(:disabled) { transform: scale(0.95); }
 .ib[data-on="true"] { color: var(--accent-2); }
+/* a favourite: a white heart (the foreground in the library, so it still shows on a light page; white on the picture) */
+.ib[data-fav][data-on="true"] { color: var(--fg); }
+:global(.on-picture) .ib[data-fav][data-on="true"], :global(.glass) .ib[data-fav][data-on="true"] { color: #fff; }
 .badgeN { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 6px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; line-height: 15px; font-style: normal; text-align: center; }
 
 /* segmented control: equal columns, one line each — labels never wrap, they shorten */

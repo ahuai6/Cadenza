@@ -32,9 +32,43 @@ describe('lyrics', () => {
     const onGrid = w.slice(1).filter(x => Math.abs(x.t * 4 - Math.round(x.t * 4)) < 0.01).length; expect(onGrid).toBeGreaterThanOrEqual(2);
     expect(d.lines[0].words[3].rest).toBeGreaterThan(1);
   });
-  it('breaks an unspaced line by the beat into words of a few characters', () => {
-    const d = buildLyrics(parse('[00:01.00]我們沿著熟悉的街道慢慢走回家\n[00:09.00]x'), map, 20);
-    const w = d.lines[0].words; expect(w.length).toBeGreaterThan(2); for (const x of w) expect([...x.text].length).toBeLessThanOrEqual(7);
-    expect(w.map(x => x.text).join('')).toBe('我們沿著熟悉的街道慢慢走回家');
+  it('breaks words at spaces only: an unspaced line is one word, its characters still sung one at a time', () => {
+    const d = buildLyrics(parse('[00:01.00]我們沿著熟悉的街道慢慢走回家\n[00:05.00]走過 這條 街\n[00:09.00]x'), map, 20);
+    const w = d.lines[0].words; expect(w.map(x => x.text)).toEqual(['我們沿著熟悉的街道慢慢走回家']);
+    expect(w[0].paced).toBe(true); for (let i = 1; i < w[0].units.length; i++) expect(w[0].units[i].t!).toBeGreaterThan(w[0].units[i - 1].t!);
+    expect(d.lines[1].words.map(x => x.text)).toEqual(['走過', '這條', '街']);
+  });
+  it('chorus marks (#1 strongest, #2 or a bare #, #3 lighter) are read and never shown', () => {
+    const d = buildLyrics(parse('[00:01.00]#1 夜に駆ける\n[00:04.00]走過 #3這條 街\n[00:07.00]#\n[00:08.00]<00:08.00>#2sing <00:08.50>a<00:09.00>long<00:09.50>\n[00:12.00]x'), map, 20);
+    expect(d.lines.map(L => L.text)).toEqual(['夜に駆ける', '走過 這條 街', 'sing along', 'x']);
+    expect(d.lines.every(L => L.words.every(W => !/[#]/.test(W.text) && W.units.every(u => !/[#]/.test(u.c))))).toBe(true);
+    expect(d.marks.map(m => [m.t, m.level])).toEqual([[1, 1], [expect.any(Number), 3], [7, 2], [8, 2]].map(([a, b]) => [a, b]) as never);
+    expect(d.marks[1].t).toBeGreaterThan(4);
+  });
+  it('a harmony in brackets goes with the word before it, its brackets never shown, its own timing kept', () => {
+    const d = buildLyrics(parse('[00:01.00]I love you (love you) so\n[00:04.00]想你（想你）\n[00:07.00]<00:07.00>stay <00:07.50>(stay<00:07.80> here) <00:08.20>now<00:08.80>\n[00:12.00](oh oh)'), map, 20);
+    const [a, b, c, e] = d.lines;
+    expect(a.words.map(W => W.text)).toEqual(['I', 'love', 'you', 'so']); expect(a.words[2].harm!.text).toBe('love you');
+    expect(b.words.map(W => W.text)).toEqual(['想你']); expect(b.words[0].harm!.text).toBe('想你');
+    expect(c.words.map(W => W.text)).toEqual(['stay', 'now']); expect(c.words[0].harm!.text).toBe('stay here'); expect(c.words[0].harm!.t).toBeCloseTo(7.5, 5);
+    expect(e.words.map(W => W.text)).toEqual(['oh', 'oh']);                        // a line only in brackets is sung as itself
+    expect(d.lines.every(L => !/[()（）]/.test(L.text))).toBe(true);
+  });
+  it("an older file's '#' after a sung unit is still a word break", () => {
+    const d = buildLyrics(parse('[00:00.00]<00:00.00>清<00:00.25>晨<00:00.50>的#<00:01.00>光<00:01.25>落<00:01.50>在#<00:02.00>窗<00:02.50>邊<00:03.40>\n[00:05.00]x'), map, 20);
+    expect(d.lines[0].words.map(W => W.text)).toEqual(['清晨的', '光落在', '窗邊']); expect(d.marks.length).toBe(0);
+  });
+});
+
+describe('lyric motion: groove', () => {
+  it('moves only sung characters of a word being sung, hopping on the beat and settling between', async () => {
+    const { LYRIC_MOTIONS } = await import('../../src/render/motions');
+    const { RhythmMap } = await import('../../src/rhythm/map');
+    const map = RhythmMap.grid(120, 0, 60), g = LYRIC_MOTIONS.groove;
+    const S: any = { w: { t: 1 }, units: [{ t: 1 }, { t: 1.5 }] };
+    expect(g.unit({ S, ui: 1, t: 1.2, map, live: true, k: 1 })).toBeNull();          // not sung yet
+    expect(g.unit({ S, ui: 0, t: 2.05, map, live: false, k: 1 })).toBeNull();         // its word left behind
+    const on = g.unit({ S, ui: 0, t: 2.05, map, live: true, k: 1 })!, off = g.unit({ S, ui: 0, t: 2.4, map, live: true, k: 1 })!;
+    expect(on.dy).toBeLessThan(off.dy);                                               // higher just after the beat
   });
 });

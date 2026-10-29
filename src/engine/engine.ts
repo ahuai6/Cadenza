@@ -5,7 +5,7 @@
      with the shared-element handoff between ambient and effect;
    - render settings only change how many pixels are drawn and how often, never which effects;
    - coming moments are drawn ahead into a tiny canvas while there is time to spare, so their glyphs are ready. */
-import { clamp } from '../core/math';
+import { clamp, sstep } from '../core/math';
 import { Emitter } from '../core/emitter';
 import { cameraAt } from '../director/evaluate';
 import { drawFrame } from '../render/renderer';
@@ -28,6 +28,7 @@ export interface Tick { t: number; dur: number; musicEnd: number; playing: boole
 export interface EngineEvents extends Record<string, unknown> { tick: Tick; change: void; musicend: Session; ended: Session; session: Session | null; frame: number }
 export interface RenderSettings { scale: 'auto' | number; fps: number; prerender: boolean }
 
+const CARRY = 3.2;          // seconds the song before stays on in album play
 const RM = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export class Engine extends Emitter<EngineEvents> {
@@ -44,6 +45,8 @@ export class Engine extends Emitter<EngineEvents> {
   private t = 0; private playing = false; private scrub = false; private last = 0; private lastDraw = 0; private dirty = true;
   private pscale = 1; private ema = 0; private fast = 0;
   private fadeOut: { cv: HTMLCanvasElement; t0: number } | null = null;
+  /** album play: the song before, still running on in the picture for a moment (see show) */
+  private carry: { s: Session; t0: number; at: number } | null = null; private carryCv: HTMLCanvasElement | null = null;
   private box = { x: 0, y: 0, w: 1, h: 1 }; private cssW = 1; private cssH = 1; private dpr = 1;
   private ro: ResizeObserver | null = null; private host: HTMLElement | null = null; private raf = 0;
   private endedFired = false; private musicEndFired = false;
@@ -97,10 +100,14 @@ export class Engine extends Emitter<EngineEvents> {
   }
 
   /* ---------- sessions ---------- */
-  /** Show a session. 'song': the picture crossfades from the previous one, which is snapshot and fades out softly. */
-  show(s: Session, o: { transition?: 'song' | 'none'; at?: number; play?: boolean } = {}) {
-    const was = this.playing; this.stopAudio();
-    if (o.transition === 'song' && this.session && this.view !== 'hidden') { const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement; cv.getContext('2d')!.drawImage(this.canvas, 0, 0); this.fadeOut = { cv, t0: performance.now() }; }
+  /** Show a session. 'song': the picture crossfades from the previous one, which is snapshot and fades out softly.
+   *  'album' (in the effect view): one continuous shot — the song before keeps running on, its picture dissolving into
+   *  the new one's (the same look) without a blur, and its last words stay on, drifting with its camera and fading,
+   *  while the new song begins; the audio is not touched. */
+  show(s: Session, o: { transition?: 'song' | 'album' | 'none'; at?: number; play?: boolean } = {}) {
+    const was = this.playing; this.stopAudio(); this.carry = null;
+    if (o.transition === 'album' && this.session && this.view === 'effect') this.carry = { s: this.session, t0: this.t, at: performance.now() };
+    else if (o.transition && o.transition !== 'none' && this.session && this.view !== 'hidden') { const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement; cv.getContext('2d')!.drawImage(this.canvas, 0, 0); this.fadeOut = { cv, t0: performance.now() }; }
     this.session = s; this.t = clamp(o.at ?? 0, 0, Math.max(0, s.dur - 0.01)); this.endedFired = false; this.musicEndFired = false;
     this.clock.hold(this.t); this.dirty = true; this.emit('session', s); this.emit('change', undefined);
     if (o.play ?? was) this.play();
@@ -147,8 +154,8 @@ export class Engine extends Emitter<EngineEvents> {
   warmPicture() { const s = this.session; if (!s || s.needsFlush || this.view !== 'hidden') return false; try { this.draw(s); } catch (e) { console.warn(e); } this.dirty = true; return true; }
 
   /* ---------- the frame ---------- */
-  frameAt(t: number, opts: { offline?: boolean; px?: number } = {}): RenderFrame | null {
-    const s = this.session; if (!s) return null; const plan = s.plan, motion = RM ? 0.25 : 1;
+  frameAt(t: number, opts: { offline?: boolean; px?: number } = {}, sess?: Session): RenderFrame | null {
+    const s = sess || this.session; if (!s) return null; const plan = s.plan, motion = RM ? 0.25 : 1;
     const cf = cameraAt(plan, s.sig, t, motion), rs = cf.rs, M = s.style.m;
     const p = this.handoff.p, scene = opts.offline ? 1 : this.handoff.scene;
     return { plan, style: s.style, pal: s.pal, ambient: s.ambient, t, dt: 0, W: plan.W, H: plan.H, px: opts.px ?? this.canvas.height / plan.H,
@@ -175,7 +182,7 @@ export class Engine extends Emitter<EngineEvents> {
     if (this.mv.tick()) this.dirty = true;
     if (this.handoff.tick()) this.dirty = true;
     if (this.playing && this.mv.k > 0) this.dirty = true;
-    if (this.fadeOut) this.dirty = true;
+    if (this.fadeOut || this.carry) this.dirty = true;
     if (this.view === 'ambient') this.dirty = true;        // the ambient field is alive even while paused
     const cap = this.render.fps > 0 ? 1000 / this.render.fps : 0, due = !cap || now - this.lastDraw >= cap - 1.5;
     if (vis && this.dirty && due) { this.dirty = false; this.lastDraw = now; try { this.draw(s); } catch (e) { console.warn(e); } }
@@ -200,8 +207,20 @@ export class Engine extends Emitter<EngineEvents> {
     f.px = ch * N / s.plan.H;
     drawFrame(tg, f, { sig: s.sig, captions: true, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
     if (target) ssDown(target, this.canvas, N);
+    if (this.carry) { const el = (performance.now() - this.carry.at) / 1000; if (el >= CARRY || this.carry.s.needsFlush) this.carry = null; else this.drawCarry(this.carry, el); }
     if (this.fadeOut) { const u = clamp((performance.now() - this.fadeOut.t0) / 900);
       if (u >= 1) this.fadeOut = null; else { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = (1 - u) ** 1.5; g.filter = `blur(${(u * 18 * this.dpr).toFixed(1)}px)`; g.drawImage(this.fadeOut.cv, 0, 0, cw, ch); g.filter = 'none'; g.restore(); } }
+  }
+  /** The song before, over the new one: its whole picture for the first second (dissolving), then its words alone. */
+  private drawCarry(c: { s: Session; t0: number }, el: number) {
+    const f = this.frameAt(c.t0 + el, {}, c.s); if (!f) return; const g = this.g, cw = this.canvas.width, ch = this.canvas.height, u = clamp(el / 1.0);
+    f.px = ch / c.s.plan.H;
+    if (u < 1) { if (!this.carryCv || this.carryCv.width !== cw || this.carryCv.height !== ch) this.carryCv = makeCanvas(cw, ch) as HTMLCanvasElement;
+      const cg = this.carryCv.getContext('2d')!; cg.setTransform(1, 0, 0, 1, 0, 0); cg.globalAlpha = 1; cg.clearRect(0, 0, cw, ch); drawFrame(cg, f, { sig: c.s.sig });
+      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = (1 - u) ** 1.3; g.drawImage(this.carryCv, 0, 0); g.restore(); }
+    const L = 1 - sstep(clamp((el - 0.6) / (CARRY - 0.6))), k = L * (1 - (1 - u) ** 1.3); if (k < 0.01) return;
+    const { visibleWords, drawLyrics } = require_lyrics(); f.view = { effect: k }; f.vis = visibleWords(f, false);
+    drawLyrics(g, f, f.vis, { ink: f.pal.text, split: 0 });
   }
   private ss: HTMLCanvasElement | null = null;
   private ssCanvas(w: number, h: number) { if (!this.ss) this.ss = makeCanvas(w, h) as HTMLCanvasElement; if (this.ss.width !== w || this.ss.height !== h) { this.ss.width = w; this.ss.height = h; } return this.ss; }

@@ -1,9 +1,9 @@
 // The layers above the page and the moves between them, run from one place:
 //   none ⇄ np   the player card opens into the now-playing page, which takes the main area (the sidebar and title bar stay;
 //               in full screen it takes the whole screen). One spring progress drives every part: the page rises from
-//               the card's bottom edge and covers the area upward — its top fastest, its sides following, its corners
-//               squaring off as it reaches the edges — while the cover flies from the card to its place and the page's
-//               controls arrive last. Closing is the same progress running back, so a reversal mid-way simply turns.
+//               the card's bottom edge and covers the area upward — its corners squaring off as it reaches the edges —
+//               while the cover flies from the card to its place (its shadow turning from the mini's into the page's);
+//               page and cover are on the one spring and land together, and the page's controls arrive last. Closing is the same progress running back, so a reversal mid-way simply turns.
 //   np ⇄ fx     a full-screen blur: everything softens, the view changes underneath (the page hides, the picture becomes
 //               the effect lyrics at 16:9 over the whole window), and it all comes back into focus. Nothing has to fly
 //               between two renderings of the same thing, so nothing can flicker, change colour or jump.
@@ -17,7 +17,8 @@ export const refs = {
 };
 
 /* ---------- none ⇄ np ---------- */
-let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9, cardR = 20, pageR = 20;
+let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9, cardR = 20, pageR = 20, miniSh = { a: 0.25, oy: 2, blur: 8 };
+const PAGE_SH = { a: 0.45, oy: 24, blur: 70 };   // the page cover's own shadow (NowPlaying.module.css .cover)
 const radiusOf = (el: Element) => { const v = parseFloat(getComputedStyle(el).borderTopLeftRadius); return Number.isFinite(v) ? v : 0; };
 const measure = () => {
   const { mini, npCover, card, stage } = refs;
@@ -28,9 +29,11 @@ const measure = () => {
   // the resting corners, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
   if (npCover) { const keep = npCover.style.borderRadius; npCover.style.borderRadius = ''; coverR = radiusOf(npCover); npCover.style.borderRadius = keep; }
   if (mini) miniR = radiusOf(mini) || 9; if (card) cardR = radiusOf(card) || 20;
-  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, (radiusOf(pg) || 20) - 1); }   // one pixel inside the area's own corner
+  // the mini cover's own shadow (y offset, blur, alpha), which the flying cover's shadow turns into
+  if (mini) { const m = /rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+))?\)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px/.exec(getComputedStyle(mini).boxShadow || '');
+    miniSh = m ? { a: m[1] != null ? +m[1] : 1, oy: +m[3], blur: +m[4] } : { a: 0.25, oy: 2, blur: 8 }; }
+  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, (radiusOf(pg) || 20) - 1.6); }   // inside the area's own corner, over the inner half of its line (no hairline of background between the two smoothed edges)
 };
-const eo = (u: number) => 1 - (1 - u) ** 3;
 function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;
   const on = p > 0.0005, H = innerHeight;
@@ -44,11 +47,15 @@ function applyNp(p: number) {
     coverTop = y;
     npCover.style.transform = p >= 0.9995 ? '' : `translate(${(x - B.left).toFixed(2)}px, ${(y - B.top).toFixed(2)}px) scale(${sc.toFixed(4)})`;
     const r = miniR + (coverR - miniR) * part(p, 0, 1); npCover.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
+    // its shadow: from the mini cover's to the page's as it flies (on screen; the element is scaled), so neither end jumps
+    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20, u2 = part(p, 0, 1);
+      npCover.style.boxShadow = `0 ${((miniSh.oy + (PAGE_SH.oy - miniSh.oy) * u2) * k).toFixed(2)}px ${((miniSh.blur + (PAGE_SH.blur - miniSh.blur) * u2) * k).toFixed(2)}px rgba(0,0,0,${(miniSh.a + (PAGE_SH.a - miniSh.a) * u2).toFixed(3)})`; }
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
   // the page: from the card's bottom edge upward over the area (its own box), sides and bottom following the top
   const Rb = R || rectOf(stage), c = C || { left: Rb.left + Rb.width * 0.1, top: Rb.top + Rb.height - 90, width: Rb.width * 0.8, height: 76 };
-  const tp = eo(p), sp = part(p, 0.08, 1), bp = eo(part(p, 0, 0.85));
+  // (every edge on the same spring as the cover: the page and the cover land together)
+  const tp = p, sp = p, bp = p;
   let top = (c.top + c.height - Rb.top) * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - Rb.top - 26 * (1 - p));
   const left = (c.left - Rb.left) * (1 - sp), right = (Rb.left + Rb.width - c.left - c.width) * (1 - sp), bottom = (Rb.top + Rb.height - c.top - c.height) * (1 - bp);
   // the corners: the card's all round, landing on the main area's own shape (its top-left corner rounded, like the page

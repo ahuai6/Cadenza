@@ -15,6 +15,7 @@ import { EM } from '../text/metrics';
 import { blurGlyph, drawFocus, focusW, sharpGlyph, strokeGlyph, type InkGrad } from './glyphs';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
+import { motionOf } from './motions';
 
 /** Culling can be switched off to prove it never removes anything visible (render tests). */
 let CULL = true; export const setCulling = (on: boolean) => { CULL = on; };
@@ -63,7 +64,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   inkG.addColorStop(0, grad[0]); inkG.addColorStop(0.55, grad[1]); inkG.addColorStop(1, grad[2]);
   const edgeC = rgba(mix(pal.bg, o.ink as any, 0.25), 1), yaw = f.cam.cam.yaw ?? 0, pitch = f.cam.cam.pitch ?? 0;
   const ex = clamp(0.35 - yaw * 0.12, -0.6, 0.9), ey = clamp(1 - pitch * 0.12, 0.4, 1.4);
-  const shadowC = shadowOf(pal);
+  const shadowC = shadowOf(pal), LM = trail || ov > 0 ? null : motionOf(st.lmo), map = f.plan.map;
   g.save(); g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font;
   for (const v of vis) {
     const { S, ws, p } = v, n = S.units.length, spec = TIN_SPEC[ws.tin] || TIN_SPEC.blur, blurMax = Math.min(32, v.glyphPx * spec.blur);
@@ -89,7 +90,9 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       }
       const bpx = blurOn ? blurMax * up.uq * f.px : 0, blurred = bpx > 0.4;
       if (trail && blurred) continue;
-      g.save(); g.translate(up.rx + up.dx + jx, up.ry + up.dy + jy); if (up.ur) g.rotate(up.ur * D2R); if (up.um !== 1) g.scale(up.um, up.um); if (u.rot) g.rotate(Math.PI / 2);
+      const lm = LM ? LM.unit({ S, ui, t: f.t, map, live: ws.live, k: f.motion }) : null;   // the lyric motion (律動 …), on top of the pose
+      g.save(); g.translate(up.rx + up.dx + jx + (lm ? lm.dx : 0), up.ry + up.dy + jy + (lm ? lm.dy : 0)); const ur = up.ur + (lm ? lm.rot : 0), um = up.um * (lm ? lm.sc : 1);
+      if (ur) g.rotate(ur * D2R); if (um !== 1) g.scale(um, um); if (u.rot) g.rotate(Math.PI / 2);
       const sp = sp0 * focusW(bpx);
       const Gpx = v.glyphPx * f.px * up.um;
       if (sp > 0.4) { g.fillStyle = g1; g.globalAlpha = A * up.ua * 0.35; sharpGlyph(g, u.c, Gpx, null, sp, 0); g.fillStyle = g2; g.globalAlpha = A * up.ua * 0.25; sharpGlyph(g, u.c, Gpx, null, -sp, 0); }
@@ -111,6 +114,19 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       g.fillStyle = inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : inkG, trail ? null : grad);   // (blurred, the same light: no change on focusing)
       g.restore();
     }
+    if (S.harm && !trail) drawHarmony(g, S, f.t, A, fc, inkC, shadowC, c.future);
   }
   g.restore();
+}
+const HARM = 0.52;   // a harmony's size against its word
+/** A harmony: small, at the word's lower right (the word upper left, the harmony lower right, sung together), in the
+ *  word's own frame — it turns, leans and enters with it. It comes in at its own moment (a faint ghost before, as the
+ *  words do), lifting a little into place. One line of text: cheap. */
+function drawHarmony(g: Ctx, S: PWord, t: number, A: number, fc: { w: number | string; stack: string }, ink: string, shadow: string, future: 'dim' | 'hide') {
+  const H = S.harm!, u = (t - H.t) / 0.35, on = u >= 0, k = on ? 1 - (1 - Math.min(1, u)) ** 3 : 0;
+  const al = A * (on ? 0.35 + 0.55 * k : future === 'hide' ? 0 : 0.28); if (al < 0.01) return;
+  const hw = H.w0 * HARM, hh = H.h0 * HARM, x = S.w0 / 2 * 0.55 + hw / 2, y = S.h0 / 2 + hh * 0.3 + (1 - k) * hh * 0.35;
+  g.save(); g.font = `${fc.w} ${EM * HARM}px ${fc.stack}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.globalAlpha = al * 0.45; g.fillStyle = shadow; g.fillText(H.text, x + hh * 0.04, y + hh * 0.08);
+  g.globalAlpha = al; g.fillStyle = ink; g.fillText(H.text, x, y); g.restore();
 }

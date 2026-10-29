@@ -25,8 +25,11 @@ export const tsz = (st: Style) => clamp(st.m.tsize ?? 1, 0.5, 2.5);
 /** How close the camera frames one word: about 68 % of the width or 46 % of the height, against the line's typical
  *  word height so small words are not blown up; never more than the frame can hold. */
 export function wordZoom(S: { lw: number; lh: number }, medLh: number, W: number, H: number, T: number) {
-  const z = Math.min(W * 0.68 / S.lw, H * 0.46 / Math.max(S.lh, medLh * 0.85));
-  return Math.min(z * T, W * 0.8 / S.lw, H * 0.58 / S.lh);
+  // a long word is not shrunk to fit: the camera frames a stretch of it (five or so characters, four down a column)
+  // and travels along it as it is sung (camera.ts)
+  const lw = Math.min(S.lw, Math.max(S.lh, medLh * 0.85) * 5.5), lh = Math.min(S.lh, Math.max(S.lw, medLh * 0.85) * 4);
+  const z = Math.min(W * 0.68 / lw, H * 0.46 / Math.max(lh, medLh * 0.85));
+  return Math.min(z * T, W * 0.8 / lw, H * 0.58 / lh);
 }
 export function corners(S: { x: number; y: number; lw: number; lh: number; tilt: number }, pad = 0): [number, number][] {
   const d = dirv(S.tilt), n = dirv(S.tilt + 90), hw = S.lw / 2 + pad, hh = S.lh / 2 + pad;
@@ -45,13 +48,13 @@ export function layout(inp: LayoutInput): LayoutResult {
   const waltz = st.cut === 'waltz', smooth = st.cut !== 'punch';
 
   /* ---- words, measured ---- */
-  const lines: PLine[] = [], words: PWord[] = [];
+  const lines: PLine[] = [], words: PWord[] = [], vruns = st.cut === 'center' ? new Set<number>() : vertRuns(doc.lines);
   for (const L of doc.lines) {
-    const P: PLine = { L, i: L.i, words: [], sec: 0, secEnd: Infinity, secIn: 0.4, ax: 0, ay: 0, bw: 0, bh: 0, prot: 0, d: 0, back: false, rtl: L.rtl };
-    let prev: { group: number; s0: number; tin: string; show: number } | null = null; const fast = fastLine(L);
+    const P: PLine = { L, i: L.i, words: [], sec: 0, secEnd: Infinity, secIn: 0.4, ax: 0, ay: 0, bw: 0, bh: 0, prot: 0, d: 0, back: false, rtl: L.rtl, vert: vruns.has(L.i) };
+    let prev: { group: number; s0: number; tin: string; show: number } | null = null;
     for (const Wd of L.words) {
       const k = Wd.k, n = Wd.units.length;
-      const vert = st.cut !== 'center' && Wd.cjk && n >= 2 && n <= 5 && k > 0 && !fast && rnd(L.i * 37 + k * 11.3) < 0.34;
+      const vert = !!P.vert;
       const mb = measure.word(Wd.units.map(u => u.c), { vertical: vert, rtl: L.rtl });
       let s0 = Wd.latin ? 1.1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
@@ -62,7 +65,8 @@ export function layout(inp: LayoutInput): LayoutResult {
       prev = { group: Wd.group, s0, tin, show };
       const pw: PWord = { w: Wd, line: P, k, x: 0, y: 0, tilt: 0, d: 0, s, lw: mb.w0 * s, lh: mb.h0 * s, w0: mb.w0, h0: mb.h0, vert,
         units: Wd.units.map((u, ui) => ({ c: u.c, t: u.t, ox: mb.units[ui].cx * s, oy: mb.units[ui].cy * s, w: mb.units[ui].w * s, h: mb.units[ui].h * s, rot: mb.units[ui].rot })),
-        ang: 0, frame: null, order: 0, show, end: Wd.end, tin, seed: L.i * 101 + k * 7 + 1 };
+        ang: 0, frame: null, order: 0, show, end: Wd.end, tin, seed: L.i * 101 + k * 7 + 1,
+        harm: Wd.harm ? (hm => ({ text: Wd.harm!.text, t: Wd.harm!.t, w0: hm.w0, h0: hm.h0 }))(measure.word(Wd.harm.units.map(u => u.c), { vertical: false, rtl: L.rtl })) : null };
       P.words.push(pw); words.push(pw);
     }
     lines.push(P);
@@ -92,7 +96,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       let pick = -1; for (let k = k0; k < n; k++) if (ok(k) && small(P.words[k])) { pick = k; break; }
       if (pick < 0) for (let k = k0; k < n; k++) if (ok(k)) { pick = k; break; }
       if (pick >= 0) { const S = P.words[pick], prev = P.words[pick - 1];
-        const fw = prev && chars(S) <= 2 && chars(prev) + chars(S) <= 4 && Math.abs(prev.tilt - S.tilt) < 1 ? [prev, S] : [S], pad = Math.min(...fw.map(x => x.lh)) * 0.3 * 2.3;
+        const fw = prev && chars(S) <= 2 && chars(prev) + chars(S) <= 4 && Math.abs(prev.tilt - S.tilt) < 1 ? [prev, S] : [S], pad = Math.min(...fw.map(x => x.lh)) * 0.15 * 2.3;
         const F: FrameRef = { words: fw, ts: S.w.t, corner: rnd(P.i * 5.1) < 0.5, pad }; for (const x of fw) x.frame = F; want = false; }
     } }
   const padOf = (S: PWord) => (S.frame ? S.frame.pad * 0.6 : 0);
@@ -138,8 +142,12 @@ export function layout(inp: LayoutInput): LayoutResult {
     const vx = Pv ? A.x - Pv.x : Math.cos(A.ang * D2R), vy = Pv ? A.y - Pv.y : Math.sin(A.ang * D2R), vl = Math.hypot(vx, vy) || 1, dx = B.x - A.x, dy = B.y - A.y, dl = Math.hypot(dx, dy) || 1;
     return (vx * dx + vy * dy) / (vl * dl) > Math.cos(60 * D2R); };
 
-  type St = { P: [number, number]; th: number; lineStart: [number, number]; prevH: number; lastTurn: number; prevLine: PLine | null; prevSeg: PWord | null; secFirst: boolean; flow: number; flowFrom: number | null; backN: number; n?: number };
-  let S0: St = { P: [0, 0], th: 0, lineStart: [0, 0], prevH: BASE, lastTurn: -9, prevLine: null, prevSeg: null, secFirst: false, flow: 1, flowFrom: null, backN: 0 };
+  // how far before the last character a new line above or below starts: a share of the new line (so it sits around that
+  // character), never more than most of the line before
+  const spawnBack = (Lp: PLine, prevLine: PLine, w: number, i: number) => { const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1);
+    return Math.max(w * 0.2, Math.min(Lw * (0.3 + 0.3 * rnd(i * 3.9)), (prevLine.bw || w) * 0.8, Lw - w * 0.5)); };
+  type St = { P: [number, number]; th: number; lineStart: [number, number]; prevH: number; lastTurn: number; prevLine: PLine | null; prevSeg: PWord | null; secFirst: boolean; flow: number; flowFrom: number | null; backN: number; colN: number; n?: number };
+  let S0: St = { P: [0, 0], th: 0, lineStart: [0, 0], prevH: BASE, lastTurn: -9, prevLine: null, prevSeg: null, secFirst: false, flow: 1, flowFrom: null, backN: 0, colN: 0 };
   const save = (): St => ({ ...S0, P: [...S0.P] as [number, number], lineStart: [...S0.lineStart] as [number, number], n: placed.length });
   const restore = (v: St) => { placed.length = v.n!; S0 = { ...v, P: [...v.P] as [number, number], lineStart: [...v.lineStart] as [number, number] }; };
   let secN = 0;
@@ -150,7 +158,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     S0.th = [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = 1; S0.flowFrom = null; S0.backN = 0; };
 
   const placeLine = (Lp: PLine, i: number, mode: string | null): boolean => {
-    let { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN } = S0, bad = false;
+    let { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN } = S0, bad = false;
     Lp.back = false;
     Lp.words.forEach((S, k) => {
       const w = S.lw, h = S.lh, first = (i === 0 && k === 0) || (secFirst && k === 0);
@@ -167,7 +175,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       let c: [number, number];
       // the roller: the word goes on the drum's next row — turned half round, beside the row before (its start under that
       // row's end), every row of a run on the same side, so the rows stack outwards like the faces of a drum
-      const roll = !first && mode !== 'dash' ? rolls.get(S) : undefined;
+      const roll = !first && mode !== 'dash' && !S.vert ? rolls.get(S) : undefined;
       if (roll) {
         const nr = placed.filter(Q => Q.roll && rolls.get(Q)?.run === roll.run).length, sg = nr % 2 ? 1 : -1;   // left first, then right, … (counting the rows on the page)
         const d1 = dirv(th), th2 = th + sg * 180, d2 = dirv(th2);
@@ -183,7 +191,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       } else {
         const d0 = dirv(th), d: [number, number] = [d0[0] * rd, d0[1] * rd], nrm = dirv(th + 90), lr = rnd(i * 71.3 + 5);
         let backMax = -Infinity, run = 0;
-        if (k === 0 && !first && prevLine && flow < 0 && !Lp.rtl && !mode && prevSeg) {
+        if (k === 0 && !first && prevLine && flow < 0 && !Lp.rtl && !mode && prevSeg && !Lp.vert) {
           const zz = Math.min(zOf(prevSeg), zOf(S)); run = (P[0] - lineStart[0]) * d[0] + (P[1] - lineStart[1]) * d[1];
           backMax = FOLD * 0.9 * W / zz - (run - prevSeg.lw - w); }
         let cc: [number, number] | null = null;
@@ -197,13 +205,15 @@ export function layout(inp: LayoutInput): LayoutResult {
           const upw = Math.abs(side[0] - side[1]) < gap ? rnd(i * 4.1 + 2) < 0.5 : side[0] < side[1], ext = upw ? side[0] : side[1];
           const off = (ext + gap * 2.2 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [lineStart[0] + nrm[0] * off - d[0] * back, lineStart[1] + nrm[1] * off - d[1] * back];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0; Lp.back = true;
-        } else if (k === 0 && !first && prevLine && !mode && lr >= 0.34 && lr < 0.6) {
-          const upw = lr < 0.47, back = (0.25 + rnd(i * 3.9) * 0.5) * Math.min(prevLine.bw || w, BASE * 6);
+        } else if (k === 0 && !first && prevLine && !mode && lr >= 0.34 && lr < 0.6 && !Lp.vert) {
+          // above or below the line before, around its last character: the new line starts a little before it, so the
+          // singing carries on from where it was, left to right, instead of going back to where the line before began
+          const upw = lr < 0.47, back = spawnBack(Lp, prevLine, w, i);
           let ext = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) { const v = (p[0] - lineStart[0]) * nrm[0] + (p[1] - lineStart[1]) * nrm[1]; ext = Math.max(ext, upw ? -v : v); }
-          const off = (ext + gap * 2.5 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [lineStart[0] + nrm[0] * off - d[0] * back, lineStart[1] + nrm[1] * off - d[1] * back];
+          const off = (ext + gap * 2.5 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [P[0] + nrm[0] * off - d[0] * back, P[1] + nrm[1] * off - d[1] * back];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
-        } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < 0.34))) {
-          const ref: [number, number] = smooth ? [P[0] - d[0] * w * 0.25, P[1] - d[1] * w * 0.25] : lineStart;
+        } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < 0.34)) && !(Lp.vert && prevLine.vert)) {
+          const bk = spawnBack(Lp, prevLine, w, i + 0.5), ref: [number, number] = [P[0] - d[0] * bk, P[1] - d[1] * bk];
           let below = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) below = Math.max(below, (p[0] - ref[0]) * nrm[0] + (p[1] - ref[1]) * nrm[1]);
           const s0: [number, number] = [ref[0] + nrm[0] * (below + gap * 2.5 + h / 2), ref[1] + nrm[1] * (below + gap * 2.5 + h / 2)];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
@@ -213,7 +223,11 @@ export function layout(inp: LayoutInput): LayoutResult {
           const g2 = first ? 0 : k === 0 ? gap * (mode === 'dash' ? 2 : 3) : S.w.latin && prevSeg && prevSeg.w.latin ? Math.max(gap, h * 0.32) : gap, jit = first ? 0 : (rnd(i + k * 2.2) - 0.5) * h * 0.2;
           // a dash rises and dips with the beat as it runs on (a wave across the bar), instead of a random jitter
           const wave = mode === 'dash' ? Math.sin((S.w.t / map.beatLen(S.w.t)) * Math.PI / 2 + i * 0.7) * h * 0.42 : jit;
-          const off = S.vert ? (h - prevH) / 2 : wave;
+          // a column hangs from the row's top; the columns of a run step down a little one after another, like a poem set
+          // by hand (a cascade, not a ruler), and their words follow each other closely down the page
+          if (S.vert && k === 0) colN = prevSeg && prevSeg.vert ? colN + 1 : 0;
+          const col = S.vert ? colN : 0;
+          const off = S.vert ? (h - prevH) / 2 + (col ? (0.18 + 0.32 * rnd(i * 4.7 + 1)) * prevH * (col % 3 === 2 ? -0.6 : 1) : 0) : wave;
           cc = [P[0] + d[0] * (g2 + w / 2) + nrm[0] * off, P[1] + d[1] * (g2 + w / 2) + nrm[1] * off];
           P = [P[0] + d[0] * (g2 + w), P[1] + d[1] * (g2 + w)];
           if (k === 0) lineStart = [cc[0] - d[0] * w / 2, cc[1] - d[1] * w / 2];
@@ -241,10 +255,11 @@ export function layout(inp: LayoutInput): LayoutResult {
       if (flowFrom == null) flowFrom = pos; else if ((pos - flowFrom) * flow >= FLIP || (flow < 0 && Lp.back && ++backN >= 3)) { flow = -flow; flowFrom = pos; backN = 0; } }
     Lp.d = Lp.words.reduce((a, S) => a + S.d, 0) / Math.max(1, Lp.words.length);
     prevLine = Lp;
-    S0 = { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN };
+    S0 = { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN };
     return !bad;
   };
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = 10; let onPage = 0;
+  // (close up, a page holds fewer lines: more of the song is crossed by quick blur transitions)
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = st.cut === 'close' ? 4 : 10; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
     // ten lines on the page are enough: the next line that leaves room for one clears the picture (the words stay few
@@ -277,6 +292,22 @@ export function layout(inp: LayoutInput): LayoutResult {
   const order = [...words].sort((a, b) => b.d - a.d || a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
   const dmin = words.reduce((m, S) => Math.min(m, S.d), 0);
   return { lines, words, passages, dmin };
+}
+
+/** Which lines are set vertically: whole lines, in runs of two to four (a few lines down the page, then rows again),
+ *  never a lone column among rows nor columns and rows mixed within a line. A line can stand as a column when it is all
+ *  CJK in short words (two to seven characters each) and not a quick run; runs start now and then, with rows between. */
+export function vertRuns(ls: LyricDoc['lines']): Set<number> {
+  const ok = (L: LyricDoc['lines'][number]) => !!L && L.words.length > 0 && L.words.length <= 4 && !fastLine(L) && L.words.every(w => w.cjk && !w.latin && w.units.length >= 2 && w.units.length <= 7);
+  const out = new Set<number>(); let last = -9;
+  for (let i = 1; i < ls.length; i++) {
+    if (i - last < 5 || !ok(ls[i]) || rnd(ls[i].i * 37 + 5.3) >= 0.24) continue;
+    const want = 2 + Math.floor(rnd(ls[i].i * 11.3 + 2) * 3); let j = i; while (j < ls.length && j - i < want && ok(ls[j])) j++;
+    if (j - i < 2) continue;
+    for (let k = i; k < j; k++) out.add(k);
+    last = j - 1; i = j - 1;
+  }
+  return out;
 }
 
 /** How close the camera holds the centred stage: the lyric type a steady size on screen (its typical word about 12 %

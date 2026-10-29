@@ -10,7 +10,7 @@ import { createStore } from '../../core/emitter';
 import { Session, type AudioLike } from '../../engine';
 import { RHYTHM_VERSION, isCurrent, balanceDb, type RhythmAnalysis } from '../../rhythm';
 import { parse } from '../../lyrics/parse';
-import { storedStyle } from '../../theme/style';
+import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
 import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge';
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
@@ -29,6 +29,10 @@ export const player = createStore({
   lyrics: null as { source: string; text: string } | null, hasLyrics: false, route: 'std' as 'std' | 'hifi',
   mv: { bound: false, name: '', offset: 0, on: false, ready: false } as MvState, mode: remember<Mode>('mode', 'loop'), error: null as string | null,
   volume: remember('vol', 1),
+  /** album play: the queue is one album, played through in order as one continuous film in the first song's look */
+  album: null as null | { look: Partial<Style> | null },
+  /** which way the last change of song went (1 on to the next, −1 back, 0 a jump), for the pages' own transitions */
+  dir: 0 as -1 | 0 | 1,
 });
 export const shownTrack = () => trackOf(player.get().shownId);
 
@@ -60,41 +64,54 @@ function standIn(id: string, r: { dur: number; src: { rate: number; ch: number }
 /* ---------- opening a song ---------- */
 let gen = 0, stale = false, warnedFormat = false;
 /** Play a list: it becomes the queue, in its own order (shuffle only changes which song comes next). */
-export async function playIds(ids: string[], index = 0, opts: { play?: boolean } = {}) {
+export async function playIds(ids: string[], index = 0, opts: { play?: boolean; album?: boolean } = {}) {
   const want = ids[Math.min(Math.max(0, index), ids.length - 1)];
   ids = ids.filter(id => { const t = trackOf(id); return t && !t.protected; });
   if (!ids.length) return;
   history.length = 0; round.clear();
   const i = Math.max(0, ids.indexOf(want));
-  player.set({ queue: ids, index: i });
+  player.set({ queue: ids, index: i, album: opts.album ? { look: null } : null });
   await loadAt(i, opts.play !== false);
 }
-async function loadAt(index: number, play: boolean, at = 0) {
+/** Everything a song needs to be shown: its audio (through the output asked for, or the standard one when the Hi-Fi
+ *  output cannot take it), its rhythm, what is kept with it, and its session. */
+async function openSong(id: string, wantRoute: 'std' | 'hifi', ok: () => boolean) {
+  let route = wantRoute;
+  const [prep0, song, lyr, hr] = await Promise.all([prepare(id, route), Lib!.song(id).catch(() => null), Lib!.lyrics(id).catch(() => null),
+    route === 'hifi' ? hifiLoad(id).catch(e => { console.warn('hifi', e.message); return null; }) : null]);
+  if (!ok()) return null;
+  let prep = prep0;
+  if (route === 'hifi' && !hr) {
+    // a file the Hi-Fi output cannot read, or it is not running: this song goes through the standard output
+    route = 'std'; if (!warnedFormat) { warnedFormat = true; toast(tx('s.hifi.notThis')); }
+    prep = await prepare(id, 'std'); if (!ok()) return null;
+  }
+  const t = trackOf(id)!, instr = !!t.instrumental, album = player.get().album;
+  // an instrumental: its own line in place of lyrics, and the record theme unless the song already has a look of its own.
+  // In album play: no fade at the end (the audio is the album's own), only the small title, the first song's look
+  const s = await Session.open({ key: id, lyrics: instr ? instrumentalLyrics() : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '', album: !!album },
+    coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, fade: !album, aspect: '16:9', look: album?.look || undefined }, sessionEnv());
+  return { s, route, song, lyr };
+}
+/** Album play: the next song opened ahead, so the film runs straight on into it (standard output only: the Hi-Fi output
+ *  takes one song at a time and has its own preloading). */
+let ahead: { id: string; p: Promise<Awaited<ReturnType<typeof openSong>>> } | null = null;
+async function loadAt(index: number, play: boolean, at = 0, how: { dir?: -1 | 0 | 1; auto?: boolean } = {}) {
   const { queue } = player.get(), id = queue[index]; if (!id || !Lib) return;
-  const my = ++gen, track = trackOf(id);
-  player.set({ index, id, loading: true, error: null });
+  const my = ++gen, album = player.get().album;
+  player.set({ index, id, loading: true, error: null, dir: how.dir ?? 0 });
   Lib.prioritize([id, ...queue.slice(index + 1, index + 3)]).catch(() => {});
   try {
-    let route: 'std' | 'hifi' = hifiOn() ? 'hifi' : 'std';
-    const [prep0, song, lyr, hr] = await Promise.all([prepare(id, route), Lib.song(id).catch(() => null), Lib.lyrics(id).catch(() => null),
-      route === 'hifi' ? hifiLoad(id).catch(e => { console.warn('hifi', e.message); return null; }) : null]);
-    if (my !== gen) return;
-    let prep = prep0;
-    if (route === 'hifi' && !hr) {
-      // a file the Hi-Fi output cannot read, or it is not running: this song goes through the standard output
-      route = 'std'; if (!warnedFormat) { warnedFormat = true; toast(tx('s.hifi.notThis')); }
-      prep = await prepare(id, 'std'); if (my !== gen) return;
-    }
-    const t = trackOf(id) || track!, instr = !!t.instrumental;
-    // an instrumental: its own line in place of lyrics, and the record theme unless the song already has a look of its own
-    const s = await Session.open({ key: id, lyrics: instr ? instrumentalLyrics() : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '' },
-      coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, fade: true, aspect: '16:9' }, sessionEnv());
-    if (my !== gen) return;
+    const want: 'std' | 'hifi' = hifiOn() ? 'hifi' : 'std', pre = ahead && ahead.id === id && want === 'std' && album ? ahead.p : null; ahead = null;
+    const o = (pre ? await pre.catch(() => null) : null) || await openSong(id, want, () => my === gen);
+    if (!o || my !== gen) return;
+    const { s, route, song, lyr } = o;
+    if (album && !album.look) player.set({ album: { look: s.lookOf() } });
     stale = false;
     engine.pause();                                   // before the output changes: nothing replays on the way
     engine.setOutput(route === 'hifi' ? output : null);
     engine.mv.setOn(false); engine.mv.close();
-    engine.show(s, { transition: 'song', at, play });
+    engine.show(s, { transition: album && how.auto ? 'album' : 'song', at, play });
     const mv = song?.mv;
     player.set({ shownId: id, session: s, loading: false, route, song: song || {}, lyrics: lyr, hasLyrics: s.hasLyrics,
       mv: { bound: !!mv, name: mv ? mv.name : '', offset: mv ? mv.offset : 0, on: false, ready: false } });
@@ -104,6 +121,7 @@ async function loadAt(index: number, play: boolean, at = 0) {
     // the next song, ready before it is needed
     const nx = player.get().queue[index + 1];
     if (nx && settings.get().prerender !== false) setTimeout(() => { if (my !== gen) return; prepare(nx, route).catch(() => {}); if (route === 'hifi') hifiPreload(nx); }, 1500);
+    if (nx && album && route === 'std') setTimeout(() => { if (my !== gen || ahead) return; const p = openSong(nx, 'std', () => true); p.catch(() => {}); ahead = { id: nx, p }; }, 6000);
   } catch (e) {
     if (my !== gen) return; console.warn('load failed', e);
     player.set({ loading: false, error: String((e as Error)?.message || e) }); toast(tx('aud.bad'));
@@ -190,17 +208,18 @@ export async function next(auto = false) {
   const p = player.get(), n = p.queue.length; if (!n) return;
   if (auto && p.mode === 'one') { engine.seek(0); engine.play(); return; }
   let j: number;
-  if (p.mode === 'shuffle') j = shufflePick(p.queue, p.index);
-  else { j = p.index + 1; if (j >= n) { if (auto && p.mode === 'stop') { engine.pause(); return; } j = 0; } }
+  // (an album plays through in its own order, once — round again only in the loop mode)
+  if (p.mode === 'shuffle' && !p.album) j = shufflePick(p.queue, p.index);
+  else { j = p.index + 1; if (j >= n) { if (auto && (p.mode === 'stop' || (p.album && p.mode !== 'loop'))) { engine.pause(); return; } j = 0; } }
   if (j < 0) return;
   if (p.id) history.push(p.id); if (history.length > 200) history.shift();
-  await loadAt(j, true);
+  await loadAt(j, true, 0, { dir: 1, auto });
 }
 export async function prev() {
   const p = player.get();
   if (engine.time > 3) { engine.seek(0); return; }
-  if (p.mode === 'shuffle') { while (history.length) { const id = history.pop()!, i = p.queue.indexOf(id); if (i >= 0) { await loadAt(i, true); return; } } }
-  if (p.index > 0) await loadAt(p.index - 1, true); else if (p.mode === 'loop' && p.queue.length > 1) await loadAt(p.queue.length - 1, true); else engine.seek(0);
+  if (p.mode === 'shuffle' && !p.album) { while (history.length) { const id = history.pop()!, i = p.queue.indexOf(id); if (i >= 0) { await loadAt(i, true, 0, { dir: -1 }); return; } } }
+  if (p.index > 0) await loadAt(p.index - 1, true, 0, { dir: -1 }); else if (p.mode === 'loop' && p.queue.length > 1) await loadAt(p.queue.length - 1, true, 0, { dir: -1 }); else engine.seek(0);
 }
 /** Add songs at the end of the queue; with nothing playing, the first of them starts. */
 export async function enqueue(ids: string[]) {
@@ -215,9 +234,10 @@ export function removeFromQueue(i: number) { const p = player.get(); if (i === p
 export function reorderQueue(ids: string[]) { const p = player.get(); if (ids.length !== p.queue.length) return; player.set({ queue: ids, index: Math.max(0, ids.indexOf(p.id!)) }); }
 export function clearQueue() { const p = player.get(); if (!p.id) { player.set({ queue: [], index: -1 }); return; } player.set({ queue: [p.id], index: 0 }); history.length = 0; round.clear(); }
 engine.on('change', () => { const pl = engine.isPlaying, p = player.get(); player.set({ playing: pl, rev: p.rev + 1, hasLyrics: p.session ? p.session.hasLyrics : false }); });
-// the music ends: with the picture closed go on at once; in the effect view let the ending card play out first
-engine.on('musicend', s => { if (s === player.get().session && ui.get().layer !== 'fx') next(true); });
-engine.on('ended', s => { if (s === player.get().session && ui.get().layer === 'fx') next(true); });
+// the music ends: with the picture closed go on at once; in the effect view let the ending card play out first (album
+// play has none: the next song follows straight on)
+engine.on('musicend', s => { if (s === player.get().session && (ui.get().layer !== 'fx' || player.get().album)) next(true); });
+engine.on('ended', s => { if (s === player.get().session && ui.get().layer === 'fx' && !player.get().album) next(true); });
 D?.onMedia(op => { if (op === 'toggle') toggle(); else if (op === 'next') next(); else if (op === 'prev') prev(); });
 
 /* ---------- what is bound to the song: saved shortly after each change ---------- */
@@ -231,7 +251,7 @@ export function saveSong(patch: Partial<SongData>) {
 export function editSong(fn: (s: Session) => unknown) {
   const s = player.get().session; if (!s || player.get().song?.locked) return;
   fn(s); engine.invalidate(); player.set({ rev: player.get().rev + 1 });
-  saveSong({ style: storedStyle(s.style), lshift: s.spec.lshift || 0, v: 3 });
+  saveSong({ style: storedStyle(s.ownStyle()), lshift: s.spec.lshift || 0, v: 3 });
 }
 
 /* ---------- lyrics ---------- */

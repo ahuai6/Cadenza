@@ -12,51 +12,23 @@ import type { Cues, PLine } from './types';
 function density<T extends { t: number; k?: number }>(ev: T[], all: number[], bar: number): (T & { k: number })[] {
   return ev.map(e => { let d = 0; for (const t2 of all) { const u = (t2 - e.t) / bar; if (Math.abs(u) <= 4.5) d += Math.exp(-u * u / 8); } return { ...e, k: clamp((d - 1) / 3) }; });
 }
-const norm = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
 const onBeat = (e: { off?: boolean; pos: number }) => !e.off && Math.abs(e.pos - Math.round(e.pos)) < 0.12;
-/** An accent a chorus brings: its strength 0..1 (how clearly it is an entry), and whether it opens the entry or is one
- *  of the hits right after it. */
+/** An accent a chorus brings: its strength 0..1, and whether it opens the entry or is one of the hits right after it. */
 export interface Entry { e: RhythmEvent; k: number; lead: boolean }
 /** The lowest entry strength a trigger takes at a sensitivity (0..2, the effect's own slider through the trigger knob):
- *  at 1 a clear entry and the hits after it; lower, only the clearest; at 2, every candidate. */
+ *  at 1 a clear entry and the hits after it; lower, only the clearest; at 2, every one. */
 export const entryFloor = (s: number) => clamp(1.05 - 0.6 * s, 0, 1);
-/** The moments a chorus comes in, which the accents above all should land on, each with its strength. Three ways to
- *  hear one: a section that comes in clearly louder (or drops: 1); a section that comes in only a little louder but
- *  fuller (denser, brighter, its level rising across the boundary) in an already lively part of the song; and the
- *  lyrics' own chorus — the first of a run of lines the song sings again — where the music doesn't fall away. An entry
- *  is rarely one hit: the strongest on-beat accents of the two bars after it follow it, a little weaker each. */
-export function sectionEntries(map: RhythmMap, lines: PLine[], inSong: (t: number) => boolean): Entry[] {
-  const S = map.sections, cand: { t: number; k: number }[] = [], bar = (t: number) => map.meter * map.beatLen(t);
-  const avg = (f: (t: number) => number, a: number, b: number) => { let v = 0, n = 0; for (let t = a; t < b; t += 0.1) { v += f(t); n++; } return n ? v / n : 0; };
-  const hi = (t: number) => { const sp = map.spec(t); return sp ? (sp[sp.length - 1] + sp[sp.length - 2]) / 2 : 0; };
-  // across a boundary at t: how much the level and the top of the spectrum rise from the two bars before to the two after
-  const rise = (t: number) => { const B = bar(t); return { lv: avg(x => map.level(x), t, t + 2 * B) - avg(x => map.level(x), t - 2 * B, t), hi: avg(hi, t, t + 2 * B) - avg(hi, t - 2 * B, t), at: avg(x => map.level(x), t, t + 2 * B) }; };
-  for (let i = 1; i < S.length; i++) {
-    const s = S[i], p = S[i - 1]; if (!inSong(s.t0)) continue;
-    const de = s.energy - p.energy, r = rise(s.t0), fuller = s.density > p.density * 1.2, signs = +(de > 0.07) + +(r.lv > 0.06) + +(r.hi > 0.05) + +fuller;
-    if (s.drop || de > 0.18) cand.push({ t: s.t0, k: 1 });
-    else if (s.energy >= 0.5 && de > -0.02 && (de > 0.1 || signs >= 2)) cand.push({ t: s.t0, k: clamp(0.55 + signs * 0.1 + Math.max(0, de) * 1.5, 0, 0.95) });
-  }
-  // the lyrics' chorus: lines sung again later (not a song made only of repeats), the first of each such run
-  const key = lines.map(l => norm(l.L.text)), count = new Map<string, number>();
-  for (const k of key) if (k.length >= 2) count.set(k, (count.get(k) || 0) + 1);
-  const rep = key.map(k => (count.get(k) || 0) >= 2);
-  if (rep.filter(Boolean).length <= lines.length * 0.75) for (let i = 0; i < lines.length; i++) {
-    if (!rep[i] || !rep[i + 1] || (i > 0 && rep[i - 1] && lines[i].L.t - lines[i - 1].L.sung < bar(lines[i].L.t))) continue;
-    // the chorus comes in on the downbeat at (or just before, under a pickup) its first sung word
-    const t0 = lines[i].L.t, B = bar(t0), d = map.beatAt(t0), down = map.barTime(d.bar + (d.inBar + d.phase < map.meter * 0.5 ? 0 : 1));
-    const at = Math.abs(down - t0) <= B * 0.5 ? down : t0, r = rise(at);
-    if (inSong(at) && r.at >= 0.4 && r.lv > -0.04) cand.push({ t: at, k: clamp(0.7 + Math.max(0, r.lv) * 2 + Math.max(0, r.hi) * 2, 0, 0.95) });
-  }
-  // one entry per moment (the strongest reading of it), then the hits that follow each
-  cand.sort((a, b) => a.t - b.t);
-  const out: Entry[] = [];
-  for (const c of cand) {
-    const e = map.eventNear(c.t, map.beatLen(c.t) * 0.6, 1); if (!e) continue;
-    const prev = out.length ? out[out.length - 1] : null;
-    if (prev && e.t - prev.e.t <= bar(e.t) * 2) { if (c.k > prev.k) prev.k = c.k; continue; }
-    out.push({ e, k: c.k, lead: true });
-  }
+/** The strength of each of the lyrics' chorus marks: #1 the strongest, #2 ordinary, #3 lighter. */
+export const MARK_K = [0, 1, 0.75, 0.52];
+/** Where choruses come in, as the lyrics mark them (#1, #2, #3 — the choice is the person's, not a guess at the music):
+ *  each on the strongest accent on the beat near its mark, followed by the strongest on-beat hits of the two bars after
+ *  it, a little weaker each. */
+export function markedEntries(map: RhythmMap, marks: { t: number; level: number }[], inSong: (t: number) => boolean): Entry[] {
+  const out: Entry[] = [], bar = (t: number) => map.meter * map.beatLen(t);
+  for (const m of marks) { if (!inSong(m.t)) continue;
+    const bl = map.beatLen(m.t), e = map.eventNear(m.t, bl * 0.6, 1) || map.eventNear(m.t, bl * 0.6, 0); if (!e || out.some(x => Math.abs(x.e.t - e.t) < bl * 0.5)) continue;
+    out.push({ e, k: MARK_K[Math.min(3, Math.max(1, m.level))], lead: true }); }
+  out.sort((a, b) => a.e.t - b.e.t);
   const leads = out.slice();
   for (const L of leads) {
     const bl = map.beatLen(L.e.t), next = leads.find(x => x.e.t > L.e.t)?.e.t ?? Infinity;
@@ -67,19 +39,19 @@ export function sectionEntries(map: RhythmMap, lines: PLine[], inSong: (t: numbe
   }
   return out.sort((a, b) => a.e.t - b.e.t);
 }
-export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number }[]): Cues {
+export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number }[], marks: { t: number; level: number }[] = []): Cues {
   const M = st.m, bar = map.meter * map.beatLen(musicEnd / 2), inSong = (t: number) => t >= 0.5 && t <= musicEnd - 0.5;
   // flash, invert and glass land on the beat's own accents — a strong hit on a beat (a downbeat first), never a syncopated
   // one — and above all on the hit that opens a section that comes in louder (into a chorus, a drop)
   // every trigger takes the entries its own sensitivity reaches (the trigger knob moves all three together)
-  const entries = sectionEntries(map, lines, inSong), reach = (s: number, leadOnly = false) => entries.filter(x => x.k >= entryFloor(s) && (!leadOnly || x.lead)).map(x => x.e);
+  const entries = markedEntries(map, marks, inSong), reach = (s: number, leadOnly = false) => entries.filter(x => x.k >= entryFloor(s) && (!leadOnly || x.lead)).map(x => x.e);
   const withEntries = <T extends { t: number }>(sel: T[], es: T[], gap: number) => { const out = [...es]; for (const e of sel) if (!out.some(x => Math.abs(x.t - e.t) < gap)) out.push(e); return out.sort((a, b) => a.t - b.t); };
   // flashes: at most one a bar in the loudest parts, one every two bars elsewhere (closer together when more sensitive)
   const fs = clamp(M.flash ?? 1, 0, 2);
   const flash0 = fs > 0.02 ? withEntries(map.select({ sensitivity: fs, gapBeats: (_e, lv) => (lv > 0.85 ? map.meter * 0.99 : map.meter * 1.99) / Math.max(0.5, fs) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2), reach(fs), map.meter * map.beatLen(1)) : [];
   // glass: only the strongest on-beat accents (section entries first, else drops or loud sections), never two within ~20 beats
   const gs = clamp(M.glassf ?? 1, 0, 2), gapG = Math.max(9, 20 * map.beatLen(1)) / Math.max(0.4, gs), glass0 = st.fx.glass && gs > 0.02
-    ? withEntries(map.select({ sensitivity: gs * 0.5, gapBeats: () => Math.max(9 / map.beatLen(1), 20) / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && (map.level(e.t) >= 0.65 || map.section(e.t).s?.drop)), reach(gs, true).filter(e => map.level(e.t) >= 0.45), gapG)
+    ? withEntries(map.select({ sensitivity: gs * 0.5, gapBeats: () => Math.max(9 / map.beatLen(1), 20) / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && map.level(e.t) >= 0.65), reach(gs, true).filter(e => map.level(e.t) >= 0.45), gapG)
       .filter((e, i, a) => i === 0 || e.t - a[i - 1].t >= gapG * 0.6) : [];
   // impacts: past the impact threshold, plus every pane; while idle the camera answers weaker accents too
   const is = clamp(M.impact ?? 1, 0, 2); let imp: number[] = [];
@@ -89,6 +61,13 @@ export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: nu
     imp.sort((a, b) => a - b);
     imp = imp.filter((t, i) => t >= 0.5 && (i === 0 || t - imp[i - 1] >= map.beatLen(t) * 0.95));
   }
+  // colour split and glitch: the same kind of accent as the glass (strong, on the beat, the entries first), on the same
+  // sensitivity, at most one every eight beats or so each, and never on the same hit as each other or as the glass
+  const strike = (on: boolean, salt: number, taken: number[]) => { if (!on || gs <= 0.02) return [] as RhythmEvent[];
+    const gap = Math.max(4, 8 * map.beatLen(1)) / Math.max(0.4, gs), sel = withEntries(map.select({ sensitivity: Math.min(2, gs * 0.8), gapBeats: () => 8 / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2 && map.level(e.t) >= 0.45), reach(gs, true).filter(e => map.level(e.t) >= 0.35), gap);
+    const out: RhythmEvent[] = []; for (const e of sel) { if (taken.some(x => Math.abs(x - e.t) < 0.05) || (out.length && e.t - out[out.length - 1].t < gap * 0.6)) continue; if (rnd(e.t * 3.1 + salt) < 0.15) continue; out.push(e); }
+    return out; };
+  const chroma0 = strike(!!st.fx.chroma, 1.7, glass0.map(e => e.t)), glitch0 = strike(!!st.fx.glitch, 5.3, [...glass0, ...chroma0].map(e => e.t));
   const all = [...flash0.map(e => e.t), ...imp, ...glass0.map(e => e.t)];
   const flash = density(flash0.map(e => ({ t: e.t })), flash0.map(e => e.t), bar).map(e => ({ t: e.t, k: e.k }));
   const impacts = density(imp.map(t => ({ t })), imp, bar).map(e => ({ t: e.t, k: e.k, ang: rnd(e.t * 5.9) * 6.283, sg: rnd(e.t * 3.7) < 0.5 ? -1 : 1 }));
@@ -102,5 +81,7 @@ export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: nu
     for (let k = 0; k < glyphSlots.length - 1; k++) if (glyphSlots[k].end > glyphSlots[k + 1].t) { glyphSlots[k].end = glyphSlots[k + 1].t; glyphSlots[k].cut = false; }
     for (const g of glyphSlots) if (!isFinite(g.end)) g.end = musicEnd + 4; }
   const rings = map.eventsIn(0, musicEnd, 1);
-  return { flash, impacts, glass, glyphSlots, rings };
+  const chroma = density(chroma0.map(e => ({ t: e.t })), all, bar).map(e => ({ t: e.t, k: 0.7 + 0.3 * e.k }));
+  const glitch = density(glitch0.map(e => ({ t: e.t })), all, bar).map(e => ({ t: e.t, k: 0.7 + 0.3 * e.k, seed: e.t * 17.3 + 1 }));
+  return { flash, impacts, glass, glyphSlots, rings, chroma, glitch };
 }

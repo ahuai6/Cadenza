@@ -70,6 +70,21 @@ export const Note = ({ children }: { children: ReactNode }) => <p className={s.n
 export const Badge = ({ children, k }: { children: ReactNode; k?: 'warn' | 'accent' }) => <i className={s.badge} data-k={k}>{children}</i>;
 export const Eq = () => <span className={s.eq} aria-hidden="true"><i /><i /><i /></span>;
 
+/** A change of song, as the pages show it: what was there slides out the way the queue went (on to the next: left;
+ *  back: right; a jump: in place) and fades, the new one comes in from the other side. Keyed by `k`; the old content
+ *  stays only for the moment it leaves. `fill`: the content fills the box (a cover). */
+export function Swap({ k, dir, fill, className, children }: { k: string; dir: number; fill?: boolean; className?: string; children: React.ReactNode }) {
+  const cur = useRef<{ k: string; n: React.ReactNode }>({ k, n: children }), prev = useRef<{ k: string; n: React.ReactNode } | null>(null), [, force] = useState(0);
+  if (cur.current.k !== k) prev.current = cur.current;
+  cur.current = { k, n: children };
+  useEffect(() => { if (!prev.current) return; const tm = window.setTimeout(() => { prev.current = null; force(x => x + 1); }, 300); return () => clearTimeout(tm); }, [k]);
+  return (
+    <span data-swap data-fill={fill || undefined} className={className} style={{ ['--sd' as string]: dir }}>
+      {prev.current && <span key={'o' + prev.current.k} data-swap-out aria-hidden="true">{prev.current.n}</span>}
+      <span key={'i' + k} data-swap-in={prev.current ? true : undefined}>{children}</span>
+    </span>
+  );
+}
 export const Cover = memo(function Cover({ k, full, round, className, eager, radius }: { k: string | null | undefined; full?: boolean; round?: boolean; className?: string; eager?: boolean; radius?: string }) {
   const [bad, setBad] = useState(false);
   useEffect(() => setBad(false), [k]);

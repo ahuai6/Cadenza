@@ -6,8 +6,7 @@
    than the ear separates a camera move (FUSE) form one *group*: the camera frames the group once, instead of starting a
    move for each (word timing like <25.570>１ <25.600>２ <25.630>３ used to start three moves in 60 ms). */
 import type { Parsed, RawLine } from './parse';
-import { splitByBeats } from './split';
-import { graphemes, unitsOf, isLatin, RE_CJK, RE_COMPLEX, RE_RTL, splitWord, syllables } from './script';
+import { graphemes, unitsOf, isLatin, RE_CJK, RE_COMPLEX, RE_RTL, syllables } from './script';
 import type { RhythmMap } from '../rhythm/map';
 
 export interface Unit { c: string; /** sung time, or null when the line is timed only as a whole */ t: number | null }
@@ -17,6 +16,12 @@ export interface Word {
   /** sung from, sung until (the word is over) */
   t: number; end: number;
   timed: boolean; latin: boolean; cjk: boolean; complex: boolean;
+  /** units timed by estimate (a line timed only as a whole: its characters spread over the word's singing) */
+  paced?: boolean;
+  /** a harmony sung with this word (shown small beside it), with its units' times */
+  harm?: { text: string; units: Unit[]; t: number } | null;
+  /** a chorus comes in on this word: 1 strongest, 2 ordinary, 3 lighter */
+  mark?: number;
   /** framing group: consecutive words closer than FUSE share one */
   group: number;
   /** the pause after this word when it ends its line (0 otherwise) */
@@ -31,7 +36,7 @@ export interface Line {
   text: string; subs: string[]; words: Word[];
   kar: boolean; rtl: boolean;
 }
-export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number }
+export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number; /** where choruses come in (the lyrics' own marks): time, level 1..3 */ marks: { t: number; level: number }[] }
 
 /** Words starting closer than this (s) are one gesture for the camera and the entrance. */
 export const FUSE = 0.12;
@@ -54,25 +59,27 @@ export function buildLyrics(p: Parsed, map: RhythmMap, end: number): LyricDoc {
   const words: Word[] = []; let gid = -1;
   lines.forEach((L, i) => {
     const R = raw[i];
-    let texts: string[], timedUnits: (Unit[] | null)[];
-    if (R.kar) { texts = R.kar.map(s => s.map(u => u.c).join('')); timedUnits = R.kar.map(s => s.map(u => ({ c: u.c, t: Math.max(u.t, L.t) }))); }
-    else {
-      const toks = R.text.split(/\s+/).filter(Boolean), beat = map.beatLen(L.t);
-      texts = toks.length === 1 ? splitByBeats(toks[0], Math.min(L.end, L.sung) - 0.8 - L.t, beat) : toks.flatMap(splitWord);
-      timedUnits = texts.map(() => null);
-    }
-    L.words = texts.map((w, k) => {
-      const tu = timedUnits[k], units: Unit[] = tu ? tu : unitsOf(w).map(c => ({ c, t: null }));   // sung syllables stay whole
+    // the words as the lyrics break them: at spaces only (an unspaced line is one word); their harmonies and chorus marks
+    const timed = !!R.kar && R.words.every(w => w.units && w.units.length);
+    L.words = R.words.map((rw, k) => {
+      const w = rw.text, tu = timed ? rw.units!.map(u => ({ c: u.c, t: Math.max(u.t, L.t) })) : null, units: Unit[] = tu ? tu : unitsOf(w).map(c => ({ c, t: null }));   // sung syllables stay whole
+      const hu = rw.harm ? (rw.harm.units?.length ? rw.harm.units.map(u => ({ c: u.c, t: Math.max(u.t, L.t) })) : unitsOf(rw.harm.text).map(c => ({ c, t: null as number | null }))) : null;
       return { id: words.length + k, line: i, k, text: w, units, t: tu ? tu[0].t! : L.t, end: 0, timed: !!tu,
-        latin: isLatin(w), cjk: RE_CJK.test(w) && !RE_COMPLEX.test(w), complex: RE_COMPLEX.test(w), group: 0, rest: 0 };
+        latin: isLatin(w), cjk: RE_CJK.test(w) && !RE_COMPLEX.test(w), complex: RE_COMPLEX.test(w), group: 0, rest: 0,
+        harm: rw.harm && hu ? { text: rw.harm.text, units: hu, t: hu[0]?.t ?? NaN } : null, ...(rw.mark ? { mark: rw.mark } : {}) };
     });
-    if (!R.kar) paceWords(L, map);
+    if (!timed) paceWords(L, map);
     // when each word is over
     L.words.forEach((W, k) => {
       const nx = k + 1 < L.words.length ? L.words[k + 1].t : Infinity;
       if (W.timed) W.end = Math.max(...W.units.map(u => u.t!)) + 0.25;
       else W.end = Math.min(nx, W.t + syllableTime(syllables(W.text), bpm) + 0.35, L.end);
       W.end = Math.max(W.end, W.t + 0.12);
+      // a word timed only as a whole: its characters spread over its singing, so it is still sung (and followed) one
+      // character at a time
+      if (!W.timed && W.units.length > 1) { const D = Math.max(0.12, (W.end - W.t) * 0.85); W.units.forEach((u, j) => { u.t = W.t + D * j / W.units.length; }); W.paced = true; }
+      // its harmony: with the word when it has no timing of its own
+      if (W.harm && !isFinite(W.harm.t)) W.harm.t = W.t;
     });
     // groups: a fast run is one gesture
     L.words.forEach((W, k) => {
@@ -84,7 +91,9 @@ export function buildLyrics(p: Parsed, map: RhythmMap, end: number): LyricDoc {
     if (last) last.rest = Math.max(0, (i + 1 < lines.length ? lines[i + 1].t : end) - last.end);
     words.push(...L.words);
   });
-  return { lines, words, meta: p.meta, groups: gid + 1 };
+  // the choruses: the words marked, and the stamps that carry only a mark
+  const marks = [...words.filter(W => W.mark).map(W => ({ t: W.t, level: W.mark! })), ...(p.marks || [])].sort((a, b) => a.t - b.t);
+  return { lines, words, meta: p.meta, groups: gid + 1, marks };
 }
 
 /** Line-timed words: each starts at its share of the line's syllables across the sung part, drawn onto a beat when

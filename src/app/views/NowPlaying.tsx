@@ -1,11 +1,11 @@
 // The stage (the engine's picture) and the now-playing page over it: the cover on the left with the song's controls,
 // the lyrics on the right. The picture behind is the engine's ambient view — the same backdrop, palette and rhythm the
 // effect lyrics use — so it is always the shown song's, and the effect view grows out of it.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import { ui, useStore, trackOf, openMenu, lib } from '../state';
 import { Icon } from '../ui/icons';
-import { Button, IconButton, Cover } from '../ui/kit';
+import { Button, IconButton, Cover, Swap, Badge } from '../ui/kit';
 import { Drive } from '../motion';
 import { engine, canvas } from '../playback/stage';
 import { player } from '../playback/player';
@@ -13,7 +13,7 @@ import { refs, openFx, back } from '../layers';
 import type { Line } from '../../lyrics/model';
 import { QualityTag } from '../ui/quality';
 import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, QueueButton } from './Player';
-import { pickPlaylist, editMeta } from './Modals';
+import { pickPlaylist, editMeta, npSettings } from './Modals';
 import s from './NowPlaying.module.css';
 
 export function Stage() {
@@ -23,7 +23,7 @@ export function Stage() {
 }
 
 export function NowPlaying() {
-  const shownId = useStore(player, x => x.shownId), hasLyrics = useStore(player, x => x.hasLyrics), session = useStore(player, x => x.session);
+  const album = useStore(player, x => !!x.album), dir = useStore(player, x => x.dir), shownId = useStore(player, x => x.shownId), hasLyrics = useStore(player, x => x.hasLyrics), session = useStore(player, x => x.session);
   useStore(lib, x => x.tracks);
   const t = trackOf(shownId);
   const root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null);
@@ -40,6 +40,9 @@ export function NowPlaying() {
   }, [full, layer]);
   if (!t) return null;
   const more = (e: React.MouseEvent) => openMenu(e, [
+    { label: tx('np.findLyr'), icon: 'search', run: () => npSettings('lyrics') },
+    { label: tx('np.set') + '…', icon: 'lyrics', run: () => npSettings('view') },
+    '-',
     { label: tx('s.addToPl'), icon: 'plus', run: () => pickPlaylist([t.id]) },
     { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
   ]);
@@ -55,14 +58,14 @@ export function NowPlaying() {
       </header>
       <div className={s.main}>
         <div className={s.left}>
-          <div className={s.cover} ref={cover} data-test="np-cover"><Cover k={t.cover} full eager /></div>
+          <div className={s.cover} ref={cover} data-test="np-cover"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full eager /></Swap></div>
           <div className={s.info} ref={info}>
             <div className={s.fade} style={{ display: 'grid', gap: 14 }}>
               <div className={s.meta}>
-                <div><b>{t.title}</b><small>{[t.artist || tx('s.unknownArtist'), t.album].filter(Boolean).join(' — ')}</small><HifiBadge /></div>
+                <Swap k={t.id} dir={dir}><div><b>{t.title}</b><small>{[t.artist || tx('s.unknownArtist'), t.album].filter(Boolean).join(' — ')}</small><HifiBadge /></div></Swap>
                 <Heart id={t.id} />
               </div>
-              <div className={s.qrow}><QualityTag t={t} look="glass" /></div>
+              <div className={s.qrow}><QualityTag t={t} look="glass" />{album && <Badge>{tx('s.albumOn')}</Badge>}</div>
               <Progress />
               <div className={s.ctl}>
                 <div><ModeButton /></div>
@@ -73,7 +76,10 @@ export function NowPlaying() {
           </div>
         </div>
         <div className={s.right} ref={right}>
-          {hasLyrics && session ? <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} /> : <div className={s.fade}><NoLyrics /></div>}
+          {/* a new song's lyrics come in from the side the queue went (a replan of the same song: in place, at once) */}
+          <div key={shownId || ''} className={s.swapIn} style={{ ['--sd' as string]: dir }}>
+            {hasLyrics && session ? <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} /> : <div className={s.fade}><NoLyrics /></div>}
+          </div>
         </div>
       </div>
     </section>
@@ -90,7 +96,7 @@ function NoLyrics() { return <div className={s.none}><Icon n="lyrics" size={30} 
 const K = 140, C = 2 * 0.82 * Math.sqrt(K);
 interface LS { el: HTMLElement; y: number; v: number; ty: number; at: number; next: number }
 export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
-  const box = useRef<HTMLDivElement>(null), lineEls = useRef<(HTMLElement | null)[]>([]);
+  const box = useRef<HTMLDivElement>(null), lineEls = useRef<(HTMLElement | null)[]>([]), view = useStore(ui, x => x.npLyr);
   const st = useRef({ tops: [] as number[], ls: [] as (LS | null)[], cur: -2, manual: 0, raf: 0, last: 0, mTm: 0 });
   const findLine = (t: number) => { let lo = 0, hi = lines.length - 1, r = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (lines[m].t <= t + 0.15) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
   const step = (now: number) => {
@@ -123,7 +129,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     const ro = new ResizeObserver(() => { const keep = S.ls; measure(); S.ls.forEach((w, i) => { const o = keep[i]; if (w && o) { w.y = o.y; w.v = o.v; } }); aim(S.cur, false, true); });
     if (box.current) ro.observe(box.current);
     return () => { cancelAnimationFrame(S.raf); S.raf = 0; ro.disconnect(); };
-  }, [lines]);
+  }, [lines, view.size, view.subs]);   // (a new size or the translations shown or not: the lines are measured again)
   useEffect(() => {
     if (!live) return;
     const S = st.current, i0 = Math.max(0, findLine(engine.time)); if (i0 !== S.cur) { S.cur = i0; mark(i0); aim(i0, false, true); }   // catch up after being away
@@ -138,13 +144,13 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         e.style.setProperty('--p', q.toFixed(3)); e.style.setProperty('--gl', (gl * gl * lvl).toFixed(3)); e.style.translate = `0 ${(-5 * lift).toFixed(2)}px`; });
     });
   }, [lines, live]);
-  const wheel = (e: React.WheelEvent) => { const S = st.current; S.manual -= e.deltaY; clearTimeout(S.mTm); aim(S.cur, false, false);
-    S.mTm = window.setTimeout(() => { S.manual = 0; aim(S.cur, false, false); }, 2600); };
+  const wheel = (e: React.WheelEvent) => { const S = st.current; S.manual -= e.deltaY; clearTimeout(S.mTm); aim(S.cur, false, false); if (box.current) box.current.dataset.manual = 'true';
+    S.mTm = window.setTimeout(() => { S.manual = 0; aim(S.cur, false, false); if (box.current) box.current.dataset.manual = 'false'; }, 2600); };
   return (
-    <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel}>
+    <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel} data-blur={view.blur} data-subs={view.subs} style={{ '--np-fs': view.size } as React.CSSProperties}>
       {lines.map((L, i) => (
         <button key={i} type="button" data-test="line" className={s.line} ref={el => { lineEls.current[i] = el; }} onClick={() => { st.current.manual = 0; engine.seek(Math.max(0, L.t - 0.05)); if (!engine.isPlaying) engine.play(); }}>
-          {L.words.length ? L.words.map((w, k) => <span key={k} data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>) : <span data-w className={s.w}>{L.text}</span>}
+          {L.words.length ? L.words.map((w, k) => <Fragment key={k}><span data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin && !w.harm ? ' ' : ''}</span>{w.harm && <span className={s.harm}>{w.harm.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
           {L.subs.map((x, k) => <small key={k}>{x}</small>)}
         </button>
       ))}

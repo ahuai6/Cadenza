@@ -68,10 +68,11 @@ function Songs({ tracks, search }: { tracks: Track[]; search: string }) {
     </>
   );
 }
-function PlayButtons({ ids }: { ids: string[] }) {
+function PlayButtons({ ids, album }: { ids: string[]; album?: boolean }) {
   const cur = useStore(player, x => x.id), here = !!cur && ids.includes(cur);
   return <>
     <Button kind="primary" size="sm" icon="play" disabled={!ids.length} onClick={() => playIds(ids, 0)}>{tx('s.playAll')}</Button>
+    {album && ids.length > 1 && <Button size="sm" icon="disc" title={tx('s.albumPlayHelp')} onClick={() => playIds(ids, 0, { album: true })}>{tx('s.albumPlay')}</Button>}
     <Button size="sm" icon="shuffle" disabled={!ids.length} onClick={() => { setMode('shuffle'); playIds(ids, Math.max(0, shufflePick(ids, -1))); }}>{tx('s.shuffle')}</Button>
     {here && <IconButton n="locate" size="sm" label={tx('s.locate')} onClick={locatePlaying} />}
   </>;
@@ -118,7 +119,7 @@ export const TrackList = memo(function TrackList({ tracks, numbered, menuExtra, 
           <span className={s.album}>{t.album}</span>
           <span className={s.badges}>{t.protected ? <Badge k="warn"><Icon n="lock" size={11} />{tx('s.badge.protected')}</Badge> : <><QualityTag t={t} />{t.lrc || t.embedded ? <Badge>{tx('s.badge.lrc')}</Badge> : null}</>}</span>
           {t.protected ? <span /> : <IconButton n="plus" size="sm" label={tx('s.queue.add')} className={s.hide + ' ' + s.qadd} onClick={() => enqueue([t.id])} />}
-          <IconButton n="heart" size="sm" filled={on} on={on} data-on={on} className={s.hide} label={tx(on ? 's.unfav' : 's.fav')} onClick={() => Lib!.favorite(t.id, !on)} />
+          <IconButton n="heart" size="sm" filled={on} on={on} data-fav="" className={s.hide} label={tx(on ? 's.unfav' : 's.fav')} onClick={() => Lib!.favorite(t.id, !on)} />
           <span className={s.time}>{fmtTime(t.duration)}</span>
           <IconButton n="more" size="sm" className={s.hide} label={tx('s.more')} onClick={e => trackMenu(e, t, shown, menuExtra?.(t))} />
         </div>); })}
@@ -190,7 +191,7 @@ function Detail({ idx, search }: { idx: Idx; search: string }) {
           <h1>{title}</h1>
           <p>{[sub, tx('s.tracks', { n: tracks.length }), fmtTime(dur)].filter(Boolean).join(' · ')}</p>
           <div className={s.ops}>
-            <PlayButtons ids={tracks.map(t => t.id)} />
+            <PlayButtons ids={tracks.map(t => t.id)} album={detail.kind === 'album'} />
             {detail.kind === 'playlist' && <>
               <Button kind="ghost" size="sm" onClick={async () => { const n = await askText(tx('s.rename'), tx('s.plName'), title); if (n) Lib!.playlist('rename', detail.key, n); }}>{tx('s.rename')}</Button>
               <Button kind="danger" size="sm" onClick={() => { Lib!.playlist('delete', detail.key); ui.set({ detail: null }); }}>{tx('s.delete')}</Button>
