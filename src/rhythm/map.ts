@@ -5,6 +5,7 @@
 import { bisect, clamp, sampleSeries, sstep, lerp } from '../core/math';
 import type { RhythmAnalysis, RhythmEvent, Section, Tier } from './types';
 import { RHYTHM_VERSION } from './types';
+import { barIndexer, type BarIndexer } from './bars';
 
 export interface BeatPos {
   /** continuous beat index (0 = first beat) */ bt: number;
@@ -30,7 +31,8 @@ export class RhythmMap {
   readonly evT: Float64Array;
   readonly sections: Section[];         // song time
   readonly bpm: number; readonly meter: number;
-  private downIdx: number;
+  /** bars one by one (the neural engine's), else every `meter` beats from the first downbeat */
+  private barOf: BarIndexer;
 
   constructor(a: RhythmAnalysis, offset = 0) {
     this.a = a; this.offset = offset;
@@ -38,7 +40,7 @@ export class RhythmMap {
     this.events = a.events.map(e => ({ ...e, t: e.t - offset, push: e.push != null ? e.push - offset : undefined }));
     this.evT = Float64Array.from(this.events, e => e.t);
     this.sections = a.sections.map(s => ({ ...s, t0: s.t0 - offset, t1: s.t1 - offset }));
-    this.bpm = a.tempo.bpm; this.meter = a.meter; this.downIdx = a.downbeat;
+    this.bpm = a.tempo.bpm; this.meter = a.meter; this.barOf = barIndexer(a.meter, a.downbeat, a.bars);
   }
 
   /** A map from a tempo alone (no audio): beats on a grid from beat0, downbeats every bar, a steady level. */
@@ -63,8 +65,8 @@ export class RhythmMap {
     if (i < 0) { len = B[1] - B[0]; bt = (t - B[0]) / len; }
     else if (i >= n - 1) { len = B[n - 1] - B[n - 2]; bt = n - 1 + (t - B[n - 1]) / len; }
     else { len = B[i + 1] - B[i]; bt = i + (t - B[i]) / len; }
-    const k = Math.floor(bt), rel = k - this.downIdx;
-    return { bt, phase: bt - k, inBar: ((rel % this.meter) + this.meter) % this.meter, bar: Math.floor(rel / this.meter), len };
+    const k = Math.floor(bt), b = this.barOf(k);
+    return { bt, phase: bt - k, inBar: b.inBar, bar: b.bar, len };
   }
   /** Song time of continuous beat index bt (inverse of beatAt). */
   timeOf(bt: number): number {
@@ -75,7 +77,7 @@ export class RhythmMap {
   }
   beatLen(t: number) { return this.beatAt(t).len; }
   /** Song time of the downbeat of bar `bar` (bar 0 = the first downbeat). */
-  barTime(bar: number) { return this.timeOf(this.downIdx + bar * this.meter); }
+  barTime(bar: number) { return this.timeOf(this.barOf.start(bar)); }
   /** Grid points between t0 and t1: beats subdivided into `div` parts (2: eighths, 3: triplets, 4: sixteenths). */
   grid(t0: number, t1: number, div = 2): number[] {
     const a = this.beatAt(t0), out: number[] = [];
@@ -87,7 +89,7 @@ export class RhythmMap {
     let best = t, d = tol + 1e-9; for (const x of this.grid(t - tol, t + tol, div)) if (Math.abs(x - t) < d) { d = Math.abs(x - t); best = x; }
     return best;
   }
-  isDownbeat(t: number, tol = 0.06) { const p = this.beatAt(t); return p.inBar === 0 && (p.phase * p.len < tol) || (p.inBar === this.meter - 1 && (1 - p.phase) * p.len < tol); }
+  isDownbeat(t: number, tol = 0.06) { const p = this.beatAt(t); return p.inBar === 0 && (p.phase * p.len < tol) || (p.inBar === this.barOf(Math.floor(p.bt)).len - 1 && (1 - p.phase) * p.len < tol); }
 
   /** Events in [t0, t1] at or above a tier. */
   eventsIn(t0: number, t1: number, minTier: Tier = 0): RhythmEvent[] {

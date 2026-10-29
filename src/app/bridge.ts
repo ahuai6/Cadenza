@@ -24,6 +24,8 @@ export interface Settings {
   audioOut: 'standard' | 'hifi'; audioMode: 'exclusive' | 'shared'; audioDevice: string; fixedVolume: boolean; /** the volume balance: every song at a like loudness */ volBalance?: boolean; platform?: string; version?: string;
   /** the song's own video (MV mode): shade, soft focus, desaturation, and whether it is kept upright to crop it least */
   mvDark: number; mvBlur: number; mvDesat: number; mvFit: boolean;
+  /** which engine finds the beats ('auto': the neural one where it can run), and whether it separates the drums */
+  rhythmEngine?: 'auto' | 'dsp'; rhythmDrums?: boolean;
 }
 type Off = () => void;
 export interface DesktopApi {

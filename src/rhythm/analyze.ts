@@ -16,18 +16,42 @@
       events of different strengths may fall within one beat; off-beat accents and pushes are marked.
    7. Structure. Beat-synchronous timbre and loudness give a self-similarity matrix; its novelty marks section changes,
       snapped to bars. Each section has a level and an event density; a big rise in level is a drop, the climb before it
-      a build. */
+      a build.
+   With the neural engine's reading (src/rhythm/neural: Beat This! on the GPU, and HTDemucs' drum stem), steps 3–5
+   take its beats and bars instead — the felt beats, bar by bar — and step 6 its drum hits as the events (with the
+   onsets of everything else beside them), each beat's accent and the bars without rhythm. Steps 1, 2 and 7 are the
+   same either way, and so is what comes out: one RhythmAnalysis, whichever engine found the beats. */
 import { clamp, quantile, median, mean, bisect } from '../core/math';
 import { toMono, bandEnergies, logBands, smooth, movingMedian } from './dsp';
 import { loudness } from './loudness';
-import { RHYTHM_VERSION, type RhythmAnalysis, type RhythmEvent, type Section, type Band, type Tier } from './types';
+import { RHYTHM_VERSION, type RhythmAnalysis, type RhythmEvent, type Section, type Band, type Tier, type BeatAccentSeries } from './types';
+import { barIndexer } from './bars';
+import type { NeuralRhythm } from './neural/types';
 
 const RATE = 22000, SIZE = 1024, HOP = 220, FPS = RATE / HOP;   // 100 frames per second
 const OUT_RATE = 50;                                               // rate of the series stored in the result
 /** Bias of a detected onset against the true attack (window centre vs. flux response), measured on clicks. */
 const ONSET_BIAS = 0.037;
 
-export interface AnalyzeOptions { /** report progress 0..1 */ progress?: (k: number) => void }
+export interface AnalyzeOptions { /** report progress 0..1 */ progress?: (k: number) => void; /** the neural engine's reading of this song */ neural?: NeuralRhythm | null }
+
+/** The neural reading's felt beats and their bars. Where the model counted below the felt beat (the eighths of a 6/8,
+ *  a slow song at twice its tempo) only the felt ones are kept; a waltz felt a bar at a time keeps its three beats. */
+function feltGrid(N: NeuralRhythm) {
+  const thin = N.group > 1 && N.usual > N.group, keep = N.beats.map((_, i) => !thin || N.pulse[i] === 1);
+  const idx: number[] = []; keep.forEach((k, i) => { if (k) idx.push(i); });
+  const beats = idx.map(i => N.beats[i]), pos = new Map(beats.map((t, j) => [t, j]));
+  const bars = N.downbeats.map(t => pos.get(t)).filter((j): j is number => j != null);
+  const lens = new Map<number, number>(); for (let k = 1; k < bars.length; k++) { const L = bars[k] - bars[k - 1]; lens.set(L, (lens.get(L) ?? 0) + 1); }
+  const usual = [...lens].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 4;
+  const pick = (a: number[]) => idx.map(i => a[i]);
+  const accents: BeatAccentSeries = { impact: pick(N.impact), rhythmic: pick(N.rhythmic), low: pick(N.low), mid: pick(N.mid), high: pick(N.high), conf: pick(N.confidence), trackScale: N.trackScale };
+  // (the tempo over spans of eight beats: one interval is a whole number of 20 ms frames, so a 0.469 s beat reads 0.46 or
+  // 0.48 and its median is off by a frame; eight of them average that out)
+  const S = Math.min(8, beats.length - 1), gaps = beats.slice(S).map((t, i) => (t - beats[i]) / S).sort((a, b) => a - b), gap = gaps[gaps.length >> 1] || 0.5;
+  const sure = accents.conf.filter((_, j) => accents.rhythmic[j]).sort((a, b) => a - b);
+  return { beats, bars: bars.length >= 2 ? bars : null, meter: clamp(usual, 2, 8), downbeat: bars[0] ?? 0, accents, bpm: Math.round(600 / gap) / 10, confidence: sure.length ? sure[sure.length >> 1] : 0 };
+}
 
 /** A coarse spectrum for displays: the compressed band energies in SPEC_BANDS groups, low to high, each lightly smoothed
  *  and scaled song-relative (0 its quiet floor, 1 its loud peaks), so a display moves with the music whatever the mix. */
@@ -106,6 +130,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     cands.push({ f, t: (f + p) * HOP / RATE + ONSET_BIAS, v: v - med[f] * 0.5 });
   }
 
+  const NG = opts.neural && opts.neural.beats.length >= 8 ? feltGrid(opts.neural) : null;
   /* ---- 3. tempo ---- */
   const ce = new Float32Array(F); { const tw = new Float32Array(F); for (let f = 0; f < F; f++) tw[f] = lo[f] + 0.8 * mi[f] + 0.2 * hi[f];
     const mm = smooth(tw, Math.round(0.3 * FPS)); for (let f = 0; f < F; f++) ce[f] = Math.max(0, tw[f] - mm[f]); }
@@ -116,14 +141,18 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   };
   const prior = (bpm: number) => Math.exp(-0.5 * (Math.log2(bpm / 120) / 1.1) ** 2);
   const comb = (lag: number, a?: number, b?: number) => acAt(ce, lag, a, b) + 0.5 * acAt(ce, lag * 2, a, b) + 0.33 * acAt(ce, lag * 3, a, b) + 0.25 * acAt(ce, lag * 4, a, b) + 0.35 * acAt(ce, lag / 2, a, b);
-  let best = -1, bpm = 120, tot = 0, nT = 0;
-  for (let x2 = 50; x2 <= 220; x2 += 0.5) { const v = comb(60 * FPS / x2) * prior(x2); tot += v; nT++; if (v > best) { best = v; bpm = x2; } }
-  for (let x2 = bpm - 0.5; x2 <= bpm + 0.5; x2 += 0.05) { const v = comb(60 * FPS / x2) * prior(x2); if (v > best) { best = v; bpm = x2; } }
-  bpm = Math.abs(bpm - Math.round(bpm)) < 0.25 ? Math.round(bpm) : Math.round(bpm * 10) / 10;
-  const confidence = best / ((tot / nT) || 1);
+  let best = -1, bpm = NG ? NG.bpm : 120, tot = 0, nT = 0;
+  if (!NG) {
+    for (let x2 = 50; x2 <= 220; x2 += 0.5) { const v = comb(60 * FPS / x2) * prior(x2); tot += v; nT++; if (v > best) { best = v; bpm = x2; } }
+    for (let x2 = bpm - 0.5; x2 <= bpm + 0.5; x2 += 0.05) { const v = comb(60 * FPS / x2) * prior(x2); if (v > best) { best = v; bpm = x2; } }
+    bpm = Math.abs(bpm - Math.round(bpm)) < 0.25 ? Math.round(bpm) : Math.round(bpm * 10) / 10;
+  }
+  const confidence = NG ? NG.confidence : best / ((tot / nT) || 1);
   prog(0.65);
 
   /* ---- 4. beats: DP with a locally drifting period ---- */
+  const beats = NG ? NG.beats.slice() : dpBeats();
+  function dpBeats(): number[] {
   const P0 = 60 * FPS / bpm;
   // local period every second from a 6 s window, kept within ±12 % of the global one
   const localP = new Float32Array(F);
@@ -150,13 +179,15 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   const bf: number[] = []; for (let f = end; f >= 0; f = back[f]) { bf.push(f); if (back[f] < 0) break; }
   bf.reverse();
   // draw each beat to a clear onset close to it (within 6 % of a beat): the played beat, not the grid
-  const beats = bf.map(f => {
+  const beats: number[] = bf.map(f => {
     const P = localP[f], r = Math.max(2, Math.round(P * 0.06)); let bv = odf[f], bfr = f;
     for (let k = -r; k <= r; k++) { const g = f + k; if (g > 0 && g < F && odf[g] > bv * 1.15 && odf[g] > 0.3) { bv = odf[g]; bfr = g; } }
     return bfr * HOP / RATE + ONSET_BIAS;
   });
   // extend the grid to the start of the file (the DP may begin late in a quiet intro)
   if (beats.length > 4) { const p = beats[1] - beats[0]; while (beats[0] - p > 0.05) beats.unshift(beats[0] - p); }
+  return beats;
+  }
   prog(0.72);
 
   /* ---- 5. meter, downbeat, phrases, half-time ---- */
@@ -173,13 +204,16 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   const zl = z(lowAt), zn = z(nov), zb = z(broadAt);
   const barScore = (m: number, p: number) => { let on = 0, no = 0, off = 0, nf = 0; for (let i = 0; i < nBeats; i++) { const v = zl[i] + 0.9 * zn[i] + 0.4 * zb[i]; if (((i - p) % m + m) % m === 0) { on += v; no++; } else { off += v; nf++; } } return (no ? on / no : 0) - (nf ? off / nf : 0); };
   let meter = 4, downbeat = 0, b4 = -1e9, b3 = -1e9, p3 = 0;
-  for (let p = 0; p < 4; p++) { const v = barScore(4, p); if (v > b4) { b4 = v; downbeat = p; } }
-  for (let p = 0; p < 3; p++) { const v = barScore(3, p); if (v > b3) { b3 = v; p3 = p; } }
-  if (b3 > b4 * 1.3 && b3 > 0.35) { meter = 3; downbeat = p3; }
-  const isDown = (i: number) => ((i - downbeat) % meter + meter) % meter === 0;
+  if (NG) { meter = NG.meter; downbeat = NG.downbeat; }
+  else {
+    for (let p = 0; p < 4; p++) { const v = barScore(4, p); if (v > b4) { b4 = v; downbeat = p; } }
+    for (let p = 0; p < 3; p++) { const v = barScore(3, p); if (v > b3) { b3 = v; p3 = p; } }
+    if (b3 > b4 * 1.3 && b3 > 0.35) { meter = 3; downbeat = p3; }
+  }
+  const barOf = barIndexer(meter, downbeat, NG?.bars), isDown = (i: number) => barOf(i).inBar === 0;
   // half-time: the backbeat lands on 3 rather than on 2 and 4
   let halfTime = false;
-  if (meter === 4) { const pos = [0, 0, 0, 0]; for (let i = 0; i < nBeats; i++) pos[((i - downbeat) % 4 + 4) % 4] += midAt[i]; halfTime = pos[2] > 1.35 * Math.max(pos[1], pos[3]); }
+  if (meter === 4) { const pos = [0, 0, 0, 0]; for (let i = 0; i < nBeats; i++) { const b = barOf(i); if (b.len === 4) pos[b.inBar] += midAt[i]; } halfTime = pos[2] > 1.35 * Math.max(pos[1], pos[3]); }
 
   /* ---- 6. events: strength, tier, band, position ---- */
   const posOf = (t: number) => {
@@ -194,21 +228,34 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   const hiBands = grp.map((g, b) => (g === 2 ? b : -1)).filter(b => b >= 0);
   const hiMean = (a: number, b: number) => { let v = 0, n = 0; for (let f = Math.max(0, a); f < Math.min(F, b); f++) { for (const bb of hiBands) v += L[f * nb + bb]; n++; } return n ? v / n / hiBands.length : 0; };
   const sustain = (f: number) => Math.max(0, hiMean(f + 8, f + 30) - hiMean(f - 12, f - 2));
-  type Ev = RhythmEvent & { raw: number; slot: number; bar: number; f: number; arr: number; sus: number };
+  type Ev = RhythmEvent & { raw: number; slot: number; bar: number; f: number; arr: number; sus: number; len: number };
   const evs: Ev[] = [];
-  for (const c of cands) {
+  // the drum hits, when the drum stem was separated: what the kit plays is what is felt; the onsets of everything
+  // else (a vocal stab, a synth hit) stay beside them, a little lighter, wherever no drum hit is
+  const DR = opts.neural?.drums, KIND: Band[] = ['low', 'mid', 'high'];
+  const cand2: { f: number; t: number; v: number; band?: Band }[] = [];
+  if (DR && DR.times.length) {
+    const dt = DR.times; let j = 0;
+    for (let k = 0; k < dt.length; k++) cand2.push({ f: clamp(Math.round(dt[k] * FPS), 0, F - 1), t: dt[k], v: DR.strengths[k], band: KIND[DR.kinds[k]] });
+    for (const c of cands) { while (j < dt.length && dt[j] < c.t - 0.07) j++; if (j < dt.length && Math.abs(dt[j] - c.t) < 0.07) continue; cand2.push({ ...c, v: c.v * 0.7 }); }
+    cand2.sort((a, b) => a.t - b.t);
+  } else cand2.push(...cands);
+  for (const c of cand2) {
     const f = c.f, l = maxIn(lo, f, 1), m = maxIn(mi, f, 1), h = maxIn(hi, f, 1), sum = l + m + h || 1e-9;
-    const band: Band = l / sum > 0.5 ? 'low' : h / sum > 0.55 ? 'high' : l / sum > 0.22 && m / sum > 0.2 && h / sum > 0.15 ? 'broad' : 'mid';
-    const { i, frac } = posOf(c.t);
-    const bi = ((i - downbeat) % meter + meter) % meter, near = Math.min(frac, 1 - frac);
+    // (a drum hit's time is the stem's, its sound the mix's: a kick is low, anything else is what the mix has at that
+    // moment — the stem's picker files a snare under the hat that plays with it, the mix hears the backbeat)
+    const mixBand: Band = l / sum > 0.5 ? 'low' : h / sum > 0.55 ? 'high' : l / sum > 0.22 && m / sum > 0.2 && h / sum > 0.15 ? 'broad' : 'mid';
+    const band: Band = c.band === 'low' ? 'low' : c.band ? (mixBand === 'low' ? 'broad' : mixBand) : mixBand;
+    const { i, frac } = posOf(c.t), B = barOf(i);
+    const bi = B.inBar, near = Math.min(frac, 1 - frac);
     const onBeat = near < 0.12, beatIdx = frac > 0.88 ? bi + 1 : bi;
-    const pos = onBeat ? (beatIdx % meter) : bi + frac;
-    const bar = Math.floor((i - downbeat) / meter) + (frac > 0.88 && bi === meter - 1 ? 1 : 0);
-    const slot = Math.round(pos * 2) % (meter * 2);          // eighth-note slot in the bar
+    const pos = onBeat ? (beatIdx % B.len) : bi + frac;
+    const bar = B.bar + (frac > 0.88 && bi === B.len - 1 ? 1 : 0);
+    const slot = Math.round(pos * 2) % (B.len * 2);          // eighth-note slot in the bar
     const lw = loud[f];
     const bw = band === 'low' ? 1.15 : band === 'broad' ? 1.1 : band === 'mid' ? 1.0 : 0.6;
     const raw = c.v * (0.45 + 0.55 * lw) * bw;
-    evs.push({ t: c.t, s: 0, tier: 0, band, pos, off: !onBeat, raw, slot, bar, f, arr: arrival(f), sus: sustain(f) });
+    evs.push({ t: c.t, s: 0, tier: 0, band, pos, off: !onBeat, raw, slot, bar, f, arr: arrival(f), sus: sustain(f), len: B.len });
   }
   // surprise: against what this slot has done over the last four bars (a kick on every beat stops being news)
   const medAll = median(evs.map(e => e.raw)) || 1e-3;
@@ -218,7 +265,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     const hist = bySlot.get(e.slot) || []; const recent = hist.filter(h => h.bar >= e.bar - 4 && h.bar < e.bar).map(h => h.raw);
     const ref = recent.length >= 3 ? median(recent) : medAll;
     const sur = e.raw / (ref + 0.25 * medAll);
-    const metric = !e.off && Math.round(e.pos) % meter === 0 ? 1.3 : !e.off ? 1.0 : 0.9;
+    const metric = !e.off && Math.round(e.pos) % e.len === 0 ? 1.3 : !e.off ? 1.0 : 0.9;
     e.s = e.raw * Math.sqrt(clamp(sur, 0.75, 2.5)) * metric * (1 + 0.7 * clamp(e.arr / arrQ)) * (1 + 0.4 * clamp(e.sus / susQ));
     hist.push({ bar: e.bar, raw: e.raw }); bySlot.set(e.slot, hist);
   }
@@ -228,6 +275,9 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     e.s = e.s / unit;
     e.tier = (e.s >= 1.3 && loud[e.f] >= 0.3 && e.band !== 'high' ? 2 : e.s >= 0.5 ? 1 : 0) as Tier;
   }
+  // (the neural engine's gate: a bar with no rhythm — a held pad, a horn intro, a free stretch the model is unsure
+  // of — has no strong accents; what sounds there is heard, not hit)
+  if (NG) for (const e of evs) { const i = clamp(posOf(e.t).i, 0, nBeats - 1); if (!NG.accents.rhythmic[i]) { e.s *= 0.6; if (e.tier === 2) e.tier = 1; } }
   prog(0.82);
 
   /* ---- 7. structure ---- */
@@ -257,7 +307,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   peaks.sort((a, b) => b.v - a.v);
   for (const p of peaks) {
     // snap to the nearest downbeat
-    let j = p.i; for (let d = 0; d < meter; d++) { if (j - d >= 0 && isDown(j - d)) { j = j - d; break; } if (j + d < nBeats && isDown(j + d)) { j = j + d; break; } }
+    let j = p.i; for (let d = 0; d < Math.max(meter, barOf(p.i).len); d++) { if (j - d >= 0 && isDown(j - d)) { j = j - d; break; } if (j + d < nBeats && isDown(j + d)) { j = j + d; break; } }
     if (bounds.every(b => Math.abs(b - j) >= minGap)) bounds.push(j);
   }
   bounds.sort((a, b) => a - b);
@@ -311,5 +361,9 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     sections: sections.map(s => ({ ...s, energy: +s.energy.toFixed(3), density: +s.density.toFixed(3) })),
     loudness: (({ lufs, peak }) => ({ lufs: +lufs.toFixed(2), peak: +peak.toFixed(4) }))(loudness(channels, sampleRate)),
     builds, level: ds(level), loud: ds(loud), odf: ds(odf), spec: specBands(L, F, nb).map(ds),
+    engine: NG ? 'neural' : 'dsp',
+    ...(NG ? { stems: !opts.neural!.drumsRun ? 'skipped' as const : opts.neural!.drumless ? 'drumless' as const : 'drums' as const } : {}),
+    ...(NG ? { bars: NG.bars ?? undefined, accents: NG.accents } : {}),
+    ...(DR && DR.times.length ? { drums: { t: DR.times, s: DR.strengths, k: DR.kinds } } : {}),
   };
 }

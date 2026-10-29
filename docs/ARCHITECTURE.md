@@ -68,6 +68,23 @@ interface RhythmEvent { t; strength; tier: 0|1|2 /* 輕/中重/重 */; band: 'lo
 演算法（細節見 `src/rhythm/README.md`）：多頻帶對數頻譜通量 → 自適應閾值取峰（拋物線內插的精確時間）→ 節奏圖（tempogram）+ 感知先驗估速 → 動態規劃拍點追蹤 → 小節/拍號/樂句 → 每個起音的**感知顯著度**（音量、頻帶、相對於同位置的意外度、節拍位置）分三層 → 切分/弱起標記 → 自相似新穎度切段落、能量、漸強與爆點。
 一拍內可以有多個不同強度的事件；最小間隔取感知融合門檻（約 70 ms）。
 
+### 兩個引擎，一個介面
+
+拍點可以由兩個引擎找出，但輸出永遠是同一份 `RhythmAnalysis`。下游所有模組（`RhythmMap`、`Signals`、Director、特效）只讀這份資料，不必知道是哪個引擎做的。
+
+- **神經網路引擎**（`src/rhythm/neural`，移植自 [Folia](https://github.com/chthollyphile/folia-major)，見 `NOTICE.md`）：
+  - **拍點與強拍**：Beat This! 在 WebGPU 上推理，以 30 秒為一塊，不用 DBN，直接取 logit 峰值。
+  - **每拍重音**：包括「感受到的拍」（6/8 拍或被數成兩倍速的慢歌會換算回來）、HPSS 律動門檻，以及模型拿不準的段落。
+  - **鼓點**：HTDemucs 分出鼓聲後，分底鼓、軍鼓、鈸三類找出鼓點；沒有鼓的歌不給鼓點。
+  - **執行方式**：在自己的 Worker 中執行，獨佔一個 GPU device，以 `auto` 切片提交，不搶歌詞繪製的幀。
+- **內建引擎**（`analyze.ts` 第 3–5 步）：沒有 WebGPU、沒有模型檔，或使用者在設定中選擇「內建」時使用。
+- **接合點**：`analyzeInBackground` 先取得神經網路的讀數（`NeuralRhythm`），再交給 `analyze()`：
+  - 第 3–5 步改用它的拍點和逐小節強拍（`bars`）；
+  - 第 6 步以鼓點為事件，其他樂器的起音保留在旁邊；沒有律動的小節不出重拍；
+  - 每拍重音寫入 `accents`，`Signals.grooveHits` 直接使用。
+  - 第 1、2、7 步兩個引擎完全相同。結果帶 `engine` 欄位，版本為 3。
+- **模型檔**：`beat_this-wgsl.bin` 和 `htdemucs-wgsl.bin` 都是 MIT 授權，不進 git。`scripts/models.mjs` 按 `src/rhythm/neural/models.json` 的 SHA-256 下載並校驗，打包進 `resources/models`，再由主行程以 `cadenza://model/` 提供（只提供這兩個檔案）。
+
 **衍生訊號**（`Signals`）由事件流以解析式脈衝響應疊加得到，**決定性**（導出與預覽一致）：
 - `pulse(t)`：快速起音、指數衰減的脈衝（背景呼吸、光環、頻譜）；
 - `cone(t)`：二階阻尼彈簧（低音喇叭紙盆），重拍推出、帶一次微小回彈；鏡頭的「彈動」只讀它；

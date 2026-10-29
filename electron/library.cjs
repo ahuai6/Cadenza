@@ -358,6 +358,8 @@ async function serveFile(p, req, type) {
   return new Response(Readable.toWeb(fs.createReadStream(p)), { status: 200, headers: { ...h, 'Content-Length': String(size) } });
 }
 const MIME = { '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.mp4': 'video/mp4', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.wav': 'audio/wav', '.webm': 'video/webm', '.mkv': 'video/x-matroska', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
+const MODEL_FILES = new Set(['beat_this-wgsl.bin', 'htdemucs-wgsl.bin']);
+const modelDir = () => (app.isPackaged ? path.join(process.resourcesPath, 'models') : path.join(__dirname, '..', 'models'));
 function registerProtocol() {
   protocol.handle('cadenza', async req => {
     try { const u = new URL(req.url), [kind, raw] = [u.hostname, decodeURIComponent(u.pathname.slice(1))], key = raw.replace(/[^a-f0-9]/g, '');
@@ -365,6 +367,12 @@ function registerProtocol() {
         if (kind === 'thumb' && !fs.existsSync(p)) return serveFile(path.join(P.covers(), key + '.img'), req, 'image/jpeg');
         return serveFile(p, req, kind === 'thumb' ? 'image/jpeg' : 'image/*'); }
       if (kind === 'media') { const t = db.tracks[key]; if (!t || t.protected) return new Response('', { status: 404 }); return serveFile(t.path, req, MIME[path.extname(t.path).toLowerCase()] || 'application/octet-stream'); }
+      // the neural rhythm engine's weights (shipped as resources/models; in a checkout, models/ from scripts/models.mjs):
+      // only the files the engine names, nothing else on disk
+      if (kind === 'model') { const f = path.basename(raw); if (!MODEL_FILES.has(f)) return new Response('', { status: 404 });
+        const p = path.join(modelDir(), f); if (!fs.existsSync(p)) return new Response('', { status: 404 });
+        if (req.method === 'HEAD') return new Response(null, { status: 200, headers: { 'Content-Length': String(fs.statSync(p).size), 'Access-Control-Allow-Origin': '*' } });
+        return serveFile(p, req, 'application/octet-stream'); }
       if (kind === 'mv') { const s = await getSong(key); if (!s || !s.mv || !s.mv.path || !fs.existsSync(s.mv.path)) return new Response('', { status: 404 });
         return serveFile(s.mv.path, req, MIME[path.extname(s.mv.path).toLowerCase()] || 'video/mp4'); }
     } catch (e) { /* fall through */ }

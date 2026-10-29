@@ -16,8 +16,8 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const app = await electron.launch({ executablePath: require(path.join(ROOT, 'node_modules', 'electron')), args: [ROOT, '--no-sandbox'], env: { ...process.env, CADENZA_USER_DATA: prof } });
   const out = path.join(prof, 'export.mp4');
   await app.evaluate(({ dialog }, [mv, o]) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [mv] }); dialog.showSaveDialog = async () => ({ canceled: false, filePath: o }); }, [path.join(CACHE, 'mv.mp4'), out]);
-  const win = await app.firstWindow(); const errs = [];
-  win.on('pageerror', e => errs.push(e.message)); win.on('console', m => { if (m.type() === 'error' && !/Autofill/.test(m.text())) errs.push(m.text()); });
+  const win = await app.firstWindow(); const errs = []; let probing = false;   // (probing: the 404 the model route's own check asks for)
+  win.on('pageerror', e => errs.push(e.message)); win.on('console', m => { if (m.type() === 'error' && !/Autofill/.test(m.text()) && !(probing && /404/.test(m.text()))) errs.push(m.text()); });
   await win.setViewportSize({ width: 1440, height: 900 }).catch(() => {});
   const shot = n => win.screenshot({ path: path.join(SHOTS, `cz-${n}.png`) });
   const W = ms => win.waitForTimeout(ms);
@@ -51,8 +51,8 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   ok('scan: 4 files, 1 protected (listed, never decoded), covers and lyrics found', st.n === 4 && st.prot === 1 && st.covers === 2 && st.lrc === 2, JSON.stringify(st));
   ok('rhythm analysis: every playable song analysed in the background and cached', st.an === 3, `${st.an}/3 in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const ids = await C(() => window.cadenzaLib.get().then(v => Object.fromEntries(v.tracks.map(t => [t.title, t.id]))));
-  const cached = await C(id => window.cadenzaLib.analysis(id, 2).then(a => a && { v: a.version, beats: a.beats.length, events: a.events.length, bpm: Math.round(a.tempo.bpm), spec: (a.spec || []).length }), ids['晨光']);
-  ok('rhythm cache: the SDK\'s own analysis, versioned', cached && cached.v === 2 && cached.beats > 20 && cached.events > 20 && cached.spec === 6, JSON.stringify(cached));
+  const cached = await C(id => window.cadenzaLib.analysis(id, 3).then(a => a && { v: a.version, engine: a.engine, beats: a.beats.length, events: a.events.length, bpm: Math.round(a.tempo.bpm), spec: (a.spec || []).length }), ids['晨光']);
+  ok('rhythm cache: the SDK\'s own analysis, versioned, saying which engine found the beats', cached && cached.v === 3 && (cached.engine === 'neural' || cached.engine === 'dsp') && cached.beats > 20 && cached.events > 20 && cached.spec === 6, JSON.stringify(cached));
   await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '歌曲', exact: true }).click(); await W(500); await shot('songs');
   ok('sidebar: the library\'s sections listed right under it, the chosen one marked', await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '歌曲', exact: true }).getAttribute('aria-current') === 'page' && await win.locator('h1', { hasText: '歌曲' }).count() > 0);
   // the song rows line up: every column starts at the same x in every row
@@ -274,6 +274,13 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- poster wall, settings, light theme ---------- */
   await win.getByRole('button', { name: '海報牆' }).click(); await W(900); await shot('wall');
   await win.getByRole('button', { name: '設定' }).click(); await W(600); await shot('settings');
+  // the rhythm engine: its setting, the status line (the device it runs on, or why not and that the built-in analysis
+  // is used), and the models served to the page as cadenza://model/ (only the engine's files)
+  { await W(800); probing = true; const r = await C(async () => { const head = async f => (await fetch('cadenza://model/' + f, { method: 'HEAD' }).catch(() => ({ status: 0 }))).status;
+      const txt = document.body.innerText; return { seg: !!document.querySelector('[role=radio][aria-checked]') && txt.includes('節奏識別') && txt.includes('神經網路（自動）'),
+        status: /使用 .+ 分析|無法使用神經網路/.test(txt), beat: await head('beat_this-wgsl.bin'), demucs: await head('htdemucs-wgsl.bin'), other: await head('..%2Fpackage.json') }; });
+    await W(300); probing = false; const has = require('fs').existsSync(path.join(ROOT, 'models', 'beat_this-wgsl.bin'));
+    ok('rhythm engine: the setting and its status line, the models served (and nothing else)', r.seg && r.status && (!has || (r.beat === 200 && r.demucs === 200)) && r.other === 404, JSON.stringify({ ...r, has })); }
   await win.getByRole('radio', { name: '淺色' }).click(); await W(600); await shot('settings-light');
   await win.getByRole('button', { name: '音樂庫' }).click(); await W(600); await shot('library-light');
   await win.locator('[data-test=card]').getByTitle('展開').first().click(); await layerIs('np'); await W(300); await shot('np-light');

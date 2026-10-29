@@ -47,11 +47,14 @@ export class Signals {
     if (this.hits) return this.hits;
     const map = this.map, B = map.beats, meter = map.meter, ev = map.events, n = B.length;
     if (n < 4) return (this.hits = ev.filter(e => e.tier > 0).map(e => ({ t: e.t, a: clamp(e.s / 1.4, 0.3, 1) })));
+    // the neural engine measured every felt beat itself (Folia's accents: the same rise and loudness, the bars without
+    // rhythm and the stretches it is unsure of already gated); only the pushes between the beats are added below
+    const A = map.a.accents, neural = !!A && A.impact.length === n;
     const bw = (e: RhythmEvent) => (e.band === 'low' || e.band === 'broad' ? 1 : e.band === 'mid' ? 0.8 : 0.45);
     const near = (t: number, tol: number) => { let lo = 0, hi = ev.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t < t - tol) lo = m + 1; else hi = m; }
       let best = 0; for (let i = lo; i < ev.length && ev[i].t <= t + tol; i++) best = Math.max(best, ev[i].s * bw(ev[i])); return best; };
     const loudAt = (t: number) => { let v = 0; for (const d of [-0.25, -0.12, 0, 0.12, 0.25]) v += map.loud(t + d); return v / 5; };
-    const half = map.bpm >= 165 ? 2 : 1;                                   // (felt at half the counted pace)
+    const half = !neural && map.bpm >= 165 ? 2 : 1;                       // (felt at half the counted pace; the neural engine's beats are the felt ones already)
     const rise: number[] = [], loud: number[] = [], pos: number[] = [];
     for (let i = 0; i < n; i++) { const tol = Math.min(0.07, 0.18 * map.beatLen(B[i])); rise.push(near(B[i], tol)); loud.push(loudAt(B[i])); pos.push(map.beatAt(B[i] + 1e-4).inBar); }
     const pct = (a: number[], q: number) => { const s = a.filter(x => x > 0).sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : 0; };
@@ -60,6 +63,8 @@ export class Signals {
     const scale = clamp(0.45 + 0.55 * (rMed / Math.max(0.05, r90)) * 1.4, 0.45, 1);   // a song whose beats barely rise moves less
     const out: { t: number; a: number }[] = [];
     for (let i = 0; i < n; i++) {
+      if (neural) { if (!A!.rhythmic[i]) continue; const place = pos[i] === 0 ? 1 : meter === 4 && pos[i] % 2 === 1 ? 0.92 : 0.84;
+        out.push({ t: B[i], a: clamp((0.28 + 0.72 * A!.impact[i]) * place * A!.trackScale * 1.15, 0, 1.25) }); continue; }
       if (half > 1 && pos[i] % 2 === 1) continue;
       // a bar with no onset on any of its beats: no hits there
       const b0 = i - pos[i], barHas = (() => { for (let j = Math.max(0, b0); j < Math.min(n, b0 + meter); j++) if (rise[j] > 0) return true; return false; })(); if (!barHas) continue;
@@ -74,7 +79,7 @@ export class Signals {
       const around: number[] = []; for (let j = k - 1; j >= 0 && e.t - ev[j].t <= meter * bl; j--) around.push(ev[j].s); for (let j = k + 1; j < ev.length && ev[j].t - e.t <= meter * bl; j++) around.push(ev[j].s);
       around.sort((x, y) => x - y); const med = around.length ? around[around.length >> 1] : e.s; if (e.s / Math.max(0.05, med) < 1.6) continue;
       if (out.some(h => Math.abs(h.t - e.t) < 0.3 * bl)) continue;
-      out.push({ t: e.t, a: clamp(0.5 + 0.35 * clamp((e.s / med - 1.6) / 1.2), 0, 1) * scale }); }
+      out.push({ t: e.t, a: clamp(0.5 + 0.35 * clamp((e.s / med - 1.6) / 1.2), 0, 1) * (neural ? A!.trackScale : scale) }); }
     out.sort((x, y) => x.t - y.t);
     return (this.hits = out);
   }

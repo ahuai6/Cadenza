@@ -9,7 +9,7 @@ import { Icon } from '../ui/icons';
 import { ContextMenu, Toast, Seg } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { player, toggle, seekBy, resumeLast } from '../playback/player';
-import { startAnalysis } from '../playback/analysis';
+import { startAnalysis, applyRhythmSettings } from '../playback/analysis';
 import { back } from '../layers';
 import { applyUiFont } from '../uifont';
 import mark from '../brand/mark.svg';
@@ -49,7 +49,7 @@ export function Shell() {
     (async () => {
       const st = await D.settings(); settings.set(st);
       const l = (st.lang && LANGS.some(([k]) => k === st.lang) ? st.lang : detectLang()) as Lang; applyUiFont(l); setI18n(l);
-      engine.setRender(renderSettings(st)); engine.mvLook = mvLook(st);
+      engine.setRender(renderSettings(st)); engine.mvLook = mvLook(st); applyRhythmSettings(st);
       lib.set({ ...(await Lib.get()), loaded: true }); setReady(true);
       resumeLast().catch(() => {});   // (the last song, paused: the play page is ready before it is opened)
       startAnalysis();

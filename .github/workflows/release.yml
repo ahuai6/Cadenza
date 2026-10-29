@@ -29,6 +29,7 @@ jobs:
           npx tsc --noEmit -p .
           npx vitest run
           npm run build:app
+          node scripts/models.mjs
           cargo build --release --manifest-path native/cadenza-audio/Cargo.toml
           mkdir -p native/cadenza-audio/target/x86_64-pc-windows-gnu/release
           cp native/cadenza-audio/target/release/cadenza-audio.exe native/cadenza-audio/target/x86_64-pc-windows-gnu/release/

@@ -1,5 +1,5 @@
 // The app's own settings: appearance, music folders, start at login and the tray, audio output, preview performance.
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { tx, LANGS, currentLang, type Lang } from '../../i18n';
 import { D, Lib, type Settings } from '../bridge';
 import { settings, lib, useStore } from '../state';
@@ -8,6 +8,8 @@ import { Button, Seg, Toggle, Note, Slider } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { switchOutput, applyBalance } from '../playback/player';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
+import { applyRhythmSettings } from '../playback/analysis';
+import { neuralStatus } from '../../rhythm';
 import { setLang, renderSettings, mvLook } from './Shell';
 import s from './Settings.module.css';
 
@@ -18,6 +20,7 @@ export async function setSettings(patch: Partial<Settings>) {
   if ('audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch) switchOutput();
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
   if ('volBalance' in patch || 'fixedVolume' in patch) applyBalance();
+  if ('rhythmEngine' in patch || 'rhythmDrums' in patch) applyRhythmSettings(n);
   if (Object.keys(patch).some(k => k.startsWith('mv'))) { engine.mvLook = mvLook(n); engine.invalidate(); }
 }
 const pc = (v: number | string) => Math.round(+v * 100) + '%';
@@ -60,6 +63,7 @@ export function SettingsView() {
         <Toggle label={tx('s.set.tray')} on={st.closeToTray} set={v => set({ closeToTray: v })} />
       </Group>
       <AudioGroup st={st} />
+      <RhythmGroup st={st} />
       <Group title={tx('s.set.mv')} help={tx('s.set.mvHelp')}>
         <MvLook />
       </Group>
@@ -70,6 +74,19 @@ export function SettingsView() {
       </Group>
       <Group title={tx('s.set.about')}><Note>{tx('s.set.aboutText', { v: st.version || '' })}</Note></Group>
     </div>
+  );
+}
+// the rhythm engine: the neural one (on the GPU, where it can run) or the built-in analysis; what runs it, or why not
+function RhythmGroup({ st }: { st: Settings }) {
+  const [ns, setNs] = useState<{ ok: boolean; device?: string; reason?: string } | null>(null), auto = st.rhythmEngine !== 'dsp';
+  useEffect(() => { let on = true; if (auto) neuralStatus().then(v => on && setNs(v)); return () => { on = false; }; }, [auto]);
+  return (
+    <Group title={tx('s.set.rhythm')} help={tx('s.set.rhythmHelp')}>
+      <Field label={tx('s.set.engine')}><Seg size="sm" fit value={auto ? 'auto' : 'dsp'} onChange={v => setSettings({ rhythmEngine: v })} options={[['auto', tx('s.set.engine.auto')], ['dsp', tx('s.set.engine.dsp')]]} /></Field>
+      {auto && <Toggle label={tx('s.set.drums')} help={tx('s.set.drumsHelp')} on={st.rhythmDrums !== false} set={v => setSettings({ rhythmDrums: v })} />}
+      {auto && ns && <Note>{ns.ok ? tx('s.set.engine.on', { d: ns.device || 'GPU' }) : tx('s.set.engine.off', { r: ns.reason || '' })}</Note>}
+      <Note>{tx('s.set.engine.note')}</Note>
+    </Group>
   );
 }
 // the output: standard (the page's Web Audio) or Hi-Fi passthrough (the native player, WASAPI exclusive)
