@@ -4,7 +4,7 @@
 import { clamp, sstep, D2R, lerp } from '../../core/math';
 import { eOut, eIO, eSine } from '../../core/ease';
 import { rnd } from '../../core/rng';
-import { mix, rgba, K3, type RGB } from '../../core/color';
+import { mix, rgba, K3, W3, type RGB } from '../../core/color';
 import { register, type Ctx } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
@@ -45,14 +45,28 @@ function makeFeather(seed: number, blur: number, col: RGB) {
 }
 const feathers = (f: RenderFrame) => { const key = f.style.accent; if (FEATH && FEATH.key === key) return FEATH; FEATH = { key, sharp: [0, 1, 2, 3].map(k => makeFeather(k * 13 + 3, 0, f.pal.accent)), soft: [0, 1].map(k => makeFeather(k * 29 + 5, 5, f.pal.accent)) }; return FEATH; };
 const drawFeather = (g: Ctx, spr: HTMLCanvasElement, x: number, y: number, size: number, rot: number, flip: number, alpha: number) => { g.save(); g.globalAlpha = alpha; g.translate(x, y); g.rotate(rot); g.scale(flip * size / 320, size / 320); g.drawImage(spr, -160, -304); g.restore(); };
+/* The feathers' own clock: it runs with the music but slows on each strong accent — braking within a tenth of a second to
+   a fifth of their speed, holding a moment, then easing back over a little over a second — so they hang in the air on
+   the hit and drift on. One table per plan (30 samples a second), the clock read from it. */
+const FCLK = new WeakMap<object, Float32Array>(), FR = 30;
+function featherClock(f: RenderFrame): number {
+  const plan = f.plan; let tb = FCLK.get(plan);
+  if (!tb) { const n = Math.ceil((plan.dur + 2) * FR) + 1, sp = new Float32Array(n).fill(1);
+    for (const e of plan.map.events) { if (e.tier < 2 || e.s < 1.1 || e.off) continue; const k = clamp((e.s - 1.1) / 0.8 + 0.6, 0.6, 1);
+      for (let i = Math.max(0, Math.floor(e.t * FR)); i < n; i++) { const u = i / FR - e.t; if (u > 1.6) break;
+        const dip = u < 0.1 ? eOut(u / 0.1) : u < 0.3 ? 1 : 1 - eIO((u - 0.3) / 1.3), v = 1 - 0.8 * k * dip; if (v < sp[i]) sp[i] = v; } }
+    tb = new Float32Array(n); for (let i = 1; i < n; i++) tb[i] = tb[i - 1] + (sp[i - 1] + sp[i]) / 2 / FR; FCLK.set(plan, tb); }
+  const x = clamp(f.t * FR, 0, tb.length - 1), i = Math.floor(x), j = Math.min(tb.length - 1, i + 1);
+  return f.t < 0 ? f.t : tb[i] + (tb[j] - tb[i]) * (x - i) + Math.max(0, f.t - (tb.length - 1) / FR);
+}
 const BGF = Array.from({ length: 12 }, (_, i) => ({ x: rnd(i * 4.1 + 1), p: rnd(i * 6.3 + 2), z: 0.25 + rnd(i * 2.9) * 0.75, s: 0.018 + rnd(i * 8.8) * 0.03, f: 0.4 + rnd(i * 1.7) * 0.7, ph: rnd(i * 7.7) * 6.28, r0: (rnd(i * 5.5) - 0.5) * 2.4, k: i % 4 }));
 const FGF = Array.from({ length: 3 }, (_, i) => ({ x: 0.15 + i * 0.35 + rnd(i * 3.7) * 0.1, p: rnd(i * 9.1 + 4), s: 0.03 + rnd(i * 2.2) * 0.02, f: 0.3 + rnd(i * 5.1) * 0.4, ph: rnd(i * 1.9) * 6.28, r0: (rnd(i * 8.3) - 0.5) * 2, k: i % 2 }));
 register({ id: 'feathers', label: 'fx.feathers', layer: 'backdrop', kind: 'effect', z: 30, draw(g, f, a) {
-  const F = feathers(f), w = f.W, h = f.H, m = Math.min(w, h), t = f.t;
+  const F = feathers(f), w = f.W, h = f.H, m = Math.min(w, h), t = featherClock(f);
   for (const q of BGF) { const y = ((q.p + t * q.s) % 1.4 - 0.2) * h + a.bd.oy * q.z, x = (q.x + Math.sin(t * q.f + q.ph) * 0.05) * w + a.bd.ox * q.z * 1.5, rot = q.r0 + Math.sin(t * q.f * 1.3 + q.ph) * 0.55, fl = Math.cos(t * q.f * 0.8 + q.ph);
     drawFeather(g, F.sharp[q.k], x, y, (0.14 + 0.22 * q.z) * m * 1.3, rot, Math.sign(fl || 1) * Math.max(0.2, Math.abs(fl)), (0.15 + 0.4 * q.z) * (0.85 + 0.3 * f.P)); } } });
 register({ id: 'feathers-fg', label: 'fx.feathers', layer: 'foreground', kind: 'effect', z: 1, draw(g, f) {
-  if (!f.style.fx.feathers) return; const F = feathers(f), w = f.W, h = f.H, m = Math.min(w, h), t = f.t, fx = f.cam.fx;
+  if (!f.style.fx.feathers) return; const F = feathers(f), w = f.W, h = f.H, m = Math.min(w, h), t = featherClock(f), fx = f.cam.fx;
   for (const q of FGF) { const y = ((q.p + t * q.s) % 1.6 - 0.3) * h + fx.y * 3, x = (q.x + Math.sin(t * q.f + q.ph) * 0.08) * w + fx.x * 3, rot = q.r0 + Math.sin(t * q.f * 1.2 + q.ph) * 0.6, fl = Math.cos(t * q.f * 0.7 + q.ph);
     drawFeather(g, F.soft[q.k], x, y, m * 0.95, rot, Math.sign(fl || 1) * Math.max(0.25, Math.abs(fl)), (0.16 + 0.08 * f.P) * f.view.effect); } } });
 
@@ -70,13 +84,22 @@ register({ id: 'eq', label: 'fx.eq', layer: 'backdrop', kind: 'effect', z: 15, d
   for (let i = i0; i < i1; i++) { const fq = Math.min(1, Math.abs(i - 23.5) / 24), v = (0.25 + 0.75 * I) * (P * (1 - fq) * 0.9 + 0.35 * Math.abs(Math.sin(t * 2.7 + i * 0.9)) * (0.4 + 0.6 * Math.abs(Math.sin(i * 1.37 + t * 0.8)))), bh = v * h * 0.13;
     g.fillStyle = rgba(A, 0.1 + 0.3 * P * (1 - fq * 0.5)); g.fillRect(i * bw + 1, hy - bh, bw - 2, bh); g.fillStyle = rgba(A, 0.035); g.fillRect(i * bw + 1, hy, bw - 2, bh * 0.6); } } });
 
-/* ---------- beat rings: one per rhythmic event, launched on it, bigger on strong accents and downbeats ---------- */
+/* ---------- beat rings: one per rhythmic event, launched on it, bigger on strong accents and downbeats ----------
+   Heavy: each ring is a firm core over a wide soft halo; a strong accent also blooms a glow at the centre and its ring
+   carries a brighter, wider halo. All plain strokes and gradients (no filters), so it stays cheap. From the frame's
+   centre on the centred stage (the record's middle), a little above it elsewhere. */
 register({ id: 'rings', label: 'fx.rings', layer: 'backdrop', kind: 'effect', z: 5, draw(g, f) {
-  const map = f.plan.map, L = 1.5 * map.beatLen(f.t), M = Math.max(f.W, f.H), mx = f.W / 2, cy = f.H * 0.45, A = f.pal.accent, I = f.I, t = f.t;
+  const map = f.plan.map, L = 1.6 * map.beatLen(f.t), M = Math.max(f.W, f.H), mx = f.W / 2, cy = f.style.cut === 'center' ? f.H / 2 : f.H * 0.45, A = f.pal.accent, hot = mix(A, f.pal.flash, 0.5), I = f.I, t = f.t;
   for (const e of map.eventsIn(t - L, t, 1)) { const u = (t - e.t) / L; if (u < 0 || u >= 1) continue;
-    const down = !e.off && Math.round(e.pos) % map.meter === 0, wgt = clamp((down ? 0.75 : 0.4) * (0.6 + 0.25 * clamp(e.s, 0, 2.4)) + (e.tier === 2 ? 0.35 : 0), 0.25, 1.4);
-    const r = 1 - (1 - u) ** 2.5, al = (1 - u) ** 1.4 * Math.min(1, u * 20) * wgt * 0.4 * (0.6 + 0.4 * I);
-    g.lineWidth = (1.2 + 2.2 * wgt) * (1 - 0.5 * u); g.strokeStyle = rgba(A, Math.min(0.6, al)); g.beginPath(); g.arc(mx, cy, (0.05 + 0.7 * r) * M * 0.75 * (0.8 + 0.2 * wgt), 0, Math.PI * 2); g.stroke(); } } });
+    const down = !e.off && Math.round(e.pos) % map.meter === 0, strong = e.tier === 2 && e.s >= 1.15, wgt = clamp((down ? 0.75 : 0.4) * (0.6 + 0.25 * clamp(e.s, 0, 2.4)) + (e.tier === 2 ? 0.35 : 0), 0.25, 1.4);
+    const r = 1 - (1 - u) ** 2.5, al = (1 - u) ** 1.2 * Math.min(1, u * 20) * wgt * 0.5 * (0.6 + 0.4 * I), R = (0.05 + 0.7 * r) * M * 0.75 * (0.8 + 0.2 * wgt), lw = (3 + 5 * wgt) * (1 - 0.4 * u) * (M / 1280);
+    g.beginPath(); g.arc(mx, cy, R, 0, Math.PI * 2);
+    g.lineWidth = lw * (strong ? 7 : 4.5); g.strokeStyle = rgba(strong ? hot : A, Math.min(0.3, al * (strong ? 0.75 : 0.45))); g.stroke();
+    if (strong) { g.lineWidth = lw * 2.6; g.strokeStyle = rgba(hot, Math.min(0.5, al * 1)); g.stroke(); }
+    g.lineWidth = lw; g.strokeStyle = rgba(strong ? mix(A, W3, 0.25) : A, Math.min(0.85, al * 1.8)); g.stroke();
+    // the accent's bloom: a glow at the centre that swells and fades within the beat
+    if (strong && u < 0.6) { const k = Math.sin(Math.PI * clamp(u / 0.6)) * wgt * (0.6 + 0.4 * I), gr = g.createRadialGradient(mx, cy, 0, mx, cy, M * 0.42);
+      gr.addColorStop(0, rgba(hot, 0.34 * k)); gr.addColorStop(0.4, rgba(A, 0.12 * k)); gr.addColorStop(1, rgba(A, 0)); g.fillStyle = gr; g.fillRect(mx - M * 0.42, cy - M * 0.42, M * 0.84, M * 0.84); } } } });
 
 /* ---------- shattered glass: cracks on the backdrop, shards carrying the finished frame ---------- */
 type Glass = RenderFrame['plan']['cues']['glass'][number];

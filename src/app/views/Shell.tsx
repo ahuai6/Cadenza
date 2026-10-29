@@ -167,4 +167,4 @@ export { keep };
 import * as playerApi from '../playback/player';
 import * as layers from '../layers';
 import { ws as workshop, engine as wsEngine } from './workshop/project';
-Object.assign((window as any).__cadenza, { ui, lib, settings, player: playerApi.player, api: playerApi, layers, workshop, wsEngine });
+Object.assign((window as any).__cadenza, { ui, lib, settings, setSettings, player: playerApi.player, api: playerApi, layers, workshop, wsEngine });

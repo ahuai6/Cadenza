@@ -24,7 +24,7 @@ const open = new Map(); let nextId = 1;
 /* ---------- the app's own settings ---------- */
 const SETTINGS = () => path.join(app.getPath('userData'), 'settings.json');
 const DEFAULTS = { mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, theme: 'system', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
-  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true };
+  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true };
 let settings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS(), 'utf8')) }; } catch (e) { /* first run */ }
 function applySettings() {

@@ -22,6 +22,11 @@ export interface PWord {
   frame: FrameRef | null;
   /** appearing nudged inside the frame (world offset), gliding to its own place between t0 and t1 (entry.ts) */
   entry?: { dx: number; dy: number; t0: number; t1: number } | null;
+  /** the roller (scenes.ts): turned half round onto the drum's next row, the camera rolling that way (−1 left, +1 right); 0 none */
+  roll?: number;
+  /** carried by the camera between t0 and t1 (a roll that cannot finish before the word appears): held where the camera
+   *  will show it at t1, while the world turns behind it */
+  carry?: { t0: number; t1: number } | null;
   /** draw order: fixed at plan time (back to front), never view-dependent */
   order: number;
   /** when it appears (a little before it is sung), when it is over */
@@ -59,9 +64,12 @@ export interface Stop extends Pose {
   over: boolean;          // the ending pull-back
   rest: number;           // the pause after these words
   words: PWord[];
+  roll?: number;          // the roller: reached by half a turn this way (−1 left, +1 right)
 }
 /** One move between stops: displacement added over [s, a] with an ease; moves may overlap (they superpose). */
-export interface Move { s: number; a: number; dx: number; dy: number; dz: number; dr: number; dd: number; ease: string; bow: [number, number] }
+export interface Move { s: number; a: number; dx: number; dy: number; dz: number; dr: number; dd: number; ease: string; bow: [number, number];
+  /** 'roll': the spring's force and overshoot; and how far the view breathes out at the roll's middle (log zoom) */
+  spring?: [number, number]; zb?: number }
 
 export interface CameraPlan {
   style: string; start: Pose; stops: Stop[]; moves: Move[];

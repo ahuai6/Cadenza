@@ -24,23 +24,27 @@ function placeholder(f: RenderFrame): HTMLCanvasElement {
   const gr = g.createLinearGradient(0, 0, 512, 512); gr.addColorStop(0, hexOf(P.accent)); gr.addColorStop(1, hexOf(P.bg2)); g.fillStyle = gr; g.fillRect(0, 0, 512, 512);
   g.fillStyle = rgba(P.bg, 0.35); g.beginPath(); g.arc(330, 210, 150, 0, Math.PI * 2); g.fill(); return c;
 }
+/** A record, D pixels across: black grooved vinyl, a rim of light, the cover as its label. */
+export function makeVinyl(label: CanvasImageSource, D: number): HTMLCanvasElement {
+  const v = makeCanvas(D, D) as HTMLCanvasElement, g = v.getContext('2d')!, R = D / 2, k = D / 512;
+  g.translate(R, R); const body = g.createRadialGradient(0, 0, R * 0.3, 0, 0, R); body.addColorStop(0, '#141416'); body.addColorStop(1, '#0a0a0b');
+  g.fillStyle = body; g.beginPath(); g.arc(0, 0, R - 1, 0, 6.283); g.fill();
+  for (let rr = R * 0.36; rr < R * 0.97; rr += 2.2 * k) { g.strokeStyle = `rgba(255,255,255,${0.025 + 0.025 * Math.sin(rr / k * 0.7) ** 2})`; g.lineWidth = k; g.beginPath(); g.arc(0, 0, rr, 0, 6.283); g.stroke(); }
+  g.strokeStyle = 'rgba(255,255,255,.08)'; g.lineWidth = 3 * k; g.beginPath(); g.arc(0, 0, R * 0.95, 0, 6.283); g.stroke();
+  g.save(); g.beginPath(); g.arc(0, 0, R * 0.33, 0, 6.283); g.clip(); g.drawImage(label, -R * 0.33, -R * 0.33, R * 0.66, R * 0.66); g.restore();
+  g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 2 * k; g.beginPath(); g.arc(0, 0, R * 0.33, 0, 6.283); g.stroke();
+  g.fillStyle = '#0b0b0c'; g.beginPath(); g.arc(0, 0, R * 0.025, 0, 6.283); g.fill();
+  return v;
+}
+/** The cover drawn square (with the placeholder when there is none), for a label or a sleeve. */
+export const coverSquare = (f: RenderFrame, size: number) => square(f.media.cover || placeholder(f), size);
 export function coverLayers(f: RenderFrame): Layers {
   const st = f.style, key = `${f.media.coverKey}|${st.coverEdge}|${st.text}|${f.media.cover ? '' : st.accent + st.bg2}`;
   if (cache && cache.key === key) return cache;
   const src: Img = f.media.cover || placeholder(f);
   const subj = square(src, 512);
   let vinyl: HTMLCanvasElement | null = null, blend: HTMLCanvasElement | null = null;
-  if (st.coverEdge === 'album' || !st.coverEdge) {
-    const D = 512, v = makeCanvas(D, D) as HTMLCanvasElement, g = v.getContext('2d')!, R = D / 2;
-    g.translate(R, R); const body = g.createRadialGradient(0, 0, R * 0.3, 0, 0, R); body.addColorStop(0, '#141416'); body.addColorStop(1, '#0a0a0b');
-    g.fillStyle = body; g.beginPath(); g.arc(0, 0, R - 1, 0, 6.283); g.fill();
-    for (let rr = R * 0.36; rr < R * 0.97; rr += 2.2) { g.strokeStyle = `rgba(255,255,255,${0.025 + 0.025 * Math.sin(rr * 0.7) ** 2})`; g.lineWidth = 1; g.beginPath(); g.arc(0, 0, rr, 0, 6.283); g.stroke(); }
-    g.strokeStyle = 'rgba(255,255,255,.08)'; g.lineWidth = 3; g.beginPath(); g.arc(0, 0, R * 0.95, 0, 6.283); g.stroke();
-    g.save(); g.beginPath(); g.arc(0, 0, R * 0.33, 0, 6.283); g.clip(); g.drawImage(subj, -R * 0.33, -R * 0.33, R * 0.66, R * 0.66); g.restore();
-    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 2; g.beginPath(); g.arc(0, 0, R * 0.33, 0, 6.283); g.stroke();
-    g.fillStyle = '#0b0b0c'; g.beginPath(); g.arc(0, 0, R * 0.025, 0, 6.283); g.fill();
-    vinyl = v;
-  }
+  if (st.coverEdge === 'album' || !st.coverEdge) vinyl = makeVinyl(subj, 512);
   if (st.coverEdge === 'blend') {
     // like the sun behind cloud: the cover (still a square, its corners only softened) glowing out into a haze of its own
     // colours that thins away on every side — a round cloud of light, never a square plate behind it

@@ -120,7 +120,11 @@ export class Engine extends Emitter<EngineEvents> {
   setOutput(o: ExternalOut | null) { const on = this.playing; this.stopAudio(); this.clock.setExternal(o); if (on) this.startAudio(); }
   private startAudio() { const s = this.session; if (!s) return; const end = s.audio ? s.audioStart + s.musicEnd : 0; this.clock.start(this.t, s.audio, s.audioStart, end); this.gain(); }
   private stopAudio() { this.clock.stop(); }
-  private gain() { const s = this.session; if (!s) return; const e = s.musicEnd, f = s.spec.fade !== false ? 1 - clamp((this.t - (e - 1.6)) / 1.6) : 1; this.clock.gain(this.muted ? 0 : f * this.volume); }
+  private gain() { const s = this.session; if (!s) return; const e = s.musicEnd, f = s.spec.fade !== false ? 1 - clamp((this.t - (e - 1.6)) / 1.6) : 1; this.clock.gain(this.muted ? 0 : f * this.volume * this.balance); }
+  /** The volume balance: one steady factor for the whole song (its loudness towards the others'), nothing that moves
+   *  with the music — no compression, no limiting; a boost stays within the song's own headroom (rhythm/loudness.ts). */
+  balance = 1;
+  setBalance(k: number) { this.balance = Math.max(0, Math.min(4, isFinite(k) ? k : 1)); this.gain(); }
   setVolume(v: number) { this.volume = clamp(v); this.gain(); }
   setMuted(m: boolean) { this.muted = m; this.gain(); }
 

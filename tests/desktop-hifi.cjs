@@ -84,13 +84,23 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   // switch to the standard output in the settings: the same song carries on from the same moment
   await win.getByRole('button', { name: '設定' }).click(); await W(900); await shot('settings');
   const tb = await C(() => window.__cadenza.engine.time);
-  await win.getByRole('radio', { name: '標準' }).click();
+  await win.locator('main[data-scroll]').getByRole('radio', { name: '標準' }).click();
   await win.waitForFunction(() => window.__cadenza.player.get().route === 'std' && window.__cadenza.engine.isPlaying, null, { timeout: 15000 }).catch(() => {});
   await W(800);
   const sw = await C(() => ({ ext: !!window.__cadenza.engine.clock.external, t: window.__cadenza.engine.time }));
   const run = await C(() => window.cadenzaAudio.state().then(s => s.running));
   ok('standard output: carries on from the same moment, native player stopped', !sw.ext && sw.t > tb && sw.t - tb < 3 && !run, JSON.stringify({ before: tb, after: sw.t, running: run }));
 
+  // the quick switch at the bottom of the sidebar: back to Hi-Fi from anywhere, the same song carrying on
+  { const side = win.locator('nav[aria-label=Cadenza]'), t1 = await C(() => window.__cadenza.engine.time);
+    ok('sidebar: the output switch shows, on the output in use', await side.getByRole('radio', { name: '標準' }).getAttribute('aria-checked') === 'true');
+    await side.getByRole('radio', { name: 'Hi-Fi' }).click();
+    await win.waitForFunction(() => window.__cadenza.player.get().route === 'hifi' && window.__cadenza.engine.isPlaying, null, { timeout: 15000 }).catch(() => {}); await W(800);
+    const q = await C(() => ({ route: window.__cadenza.player.get().route, ext: !!window.__cadenza.engine.clock.external, t: window.__cadenza.engine.time, set: window.__cadenza.settings.get().audioOut }));
+    ok('sidebar switch: to Hi-Fi in one click, the setting kept, the song carrying on', q.route === 'hifi' && q.ext && q.set === 'hifi' && q.t > t1 && q.t - t1 < 4, JSON.stringify(q)); }
+  // the volume balance with the fixed volume: the samples untouched, the device's hardware volume asked (the test DAC has none)
+  { const hw = await C(() => ({ hw: window.__cadenza.hifi?.get?.().hw ?? null, bal: window.__cadenza.engine.balance, ev: window.__ev.filter(e => e.ev === 'hwvol').pop() || null }));
+    ok('volume balance on Hi-Fi with a fixed volume: no gain on the samples, the hardware volume asked instead', hw.bal === 1 && !!hw.ev && hw.ev.supported === false, JSON.stringify(hw)); }
   ok('no page errors', !errs.length, errs.slice(0, 5).join(' | '));
   await app.close();
   const files = fs.readdirSync(DUMP).sort();

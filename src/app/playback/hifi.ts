@@ -9,8 +9,9 @@ import type { ExternalOut } from '../../engine';
 import { AudioOut as A } from '../bridge';
 import { settings } from '../state';
 
-export interface HifiState { supported: boolean; running: boolean; devices: { id: string; name: string }[]; caps: any; device: any; track: any; error: string | null; fallback: boolean }
-export const hifi = createStore<HifiState>({ supported: false, running: false, devices: [], caps: null, device: null, track: null, error: null, fallback: false });
+export interface HifiState { supported: boolean; running: boolean; devices: { id: string; name: string }[]; caps: any; device: any; track: any; error: string | null; fallback: boolean;
+  /** the volume balance in the device's hardware volume: whether the device has one, and what is applied */ hw: { supported: boolean; db: number } | null }
+export const hifi = createStore<HifiState>({ supported: false, running: false, devices: [], caps: null, device: null, track: null, error: null, fallback: false, hw: null });
 export const hifiOn = () => !!A && settings.get().audioOut === 'hifi' && hifi.get().supported;
 
 /* ---------- the clock ---------- */
@@ -34,10 +35,16 @@ export const output: ExternalOut = {
   clock() { return C.run ? C.base + (performance.now() - C.at) / 1000 : C.base; },
   // fixed volume: the samples reach the DAC untouched, the volume is the amplifier's; only mute (0) still applies
   gain(g) {
-    const v = settings.get().fixedVolume !== false ? (g > 0 ? 1 : 0) : Math.max(0, Math.min(1, g));
+    // (above 1 only with the volume balance's boost, which keeps within the song's headroom)
+    const v = settings.get().fixedVolume !== false ? (g > 0 ? 1 : 0) : Math.max(0, Math.min(4, g));
     if (Math.abs(v - lastG) > 0.002 || (v === 0) !== (lastG === 0)) { lastG = v; A!.cmd({ cmd: 'gain', g: v }); }
   },
 };
+
+/** The volume balance with a fixed volume: in the device's own hardware volume (dB from the user's level), so the
+ *  samples still reach the DAC untouched; a device without one keeps its level (hifi.hw says which). */
+let lastHw: number | null = null;
+export function hwGain(db: number) { if (!A || (lastHw !== null && Math.abs(db - lastHw) < 0.05)) return; lastHw = db; A.cmd({ cmd: 'hwgain', db }); }
 
 /* ---------- loading ---------- */
 let seq = 0;
@@ -69,7 +76,8 @@ if (A) {
   A.onEvent(e => {
     switch (e.ev) {
       case 'pos': onPos(e); break;
-      case 'hello': hifi.set({ running: true, error: null }); break;
+      case 'hello': hifi.set({ running: true, error: null, hw: null }); lastHw = null; break;
+      case 'hwvol': hifi.set({ hw: { supported: !!e.supported, db: e.supported ? +e.db || 0 : 0 } }); break;
       case 'devices': hifi.set({ devices: e.list || [] }); break;
       case 'caps': hifi.set({ caps: e, fallback: false }); break;
       case 'device': hifi.set({ device: e.open ? e : null }); break;
@@ -80,7 +88,7 @@ if (A) {
         if (e.code === 'device') { hifi.set({ error: e.msg }); listeners.forEach(f => f('device')); }
         break;
       }
-      case 'down': hifi.set({ running: false, device: null }); for (const [, w] of waiting) w.rej(new Error('hifi-down')); waiting.clear(); listeners.forEach(f => f('down')); break;
+      case 'down': lastHw = null; hifi.set({ running: false, device: null, hw: null }); for (const [, w] of waiting) w.rej(new Error('hifi-down')); waiting.clear(); listeners.forEach(f => f('down')); break;
       default: break;
     }
   });

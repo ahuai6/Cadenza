@@ -17,7 +17,7 @@
 /* the brand and the search leave the bar over the picture: on the way into the effect lyrics they fade with the blur
    rising, and on the way back they stay away until the page is under the blur again (the view swaps at the blur's
    peak: data-fxmode), then fade in with it clearing — the bar is above the blur, so nothing may show through early */
-.brand, .tbMid { transition: opacity 440ms var(--ease), visibility 0s; }
+.brand, .tbMid { transition: opacity 420ms var(--ease) 120ms, visibility 0s; }
 :global(html[data-winfull="true"]) .shell[data-layer="np"] :is(.brand, .tbMid), .shell[data-layer="fx"] :is(.brand, .tbMid), :global(html[data-fxmode="true"]) .shell :is(.brand, .tbMid) {
   opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 260ms var(--ease), visibility 0s 260ms; }
 .winbtns { display: flex; align-items: center; gap: 2px; padding-right: 8px; }

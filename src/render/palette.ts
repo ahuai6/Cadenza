@@ -19,6 +19,27 @@ export function uiPalette(p: Palette, st: Style) {
 type Img = CanvasImageSource & { width: number; height: number };
 /** A theme's colours from a cover: background from its dominant colour, accent from its most vivid, text with contrast. */
 export function paletteFromImage(img: Img): Pick<Style, 'bg' | 'bg2' | 'text' | 'accent' | 'flash'> {
+  const { dom, acc, avg } = coverColours(img);
+  const dark = lum(avg) < 0.5, bg = dark ? mix(dom, K3, 0.8) : mix(dom, W3, 0.84), bg2 = dark ? mix(dom, K3, 0.45) : mix(dom, W3, 0.55);
+  let text = dark ? mix(W3, acc, 0.06) : mix([12, 12, 14], dom, 0.15); for (let k = 0; k < 10 && contrast(text, bg) < 7; k++) text = mix(text, dark ? W3 : K3, 0.35);
+  let accent = acc; for (let k = 0; k < 10 && contrast(accent, bg) < 3; k++) accent = mix(accent, dark ? W3 : K3, 0.2);
+  const flash = dark ? mix(W3, accent, 0.15) : text;
+  return { bg: hexOf(bg), bg2: hexOf(bg2), text: hexOf(text), accent: hexOf(accent), flash: hexOf(flash) };
+}
+/** The record theme's colours from a cover: the ground is the cover's own dominant colour, deepened (the record and white
+ *  lyrics sit on it); everything drawn on it — the second tone, the accent, the flash — leans to the cover's opposite
+ *  hue, so the lines and shapes stand out against the cover's colour instead of melting into it. */
+export function paletteVinyl(img: Img): Pick<Style, 'bg' | 'bg2' | 'text' | 'accent' | 'flash'> {
+  const { dom, acc } = coverColours(img), [h, s] = toHsl(dom), [ha, sa] = toHsl(acc), hue = ((sa > s + 0.15 ? ha : h) + 180) % 360, sat = Math.max(0.5, Math.min(0.85, Math.max(s, sa)));
+  const bg = mix(dom, K3, 0.74), bg2 = mix(bg, hsl(hue, sat * 0.7, 0.32), 0.42);
+  let accent = hsl(hue, sat, 0.62); for (let k = 0; k < 8 && contrast(accent, bg) < 3.2; k++) accent = mix(accent, W3, 0.18);
+  let text = mix(W3, accent, 0.05); for (let k = 0; k < 8 && contrast(text, bg) < 7; k++) text = mix(text, W3, 0.35);
+  return { bg: hexOf(bg), bg2: hexOf(bg2), text: hexOf(text), accent: hexOf(accent), flash: hexOf(hsl(hue, sat * 0.6, 0.84)) };
+}
+/** The colours a theme takes from the cover (null: the theme keeps its own). */
+export const paletteForPreset = (id: string, img: Img) => (id === 'cover' ? paletteFromImage(img) : id === 'vinyl' ? paletteVinyl(img) : null);
+/** A cover's dominant colour (its largest area), its most vivid usable colour and its average. */
+function coverColours(img: Img) {
   const c = makeCanvas(40, 40), g = c.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D; g.drawImage(img, 0, 0, 40, 40);
   const d = g.getImageData(0, 0, 40, 40).data, B = new Map<number, { r: number; g: number; b: number; n: number }>(); let sr = 0, sg = 0, sb = 0, n = 0;
   for (let i = 0; i < d.length; i += 4) { const r = d[i], gg = d[i + 1], b = d[i + 2], k = ((r >> 5) << 6) | ((gg >> 5) << 3) | (b >> 5);
@@ -26,11 +47,7 @@ export function paletteFromImage(img: Img): Pick<Style, 'bg' | 'bg2' | 'text' | 
   const list = [...B.values()].map(e => ({ c: [e.r / e.n, e.g / e.n, e.b / e.n].map(Math.round) as RGB, n: e.n }));
   const avg: RGB = [sr / n, sg / n, sb / n], sat = (c: RGB) => (Math.max(...c) - Math.min(...c)) / 255, dom = list.sort((a, b) => b.n - a.n)[0].c;
   let acc = dom, best = -1; for (const e of list) { const L = lum(e.c); if (L < 0.04 || L > 0.75) continue; const v = sat(e.c) * e.n ** 0.35; if (v > best) { best = v; acc = e.c; } }
-  const dark = lum(avg) < 0.5, bg = dark ? mix(dom, K3, 0.8) : mix(dom, W3, 0.84), bg2 = dark ? mix(dom, K3, 0.45) : mix(dom, W3, 0.55);
-  let text = dark ? mix(W3, acc, 0.06) : mix([12, 12, 14], dom, 0.15); for (let k = 0; k < 10 && contrast(text, bg) < 7; k++) text = mix(text, dark ? W3 : K3, 0.35);
-  let accent = acc; for (let k = 0; k < 10 && contrast(accent, bg) < 3; k++) accent = mix(accent, dark ? W3 : K3, 0.2);
-  const flash = dark ? mix(W3, accent, 0.15) : text;
-  return { bg: hexOf(bg), bg2: hexOf(bg2), text: hexOf(text), accent: hexOf(accent), flash: hexOf(flash) };
+  return { dom, acc, avg };
 }
 export interface Ambient { base: RGB; cols: RGB[] }
 /** The ambient backdrop's colours: the cover's main colours, weighted toward the vivid ones, lifted or deepened into a

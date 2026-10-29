@@ -29,12 +29,13 @@ export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1; b.clearRect(0, 0, TB.width, TB.height);
   if (filterSupported) { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(TA, 0, 0); b.filter = 'none'; }
   else b.drawImage(TA, 0, 0);
-  // frosted glass: the softened picture comes in over the sharp one (smoothly scaled up, no blocks), with a faint light
-  // veil at the peak — a loss of focus, never a curtain
+  // frosted glass: the softened picture comes in over the sharp one (smoothly scaled up, no blocks), with a faint veil
+  // of the song's own background colour at the peak (lifted a little, so it reads as frosting, not a darker pane) — a
+  // loss of focus in the song's colour, never a curtain nor a plastic sheet
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high';
   g.globalAlpha = Math.min(1, k * 1.6) * 0.94; g.drawImage(TB, m, m, w1, h1, 0, 0, w, h);
-  g.globalAlpha = k * k * (f.pal.dark ? 0.07 : 0.1); g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
-  g.globalAlpha = k * k * 0.06; g.fillStyle = hexOf(f.pal.bg); g.fillRect(0, 0, w, h); g.restore();
+  const tint = mix(mix(f.pal.bg, f.pal.bg2, 0.55), f.pal.dark ? [255, 255, 255] : f.pal.bg2, f.pal.dark ? 0.14 : 0.3);
+  g.globalAlpha = k * k * 0.085; g.fillStyle = hexOf(tint); g.fillRect(0, 0, w, h); g.restore();
 }
 
 /* ---- titles ---- */

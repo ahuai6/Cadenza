@@ -4,7 +4,7 @@
    theme's tuning; one knob drives a family of related values. m is derived, never stored. Plain data only. */
 import { clamp } from '../core/math';
 
-export type CameraStyleId = 'punch' | 'glide' | 'waltz';
+export type CameraStyleId = 'punch' | 'glide' | 'waltz' | 'center';
 export interface Motion {
   shake: number; sway: number; punch: number; flash: number; flashk: number; impact: number; impk: number; speed: number; pulse: number; /** the beat-and-melody motion's strength (from the groove knob; 1 = the theme's) */ groove?: number;
   tilt: number; turn: number; tang: number; drift: number; split: number; glow: number; shadow: number; enter: number; lead: number;
@@ -24,7 +24,7 @@ export interface Style {
   aspect: string; quality: string; aa: string;
 }
 
-const FX_OFF = { motes: false, feathers: false, grid: false, eq: false, rings: false, scan: false, vignette: false, grain: false, glass: false, glyph: false, frame: false, stars: false };
+const FX_OFF = { motes: false, feathers: false, grid: false, eq: false, rings: false, scan: false, vignette: false, grain: false, glass: false, glyph: false, frame: false, stars: false, wires: false, shards: false, doors: false, lines: false, invgeo: false };
 export const PRESETS: Record<string, Omit<Style, 'preset' | 'from' | 'k' | 'm' | 'aspect' | 'quality' | 'aa'>> = {
   liquid: { tin: 'rise', tout: 'none', font: 'maru', bg: '#0b0820', bg2: '#2a1f66', text: '#ffffff', accent: '#ff5fc1', flash: '#58e6ff', cut: 'waltz', bgStyle: 'liquid', flashMode: 'color', future: 'dim',
     m0: { shake: .2, sway: .8, punch: .5, flash: 1, flashk: .35, impact: 1, impk: .6, speed: .75, pulse: .8, tilt: 1, turn: .45, tang: 45, drift: 1.1, split: .4, glow: .35, shadow: 0, enter: .3, lead: .15, depth: 1.2, float: .8, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
@@ -40,6 +40,12 @@ export const PRESETS: Record<string, Omit<Style, 'preset' | 'from' | 'k' | 'm' |
     vidDark: 0.6, vidBlur: 0.35, vidDesat: 0.35,
     m0: { shake: .1, sway: .35, punch: .3, flash: 0, flashk: 0, impact: 1, impk: .4, speed: .7, pulse: .35, tilt: .6, turn: .25, tang: 25, drift: .9, split: 0, glow: .22, shadow: 1, enter: .4, lead: .15, depth: 1.4, float: .5, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
     fx: { ...FX_OFF, motes: true, vignette: true, grain: true, frame: true } },
+  // the record: the camera holds the middle, where the whole disc turns; lines come and go above and below it; door
+  // frames on a horizon, plain lines, wireframe solids and line fragments around it. Its colours come from the cover:
+  // the ground the cover's own, the rest its opposite hue (palette.ts). Instrumentals take it by default.
+  vinyl: { tin: 'rise', tout: 'none', font: 'notosans', bg: '#120e16', bg2: '#25304a', text: '#f4f6fb', accent: '#7fd4ff', flash: '#d8f1ff', cut: 'center', bgStyle: 'vinyl', flashMode: 'color', future: 'dim',
+    m0: { shake: .1, sway: 0, punch: .35, flash: .7, flashk: .2, impact: 1, impk: .35, speed: .7, pulse: .6, tilt: 0, turn: 0, tang: 0, drift: 0, split: 0, glow: .45, shadow: 0, enter: .4, lead: .15, depth: 0, float: .3, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
+    fx: { ...FX_OFF, doors: true, lines: true, wires: true, shards: true } },
 };
 export const DEFAULT_THEME = 'liquid';
 /** The knobs: [key, group, min, max, step]. 1 = the theme's tuning. */

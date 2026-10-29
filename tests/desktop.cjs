@@ -90,7 +90,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const rev = await C(() => window.__cadenza.layers.npProgress());
   const closed = await layerIs('none');
   const after = await C(() => ({ np: document.querySelector('[data-test=np]').dataset.vis, stage: document.querySelector('[data-test=stage]').dataset.vis, view: window.__cadenza.engine.view, mini: document.querySelector('[data-test=card] span span').style.visibility }));
-  ok('reversed half-way: it turns round from where it is and closes completely (nothing left stuck)', rev < mid.p + 0.4 && closed && after.np === 'false' && after.stage === 'false' && after.view === 'hidden' && after.mini === '', JSON.stringify({ rev, ...after }));
+  ok('reversed half-way: it turns round from where it is and closes completely (nothing left stuck)', rev < mid.p + 0.4 && closed && after.np === 'false' && after.stage === 'false' && after.view === 'hidden' && after.mini === '', JSON.stringify({ mid: mid.p, rev, ...after }));
   await win.locator('[data-test=card]').getByTitle('展開').first().click();
   ok('now playing: open', await layerIs('np'));
   await W(400); await shot('nowplaying');
@@ -217,6 +217,27 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const exMsg = await C(() => document.querySelector('[data-test=modal] [role=status]')?.textContent || '');
   ok('export: an MP4 of a library song, written straight to the chosen file', exOpen === 'export' && fs.existsSync(out) && fs.statSync(out).size > 100000, `${fs.existsSync(out) ? (fs.statSync(out).size / 1048576).toFixed(1) + ' MB' : 'no file'} · ${exMsg.slice(0, 80)}`);
   await shot('export-done'); await win.keyboard.press('Escape'); await W(300);
+
+  /* ---------- the volume balance: every song measured; one steady gain towards a like loudness ---------- */
+  { const v = await C(() => { const L = window.__cadenza.lib.get().tracks.filter(t => !t.protected), cur = window.__cadenza.lib.get().tracks.find(t => t.id === window.__cadenza.player.get().shownId);
+      const db = cur && cur.loudness ? Math.max(-12, Math.min(12, -14 - cur.loudness.lufs, Math.max(0, -20 * Math.log10(cur.loudness.peak) - 1))) : null;
+      return { measured: L.filter(t => t.loudness && isFinite(t.loudness.lufs)).length, all: L.length, lufs: cur && cur.loudness, want: db == null ? null : 10 ** (db / 20), got: window.__cadenza.engine.balance }; });
+    ok('volume balance: every playable song measured (BS.1770), the playing one at its own steady gain', v.measured === v.all && v.want != null && Math.abs(v.got - v.want) < 1e-6, JSON.stringify(v));
+    await C(() => window.__cadenza.setSettings({ volBalance: false })); await W(200); const off = await C(() => window.__cadenza.engine.balance);
+    await C(() => window.__cadenza.setSettings({ volBalance: true })); await W(200); const back = await C(() => window.__cadenza.engine.balance);
+    ok('volume balance: off in the settings, the song plays at its own level; on again, the same gain', off === 1 && Math.abs(back - v.want) < 1e-6, JSON.stringify({ off, back })); }
+
+  /* ---------- an instrumental: marked from the song's menu, it shows its own line, in the record theme ---------- */
+  await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
+  await win.getByRole('menuitem', { name: '標記為純音樂' }).click(); await W(600);
+  await C(id => window.__cadenza.api.playIds([id], 0), ids['晨光']); await W(2500);
+  const ins = await C(() => { const s = window.__cadenza.engine.session; return { marked: window.__cadenza.lib.get().tracks.find(t => t.title === '晨光').instrumental, text: s.doc.lines.map(L => L.text).join('|'), bg: s.style.bgStyle, cut: s.style.cut }; });
+  ok('instrumental: marked from the menu, its own line instead of lyrics, the record theme by default', ins.marked === true && ins.text === '純音樂，請欣賞' && ins.bg === 'vinyl' && ins.cut === 'center', JSON.stringify(ins));
+  await C(() => window.__cadenza.layers.openFx()); await W(2200); await shot('fx-instrumental'); await C(() => window.__cadenza.ui.set({ layer: 'none' })); await W(1500);
+  await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
+  await win.getByRole('menuitem', { name: '取消純音樂標記' }).click(); await W(2500);
+  const ins2 = await C(() => { const s = window.__cadenza.engine.session; return { marked: !!window.__cadenza.lib.get().tracks.find(t => t.title === '晨光').instrumental, bg: s.style.bgStyle, lines: s.doc.lines.length }; });
+  ok('instrumental: unmarked, the song is itself again (its lyrics, the cover theme)', !ins2.marked && ins2.bg === 'cover' && ins2.lines > 1, JSON.stringify(ins2));
 
   /* ---------- workshop ---------- */
   const before = await C(() => window.__cadenza.player.get().shownId);

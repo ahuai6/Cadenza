@@ -7,7 +7,9 @@
 //   onto the new rate before the music starts (many DACs mute or click while they relock)
 // - every stop, pause, seek or song change fades the music out over 6 ms first, and a resume or seek fades it in, so no
 //   transition cuts a waveform mid-swing (clicks and pops); a song started from its beginning is not faded at all
-// - volume changes glide over 20 ms; the gain never goes above 1, and every sample is clamped
+// - volume changes glide over 20 ms; the gain goes above 1 only for the volume balance's boost (kept within the song's
+//   own headroom by the page), and every sample is clamped
+// - the volume balance with a fixed volume goes to the device's own hardware volume (Hwgain), never into the samples
 // - at unity gain, with the device at the file's rate and at least the file's bit depth, the samples reach the device
 //   exactly as stored in the file: bit-perfect
 // - samples are only rounded to fewer bits with TPDF dither, and only where bits would really be lost
@@ -98,6 +100,7 @@ pub struct Player {
     bytes: Vec<u8>,
     frames: Vec<i32>,
     mmcss: bool,
+    hw_db: f64, // the volume balance asked for in the device's hardware volume (applied on the device in use)
 }
 
 pub fn run(rx: Receiver<Cmd>) {
@@ -134,6 +137,7 @@ pub fn run(rx: Receiver<Cmd>) {
         bytes: Vec::new(),
         frames: Vec::new(),
         mmcss: false,
+        hw_db: 0.0,
     };
     #[cfg(windows)]
     unsafe {
@@ -152,6 +156,7 @@ pub fn run(rx: Receiver<Cmd>) {
                     if !p.handle(c) {
                         p.hush();
                         p.close();
+                        p.unhw();
                         return;
                     }
                 }
@@ -165,6 +170,7 @@ pub fn run(rx: Receiver<Cmd>) {
     }
     p.hush();
     p.close();
+    p.unhw();
 }
 
 /* ---------- choosing the output format for a song ---------- */
@@ -235,13 +241,44 @@ impl Player {
         self.st == St::Playing && self.out.is_some() && self.env > 0.0
     }
 
+    // the volume balance in the device's hardware volume, reported either way (the page shows whether it applies)
+    fn hw(&mut self, db: f64) {
+        match self.be.hw_gain(self.dev.as_deref(), db) {
+            Some((got, level)) => {
+                self.hw_db = db;
+                emit(json!({ "ev": "hwvol", "supported": true, "db": got, "level": level }));
+            }
+            None => {
+                self.hw_db = 0.0;
+                emit(json!({ "ev": "hwvol", "supported": false }));
+            }
+        }
+    }
+
+    // leaving (the app quits, or closes this player): the device gets its own level back
+    fn unhw(&mut self) {
+        if self.hw_db != 0.0 {
+            self.be.hw_gain(self.dev.as_deref(), 0.0);
+            self.hw_db = 0.0;
+        }
+    }
+
     fn handle(&mut self, c: Cmd) -> bool {
         match c {
             Cmd::Devices => emit(json!({ "ev": "devices", "list": self.be.devices() })),
             Cmd::Config { device, mode, release_after } => {
                 self.hush();
                 self.close();
-                self.dev = device.filter(|d| !d.is_empty());
+                let dev = device.filter(|d| !d.is_empty());
+                if dev != self.dev && self.hw_db != 0.0 {
+                    // another device: the old one gets its own level back, the new one the balance
+                    self.be.hw_gain(self.dev.as_deref(), 0.0);
+                    self.dev = dev;
+                    let db = self.hw_db;
+                    self.hw(db);
+                } else {
+                    self.dev = dev;
+                }
                 self.excl = mode.as_deref() != Some("shared");
                 self.force_shared = false;
                 if let Some(r) = release_after {
@@ -330,12 +367,21 @@ impl Player {
             Cmd::Release => {
                 self.hush();
                 self.close();
+                // the device goes back to others (the standard output): its own level with it
+                if self.hw_db != 0.0 {
+                    self.hw(0.0);
+                }
                 if self.st == St::Playing || self.st == St::Waiting {
                     self.st = St::Paused;
                 }
             }
             Cmd::Gain { g } => {
-                self.gain_to = if g.is_finite() { g.clamp(0.0, 1.0) } else { 0.0 };
+                // (above 1 only for the volume balance's boost, which keeps within the song's own headroom)
+                self.gain_to = if g.is_finite() { g.clamp(0.0, 4.0) } else { 0.0 };
+            }
+            Cmd::Hwgain { db } => {
+                let db = if db.is_finite() { db.clamp(-24.0, 12.0) } else { 0.0 };
+                self.hw(db);
             }
             Cmd::Quit => {
                 return false;

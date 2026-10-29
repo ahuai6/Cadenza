@@ -14,14 +14,15 @@
    early), waltz (glide's path with livelier moves; its springy kicks come from the rhythm's cone signal at render). */
 import { clamp, dirv, angDiff, lerp, mcubic } from '../core/math';
 import { rnd } from '../core/rng';
-import { eGlide, eWaltz, ePunch, eSettle, minJerk, type Ease } from '../core/ease';
+import { rollDur } from './scenes';
+import { eGlide, eWaltz, ePunch, eSettle, eSpring, minJerk, type Ease } from '../core/ease';
 import type { RhythmMap } from '../rhythm/map';
 import type { Style } from '../theme/style';
 import type { PWord, PLine, Passage, Stop, Move, CameraPlan, Pose } from './types';
-import { boxIn, corners, wordZoom, tsz } from './layout';
+import { boxIn, corners, wordZoom, tsz, centerZoom } from './layout';
 import { timePassage, roomForQuick } from './passages';
 
-export const EASES: Record<string, Ease> = { glide: eGlide, waltz: eWaltz, punch: ePunch, settle: eSettle, zoom: minJerk, cut: u => (u >= 1 ? 1 : u > 0 ? 1 : 0) };
+export const EASES: Record<string, Ease> = { roll: eSpring(1.2, 0.12), glide: eGlide, waltz: eWaltz, punch: ePunch, settle: eSettle, zoom: minJerk, cut: u => (u >= 1 ? 1 : u > 0 ? 1 : 0) };
 const MAX_PAN = 1.1;           // frames: a move that must travel further than about a screen becomes a transition
 const MAX_SPEED = 3.4;         // frames per second
 const SAFE_X = 0.43, SAFE_Y = 0.40;   // half-extent of the safe area, share of the frame
@@ -29,6 +30,7 @@ const SAFE_X = 0.43, SAFE_Y = 0.40;   // half-extent of the safe area, share of 
 export interface CameraInput { lines: PLine[]; words: PWord[]; passages: Passage[]; map: RhythmMap; style: Style; W: number; H: number; musicEnd: number; dur: number; introHold: number }
 
 export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassages: Passage[] } {
+  if (inp.style.cut === 'center') return { camera: planCenter(inp), extraPassages: [] };
   const { lines, map, style: st, W, H } = inp, M = st.m, T = tsz(st), cut = st.cut, sp = Math.max(0.3, M.speed);
   const smooth = cut !== 'punch', waltz = cut === 'waltz', TK = M.tilt;
   const passByLine = new Map(inp.passages.map(p => [p.line, p]));
@@ -62,7 +64,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       const last = grp[grp.length - 1], rd = P.rtl ? -1 : 1, dv = dirv(S0.ang);
       stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 12 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,
         t: S0.w.t, arrive: 0, leave: 0, sungEnd: last.end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: S0.tilt }, dir: [dv[0] * rd, dv[1] * rd], drift: 0,
-        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp });
+        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0 });
       k = j;
     }
   }
@@ -154,12 +156,26 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         B.cut = true; arrive = pg.t; s = arrive;
       }
     }
+    // the roller: half a turn takes its time (the pace knob). It sets off once the words before are sung (earlier only if
+    // that lets it land before the new word appears); a word that appears before the roll is over rides with the camera
+    // until it lands (only the first: the one the roll brings)
+    const roll = B.roll && !B.cut ? B.roll : 0;
+    if (roll) { const D = rollDur(M.speed); s = Math.max(A.arrive + 0.05, Math.min(s, Math.max(B.words[0].show - D, A.sungEnd - 0.12))); arrive = s + D;
+      const W0 = B.words[0]; W0.carry = arrive > W0.show + 0.05 ? { t0: W0.show, t1: arrive } : null; }
     B.arrive = arrive;
     const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy);
     let bow: [number, number] = [0, 0];
     if (smooth && !B.cut && L > 1) { const C = stops[i + 1], nx = -dy / L, ny = dx / L; let side = rnd(i * 3.7 + 1) < 0.5 ? -1 : 1, turn = 0;
       if (C && !C.cut) { const cx = C.x - B.x, cy = C.y - B.y, lc = Math.hypot(cx, cy); if (lc > 1) { const cr = (dx * cy - dy * cx) / (L * lc), dt = (dx * cx + dy * cy) / (L * lc); turn = clamp((1 - dt) / 1.5); if (Math.abs(cr) > 0.05) side = cr > 0 ? -1 : 1; } }
       const a = L * (0.0125 + 0.03 * turn); bow = [nx * a * side, ny * a * side]; }
+    if (roll) {
+      // the way it was asked to turn (half a turn has two ways round), sprung by the force knob, swinging further and
+      // breathing out more with the turns knob
+      const dr = angDiff(B.r - roll * 180, A.r) + roll * 180;
+      moves.push({ s, a: arrive, dx, dy, dz: Math.log(B.z / A.z), dr, dd: B.d - A.d, ease: 'roll', bow: [0, 0],
+        spring: [clamp(0.75 + M.punch * 0.9, 0.6, 2.4), clamp(0.05 + 0.09 * TK, 0.02, 0.32)], zb: clamp(0.1 * TK, 0, 0.3) });
+      continue;
+    }
     moves.push({ s, a: B.cut ? s : arrive, dx, dy, dz: Math.log(B.z / A.z), dr: angDiff(B.r, A.r), dd: B.d - A.d, ease: B.cut ? 'cut' : smooth ? (waltz ? 'waltz' : 'glide') : (slow > 0 ? 'glide' : 'punch'), bow });
   }
   // the last stop drifts until the ending
@@ -186,6 +202,26 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   return { camera: plan, extraPassages: extraPass };
 }
 
+/** The centred stage: the camera stays on the middle and never turns. While a line is sung it leans a little towards it
+ *  (a tenth of the way, a touch closer: a small focus, at the pace knob's speed); in a pause of a couple of seconds, and
+ *  at the end, it comes back to the middle. The beat and the accents still breathe in the frame (evaluate.ts), never in
+ *  its angle. */
+function planCenter(inp: CameraInput): CameraPlan {
+  const { lines, style: st, H } = inp, M = st.m, sp = Math.max(0.3, M.speed), z0 = centerZoom(inp.words, H, tsz(st));
+  const mid = (t: number): Stop => ({ x: 0, y: 0, z: z0, r: 0, d: 0, t, arrive: t, leave: t, sungEnd: t, box: { x: 0, y: 0, w: 0, h: 0, tilt: 0 }, dir: [1, 0], drift: 0, cut: false, over: false, rest: 0, words: [] });
+  const stops: Stop[] = [];
+  lines.forEach((P, i) => { if (!P.words.length) return;
+    const B = boxIn(P.words, 0), t0 = P.words[0].show, end = Math.min(P.L.sung, P.L.end), next = lines[i + 1]?.words[0]?.show ?? Infinity;
+    stops.push({ ...mid(t0), x: B.x * 0.1, y: B.y * 0.1, z: z0 * 1.05, sungEnd: end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: 0 }, words: P.words });
+    if (next - end > 2.5) stops.push(mid(end + 0.6)); });
+  const start: Pose = { x: 0, y: 0, z: z0 * 0.94, r: 0, d: 0 }, moves: Move[] = [];
+  let prev: Pose = start, at = 0;
+  for (const s of stops) { const dur = clamp(0.9 / sp, 0.5, 1.8), a = Math.max(s.t, at + 0.05), s0 = Math.max(at, a - dur);
+    moves.push({ s: s0, a, dx: s.x - prev.x, dy: s.y - prev.y, dz: Math.log(s.z / prev.z), dr: 0, dd: 0, ease: 'glide', bow: [0, 0] }); s.arrive = a; prev = s; at = a; }
+  const plan: CameraPlan = { style: 'center', start, stops, moves, drifts: [], cuts: [], idle: idleWindows(lines, inp.musicEnd), dyn: { cone: 0.012 * clamp(M.punch + 0.4, 0.2, 2), coneRoll: 0, float: 0, sway: 0 } };
+  plan.path = smoothPath(plan, inp.dur, 'glide', sp, Infinity);
+  return plan;
+}
 /** A framing that holds these words in the safe area, centred on them (the zoom at most what one word would get). */
 function fitPose(ws: PWord[], tilt: number, r: number, W: number, H: number, T: number) {
   const B = boxIn(ws, tilt), z = Math.min(W * 2 * SAFE_X * 0.96 / B.w, H * 2 * SAFE_Y * 0.96 / B.h, W * 0.8 / B.w * T);
@@ -253,11 +289,12 @@ export function rawPose(c: CameraPlan, t: number): Pose & { tx: number; ty: numb
   let x = c.start.x, y = c.start.y, lz = Math.log(c.start.z), r = c.start.r, d = c.start.d;
   for (const m of c.moves) {
     if (t <= m.s) continue;
-    const span = m.a - m.s, u = span <= 0 ? 1 : clamp((t - m.s) / span), e = EASES[m.ease](u);
+    const span = m.a - m.s, u = span <= 0 ? 1 : clamp((t - m.s) / span), e = m.spring ? eSpring(m.spring[0], m.spring[1])(u) : EASES[m.ease](u);
     x += m.dx * e; y += m.dy * e; r += m.dr * e; d += m.dd * e;
     // zoom eases over a slightly longer window, so changes in distance stay softer than the pan
     const zs = m.s - span * 0.15, za = m.a + span * 0.25, uz = span <= 0 ? 1 : clamp((t - zs) / (za - zs)); lz += m.dz * minJerk(uz);
     if (u > 0 && u < 1) { const q = 4 * e * (1 - e); x += m.bow[0] * q; y += m.bow[1] * q; }
+    if (m.zb && u > 0 && u < 1) lz -= m.zb * Math.sin(Math.PI * u) ** 2;   // a roll breathes out a little at its middle
   }
   for (const [a, b, dx, dy] of c.drifts) { if (t <= a) continue; const e = minJerk(clamp((t - a) / Math.max(1e-3, b - a))); x += dx * e; y += dy * e; }
   return { x, y, z: Math.exp(lz), r, d, tx: 0, ty: 0 };

@@ -20,6 +20,9 @@ export interface Effect {
   /** order inside its layer (lower first) */
   z?: number;
   draw(g: Ctx, f: RenderFrame, a: DrawArgs): void;
+  /** a backdrop's own front layer, drawn among the backdrop's effects at depth `frontZ` (the record theme's disc stands in
+   *  front of its horizon and behind the shapes floating round it) */
+  front?(g: Ctx, f: RenderFrame, a: DrawArgs): void; frontZ?: number;
   /** optional: build what a coming frame will need, in idle time */
   prepare?(f: RenderFrame): void;
 }

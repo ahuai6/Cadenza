@@ -76,6 +76,20 @@ pub trait Backend {
     fn devices(&mut self) -> Vec<DevInfo>;
     fn probe(&mut self, dev: Option<&str>) -> Result<Caps, String>;
     fn open(&mut self, dev: Option<&str>, f: &Format) -> Result<Box<dyn Stream>, String>;
+    // the volume balance in the device's own hardware volume: `db` from the level the user set (0 takes it back off).
+    // The user's own changes are kept: the offset is measured from the level as it stands minus what was applied before.
+    // Some((applied dB, the device's level in dB)) when the device has a hardware volume; None when it has none (then
+    // nothing is touched: in exclusive mode only a hardware volume acts at all, and the samples are never changed).
+    fn hw_gain(&mut self, _dev: Option<&str>, _db: f64) -> Option<(f64, f64)> {
+        None
+    }
+}
+/// The arithmetic of the hardware offset, shared by every backend: from the level now and the offset applied before,
+/// the level to set (inside the device's range) and the offset that level really applies.
+pub fn hw_offset(level: f64, applied: f64, want: f64, min: f64, max: f64) -> (f64, f64) {
+    let base = level - applied;
+    let to = (base + want).clamp(min, max);
+    (to, to - base)
 }
 
 pub const RATES: [u32; 10] = [44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000];
@@ -108,15 +122,16 @@ pub mod fake {
         present: bool,
         dump: Option<String>,
         n: usize,
+        hw: Option<(f64, f64)>, // a hardware volume: (the level in dB, the offset applied)
     }
     impl Fake {
         #[cfg(not(windows))]
         pub fn none() -> Self {
-            Fake { rates: vec![], fmts: vec![], mix: 48000, busy: false, present: false, dump: None, n: 0 }
+            Fake { rates: vec![], fmts: vec![], mix: 48000, busy: false, present: false, dump: None, n: 0, hw: None }
         }
         // "rates=44100,48000;fmts=i32,i16;mix=48000;busy=1;dump=/path/prefix"
         pub fn new(spec: &str) -> Self {
-            let mut f = Fake { rates: RATES[..6].to_vec(), fmts: vec![SFmt::I32v24, SFmt::I16], mix: 48000, busy: false, present: true, dump: None, n: 0 };
+            let mut f = Fake { rates: RATES[..6].to_vec(), fmts: vec![SFmt::I32v24, SFmt::I16], mix: 48000, busy: false, present: true, dump: None, n: 0, hw: None };
             for kv in spec.split(';') {
                 let mut it = kv.splitn(2, '=');
                 let (k, v) = (it.next().unwrap_or(""), it.next().unwrap_or(""));
@@ -138,6 +153,8 @@ pub mod fake {
                     "mix" => f.mix = v.parse().unwrap_or(48000),
                     "busy" => f.busy = v == "1",
                     "dump" => f.dump = Some(v.to_string()),
+                    // "hwvol=-20": the device has a hardware volume, the user's level at -20 dB (range -60..0)
+                    "hwvol" => f.hw = v.parse().ok().map(|l: f64| (l, 0.0)),
                     _ => {}
                 }
             }
@@ -181,6 +198,12 @@ pub mod fake {
             });
             let bufn = (f.rate as usize) / 20; // 50 ms
             Ok(Box::new(FakeStream { f: *f, bufn, written: 0, t0: None, file }))
+        }
+        fn hw_gain(&mut self, _dev: Option<&str>, db: f64) -> Option<(f64, f64)> {
+            let (level, applied) = self.hw?;
+            let (to, got) = hw_offset(level, applied, db, -60.0, 0.0);
+            self.hw = Some((to, got));
+            Some((got, to))
         }
     }
     struct FakeStream {
@@ -232,11 +255,12 @@ pub mod wasapi_be {
 
     pub struct Wasapi {
         en: Option<DeviceEnumerator>,
+        hw: std::collections::HashMap<String, f64>, // the offset applied to each device's hardware volume
     }
     impl Wasapi {
         pub fn new() -> Self {
             let _ = initialize_mta();
-            Wasapi { en: DeviceEnumerator::new().ok() }
+            Wasapi { en: DeviceEnumerator::new().ok(), hw: Default::default() }
         }
         fn device(&self, id: Option<&str>) -> Result<Device, String> {
             let en = self.en.as_ref().ok_or("no audio system")?;
@@ -331,6 +355,31 @@ pub mod wasapi_be {
             let render = client.get_audiorenderclient().map_err(|e| e.to_string())?;
             Ok(Box::new(WStream { client, render, block }))
         }
+        fn hw_gain(&mut self, dev: Option<&str>, db: f64) -> Option<(f64, f64)> {
+            let key = dev.unwrap_or("").to_string();
+            let applied = *self.hw.get(&key).unwrap_or(&0.0);
+            let d = self.device(dev).ok()?;
+            let (to, got) = unsafe { endpoint_gain(d.as_immdevice(), applied, db) }.ok().flatten()?;
+            self.hw.insert(key, got);
+            Some((got, to))
+        }
+    }
+    // the device's endpoint volume, only when the device applies it in its own hardware (then exclusive mode keeps it, and
+    // the stream itself is never touched); Ok(None) when the device has no hardware volume
+    unsafe fn endpoint_gain(d: &windows::Win32::Media::Audio::IMMDevice, applied: f64, db: f64) -> windows::core::Result<Option<(f64, f64)>> {
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+        use windows::Win32::Media::Audio::ENDPOINT_HARDWARE_SUPPORT_VOLUME;
+        use windows::Win32::System::Com::CLSCTX_ALL;
+        let ev: IAudioEndpointVolume = d.Activate(CLSCTX_ALL, None)?;
+        if ev.QueryHardwareSupport()? & ENDPOINT_HARDWARE_SUPPORT_VOLUME == 0 {
+            return Ok(None);
+        }
+        let (mut mn, mut mx, mut step) = (0f32, 0f32, 0f32);
+        ev.GetVolumeRange(&mut mn, &mut mx, &mut step)?;
+        let level = ev.GetMasterVolumeLevel()? as f64;
+        let (to, got) = hw_offset(level, applied, db, mn as f64, mx as f64);
+        ev.SetMasterVolumeLevel(to as f32, std::ptr::null())?;
+        Ok(Some((to, got)))
     }
     struct WStream {
         client: AudioClient,
@@ -354,5 +403,25 @@ pub mod wasapi_be {
         fn stop(&mut self) {
             let _ = self.client.stop_stream();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hw_offset;
+    #[test]
+    fn hw_offset_keeps_the_users_level() {
+        // the user at -20 dB; a song asks for -6: -26
+        let (to, got) = hw_offset(-20.0, 0.0, -6.0, -60.0, 0.0);
+        assert_eq!((to, got), (-26.0, -6.0));
+        // the user turns it up to -16 meanwhile (their base is now -10); the next song asks for -3: -13
+        let (to, got) = hw_offset(-16.0, -6.0, -3.0, -60.0, 0.0);
+        assert_eq!((to, got), (-13.0, -3.0));
+        // back to 0: the user's own level, whatever they changed
+        let (to, got) = hw_offset(-13.0, -3.0, 0.0, -60.0, 0.0);
+        assert_eq!((to, got), (-10.0, 0.0));
+        // a boost past the top of the range stops at it, and says how much it really applied
+        let (to, got) = hw_offset(-2.0, 0.0, 6.0, -60.0, 0.0);
+        assert_eq!((to, got), (0.0, 2.0));
     }
 }

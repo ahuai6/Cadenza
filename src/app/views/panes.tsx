@@ -18,9 +18,9 @@ import s from './panes.module.css';
 
 export type Edit = (fn: (s: Session) => unknown) => void;
 export interface PaneProps { s: Session; edit: Edit; ctx: 'song' | 'workshop' }
-export const BG_STYLES = ['cover', 'liquid', 'gothic', 'stage', 'minimal', 'bokeh', 'geo', 'video'];
+export const BG_STYLES = ['cover', 'vinyl', 'liquid', 'gothic', 'stage', 'minimal', 'bokeh', 'geo', 'video'];
 const COVER_EDGE = ['album', 'float', 'blend'], ASPECTS: [string, string][] = [['16:9', 'aspect.169'], ['9:16', 'aspect.916'], ['1:1', 'aspect.11'], ['4:5', 'aspect.45'], ['fill', 'aspect.fill']];
-const CUTS = ['punch', 'waltz', 'glide'], TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
+const CUTS = ['punch', 'waltz', 'glide', 'center'], TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
 const f2 = (v: number) => (+v).toFixed(2), fmtK = (v: number) => `${(+v).toFixed(2)}×`;
 const opts = (list: string[], prefix: string): [string, string][] => list.map(v => [v, tx(prefix + v)]);
 
@@ -30,7 +30,7 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
   const st = ss.style, custom = st.preset === 'custom', saved = useThemes(), [name, setName] = useState(st.name || '');
   useEffect(() => { setName(st.name || ''); }, [st.id, st.name]);
   const isSaved = custom && !!st.id && saved.some(t => t.id === st.id);
-  const presets = ctx === 'song' ? ['cover', 'liquid', 'gothic'] : Object.keys(PRESETS);
+  const presets = ctx === 'song' ? ['cover', 'vinyl', 'liquid', 'gothic'] : Object.keys(PRESETS);
   const usePreset = (k: string) => edit(x => { x.applyPreset(k); if (ctx === 'song') x.makeCustom(); });
   const save = (asNew: boolean) => { const n = name.trim() || tx('th.untitled'), id = saveTheme(st, n, asNew); edit(x => { x.style.id = id; x.style.name = n; x.style.edited = false; }); toast(tx('th.saved', { name: n })); };
   return (

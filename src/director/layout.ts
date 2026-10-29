@@ -51,7 +51,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     let prev: { group: number; s0: number; tin: string; show: number } | null = null; const fast = fastLine(L);
     for (const Wd of L.words) {
       const k = Wd.k, n = Wd.units.length;
-      const vert = Wd.cjk && n >= 2 && n <= 5 && k > 0 && !fast && rnd(L.i * 37 + k * 11.3) < 0.34;
+      const vert = st.cut !== 'center' && Wd.cjk && n >= 2 && n <= 5 && k > 0 && !fast && rnd(L.i * 37 + k * 11.3) < 0.34;
       const mb = measure.word(Wd.units.map(u => u.c), { vertical: vert, rtl: L.rtl });
       let s0 = Wd.latin ? 1.1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
@@ -101,7 +101,11 @@ export function layout(inp: LayoutInput): LayoutResult {
   const dens = (t: number) => { let c = 0; for (const x of starts) { if (x > t + 1.6) break; if (x >= t - 1.6) c++; } return c; };
   let mxd = 1; for (const x of starts) mxd = Math.max(mxd, dens(x));
 
+  /* ---- the centred stage: the camera holds the middle; each line is set there, alternately above and below it ---- */
+  if (st.cut === 'center') return centerLayout(lines, words, W, H, gap, T);
+
   /* ---- placement ---- */
+  const { scenes, rolls } = scenesOf(lines, map, M.speed), drum = new Map<number, [number, number]>();
   const FLIP = clamp(M.flip ?? 1, 0.2, 6) * BASE * 8 * T;
   const placed: PWord[] = [], pad0 = gap * 0.4;
   const proj = (pts: [number, number][], ax: [number, number]) => { let a = 1e9, b = -1e9; for (const q of pts) { const v = q[0] * ax[0] + q[1] * ax[1]; if (v < a) a = v; if (v > b) b = v; } return [a, b]; };
@@ -151,7 +155,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     Lp.words.forEach((S, k) => {
       const w = S.lw, h = S.lh, first = (i === 0 && k === 0) || (secFirst && k === 0);
       const tilt0 = rnd(i * 5 + k * 9.1) < 0.3 ? (rnd(i * 3 + k) - 0.5) * 12 : 0;
-      let turn = 0; const rd = Lp.rtl ? -1 : 1;
+      let turn = 0; const rd = Lp.rtl ? -1 : 1; S.roll = 0;
       if (!first && !Lp.rtl && mode !== 'dash' && TURN > 0 && TA > 0 && S.s > 0.55 && !S.vert && S.w.t - lastTurn >= map.beatLen(S.w.t)) {
         const acc = clamp(0.5 + map.accentAt(S.w.t) * 0.5, 0.5, 1.5);
         const p = TURN * (k === 0 ? 0.9 : 0.45) * acc * (0.6 + 0.8 * dens(S.w.t) / mxd) * (S.w.latin ? 0.7 : 1);
@@ -161,7 +165,17 @@ export function layout(inp: LayoutInput): LayoutResult {
         }
       }
       let c: [number, number];
-      if (turn) {
+      // the roller: the word goes on the drum's next row — turned half round, beside the row before (its start under that
+      // row's end), every row of a run on the same side, so the rows stack outwards like the faces of a drum
+      const roll = !first && mode !== 'dash' ? rolls.get(S) : undefined;
+      if (roll) {
+        const nr = placed.filter(Q => Q.roll && rolls.get(Q)?.run === roll.run).length, sg = nr % 2 ? 1 : -1;   // left first, then right, … (counting the rows on the page)
+        const d1 = dirv(th), th2 = th + sg * 180, d2 = dirv(th2);
+        let m = nr ? drum.get(roll.run) : undefined; if (!m) { const n1 = dirv(th + 90); m = [-n1[0], -n1[1]]; drum.set(roll.run, m); }
+        const off = prevH / 2 + gap * 2.2 + h / 2;
+        c = [P[0] + m[0] * off - d1[0] * w / 2, P[1] + m[1] * off - d1[1] * w / 2]; P = [c[0] + d2[0] * w / 2, c[1] + d2[1] * w / 2];
+        th = th2; if (k === 0) lineStart = [c[0] - d2[0] * w / 2, c[1] - d2[1] * w / 2]; lastTurn = S.w.t; S.roll = sg;
+      } else if (turn) {
         const th2 = th + turn, d1 = dirv(th), d2 = dirv(th2);
         const P2: [number, number] = [P[0] + d1[0] * (h / 2 + gap) - d2[0] * prevH / 2, P[1] + d1[1] * (h / 2 + gap) - d2[1] * prevH / 2];
         th = th2; c = [P2[0] + d2[0] * w / 2, P2[1] + d2[1] * w / 2]; P = [c[0] + d2[0] * w / 2, c[1] + d2[1] * w / 2];
@@ -207,7 +221,7 @@ export function layout(inp: LayoutInput): LayoutResult {
         c = cc!;
       }
       if (secFirst && k === 0) secFirst = false;
-      S.x = c[0]; S.y = c[1]; S.ang = th; S.tilt = th + tilt0 * TK * 0.35;
+      S.x = c[0]; S.y = c[1]; S.ang = th; S.tilt = th + (S.roll ? 0 : tilt0 * TK * 0.35);
       if (hits(S)) { const d = dirv(th), n = dirv(th + 90), ox = S.x, oy = S.y; let done = false;
         for (let s2 = 1; s2 <= 12 && !done; s2++) for (const [ux, uy] of [[d[0] * w * 0.3 * s2, d[1] * w * 0.3 * s2], [n[0] * h * 0.45 * s2, n[1] * h * 0.45 * s2], [(d[0] + n[0]) * w * 0.22 * s2, (d[1] + n[1]) * w * 0.22 * s2]]) {
           S.x = ox + ux; S.y = oy + uy; if (!hits(S)) { P = [P[0] + ux, P[1] + uy]; done = true; break; } }
@@ -230,7 +244,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     S0 = { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN };
     return !bad;
   };
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', scenes = scenesOf(lines, map), CROWD = 10; let onPage = 0;
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = 10; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
     // ten lines on the page are enough: the next line that leaves room for one clears the picture (the words stay few
@@ -263,6 +277,33 @@ export function layout(inp: LayoutInput): LayoutResult {
   const order = [...words].sort((a, b) => b.d - a.d || a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
   const dmin = words.reduce((m, S) => Math.min(m, S.d), 0);
   return { lines, words, passages, dmin };
+}
+
+/** How close the camera holds the centred stage: the lyric type a steady size on screen (its typical word about 12 %
+ *  of the frame's height), whatever the song. */
+export function centerZoom(words: PWord[], H: number, T: number) {
+  const hs = words.filter(S => !S.vert).map(S => S.lh / S.s).sort((a, b) => a - b), h0 = hs.length ? hs[hs.length >> 1] : EM;
+  return clamp(H * 0.12 / (h0 * T), 0.15, 2);
+}
+/** The centred stage (camera style 'center'): every line is set level, wrapped into rows that fit the frame, its block
+ *  centred above the middle and the next one below it, so a line never lands on the one just before; no depth, no turns
+ *  and no transitions (each line leaves on its own, see words.ts). */
+function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap: number, T: number): LayoutResult {
+  const z = centerZoom(words, H, T), maxW = W * 0.8 / z, slot = H * 0.2 / z;
+  lines.forEach((P, i) => {
+    const rows: PWord[][] = [[]]; let rw = 0;
+    for (const S of P.words) { const g = rows[rows.length - 1].length ? (S.w.latin ? Math.max(gap, S.lh * 0.32) : gap) : 0;
+      if (rows[rows.length - 1].length && rw + g + S.lw > maxW) { rows.push([]); rw = 0; } rw += (rows[rows.length - 1].length ? g : 0) + S.lw; rows[rows.length - 1].push(S); }
+    const rh = rows.map(r => Math.max(...r.map(S => S.lh))), rg = gap * 2.2, bh = rh.reduce((a, h) => a + h, 0) + rg * (rows.length - 1);
+    const cy = (i % 2 ? 1 : -1) * Math.max(bh / 2 + gap, slot) * (rows.length > 2 ? 0.6 : 1); let y = cy - bh / 2;
+    rows.forEach((r, ri) => { const ws = r.reduce((a, S, k) => a + S.lw + (k ? (S.w.latin ? Math.max(gap, S.lh * 0.32) : gap) : 0), 0); let x = -ws / 2;
+      for (const [k, S] of r.entries()) { if (k) x += S.w.latin ? Math.max(gap, S.lh * 0.32) : gap; S.x = x + S.lw / 2; S.y = y + rh[ri] / 2; S.tilt = 0; S.ang = 0; S.d = 0; S.roll = 0; x += S.lw; }
+      y += rh[ri] + rg; });
+    const B = boxIn(P.words, 0); P.ax = B.x; P.ay = B.y; P.bw = B.w; P.bh = B.h; P.prot = 0; P.d = 0;
+  });
+  assignSections(lines, []);
+  const order = [...words].sort((a, b) => a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
+  return { lines, words, passages: [], dmin: 0 };
 }
 
 /** Which passage each line belongs to, and when it ends; a line's end is trimmed to before its passage's transition. */

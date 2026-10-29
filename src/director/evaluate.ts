@@ -11,7 +11,7 @@ import { clamp, sstep, lerp, D2R } from '../core/math';
 import { eIO } from '../core/ease';
 import { impulse } from '../core/spring';
 import type { Signals, RhythmSample } from '../rhythm/signals';
-import type { ScenePlan } from './types';
+import type { ScenePlan, PWord } from './types';
 import { basePose } from './camera';
 import type { Cam, Fx } from './project';
 import { transK } from './passages';
@@ -38,7 +38,7 @@ export function restK(plan: ScenePlan, t: number): number {
 }
 export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): CamFrame {
   const c = plan.camera, b = basePose(c, t), M = plan.style.m, W = plan.W;
-  const ik = idleK(plan, t), rs = sig.sample(t, ik), calm = 1 - clamp((t - plan.musicEnd) / 0.3), still = 1 - rs.still;
+  const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t, idleK(plan, t)), calm = 1 - clamp((t - plan.musicEnd) / 0.3), still = 1 - rs.still;
   const cam: Cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
   // handheld float
   const A = c.dyn.float * motion, hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
@@ -93,9 +93,20 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
     fx.z *= 1 + k * 0.06 * v; fx.x += Math.cos(e.ang) * k * W * 0.008 * v; fx.y += Math.sin(e.ang) * k * W * 0.008 * v; fx.r += e.sg * k * 0.9 * v;
     split = Math.max(split, k * Math.max(0, v));
   }
+  // the centred stage never turns or rocks: only its distance and position breathe
+  if (centre) { cam.r = 0; cam.yaw = cam.pitch = 0; fx.r = 0; fx.sk = undefined; }
   // the backdrop's camera skips the cuts (they are hidden by the blur; the backdrop must not turn or jump with them)
   const cont = { ...cam, x: b.x, y: b.y, z: b.z }; for (const k of c.cuts) if (t >= k.t) { cont.x -= k.dx; cont.y -= k.dy; cont.r -= k.dr; cont.z /= Math.exp(k.dz); }
   cont.x += ox / cont.z; cont.y += oy / cont.z; cont.z *= oz;
   return { rest: restK(plan, t), cam, fx, cont, split, idle: ik, trans: transK(plan.passages, t), ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
 }
 export const lerpCam = (a: Cam, b: Cam, k: number): Cam => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)), r: lerp(a.r, b.r, k), d: lerp(a.d, b.d, k), yaw: lerp(a.yaw, b.yaw, k), pitch: lerp(a.pitch, b.pitch, k) });
+
+/** The camera a carried word is seen through at t (the roller: a word that appears before its roll is over rides with the
+ *  camera): the camera at t moved by what the planned path still has to do before t1, so the word holds where the camera
+ *  will show it when the roll lands, while the world turns behind it; it is the camera itself again at t1. */
+export function carryCam(plan: ScenePlan, S: PWord, t: number, cam: Cam): Cam {
+  const C = S.carry; if (!C || t < C.t0 || t >= C.t1) return cam;
+  const a = basePose(plan.camera, t), b = basePose(plan.camera, C.t1);
+  return { ...cam, x: cam.x + b.x - a.x, y: cam.y + b.y - a.y, z: cam.z * b.z / a.z, r: cam.r + b.r - a.r, d: cam.d + b.d - a.d };
+}

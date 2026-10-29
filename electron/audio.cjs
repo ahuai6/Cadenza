@@ -54,7 +54,7 @@ function start(ipcMain, getWin, settings, library) {
     if (!o || typeof o.cmd !== 'string') return false;
     if (!proc) { if (want) launch(); if (!proc) return false; }
     if (o.cmd === 'load') { const p = library.pathOf(o.id); if (!p) return false; write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: o.seq | 0 }); return true; }
-    if (['play', 'pause', 'stop', 'release', 'gain', 'devices'].includes(o.cmd)) { write(o); return true; }
+    if (['play', 'pause', 'stop', 'release', 'gain', 'hwgain', 'devices'].includes(o.cmd)) { write(o); return true; }
     return false;
   });
   app.on('will-quit', stop);

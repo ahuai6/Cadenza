@@ -29,6 +29,10 @@ pub enum Cmd {
     Gain {
         g: f64,
     },
+    // the volume balance as the device's own hardware volume (dB from the user's level): the stream stays untouched
+    Hwgain {
+        db: f64,
+    },
     Quit,
 }
 

@@ -19,6 +19,7 @@
       a build. */
 import { clamp, quantile, median, mean, bisect } from '../core/math';
 import { toMono, bandEnergies, logBands, smooth, movingMedian } from './dsp';
+import { loudness } from './loudness';
 import { RHYTHM_VERSION, type RhythmAnalysis, type RhythmEvent, type Section, type Band, type Tier } from './types';
 
 const RATE = 22000, SIZE = 1024, HOP = 220, FPS = RATE / HOP;   // 100 frames per second
@@ -308,6 +309,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     version: RHYTHM_VERSION, duration, rate: OUT_RATE, tempo: { bpm, confidence: +confidence.toFixed(3) },
     beats: beats.map(b => +b.toFixed(4)), meter, downbeat, phrase, halfTime, events,
     sections: sections.map(s => ({ ...s, energy: +s.energy.toFixed(3), density: +s.density.toFixed(3) })),
+    loudness: (({ lufs, peak }) => ({ lufs: +lufs.toFixed(2), peak: +peak.toFixed(4) }))(loudness(channels, sampleRate)),
     builds, level: ds(level), loud: ds(loud), odf: ds(odf), spec: specBands(L, F, nb).map(ds),
   };
 }

@@ -152,6 +152,28 @@ function maxStep(a, full, from = 0, to = a.length) { let m = 0; for (let i = fro
     ok(code === 0 && tail === 0, 'exits cleanly, ending on silence');
     ok(maxStep(o, 2 ** 31) <= 2 * Math.PI * 1000 / 96000 * AMP * 1.15, 'faded out, no click');
   }
+  /* 6. the volume balance with a fixed volume: the device's own hardware volume, never the samples */
+  console.log('volume balance in the hardware volume');
+  {
+    const A = start('rates=96000;fmts=i24in32;hwvol=-20', 'hw');
+    A.send({ cmd: 'config', mode: 'exclusive' });
+    A.send({ cmd: 'load', id: 'hr', path: F.hr, seq: 1 }); await A.wait(e => e.ev === 'ready');
+    A.send({ cmd: 'hwgain', db: -6 }); const h = await A.wait(e => e.ev === 'hwvol');
+    ok(h.supported && h.db === -6 && h.level === -26, `a song 6 dB too loud: the device from the user's -20 to ${h.level} dB`);
+    A.send({ cmd: 'play', pos: 0 }); await A.wait(e => e.ev === 'pos' && e.run); await sleep(1400);
+    A.send({ cmd: 'hwgain', db: 2 }); const h2 = await A.wait(e => e.ev === 'hwvol' && e.db === 2);
+    ok(h2.level === -18, `the next song asks for +2: ${h2.level} dB, measured from the user's own level`);
+    A.send({ cmd: 'release' }); const h3 = await A.wait(e => e.ev === 'hwvol' && e.db === 0);
+    ok(h3.level === -20, `released: the device back at the user's level (${h3.level} dB)`);
+    await A.done();
+    const o = i32(A.dumps()[0]), src = ref(F.hr), o0 = firstNonZero(o), s0 = firstNonZero(src), n = 96000 * 2; let same = 0;
+    for (let i = 0; i < n; i++) if (o[o0 + i] === src[s0 + i]) same++;
+    ok(same === n, `while it applies, the samples reach the DAC untouched: bit-perfect (${same}/${n})`);
+    const B = start('rates=96000;fmts=i24in32', 'nohw');
+    B.send({ cmd: 'config', mode: 'exclusive' }); B.send({ cmd: 'hwgain', db: -6 }); const nh = await B.wait(e => e.ev === 'hwvol');
+    ok(nh.supported === false, 'a device without a hardware volume: nothing is touched (and the page is told)');
+    await B.done();
+  }
   console.log(fails ? `${fails} failed` : 'all passed');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

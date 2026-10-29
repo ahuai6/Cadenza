@@ -8,7 +8,7 @@
 // (card, now playing, effect lyrics) switches together, however fast the user skips (each request supersedes the last).
 import { createStore } from '../../core/emitter';
 import { Session, type AudioLike } from '../../engine';
-import { RHYTHM_VERSION, isCurrent, type RhythmAnalysis } from '../../rhythm';
+import { RHYTHM_VERSION, isCurrent, balanceDb, type RhythmAnalysis } from '../../rhythm';
 import { parse } from '../../lyrics/parse';
 import { storedStyle } from '../../theme/style';
 import { tx } from '../../i18n';
@@ -16,7 +16,7 @@ import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
 import { engine, sessionEnv } from './stage';
 import { analyzeNow } from './analysis';
-import { hifiOn, output, load as hifiLoad, preload as hifiPreload, refresh as hifiRefresh, release as hifiRelease, onTrouble } from './hifi';
+import { hifiOn, output, load as hifiLoad, preload as hifiPreload, refresh as hifiRefresh, release as hifiRelease, onTrouble, hwGain } from './hifi';
 
 export type Mode = 'loop' | 'shuffle' | 'one' | 'stop';
 export const MODES: Mode[] = ['loop', 'shuffle', 'one', 'stop'];
@@ -85,8 +85,9 @@ async function loadAt(index: number, play: boolean, at = 0) {
       route = 'std'; if (!warnedFormat) { warnedFormat = true; toast(tx('s.hifi.notThis')); }
       prep = await prepare(id, 'std'); if (my !== gen) return;
     }
-    const t = trackOf(id) || track!;
-    const s = await Session.open({ key: id, lyrics: lyr?.text || '', style: song?.style, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '' },
+    const t = trackOf(id) || track!, instr = !!t.instrumental;
+    // an instrumental: its own line in place of lyrics, and the record theme unless the song already has a look of its own
+    const s = await Session.open({ key: id, lyrics: instr ? instrumentalLyrics() : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '' },
       coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, fade: true, aspect: '16:9' }, sessionEnv());
     if (my !== gen) return;
     stale = false;
@@ -98,6 +99,7 @@ async function loadAt(index: number, play: boolean, at = 0) {
     player.set({ shownId: id, session: s, loading: false, route, song: song || {}, lyrics: lyr, hasLyrics: s.hasLyrics,
       mv: { bound: !!mv, name: mv ? mv.name : '', offset: mv ? mv.offset : 0, on: false, ready: false } });
     if (mv) loadMv(id, mv, !!song?.mvOn);
+    applyBalance();
     Lib.played(id).catch(() => {});
     // the next song, ready before it is needed
     const nx = player.get().queue[index + 1];
@@ -128,8 +130,31 @@ lib.subscribe((L, prev) => {
   const t = trackOf(p.shownId), was = prev.tracks.find(x => x.id === p.shownId); if (!t || !was) return;
   if (was.title !== t.title || was.artist !== t.artist) { s.setSong({ title: t.title, artist: t.artist || '' }); engine.invalidate(); }
   if (was.cover !== t.cover) s.setCover(coverUrl(t.cover, true), false).then(() => engine.invalidate());
+  if (!!was.instrumental !== !!t.instrumental) { loadAt(p.index, p.playing, engine.time); return; }
+  if (was.loudness?.lufs !== t.loudness?.lufs) applyBalance();        // its loudness measured just now   // marked (or unmarked) as an instrumental: the song again, as one
   player.set({ rev: p.rev + 1 });
 });
+
+/** The volume balance for the song now playing: a steady gain towards a like loudness. Through the standard output, or
+ *  the Hi-Fi output with its own volume, it is a plain gain on the samples; with a fixed (bit-perfect) volume the samples
+ *  are left untouched and the balance goes to the device's own hardware volume, when it has one. */
+export function applyBalance() {
+  const p = player.get(), t = p.shownId ? trackOf(p.shownId) : null, st = settings.get();
+  const db = st.volBalance !== false && t ? balanceDb(t.loudness) : 0, fixed = p.route === 'hifi' && st.fixedVolume !== false;
+  engine.setBalance(fixed ? 1 : 10 ** (db / 20));
+  if (p.route === 'hifi') hwGain(fixed ? db : 0);
+}
+/** What an instrumental shows instead of lyrics: one line, a moment in, for a few bars. */
+export const instrumentalLyrics = () => `[00:01.50]${tx('s.instr.text')}\n[00:10.00]`;
+/** Mark a song as an instrumental, or no longer. */
+export async function setInstrumental(id: string, on: boolean) {
+  if (!Lib) return;
+  // its look goes with it: the song's own saved look gives way (to the record theme, or back to the cover theme) unless
+  // the song is locked, which is how a look is kept on purpose
+  const song = await Lib.song(id).catch(() => null) as SongData | null;
+  if (song && song.style && !song.locked) { const { style: _s, ...rest } = song; await Lib.setSong(id, rest); if (player.get().shownId === id) player.set({ song: rest }); }
+  await Lib.instrumental(id, on); toast(tx(on ? 's.instr.marked' : 's.instr.unmarked'));
+}
 
 /* ---------- transport ---------- */
 export function toggle() {
@@ -250,5 +275,5 @@ export async function unbindMv() {
 /** For the workshop: a song's audio, analysis, lyrics, cover and bound style. */
 export async function songForWorkshop(t: Track) {
   const [prep, song, lyr] = await Promise.all([prepare(t.id, 'std'), Lib!.song(t.id).catch(() => null), Lib!.lyrics(t.id).catch(() => null)]);
-  return { buffer: prep.buffer, analysis: prep.analysis, song, lyrics: lyr?.text || '', name: t.file };
+  return { buffer: prep.buffer, analysis: prep.analysis, song, lyrics: t.instrumental ? instrumentalLyrics() : lyr?.text || '', name: t.file };
 }

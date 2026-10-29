@@ -6,7 +6,7 @@ import { settings, lib, useStore } from '../state';
 import { Icon } from '../ui/icons';
 import { Button, Seg, Toggle, Note, Slider } from '../ui/kit';
 import { engine } from '../playback/stage';
-import { switchOutput } from '../playback/player';
+import { switchOutput, applyBalance } from '../playback/player';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { setLang, renderSettings, mvLook } from './Shell';
 import s from './Settings.module.css';
@@ -17,6 +17,7 @@ export async function setSettings(patch: Partial<Settings>) {
   if ('scale' in patch || 'fps' in patch || 'prerender' in patch) engine.setRender(renderSettings(n));
   if ('audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch) switchOutput();
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
+  if ('volBalance' in patch || 'fixedVolume' in patch) applyBalance();
   if (Object.keys(patch).some(k => k.startsWith('mv'))) { engine.mvLook = mvLook(n); engine.invalidate(); }
 }
 const pc = (v: number | string) => Math.round(+v * 100) + '%';
@@ -94,6 +95,8 @@ function AudioGroup({ st }: { st: Settings }) {
           : h.caps && st.audioMode !== 'shared' && !rates ? tx(h.caps.why === 'exclusive-not-allowed' ? 's.set.noExclAllowed' : 's.set.noExcl')
           : h.caps ? `${h.caps.name}${rates ? ' · ' + tx('s.set.rates', { r: rates.map(khz).join(' / ') + ' kHz' }) : ''}` : ''}</Note>
       </>}
+      <Toggle label={tx('s.set.balance')} help={tx('s.set.balanceHelp')} on={st.volBalance !== false} set={v => set({ volBalance: v })} />
+      {st.volBalance !== false && on && h.supported && st.fixedVolume !== false && h.hw && <Note>{tx(h.hw.supported ? 's.set.balanceHw' : 's.set.balanceNoHw')}</Note>}
     </Group>
   );
 }

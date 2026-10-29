@@ -24,6 +24,16 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Eas
   };
 }
 
+/** A spring let go from rest: it swings past the target by `over` (0.02..0.35 of the move), comes back and settles by
+ *  u = 1 exactly. `force` (0.5..2.5) is how hard it is driven: a stronger spring reaches its first swing sooner. The
+ *  residual of the swing at u = 1 is taken out smoothly (minimum jerk), so the move still ends exactly on its target. */
+export function eSpring(force: number, over: number): Ease {
+  const os = clamp(over, 0.01, 0.4), L = Math.log(os), z = -L / Math.sqrt(Math.PI * Math.PI + L * L), up = clamp(0.5 / Math.max(0.4, force), 0.2, 0.62);
+  const wd = Math.PI / up, w = wd / Math.sqrt(1 - z * z), k = z / Math.sqrt(1 - z * z);
+  const x = (u: number) => 1 - Math.exp(-z * w * u) * (Math.cos(wd * u) + k * Math.sin(wd * u)), r1 = 1 - x(1);
+  return u => { if (u <= 0) return 0; if (u >= 1) return 1; return x(u) + r1 * minJerk(u); };
+}
+
 /** Minimum-jerk profile: the smoothest way from rest to rest (zero velocity and acceleration at both ends). */
 export const minJerk: Ease = u => { u = clamp(u); return u * u * u * (10 - 15 * u + 6 * u * u); };
 

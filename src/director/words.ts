@@ -16,7 +16,7 @@ export const TIN_SPEC: Record<string, { dur: number; min: number; blur: number }
 const DRIFT_DIRS = [[0, 1], [0, 1], [-1, 0], [0, -1], [1, 0], [-0.7, 0.7]];
 export const SUNG = 0.42, PAST = 0.3, END_DIM = 0.3, END_DIM_CARD = 0.25;
 
-export interface WordCtx { enter: number; tempo: number; float: number; future: 'dim' | 'hide'; smooth: boolean; punch: number; motion: number; drift: boolean }
+export interface WordCtx { enter: number; tempo: number; float: number; future: 'dim' | 'hide'; smooth: boolean; punch: number; motion: number; drift: boolean; /** one line at a time (the centred stage): a line over leaves altogether */ solo?: boolean }
 export interface WordState {
   o: number; pe: number; dimK: number; pastK: number; live: boolean; gk: number;
   sc: number; ox: number; oy: number; frot: number; tin: string; dur: number;
@@ -35,6 +35,7 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
     live = dimK < 0.5 && pastK < 1;
     o = (tin === 'rise' || tin === 'track' ? 1 : p) * Math.min(lerp(1, SUNG, dimK), lerp(1, PAST, pastK));
   }
+  if (c.solo) o *= 1 - pastK;
   const secK = isFinite(L.secEnd) ? 1 - sstep(clamp((t - (L.secEnd - L.secIn)) / L.secIn)) : 1;
   o = ov > 0 ? lerp(o * secK, t >= S.show ? Math.min(o, card ? END_DIM_CARD : END_DIM) : 0, ov) : o * secK;
   if (o <= 0.003) return null;

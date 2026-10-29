@@ -67,7 +67,7 @@ function trackView(t) {
     year: o.year || t.year || null, track: o.track || t.track || null, disc: o.disc || t.disc || null, duration: t.duration || 0, codec: t.codec || '', bitrate: t.bitrate || 0,
     sampleRate: t.sampleRate || 0, bits: t.bits || 0, lossless: !!t.lossless, ext: path.extname(t.path).slice(1).toLowerCase(), composer: t.composer || '', lyricist: t.lyricist || '',
     cover: o.coverKey || t.coverKey || null, lrc: !!t.lrc, embedded: !!t.embedded, protected: !!t.protected, analyzed: t.analyzed || 0,
-    added: t.added, plays: t.plays || 0, last: t.last || 0, looked: !!o.mbid, edited: Object.keys(o).some(k => k !== 'coverKey'), coverSet: !!o.coverKey,
+    added: t.added, plays: t.plays || 0, last: t.last || 0, looked: !!o.mbid, edited: Object.keys(o).some(k => k !== 'coverKey' && k !== 'instrumental'), coverSet: !!o.coverKey, instrumental: !!o.instrumental, loudness: t.loudness || null,
     // what the file itself says, for the edit form's placeholders and per-field reset
     tags: { title: t.title || path.parse(t.path).name, artist: t.artist || '', album: t.album || '', albumArtist: t.albumArtist || '', year: t.year || null, genre: t.genre || [], track: t.track || null, disc: t.disc || null } };
 }
@@ -155,7 +155,7 @@ const anFile = id => path.join(P.analysis(), id.replace(/[^a-f0-9]/g, '') + '.js
 async function saveAnalysis(id, a) {
   const t = db.tracks[id]; if (!t || !a || typeof a.version !== 'number' || !Array.isArray(a.beats)) return false;
   await fsp.writeFile(anFile(id), await gzip(Buffer.from(JSON.stringify(a)), { level: 6 }));
-  t.analyzed = a.version; t.failed = false; if (a.duration && !t.duration) t.duration = a.duration; save(); analysisProgress(); return true;
+  t.analyzed = a.version; t.failed = false; if (a.duration && !t.duration) t.duration = a.duration; if (a.loudness) setLoud(t, a.loudness); save(); analysisProgress(); return true;
 }
 async function getAnalysis(id, version) {
   try { const a = JSON.parse((await gunzip(await fsp.readFile(anFile(id)))).toString()); return version == null || a.version === version ? a : null; } catch (e) { return null; }
@@ -165,14 +165,22 @@ let apTm = 0;
 function analysisProgress() { clearTimeout(apTm); apTm = setTimeout(() => {
   const all = Object.values(db.tracks).filter(t => !t.protected && !t.failed), done = all.filter(t => t.analyzed === want).length;
   send('lib:analysis', { done, total: all.length }); if (done === all.length) changed(); }, 150); }
-// the queue: songs the player asked for first, then the most recently played and added
+// a song's loudness (the volume balance), kept with the track: small, and the player needs it before the analysis
+const setLoud = (t, l) => { if (l && isFinite(l.lufs) && isFinite(l.peak)) t.loudness = { lufs: +(+l.lufs).toFixed(2), peak: +(+l.peak).toFixed(4) }; };
+function saveLoudness(id, l) { const t = db.tracks[id]; if (!t) return false; if (l) setLoud(t, l); else t.loudFailed = true; save(); changed(); return true; }
+// the queue: songs the player asked for first, then the most recently played and added; once every song is analysed,
+// the songs analysed before the volume balance have only their loudness measured (no full analysis again)
 let priority = [];
 function nextJob(version) {
   if (version) want = version;
   const pick = id => { const t = db.tracks[id]; return t && !t.protected && t.analyzed !== want && !t.failed ? t : null; };
-  while (priority.length) { const t = pick(priority.shift()); if (t) return { id: t.id }; }
-  const t = Object.values(db.tracks).filter(x => pick(x.id)).sort((a, b) => (b.last - a.last) || (b.added - a.added))[0];
-  return t ? { id: t.id } : null;
+  const loudPick = id => { const t = db.tracks[id]; return t && !t.protected && t.analyzed === want && !t.loudness && !t.loudFailed ? t : null; };
+  while (priority.length) { const id = priority.shift(), t = pick(id); if (t) return { id: t.id }; const u = loudPick(id); if (u) return { id: u.id, only: 'loudness' }; }
+  const byRecent = (a, b) => (b.last - a.last) || (b.added - a.added);
+  const t = Object.values(db.tracks).filter(x => pick(x.id)).sort(byRecent)[0];
+  if (t) return { id: t.id };
+  const u = Object.values(db.tracks).filter(x => loudPick(x.id)).sort(byRecent)[0];
+  return u ? { id: u.id, only: 'loudness' } : null;
 }
 
 /* ---------- per-song data: the lyric style bound to this song, lock, MV, timing ---------- */
@@ -327,10 +335,17 @@ async function setCover(id, how, getWin) {
   if (!o.coverKey) delete o.coverKey;
   db.overrides[id] = o; changed(); return true;
 }
+// an instrumental: shown with its own line instead of lyrics, in the record theme unless the song has its own look
+function setInstrumental(id, on) {
+  if (!db.tracks[id]) return false; const o = { ...(db.overrides[id] || {}) };
+  if (on) o.instrumental = true; else delete o.instrumental;
+  if (Object.keys(o).length) db.overrides[id] = o; else delete db.overrides[id]; changed(); return true;
+}
 // back to what the file says: its tags, its cover, or both
 function resetMeta(id, part) {
   const o = { ...(db.overrides[id] || {}) };
-  if (part === 'cover') delete o.coverKey; else if (part === 'tags') { for (const k of Object.keys(o)) if (k !== 'coverKey') delete o[k]; } else for (const k of Object.keys(o)) delete o[k];
+  // (marking a song as an instrumental is not one of its tags: resetting them keeps it)
+  if (part === 'cover') delete o.coverKey; else if (part === 'tags') { for (const k of Object.keys(o)) if (k !== 'coverKey' && k !== 'instrumental') delete o[k]; } else for (const k of Object.keys(o)) if (k !== 'instrumental') delete o[k];
   if (Object.keys(o).length) db.overrides[id] = o; else delete db.overrides[id]; changed(); return true;
 }
 
@@ -378,6 +393,7 @@ function register(ipcMain, getWin) {
   ipcMain.handle('lib:played', (_e, id) => { const t = db.tracks[id]; if (t) { t.plays = (t.plays || 0) + 1; t.last = Date.now(); changed(); } });
   ipcMain.handle('lib:analysis', (_e, id, version) => getAnalysis(id, version));
   ipcMain.handle('lib:saveAnalysis', (_e, id, a) => saveAnalysis(id, a));
+  ipcMain.handle('lib:saveLoudness', (_e, id, l) => saveLoudness(id, l));
   ipcMain.handle('lib:analysisFailed', (_e, id) => { const t = db.tracks[id]; if (t) { t.failed = true; save(); analysisProgress(); } });
   ipcMain.handle('lib:nextAnalysis', (_e, version) => nextJob(version));
   ipcMain.handle('lib:prioritize', (_e, ids) => { priority = [].concat(ids, priority).slice(0, 50); send('lib:wake'); });
@@ -389,6 +405,7 @@ function register(ipcMain, getWin) {
   ipcMain.handle('lib:searchMeta', (_e, q) => searchMeta(q));
   ipcMain.handle('lib:applyMeta', (_e, id, m) => applyMeta(id, m));
   ipcMain.handle('lib:clearMeta', (_e, id, part) => resetMeta(id, part));
+  ipcMain.handle('lib:instrumental', (_e, id, on) => setInstrumental(id, !!on));
   ipcMain.handle('lib:editMeta', (_e, id, f) => editMeta(id, f));
   ipcMain.handle('lib:searchCovers', (_e, q) => searchCovers(q || {}));
   ipcMain.handle('lib:setCover', (_e, id, how) => setCover(id, how, getWin));

@@ -7,6 +7,7 @@ import { mix, rgba } from '../core/color';
 import { rnd } from '../core/rng';
 import { project, onScreen, type Projected } from '../director/project';
 import { entryK } from '../director/entry';
+import { carryCam } from '../director/evaluate';
 import { wordState, unitPose, TIN_SPEC, type WordCtx, type WordState } from '../director/words';
 import type { PWord } from '../director/types';
 import { fontStack } from '../text/fonts';
@@ -20,7 +21,7 @@ let CULL = true; export const setCulling = (on: boolean) => { CULL = on; };
 export interface VisWord { S: PWord; ws: WordState; p: Projected; o: number; glyphPx: number }
 export function wordCtx(f: RenderFrame): WordCtx {
   const M = f.style.m, bl = f.plan.map.beatLen(f.t);
-  return { enter: Math.max(0.05, M.enter), tempo: Math.sqrt(clamp(bl / 0.5, 0.5, 2)), float: (M.float ?? 0) * f.motion, future: f.style.future, smooth: f.style.cut !== 'punch', punch: M.punch, motion: f.motion, drift: f.style.tout === 'drift' };
+  return { enter: Math.max(0.05, M.enter), tempo: Math.sqrt(clamp(bl / 0.5, 0.5, 2)), float: (M.float ?? 0) * f.motion, future: f.style.future, smooth: f.style.cut !== 'punch', punch: M.punch, motion: f.motion, drift: f.style.tout === 'drift', solo: f.style.cut === 'center' };
 }
 /** Which words are on screen this frame, and how. Read by the lyric pass and by world effects (frames, stars, glyphs). */
 export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
@@ -28,7 +29,7 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
   for (const S of f.plan.drawOrder) {
     if (f.t < S.show && ov <= 0) continue;
     const ws = wordState(S, f.t, ov, card, c); if (!ws) continue;
-    const ek = entryK(S, f.t), p = project(S.x + (ek ? S.entry!.dx * ek : 0), S.y + (ek ? S.entry!.dy * ek : 0), S.d, cam, fx, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + 60;
+    const ek = entryK(S, f.t), p = project(S.x + (ek ? S.entry!.dx * ek : 0), S.y + (ek ? S.entry!.dy * ek : 0), S.d, S.carry ? carryCam(f.plan, S, f.t, cam) : cam, fx, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + 60;
     if (CULL && !onScreen(p, half, W, H)) continue;
     const fog = clamp(1 - (S.d - dmin) / (1300 * 4), 0.55, 1), wa = f.wordAlpha ? f.wordAlpha(S.line.i, S.k) : 1;
     out.push({ S, ws, p, o: ws.o * fog * wa, glyphPx: EM * S.s * ws.sc * p.k });

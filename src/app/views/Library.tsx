@@ -3,7 +3,7 @@ import { memo, useMemo, useState } from 'react';
 import { tx } from '../../i18n';
 import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match, type MenuItem } from '../state';
-import { player, playIds, enqueue, setMode, shufflePick } from '../playback/player';
+import { player, playIds, enqueue, setMode, shufflePick, setInstrumental } from '../playback/player';
 import { Icon } from '../ui/icons';
 import { Button, IconButton, Seg, Cover, Mosaic, Empty, Badge } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
@@ -94,6 +94,7 @@ export function trackMenu(e: React.MouseEvent, t: Track, list: Track[], extra?: 
     !t.protected && { label: tx('s.toWorkshop'), icon: 'workshop', run: () => sendToWorkshop(t) },
     !t.protected && { label: tx('s.exportMp4'), icon: 'film', run: () => exportTrack(t, list) },
     { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
+    !t.protected && { label: tx(t.instrumental ? 's.instr.off' : 's.instr.on'), icon: 'note', run: () => setInstrumental(t.id, !t.instrumental) },
   ]);
 }
 /** onReorder: the rows can be dragged into a new order (playlists). */

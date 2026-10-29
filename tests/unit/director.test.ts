@@ -7,7 +7,7 @@ import { RhythmMap } from '../../src/rhythm/map';
 import { Signals } from '../../src/rhythm/signals';
 import { presetStyle, normalizeStyle } from '../../src/theme/style';
 import { approxMeasurer } from '../../src/text/metrics';
-import { plan, cameraAt, basePose, project, corners, NO_FX, transK, type ScenePlan } from '../../src/director';
+import { plan, cameraAt, carryCam, basePose, project, corners, NO_FX, transK, wordState, type ScenePlan } from '../../src/director';
 import { rawPose } from '../../src/director/camera';
 import { sectionEntries, entryFloor } from '../../src/director/cues';
 
@@ -38,7 +38,7 @@ describe.each(styles)('director (%s)', cut => {
   });
   it('never moves backwards along a move, and never pans further than the limit in one move', () => {
     for (const m of P.camera.moves) {
-      if (m.ease === 'cut' || m.a - m.s < 0.05) continue;
+      if (m.ease === 'cut' || m.ease === 'roll' || m.a - m.s < 0.05) continue;   // (a roll's spring swings past on purpose)
       const L = Math.hypot(m.dx, m.dy); if (L < 5) continue;
       const ux = m.dx / L, uy = m.dy / L; let prev = -Infinity;
       for (let t = m.s; t <= m.a; t += (m.a - m.s) / 40) { const b = rawPose(P.camera, t), v = b.x * ux + b.y * uy; expect(v).toBeGreaterThanOrEqual(prev - 0.5); prev = v; }   // the plan; the smoothed path only rounds its junctions
@@ -104,7 +104,7 @@ describe('director: specific cases', () => {
   });
   it('the hard-cut camera lands on each word as it is sung', () => {
     const P = make('punch');
-    for (const s of P.camera.stops) { if (s.over || s.cut || s.rest > 1) continue; expect(Math.abs(s.arrive - s.t)).toBeLessThan(0.13); }
+    for (const s of P.camera.stops) { if (s.over || s.cut || s.rest > 1 || s.roll) continue; expect(Math.abs(s.arrive - s.t)).toBeLessThan(0.13); }   // (a roll lands when it lands; its word rides along)
   });
   it('a lyric frame is framed as a whole from when it is traced', () => {
     const P = make('glide'), sig = new Signals(P.map); let n = 0, bad = 0;
@@ -212,5 +212,62 @@ describe('chorus entries', () => {
     // and the knob really reaches it: the theme's trigger knob scales every trigger's sensitivity
     const lo = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'), { trigger: 0.3 }), hiP = make('glide', rows.map(([t, l]) => ts(t) + l).join('\n'), { trigger: 1.6 });
     expect(lo.style.m.flash).toBeLessThan(P.style.m.flash); expect(hiP.style.m.impact).toBeGreaterThan(P.style.m.impact);
+  });
+});
+
+describe('roller', () => {
+  // a word sung three times with room to turn, in an ordinary line, plus a fast repeat that has no room
+  const ts = (s: number) => `[${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}]`;
+  const kar = (t0: number, ws: [string, number][]) => ts(t0) + ws.map(([w, t]) => `<${ts(t).slice(1, -1)}>${w} `).join('');
+  const src = [ts(1) + 'the night is young', kar(4, [['go', 4], ['走吧', 4.6], ['走吧', 6.8], ['走吧', 9]]), ts(11) + 'under the city lights', kar(14, [['再見', 14], ['再見', 14.3], ['朋友', 14.6]]), ts(17) + 'we keep on going home', ts(21) + 'till the morning comes'].join('\n');
+  for (const cut of styles) {
+    const P = make(cut, src), sig = new Signals(P.map), rolls = P.words.filter(S => S.roll);
+    it(`turns the repeated word half round, left then right, only with room to turn (${cut})`, () => {
+      expect(rolls.map(S => S.w.text + S.roll)).toEqual(['走吧-1', '走吧1', '走吧-1']);
+      for (let i = 1; i < rolls.length; i++) expect(Math.abs(Math.abs(((rolls[i].tilt - rolls[i - 1].tilt) % 360 + 540) % 360 - 180) - 180)).toBeLessThan(1);
+    });
+    it(`the camera rolls the asked way with a spring, and is never late for the next words (${cut})`, () => {
+      for (const S of rolls) {
+        const st = P.camera.stops.find(s => s.words[0] === S)!, m = P.camera.moves.find(x => Math.abs(x.a - st.arrive) < 1e-6 && x.ease === 'roll')!;
+        expect(m, S.w.text).toBeTruthy(); expect(Math.sign(m.dr)).toBe(S.roll); expect(Math.abs(Math.abs(m.dr) - 180)).toBeLessThan(15);
+        const i = P.camera.stops.indexOf(st), nx = P.camera.stops[i + 1]; if (nx && !nx.cut) expect(st.arrive).toBeLessThanOrEqual(nx.t);
+      }
+    });
+    it(`a word that appears before its roll is over rides with the camera, upright and in frame (${cut})`, () => {
+      for (const S of rolls) { if (!S.carry) continue;
+        for (let t = S.carry.t0; t < S.carry.t1; t += 0.04) { const f = cameraAt(P, sig, t, 0), c = carryCam(P, S, t, f.cam), q = project(S.x, S.y, S.d, c, NO_FX, P.W, P.H);
+          expect(Math.abs(q.sx), `${S.w.text} at ${t.toFixed(2)}`).toBeLessThan(P.W / 2); expect(Math.abs(q.sy)).toBeLessThan(P.H / 2);
+          expect(Math.abs(((q.rot + S.tilt) % 360 + 540) % 360 - 180), 'upright on screen').toBeLessThan(25); } }
+    });
+  }
+  it('pace, energy and turns reach the roll (its length, its spring, its swing)', () => {
+    const roll = (k: Record<string, number>) => { const base = presetStyle('cover'), st = normalizeStyle({ ...base, preset: 'custom', cut: 'glide', k: { ...base.k, ...k } });
+      const doc = buildLyrics(parse(src), RhythmMap.grid(112, 0.3, 160), 30), P = plan({ doc, map: RhythmMap.grid(112, 0.3, 160), style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd: 30, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+      return P.camera.moves.find(m => m.ease === 'roll')!; };
+    const a = roll({}), fast = roll({ pace: 1.5 }), hard = roll({ energy: 2 }), wide = roll({ turns: 2 });
+    expect(fast.a - fast.s).toBeLessThan(a.a - a.s); expect(hard.spring![0]).toBeGreaterThan(a.spring![0]); expect(wide.spring![1]).toBeGreaterThan(a.spring![1]); expect(wide.zb!).toBeGreaterThan(a.zb!);
+  });
+});
+
+describe('centred stage (the record theme)', () => {
+  const map = RhythmMap.grid(112, 0.3, 160), p = parse(LRC), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6, doc = buildLyrics(p, map, musicEnd);
+  const P = plan({ doc, map, style: presetStyle('vinyl'), measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } }), sig = new Signals(P.map);
+  it('never turns, and only leans a little toward a line (back to the middle in a pause)', () => {
+    let far = 0; for (let t = 0; t < P.dur; t += 0.1) { const f = cameraAt(P, sig, t, 1); expect(Math.abs(f.cam.r) + Math.abs(f.fx.r), `roll at ${t.toFixed(1)}`).toBeLessThan(1e-9);
+      far = Math.max(far, Math.hypot(f.cam.x, f.cam.y) * f.cam.z / P.H); }
+    expect(far).toBeLessThan(0.06);
+    const gaps = P.lines.slice(1).map((L, i) => [Math.min(P.lines[i].L.sung, P.lines[i].L.end), L.words[0]?.show ?? 0]).filter(([a, b]) => b - a > 4);
+    for (const [a] of gaps) { const b = basePose(P.camera, a + 2.5); expect(Math.hypot(b.x, b.y)).toBeLessThan(1); }
+  });
+  it('sets every line level and inside the frame, alternately above and below the middle; no transitions', () => {
+    expect(P.passages.length).toBe(0);
+    P.lines.forEach((L, i) => { if (!L.words.length) return; for (const S of L.words) expect(S.tilt).toBe(0);
+      const f = cameraAt(P, sig, L.words[0].w.t + 0.3, 0);
+      for (const S of L.words) for (const [x, y] of corners(S)) { const q = project(x, y, S.d, f.cam, NO_FX, P.W, P.H); expect(Math.abs(q.sx), `${L.L.text}`).toBeLessThan(P.W / 2); expect(Math.abs(q.sy)).toBeLessThan(P.H / 2); }
+      if (i > 0 && P.lines[i - 1].words.length) expect(Math.sign(L.ay)).not.toBe(Math.sign(P.lines[i - 1].ay)); });
+  });
+  it('a line over leaves altogether (one line at a time, never stacked on the last)', () => {
+    const ctx = { enter: 0.4, tempo: 1, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false, solo: true };
+    for (const L of P.lines.slice(0, -2)) for (const S of L.words) expect(wordState(S, L.L.end + 2.5, 0, false, ctx), L.L.text).toBeNull();
   });
 });

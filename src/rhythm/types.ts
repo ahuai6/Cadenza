@@ -58,6 +58,8 @@ export interface RhythmAnalysis {
   level: number[];
   /** short-term loudness 0..1 at `rate` (song-relative, fast) */
   loud: number[];
+  /** the song's integrated loudness and sample peak (BS.1770), for the volume balance; absent in older analyses */
+  loudness?: { lufs: number; peak: number };
   /** onset strength per frame at `rate` (normalised), for displays */
   odf: number[];
   /** a coarse spectrum at `rate`: a few bands, low to high, each 0..1 song-relative (for displays) */

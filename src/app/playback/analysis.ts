@@ -2,7 +2,7 @@
 // first, then the most recently played and added), this page takes one song at a time, decodes it at the analysis rate
 // (22 kHz: a quarter of the memory of a full decode) and runs the rhythm SDK in its worker. One song at a time, with a
 // pause between songs and none at all while an export runs, so playback and the interface never compete with it.
-import { analyzeInBackground, RHYTHM_VERSION, type RhythmAnalysis } from '../../rhythm';
+import { analyzeInBackground, loudnessInBackground, RHYTHM_VERSION, type RhythmAnalysis } from '../../rhythm';
 import { Lib, mediaUrl } from '../bridge';
 
 let busy = false, paused = false, wake: (() => void) | null = null;
@@ -28,7 +28,10 @@ async function loop() {
     for (;;) {
       while (paused) await new Promise<void>(r => { wake = r; });
       const job = await Lib.nextAnalysis(RHYTHM_VERSION); if (!job) break;
-      try { await analyzeNow(job.id); } catch { await Lib.analysisFailed(job.id); }
+      if (job.only === 'loudness') {
+        // a song analysed before the volume balance: only how loud it is
+        try { await Lib.saveLoudness(job.id, await loudnessInBackground(await decodeForAnalysis(job.id))); } catch { await Lib.saveLoudness(job.id, null); }
+      } else try { await analyzeNow(job.id); } catch { await Lib.analysisFailed(job.id); }
       await sleep(120);
     }
   } finally { busy = false; }

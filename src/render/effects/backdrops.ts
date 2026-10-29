@@ -75,7 +75,7 @@ register({ id: 'geo', label: 'bg.geo', layer: 'backdrop', kind: 'backdrop', draw
   g.save(); g.translate(w / 2, h / 2); g.rotate(G.ang * D2R); g.strokeStyle = rgba(f.pal.accent, 0.1); g.lineWidth = 1;
   for (let k = -8; k <= 8; k++) { const x = k * R0 * 0.08 + G.pos * R0 * 0.1; g.beginPath(); g.moveTo(x, -R0); g.lineTo(x, R0); g.stroke(); }
   g.beginPath(); g.arc(G.pos * w * 0.3, G.pos2 * h * 0.3, m * 0.42, 0, Math.PI * 2); g.stroke(); g.restore(); } });
-function geoShapes(g: Ctx, G: ReturnType<typeof geoPattern>, e: number, w: number, h: number) {
+export function geoShapes(g: Ctx, G: ReturnType<typeof geoPattern>, e: number, w: number, h: number) {
   const R0 = Math.hypot(w, h), m = Math.min(w, h), cx = G.pos * w * 0.32, cy = G.pos2 * h * 0.28, diag = Math.atan2(h, w) * (G.corner % 2 ? 1 : -1);
   const half = (ang: number, off: number) => { g.save(); g.rotate(ang); g.fillRect(lerp(R0, off, e), -R0, R0 * 2, R0 * 2); g.restore(); };
   const disc = (x: number, y: number, r: number) => { g.beginPath(); g.arc(x, y, Math.max(0, r), 0, Math.PI * 2); g.fill(); };

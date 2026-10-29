@@ -10,15 +10,16 @@ import type { SongInfo } from '../director/titles';
 import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, PROJECT_KEYS, KNOB_REBUILD, type Style } from '../theme/style';
 import { canvasMeasurer, EM } from '../text/metrics';
 import { fontStack, ensureFontSoon } from '../text/fonts';
-import { paletteOf, paletteFromImage, ambientFromImage, ambientFromName, type Palette, type Ambient } from '../render/palette';
+import { paletteOf, paletteFromImage, paletteVinyl, paletteForPreset, ambientFromImage, ambientFromName, type Palette, type Ambient } from '../render/palette';
 import { clearGlyphCache } from '../render/glyphs';
 import type { AudioLike } from './audio';
 
 export interface SessionSpec {
   key: string;
   lyrics: string;
-  /** a stored style, or none: the cover theme in the cover's colours */
+  /** a stored style, or none: `preset` (the cover theme by default) in the cover's colours */
   style?: unknown;
+  preset?: string;
   song: SongInfo;
   coverUrl?: string;
   audio?: AudioLike | null;
@@ -49,7 +50,7 @@ export class Session {
   static async open(spec: SessionSpec, env: SessionEnv): Promise<Session> {
     const s = new Session(spec, env);
     s.cover = await loadImage(spec.coverUrl || ''); s.coverKey = spec.coverUrl || '';
-    s.style = spec.style ? styleFromStored(spec.style) : { ...presetStyle('cover'), ...(s.cover ? paletteFromImage(s.cover) : {}) };
+    { const id = spec.preset || 'cover'; s.style = spec.style ? styleFromStored(spec.style) : { ...presetStyle(id), ...(s.cover ? paletteForPreset(id, s.cover) || {} : {}) }; }
     if (spec.aspect) s.style.aspect = spec.aspect;
     s.colors();
     let a = spec.analysis && isCurrent(spec.analysis) ? spec.analysis : null;
@@ -113,15 +114,17 @@ export class Session {
   setEffect(id: string, on: boolean) { if (!this.custom) return false; this.style.fx[id] = !!on; this.style.edited = true; if (id === 'glass' || id === 'glyph' || id === 'frame') this.dirty |= 1; return true; }
   setEffectParam(id: string, key: string, v: number | string | boolean) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; this.style.edited = true; return true; }
   makeCustom() { if (this.custom) return; this.style = { ...JSON.parse(JSON.stringify(this.style)), preset: 'custom', from: this.style.from || this.style.preset, id: null, name: '', edited: false }; this.style.m = knobbed(this.style.m0, this.style.k); }
-  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); this.style.edited = false; if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (id === 'cover' && this.cover) Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); this.dirty |= 2; }
+  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); this.style.edited = false; if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {}); this.colors(); this.dirty |= 2; }
   applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, quality: keep.quality, aa: keep.aa, edited: false }); this.colors(); this.dirty |= 2; }
-  coverPalette() { if (!this.cover) return; Object.assign(this.style, paletteFromImage(this.cover)); this.colors(); }
+  coverPalette() { if (!this.cover) return; Object.assign(this.style, (this.style.bgStyle === 'vinyl' ? paletteVinyl : paletteFromImage)(this.cover)); this.colors(); }
   setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= 2; else this.dirty |= 1; }
   setLyrics(src: string) { this.spec.lyrics = src; this.dirty |= 2; }
   setTiming(p: { lshift?: number; range?: string; endLen?: number; bpm?: number }) { Object.assign(this.spec, p); this.dirty |= 2; }
   async setCover(url: string, repaint: boolean) {
     this.cover = await loadImage(url); this.coverKey = url; this.spec.coverUrl = url;
-    if (repaint && this.cover) { if (this.style.bgStyle !== 'cover') { if (this.custom) this.style.bgStyle = 'cover'; else this.style = presetStyle('cover', this.style); } Object.assign(this.style, paletteFromImage(this.cover)); }
+    // (the record theme keeps its own stage, in the new cover's colours; any other becomes the cover theme)
+    if (repaint && this.cover) { const rec = this.style.bgStyle === 'vinyl'; if (!rec && this.style.bgStyle !== 'cover') { if (this.custom) this.style.bgStyle = 'cover'; else this.style = presetStyle('cover', this.style); }
+      Object.assign(this.style, (rec ? paletteVinyl : paletteFromImage)(this.cover)); }
     this.colors(); this.dirty |= repaint ? 1 : 0;
   }
   setAudio(buf: AudioLike | null, analysis: RhythmAnalysis | null) { this.spec.audio = buf; this.analysis = analysis && isCurrent(analysis) ? analysis : null; this.dirty |= 2; }
