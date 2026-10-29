@@ -118,6 +118,7 @@ async function loadAt(index: number, play: boolean, at = 0, how: { dir?: -1 | 0 
     if (mv) loadMv(id, mv, !!song?.mvOn);
     applyBalance();
     Lib.played(id).catch(() => {});
+    keep('last', { q: player.get().queue.slice(0, 3000), i: index });
     // the next song, ready before it is needed
     const nx = player.get().queue[index + 1];
     if (nx && settings.get().prerender !== false) setTimeout(() => { if (my !== gen) return; prepare(nx, route).catch(() => {}); if (route === 'hifi') hifiPreload(nx); }, 1500);
@@ -126,6 +127,15 @@ async function loadAt(index: number, play: boolean, at = 0, how: { dir?: -1 | 0 
     if (my !== gen) return; console.warn('load failed', e);
     player.set({ loading: false, error: String((e as Error)?.message || e) }); toast(tx('aud.bad'));
   }
+}
+/** At launch: the song last shown (in its queue) is opened again, paused, so the play page and its picture are made and
+ *  ready before anything is played — opening the page or pressing play is then immediate. */
+export async function resumeLast() {
+  if (player.get().id) return;
+  const L = remember<{ q: string[]; i: number } | null>('last', null), ok = (id: string) => { const t = trackOf(id); return !!t && !t.protected; };
+  let q = (L?.q || []).filter(ok), i = L && L.q[L.i] ? q.indexOf(L.q[L.i]) : -1;
+  if (!q.length) { q = lib.get().tracks.filter(t => !t.protected).map(t => t.id); i = 0; }
+  if (q.length) await playIds(q, Math.max(0, i), { play: false });
 }
 /** The output was switched in the settings: the same song, from the same moment, through the other one. */
 export async function switchOutput() {

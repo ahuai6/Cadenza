@@ -222,6 +222,12 @@ describe('chorus entries (the lyrics mark them: #1 strongest, #2, #3 lighter)', 
     for (let s = 0; s < 2; s += 0.1) expect(n(s + 0.1)).toBeGreaterThanOrEqual(n(s));
     const lo = make('glide', src, { trigger: 0.3 }), hiP = make('glide', src, { trigger: 1.6 });
     expect(lo.style.m.flash).toBeLessThan(P.style.m.flash); expect(hiP.style.m.impact).toBeGreaterThan(P.style.m.impact);
+  });  it('a marked chorus brings the colour split and the glitch on its opening hit, with the glass', () => {
+    const map = P.map, p2 = parse(src), musicEnd = P.musicEnd, doc = buildLyrics(p2, map, musicEnd), base = presetStyle('cover');
+    const st = normalizeStyle({ ...base, preset: 'custom', fx: { ...base.fx, glass: true, chroma: true, glitch: true } });
+    const Q = plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+    for (const k of [10, 28]) { expect(Q.cues.chroma.some(q => near(q.t, k)), `colour split at bar ${k}`).toBe(true); expect(Q.cues.glitch.some(q => near(q.t, k)), `glitch at bar ${k}`).toBe(true); }
+    expect(Q.cues.glass.some(q => near(q.t, 10)), 'glass at the #1 entry').toBe(true);
   });
 });
 

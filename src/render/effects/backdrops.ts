@@ -117,22 +117,37 @@ function roseSil(g: Ctx, x: number, y: number, r: number, rot: number, col: RGB)
 export function gothicSprites(f: RenderFrame) {
   const key = f.style.bg + f.style.accent + f.style.text; if (GOTH && GOTH.key === key) return GOTH;
   const P = f.pal, sil = mix(P.bg, K3, 0.68), bloom = mix(P.accent, K3, 0.38), bloomFar = mix(P.accent, P.bg, 0.35);
-  const vc = makeCanvas(1024, 1024) as HTMLCanvasElement, vg = C2(vc); vg.lineCap = 'round'; vg.lineJoin = 'round'; const roses: [number, number, number, number][] = [];
+  // the vines as vector paths in a 1024-unit square (drawn at whatever size the frame needs, always sharp): the stems in
+  // runs of a few segments each at their own width (thinning towards the tip), thorns and leaves as one filled shape;
+  // the roses on them from small sprites
+  const runs: { p: Path2D; w: number }[] = [], fill = new Path2D(), roses: [number, number, number, number, number][] = [];
   for (let v = 0; v < 7; v++) { const side = v % 4, s0 = rnd(v * 3.7 + 1);
     let x = side === 0 ? 0 : side === 1 ? 1024 : s0 * 1024, y = side === 2 ? 1024 : side === 3 ? 0 : s0 * 1024, a = side === 0 ? 0 : side === 1 ? Math.PI : side === 2 ? -Math.PI / 2 : Math.PI / 2;
-    a += (rnd(v * 5.1) - 0.5) * 0.9; const len = 420 + rnd(v * 2.3) * 380, steps = 60; let wdt = 10; vg.fillStyle = vg.strokeStyle = rgba(sil, 1);
+    a += (rnd(v * 5.1) - 0.5) * 0.9; const len = 420 + rnd(v * 2.3) * 380, steps = 60; let wdt = 10, run = new Path2D(), rw = 0, rn = 0; run.moveTo(x, y);
     for (let i = 0; i < steps; i++) { const nx = x + Math.cos(a) * len / steps, ny = y + Math.sin(a) * len / steps; a += Math.sin(i * 0.35 + v) * 0.09 + (rnd(v * 31 + i) - 0.5) * 0.12;
-      vg.lineWidth = wdt; vg.beginPath(); vg.moveTo(x, y); vg.lineTo(nx, ny); vg.stroke();
-      if (i % 4 === 2) { const ta = a + (i % 8 < 4 ? 1.3 : -1.3); vg.beginPath(); vg.moveTo(nx - Math.cos(a) * wdt * 0.7, ny - Math.sin(a) * wdt * 0.7); vg.lineTo(nx + Math.cos(ta) * wdt * 2, ny + Math.sin(ta) * wdt * 2); vg.lineTo(nx + Math.cos(a) * wdt * 0.7, ny + Math.sin(a) * wdt * 0.7); vg.fill(); }
-      if (i % 7 === 5) { const la = a + (i % 14 < 7 ? 0.8 : -0.8), L = wdt * 5; vg.save(); vg.translate(nx, ny); vg.rotate(la); vg.beginPath(); vg.moveTo(0, 0); vg.quadraticCurveTo(L * 0.5, -L * 0.32, L, 0); vg.quadraticCurveTo(L * 0.5, L * 0.32, 0, 0); vg.fill(); vg.restore(); }
-      if (i === Math.floor(steps * 0.55) && rnd(v * 9.9) < 0.8) roses.push([nx, ny, 30 + rnd(v * 4.4) * 24, rnd(v) * 6]);
+      run.lineTo(nx, ny); rw += wdt; rn++;
+      if (rn === 4) { runs.push({ p: run, w: rw / rn }); run = new Path2D(); run.moveTo(nx, ny); rw = 0; rn = 0; }
+      if (i % 4 === 2) { const ta = a + (i % 8 < 4 ? 1.3 : -1.3); fill.moveTo(nx - Math.cos(a) * wdt * 0.7, ny - Math.sin(a) * wdt * 0.7); fill.lineTo(nx + Math.cos(ta) * wdt * 2, ny + Math.sin(ta) * wdt * 2); fill.lineTo(nx + Math.cos(a) * wdt * 0.7, ny + Math.sin(a) * wdt * 0.7); fill.closePath(); }
+      if (i % 7 === 5) { const la = a + (i % 14 < 7 ? 0.8 : -0.8), L = wdt * 5, c = Math.cos(la), sn = Math.sin(la), P2 = (u: number, w2: number): [number, number] => [nx + c * u - sn * w2, ny + sn * u + c * w2];
+        const p1 = P2(L * 0.5, -L * 0.32), p2 = P2(L, 0), p3 = P2(L * 0.5, L * 0.32); fill.moveTo(nx, ny); fill.quadraticCurveTo(p1[0], p1[1], p2[0], p2[1]); fill.quadraticCurveTo(p3[0], p3[1], nx, ny); fill.closePath(); }
+      if (i === Math.floor(steps * 0.55) && rnd(v * 9.9) < 0.8) roses.push([nx, ny, 30 + rnd(v * 4.4) * 24, rnd(v) * 6, 0]);
       x = nx; y = ny; wdt = Math.max(2, wdt * 0.975); }
-    vg.lineWidth = 2.4; vg.beginPath(); for (let k = 0; k < 40; k++) { const r = 26 * (1 - k / 40); vg.lineTo(x + Math.cos(a + k * 0.32) * r, y + Math.sin(a + k * 0.32) * r); } vg.stroke();
-    roses.push([x, y, 34 + rnd(v * 6.6) * 28, rnd(v * 2) * 6]); }
-  roses.forEach(([x, y, r, rot], k) => roseSil(vg, x, y, r, rot, k % 3 === 1 ? sil : bloom));
+    if (rn) runs.push({ p: run, w: rw / rn });
+    const sp = new Path2D(); for (let k = 0; k < 40; k++) { const r = 26 * (1 - k / 40), px = x + Math.cos(a + k * 0.32) * r, py = y + Math.sin(a + k * 0.32) * r; k ? sp.lineTo(px, py) : sp.moveTo(px, py); } runs.push({ p: sp, w: 2.4 });
+    roses.push([x, y, 34 + rnd(v * 6.6) * 28, rnd(v * 2) * 6, 0]); }
+  roses.forEach((r, k) => { r[4] = k % 3 === 1 ? 0 : 1; });
+  const roseOf = (col: RGB) => { const c = makeCanvas(256, 256) as HTMLCanvasElement; roseSil(C2(c), 128, 128, 120, 0, col); return c; };
+  const vines = { runs, fill, roses, col: sil, sprites: [roseOf(sil), roseOf(bloom)] };
   const rc = makeCanvas(256, 256) as HTMLCanvasElement; roseSil(C2(rc), 128, 128, 120, 0.3, bloomFar);
   const pc = makeCanvas(48, 48) as HTMLCanvasElement, pg = C2(pc); pg.fillStyle = rgba(bloom, 1); pg.beginPath(); pg.moveTo(24, 4); pg.quadraticCurveTo(44, 24, 24, 44); pg.quadraticCurveTo(32, 24, 24, 4); pg.fill();
-  GOTH = { key, vines: vc, rose: rc, petal: pc, chain: mix(P.bg, K3, 0.82), rim: mix(P.accent, P.text, 0.35) }; return GOTH;
+  GOTH = { key, vines, rose: rc, petal: pc, chain: mix(P.bg, K3, 0.82), rim: mix(P.accent, P.text, 0.35) }; return GOTH;
+}
+/** The vines, as vector paths (in their 1024-unit square). */
+function drawVines(g: Ctx, V: any) {
+  g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = g.fillStyle = rgba(V.col, 1);
+  for (const r of V.runs) { g.lineWidth = r.w; g.stroke(r.p); }
+  g.fill(V.fill);
+  for (const [x, y, r, rot, c] of V.roses) { g.save(); g.translate(x, y); g.rotate(rot); g.drawImage(V.sprites[c], -r * 256 / 240, -r * 256 / 240, r * 512 / 240, r * 512 / 240); g.restore(); }
 }
 const PETALS = Array.from({ length: 14 }, (_, i) => ({ x: rnd(i * 7.1 + 3), p: rnd(i * 3.3 + 9), s: 0.03 + rnd(i * 5.9) * 0.04, f: 0.4 + rnd(i * 2.2) * 0.8, ph: rnd(i * 8.8) * 6.28, z: 0.4 + rnd(i * 1.9) * 0.6 }));
 register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
@@ -141,7 +156,7 @@ register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop'
   gr.addColorStop(0, hexOf(mix(f.pal.bg2, K3, 1 - flick))); gr.addColorStop(0.55, hexOf(f.pal.bg)); gr.addColorStop(1, hexOf(mix(f.pal.bg, K3, 0.7))); g.fillStyle = gr; g.fillRect(-E, -E, w + 2 * E, h + 2 * E);
   for (let k = 0; k < 3; k++) { const x = (0.16 + k * 0.34 + rnd(k * 3.1) * 0.1) * w + ox * 0.15, y = (0.22 + rnd(k * 7.7) * 0.56) * h + oy * 0.15, r = m * (0.16 + rnd(k * 2.2) * 0.1) * (1 + P * 0.015);
     g.save(); g.globalAlpha = 0.3; g.translate(x, y); g.rotate(t * 0.02 * (k % 2 ? 1 : -1) + k); g.drawImage(Gs.rose, -r, -r, r * 2, r * 2); g.restore(); }
-  g.save(); g.translate(w / 2 + ox * 0.35, h / 2 + oy * 0.35); g.rotate(Math.sin(t * 0.21) * 0.012); const vs = Math.max(w, h) * 1.15 / 1024 * (1 + P * 0.006); g.drawImage(Gs.vines, -512 * vs, -512 * vs, 1024 * vs, 1024 * vs); g.restore();
+  g.save(); g.translate(w / 2 + ox * 0.35, h / 2 + oy * 0.35); g.rotate(Math.sin(t * 0.21) * 0.012); const vs = Math.max(w, h) * 1.15 / 1024 * (1 + P * 0.006); g.scale(vs, vs); g.translate(-512, -512); drawVines(g, Gs.vines); g.restore();
   for (const pt of PETALS) { const y = ((pt.p + t * pt.s) % 1.3 - 0.15) * h + oy * pt.z, x = (pt.x + Math.sin(t * pt.f + pt.ph) * 0.04) * w + ox * pt.z, sz = m * 0.022 * (0.6 + pt.z);
     g.save(); g.globalAlpha = 0.4 + 0.45 * pt.z; g.translate(x, y); g.rotate(t * pt.f + pt.ph); g.scale(Math.cos(t * pt.f * 1.3 + pt.ph), 1); g.drawImage(Gs.petal, -sz, -sz, sz * 2, sz * 2); g.restore(); }
   g.globalAlpha = 1; } });

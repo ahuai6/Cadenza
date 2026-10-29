@@ -94,6 +94,8 @@ function NoLyrics() { return <div className={s.none}><Icon n="lyrics" size={30} 
    fills from the left exactly as far as it is sung — nothing lights up ahead of the voice. A wheel looks around and
    settles back after a moment; clicking a line plays from it. */
 const K = 140, C = 2 * 0.82 * Math.sqrt(K);
+/** A word lit character by character: any word of several characters that is not Latin (it can wrap onto two rows). */
+const byUnit = (w: Line['words'][number]) => !w.latin && w.units.length > 1;
 interface LS { el: HTMLElement; y: number; v: number; ty: number; at: number; next: number }
 export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
   const box = useRef<HTMLDivElement>(null), lineEls = useRef<(HTMLElement | null)[]>([]), view = useStore(ui, x => x.npLyr);
@@ -139,9 +141,15 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       const L = lines[i], el = lineEls.current[i]; if (!L || !el) return;
       const ws = el.querySelectorAll<HTMLElement>('[data-w]'), lvl = p.rs ? p.rs.level : 0.5;
       // each word: its fill (how far it is sung), its glow (only once it is all but sung) and its own lift as it is sung
-      L.words.forEach((w, k) => { const q = Math.min(1, Math.max(0, (p.t - w.t) / Math.max(0.08, w.end - w.t))), e = ws[k]; if (!e) return;
-        const gl = Math.min(1, Math.max(0, (q - 0.6) / 0.4)), r = Math.min(1, Math.max(0, (p.t - w.t) / 0.42)), lift = 1 - (1 - r) ** 3;
-        e.style.setProperty('--p', q.toFixed(3)); e.style.setProperty('--gl', (gl * gl * lvl).toFixed(3)); e.style.translate = `0 ${(-5 * lift).toFixed(2)}px`; });
+      L.words.forEach((w, k) => { const e = ws[k]; if (!e) return;
+        const fill = (el: HTMLElement, t0: number, t1: number) => { const q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0))), gl = Math.min(1, Math.max(0, (q - 0.6) / 0.4)), r = Math.min(1, Math.max(0, (p.t - t0) / 0.42)), lift = 1 - (1 - r) ** 3;
+          el.style.setProperty('--p', q.toFixed(3)); el.style.setProperty('--gl', (gl * gl * lvl).toFixed(3)); el.style.translate = `0 ${(-5 * lift).toFixed(2)}px`; };
+        // a word drawn character by character (one that may wrap onto the next row): each character fills in its own
+        // time, so a second row lights up only once it is sung
+        if (byUnit(w)) { const us = e.querySelectorAll<HTMLElement>('[data-u]'), n = w.units.length, span = Math.max(0.08, w.end - w.t);
+          const at = (i: number) => w.units[i]?.t ?? w.t + span * 0.85 * i / n;
+          us.forEach((u, i) => fill(u, at(i), i + 1 < n ? at(i + 1) : w.end)); }
+        else fill(e, w.t, w.end); });
     });
   }, [lines, live]);
   const wheel = (e: React.WheelEvent) => { const S = st.current; S.manual -= e.deltaY; clearTimeout(S.mTm); aim(S.cur, false, false); if (box.current) box.current.dataset.manual = 'true';
@@ -150,7 +158,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel} data-blur={view.blur} data-subs={view.subs} style={{ '--np-fs': view.size } as React.CSSProperties}>
       {lines.map((L, i) => (
         <button key={i} type="button" data-test="line" className={s.line} ref={el => { lineEls.current[i] = el; }} onClick={() => { st.current.manual = 0; engine.seek(Math.max(0, L.t - 0.05)); if (!engine.isPlaying) engine.play(); }}>
-          {L.words.length ? L.words.map((w, k) => <Fragment key={k}><span data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin && !w.harm ? ' ' : ''}</span>{w.harm && <span className={s.harm}>{w.harm.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
+          {L.words.length ? L.words.map((w, k) => <Fragment key={k}>{byUnit(w) ? <span data-w className={s.wu}>{w.units.map((u, i) => <span key={i} data-u className={s.w}>{u.c}</span>)}</span> : <span data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin && !w.harm ? ' ' : ''}</span>}{w.harm && <span className={s.harm}>{w.harm.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
           {L.subs.map((x, k) => <small key={k}>{x}</small>)}
         </button>
       ))}

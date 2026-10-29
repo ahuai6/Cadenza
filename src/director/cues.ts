@@ -61,11 +61,16 @@ export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: nu
     imp.sort((a, b) => a - b);
     imp = imp.filter((t, i) => t >= 0.5 && (i === 0 || t - imp[i - 1] >= map.beatLen(t) * 0.95));
   }
-  // colour split and glitch: the same kind of accent as the glass (strong, on the beat, the entries first), on the same
-  // sensitivity, at most one every eight beats or so each, and never on the same hit as each other or as the glass
+  // colour split and glitch: the same kind of accent as the glass (strong, on the beat), on the same sensitivity, at
+  // most one every eight beats or so each, never on the same ordinary hit as each other or as the glass. A chorus the
+  // lyrics mark (#1, #2, #3) brings every one of them that is on, on its opening hit — together with the glass — and
+  // the hits after it as its strength reaches
   const strike = (on: boolean, salt: number, taken: number[]) => { if (!on || gs <= 0.02) return [] as RhythmEvent[];
-    const gap = Math.max(4, 8 * map.beatLen(1)) / Math.max(0.4, gs), sel = withEntries(map.select({ sensitivity: Math.min(2, gs * 0.8), gapBeats: () => 8 / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2 && map.level(e.t) >= 0.45), reach(gs, true).filter(e => map.level(e.t) >= 0.35), gap);
-    const out: RhythmEvent[] = []; for (const e of sel) { if (taken.some(x => Math.abs(x - e.t) < 0.05) || (out.length && e.t - out[out.length - 1].t < gap * 0.6)) continue; if (rnd(e.t * 3.1 + salt) < 0.15) continue; out.push(e); }
+    const gap = Math.max(4, 8 * map.beatLen(1)) / Math.max(0.4, gs), leads = new Set(entries.filter(x => x.lead && x.k >= entryFloor(gs) * 0.8).map(x => x.e));
+    const sel = withEntries(map.select({ sensitivity: Math.min(2, gs * 0.8), gapBeats: () => 8 / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2 && map.level(e.t) >= 0.45), [...leads, ...reach(gs)], gap);
+    const out: RhythmEvent[] = []; for (const e of sel) { const lead = leads.has(e);
+      if (!lead && (taken.some(x => Math.abs(x - e.t) < 0.05) || (out.length && e.t - out[out.length - 1].t < gap * 0.6) || rnd(e.t * 3.1 + salt) < 0.15)) continue;
+      out.push(e); }
     return out; };
   const chroma0 = strike(!!st.fx.chroma, 1.7, glass0.map(e => e.t)), glitch0 = strike(!!st.fx.glitch, 5.3, [...glass0, ...chroma0].map(e => e.t));
   const all = [...flash0.map(e => e.t), ...imp, ...glass0.map(e => e.t)];

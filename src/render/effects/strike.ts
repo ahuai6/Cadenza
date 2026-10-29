@@ -18,10 +18,13 @@ function snapshot(g: Ctx) {
 /** The snapshot through one colour (multiply), into TINT. */
 function tinted(col: string) { const t = C2(TINT); t.setTransform(1, 0, 0, 1, 0, 0); t.globalCompositeOperation = 'copy'; t.drawImage(SNAP, 0, 0); t.globalCompositeOperation = 'multiply'; t.fillStyle = col; t.fillRect(0, 0, TINT.width, TINT.height); t.globalCompositeOperation = 'destination-in'; t.drawImage(SNAP, 0, 0); return TINT; }
 const env = (dt: number, atk: number, len: number) => (dt < 0 ? 0 : dt < atk ? dt / atk : Math.max(0, 1 - (dt - atk) / len) ** 2);
+/** A hit: it snaps apart within a frame or two and snaps most of the way back at once, then the rest settles quickly,
+ *  with a small second kick (a lens rattled by the blow) — nothing drags behind the beat. */
+const snapEnv = (dt: number) => (dt < 0 ? 0 : dt < 0.012 ? dt / 0.012 : Math.exp(-(dt - 0.012) / 0.06) * 0.8 + 0.2 * Math.exp(-(dt - 0.012) / 0.2) * Math.abs(Math.cos((dt - 0.012) * 26)));
 
 /* ---------- colour split: the channels pulled apart along a slant, then back together ---------- */
 register({ id: 'chroma', label: 'fx.chroma', layer: 'screen', kind: 'effect', z: 40, params: [COLOR], draw(g, f, a) {
-  let k = 0; for (const e of f.plan.cues.chroma) { const dt = f.t - e.t; if (dt < -0.05) break; if (dt > 0.6) continue; k = Math.max(k, env(dt, 0.03, 0.5) * e.k); }
+  let k = 0; for (const e of f.plan.cues.chroma) { const dt = f.t - e.t; if (dt < -0.05) break; if (dt > 0.6) continue; k = Math.max(k, snapEnv(dt) * e.k); }
   k *= f.view.effect * f.cam.calm; if (k < 0.01) return;
   const cv = snapshot(g), W = cv.width, H = cv.height, d = k * W * 0.009, dy = d * 0.35;
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
@@ -38,23 +41,33 @@ register({ id: 'chroma', label: 'fx.chroma', layer: 'screen', kind: 'effect', z:
   }
   g.restore(); } });
 
-/* ---------- glitch: slices of the frame thrown sideways, a channel split in some, blocks of flat colour; it stutters
-   in steps (a new pattern every 1/30 s), a few bursts within the hit ---------- */
+/* ---------- glitch: in the scene itself — the words being sung torn into bands and thrown sideways (a channel split
+   in some), a few torn pieces of the picture round them, small blocks of the theme's colour on the words; it stutters
+   in steps (a new pattern every 1/30 s), a few bursts within the hit. Never the whole screen in stripes. ---------- */
 register({ id: 'glitch', label: 'fx.glitch', layer: 'screen', kind: 'effect', z: 41, params: [COLOR], draw(g, f, a) {
   const ev = f.plan.cues.glitch.find(e => f.t >= e.t && f.t - e.t < 0.5); if (!ev) return;
   const dt = f.t - ev.t, q = Math.floor(dt * 30), live = q < 3 || rnd(ev.seed + q * 1.7) < 0.7 - dt; if (!live) return;
   const k = ev.k * f.view.effect * f.cam.calm * (1 - dt / 0.5); if (k < 0.02) return;
-  const cv = snapshot(g), W = cv.width, H = cv.height, theme = a.params.color === 'theme', n = 5 + Math.floor(rnd(ev.seed + q) * 7), R = (s: number) => rnd(ev.seed * 3.1 + q * 13.7 + s);
+  const cv = snapshot(g), W = cv.width, H = cv.height, px = f.px, theme = a.params.color === 'theme', R = (s: number) => rnd(ev.seed * 3.1 + q * 13.7 + s);
   const cols: string[] = theme ? [rgba(f.pal.accent, 1), rgba(f.pal.flash, 1), rgba(mix(f.pal.accent, f.pal.bg2, 0.5) as RGB, 1)] : ['#ff0040', '#00ffd0', '#4060ff'];
+  // where: the words being sung (their boxes on screen), else the middle of the picture
+  const boxes: [number, number, number, number][] = [];
+  for (const v of f.vis || []) { if (!v.ws.live || v.o < 0.3) continue; const S = v.S, k2 = S.s * v.ws.sc * v.p.k, w = (S.lw / S.s) * k2 * px, h = (S.lh / S.s) * k2 * px;
+    boxes.push([(f.W / 2 + v.p.sx) * px - w / 2, (f.H / 2 + v.p.sy) * px - h / 2, w, h]); if (boxes.length >= 3) break; }
+  if (!boxes.length) boxes.push([W * 0.3, H * 0.4, W * 0.4, H * 0.2]);
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
-  for (let i = 0; i < n; i++) {
-    const y = Math.floor(R(i) * H), h = Math.max(2, Math.floor((0.01 + R(i + 0.5) * 0.06) * H)), dx = (R(i + 0.3) - 0.5) * 2 * W * 0.05 * k;
-    g.globalCompositeOperation = 'source-over'; g.drawImage(SNAP, 0, y, W, h, dx, y, W, h);
-    if (R(i + 0.7) < 0.4) { g.globalCompositeOperation = f.pal.dark ? 'screen' : 'multiply'; g.globalAlpha = 0.7; g.drawImage(tinted(cols[i % 2]), 0, y, W, h, dx + W * 0.006 * k * (i % 2 ? 1 : -1), y, W, h); g.globalAlpha = 1; }
-  }
-  // a few flat blocks of colour, and a dark slice
-  for (let i = 0; i < 3; i++) if (R(i + 9) < 0.55) { g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.5 * k + 0.2; g.fillStyle = cols[i % cols.length];
-    const bw = W * (0.04 + R(i + 10) * 0.18), bh = H * (0.006 + R(i + 11) * 0.02); g.fillRect(R(i + 12) * (W - bw), R(i + 13) * H, bw, bh); }
-  if (R(20) < 0.5) { g.globalAlpha = 0.35 * k; g.fillStyle = '#000'; g.fillRect(0, R(21) * H, W, H * 0.012); }
+  boxes.forEach(([bx, by, bw, bh], j) => {
+    const mx = bw * 0.25, x0 = Math.max(0, bx - mx), x1 = Math.min(W, bx + bw + mx), n = 3 + Math.floor(R(j * 5) * 4);
+    for (let i = 0; i < n; i++) { const s0 = j * 31 + i;
+      const y = Math.floor(by + R(s0) * bh), h = Math.max(2, Math.floor((0.08 + R(s0 + 0.5) * 0.22) * bh)), dx = (R(s0 + 0.3) - 0.5) * 2 * bw * 0.18 * k, sw = x1 - x0;
+      if (sw < 2 || y < 0 || y + h > H) continue;
+      g.globalCompositeOperation = 'source-over'; g.drawImage(SNAP, x0, y, sw, h, x0 + dx, y, sw, h);
+      if (R(s0 + 0.7) < 0.45) { g.globalCompositeOperation = f.pal.dark ? 'screen' : 'multiply'; g.globalAlpha = 0.7; g.drawImage(tinted(cols[i % 2]), x0, y, sw, h, x0 + dx + bw * 0.03 * k * (i % 2 ? 1 : -1), y, sw, h); g.globalAlpha = 1; } }
+    // a block or two of flat colour caught on the words
+    for (let i = 0; i < 2; i++) if (R(j * 7 + i + 9) < 0.5) { g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.45 * k + 0.15; g.fillStyle = cols[(i + j) % cols.length];
+      const w2 = bw * (0.1 + R(j * 7 + i + 10) * 0.35), h2 = bh * (0.05 + R(j * 7 + i + 11) * 0.12); g.fillRect(bx + R(j * 7 + i + 12) * (bw - w2), by + R(j * 7 + i + 13) * bh, w2, h2); g.globalAlpha = 1; } });
+  // a few torn pieces of the picture near the words (not full-width bands): a patch shifted sideways
+  for (let i = 0; i < 3; i++) if (R(40 + i) < 0.6) { const [bx, by, bw, bh] = boxes[i % boxes.length], pw = W * (0.06 + R(41 + i) * 0.14), ph = H * (0.015 + R(42 + i) * 0.04);
+    const x = Math.max(0, Math.min(W - pw, bx + (R(43 + i) - 0.3) * bw * 1.6)), y = Math.max(0, Math.min(H - ph, by + (R(44 + i) - 0.5) * bh * 3)), dx = (R(45 + i) - 0.5) * W * 0.04 * k;
+    g.globalCompositeOperation = 'source-over'; g.drawImage(SNAP, x, y, pw, ph, x + dx, y, pw, ph); }
   g.restore(); } });
-

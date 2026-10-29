@@ -32,7 +32,9 @@ const measure = () => {
   // the mini cover's own shadow (y offset, blur, alpha), which the flying cover's shadow turns into
   if (mini) { const m = /rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+))?\)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px/.exec(getComputedStyle(mini).boxShadow || '');
     miniSh = m ? { a: m[1] != null ? +m[1] : 1, oy: +m[3], blur: +m[4] } : { a: 0.25, oy: 2, blur: 8 }; }
-  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, (radiusOf(pg) || 20) - 1.6); }   // inside the area's own corner, over the inner half of its line (no hairline of background between the two smoothed edges)
+  // the area's edge is a 1 px line drawn as its own shape moved in by a pixel (an inset shadow): its inner side is the
+  // area's corner, radius and all, one pixel in — exactly where the picture sits, so the picture takes the same radius
+  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, radiusOf(pg) || 20); }
 };
 function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;

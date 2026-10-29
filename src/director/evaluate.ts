@@ -58,7 +58,8 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   let easeIn = 1; for (const k of c.cuts) { const dt = t - k.t; if (dt >= 0 && dt < 1.1) easeIn *= Math.exp(-0.22 * (1 - eIO(dt / 1.1))); }
   cam.z *= easeIn;
   // the frame's own motion: cone spring, impacts, beat sway, build lean-in
-  const fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still;
+  // (while a transition's blur is up the frame holds still: a shake under the blur reads as a twitch, not a beat)
+  const trans = transK(plan.passages, t), fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still * (1 - 0.9 * trans);
   const gv = M.groove ?? 1;                                     // the beat-and-melody motion (its own knob)
   fx.z *= 1 + c.dyn.cone * rs.cone * mo * gv;
   fx.r += c.dyn.coneRoll * rs.coneRoll * mo * gv;
@@ -98,7 +99,7 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   // the backdrop's camera skips the cuts (they are hidden by the blur; the backdrop must not turn or jump with them)
   const cont = { ...cam, x: b.x, y: b.y, z: b.z }; for (const k of c.cuts) if (t >= k.t) { cont.x -= k.dx; cont.y -= k.dy; cont.r -= k.dr; cont.z /= Math.exp(k.dz); }
   cont.x += ox / cont.z; cont.y += oy / cont.z; cont.z *= oz;
-  return { rest: restK(plan, t), cam, fx, cont, split, idle: ik, trans: transK(plan.passages, t), ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
+  return { rest: restK(plan, t), cam, fx, cont, split, idle: ik, trans, ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
 }
 export const lerpCam = (a: Cam, b: Cam, k: number): Cam => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)), r: lerp(a.r, b.r, k), d: lerp(a.d, b.d, k), yaw: lerp(a.yaw, b.yaw, k), pitch: lerp(a.pitch, b.pitch, k) });
 

@@ -1,5 +1,5 @@
 // The clock the floating things share (feathers, motes, line fragments, wireframe solids): it runs with the music but
-// slows on each strong accent — braking within a tenth of a second to a fifth of its speed, holding a moment, then
+// slows on each heavy beat (a strong accent on a downbeat) — braking within a tenth of a second to a fifth of its speed, holding a moment, then
 // easing back over a little over a second — so everything drifting hangs in the air on the hit and drifts on. One rule
 // for all of them: a new floating effect reads its time here, never from f.t. One table per plan (30 samples a second).
 import { clamp } from '../../core/math';
@@ -10,7 +10,10 @@ const FCLK = new WeakMap<object, Float32Array>(), FR = 30;
 function table(plan: RenderFrame['plan']): Float32Array {
   let tb = FCLK.get(plan); if (tb) return tb;
   const n = Math.ceil((plan.dur + 2) * FR) + 1, sp = new Float32Array(n).fill(1);
-  for (const e of plan.map.events) { if (e.tier < 2 || e.s < 1.1 || e.off) continue; const k = clamp((e.s - 1.1) / 0.8 + 0.6, 0.6, 1);
+  // (only the heavy beats: a strong accent on a downbeat, at most one a bar — never the hits in between)
+  const meter = plan.map.meter; let last = -1e9;
+  for (const e of plan.map.events) { const fr = e.pos - Math.round(e.pos), down = !e.off && Math.abs(fr) < 0.12 && ((Math.round(e.pos) % meter) + meter) % meter === 0;
+    if (e.tier < 2 || e.s < 1 || !down || e.t - last < meter * plan.map.beatLen(e.t) * 0.9) continue; last = e.t; const k = clamp((e.s - 1) / 0.8 + 0.6, 0.6, 1);
     for (let i = Math.max(0, Math.floor(e.t * FR)); i < n; i++) { const u = i / FR - e.t; if (u > 1.6) break;
       const dip = u < 0.1 ? eOut(u / 0.1) : u < 0.3 ? 1 : 1 - eIO((u - 0.3) / 1.3), v = 1 - 0.8 * k * dip; if (v < sp[i]) sp[i] = v; } }
   tb = new Float32Array(n); for (let i = 1; i < n; i++) tb[i] = tb[i - 1] + (sp[i - 1] + sp[i]) / 2 / FR; FCLK.set(plan, tb); return tb;

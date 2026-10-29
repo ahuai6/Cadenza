@@ -45,6 +45,7 @@
 .lyr[data-subs="false"] .line small { display: none; }
 .line:hover { background: rgba(255, 255, 255, 0.07); }
 .w { display: inline-block; white-space: pre-wrap; }
+.wu { display: inline; }   /* a word of characters, each its own .w: it wraps between them */
 .line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * (100% + 0.6em))); -webkit-background-clip: text; background-clip: text; color: transparent;
   text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3)); }
 /* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
@@ -72,5 +73,5 @@
 
 /* in a window the page has the main area's own shape: its top-left corner rounded and the same thin edge along the top
    and left (drawn as light on the picture), arriving as the expansion lands */
-.np { border-top-left-radius: calc(var(--r-xl) - 1.6px); }
+.np { border-top-left-radius: var(--r-xl); }   /* (the area's own radius, a pixel in: see layers.ts) */
 :global(html[data-winfull="true"]) .np { border-top-left-radius: 0; }

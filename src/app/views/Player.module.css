@@ -21,7 +21,6 @@
 .volFixed { display: flex; align-items: center; gap: 5px; color: var(--fg-3); font-size: 11px; font-weight: 650; }
 .hifi { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .hifi em { font-style: normal; font-weight: 650; padding: 1px 7px; border-radius: 6px; background: var(--surface-3); }
-.hifi[data-k="bp"] em:first-of-type { background: color-mix(in oklab, var(--ok) 26%, transparent); color: var(--ok); }
 
 /* the floating player card */
 .card {

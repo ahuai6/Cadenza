@@ -8,7 +8,7 @@ import { ui, lib, settings, useStore, keep, type Page } from '../state';
 import { Icon } from '../ui/icons';
 import { ContextMenu, Toast, Seg } from '../ui/kit';
 import { engine } from '../playback/stage';
-import { player, toggle, seekBy } from '../playback/player';
+import { player, toggle, seekBy, resumeLast } from '../playback/player';
 import { startAnalysis } from '../playback/analysis';
 import { back } from '../layers';
 import { applyUiFont } from '../uifont';
@@ -51,6 +51,7 @@ export function Shell() {
       const l = (st.lang && LANGS.some(([k]) => k === st.lang) ? st.lang : detectLang()) as Lang; applyUiFont(l); setI18n(l);
       engine.setRender(renderSettings(st)); engine.mvLook = mvLook(st);
       lib.set({ ...(await Lib.get()), loaded: true }); setReady(true);
+      resumeLast().catch(() => {});   // (the last song, paused: the play page is ready before it is opened)
       startAnalysis();
     })();
     const offs = [Lib.onChanged(v => lib.set({ ...v, analysis: null })), Lib.onProgress(p => lib.set({ progress: p })), Lib.onAnalysis(a => lib.set({ analysis: a })),
