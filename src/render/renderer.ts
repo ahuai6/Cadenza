@@ -92,7 +92,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   if (o.captions !== false) drawCaptions(g, f, o.captionBottom ?? H * 0.9);
   drawIntro(g, f);
   drawEndCard(g, f);
-  const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6); if (fo > 0) { g.fillStyle = rgba(f.pal.bg, fo); g.fillRect(0, 0, W, H); }
+  const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6) * view; if (fo > 0) { g.fillStyle = rgba(f.pal.bg, fo); g.fillRect(0, 0, W, H); }
   o.overlay?.(g, f);
 }
 /** Effects that belong to a backdrop and follow it rather than a switch (they check the backdrop themselves). */

@@ -28,7 +28,9 @@ import type { PWord, PLine, Passage, Stop, Move, CameraPlan, Pose, UBox } from '
 import { boxIn, corners, wordZoom, tsz, centerZoom } from './layout';
 import { timePassage, roomForQuick } from './passages';
 
-export const EASES: Record<string, Ease> = { lin: u => u, roll: eSpring(1.2, 0.12), glide: eGlide, waltz: eWaltz, punch: ePunch, settle: eSettle, zoom: minJerk, cut: u => (u >= 1 ? 1 : u > 0 ? 1 : 0) };
+export const EASES: Record<string, Ease> = { lin: u => u, cruise: u => 0.5 * u + 0.5 * (1 - (1 - u) ** 2), reach: u => 1 - (1 - u) ** 2.4,   // (a long way: most of it at once, landing on the move)
+     // (off at pace, still moving as it lands: it never comes to a stop)
+   swing: eSpring(1.05, 0.16), roll: eSpring(1.2, 0.12), glide: eGlide, waltz: eWaltz, punch: ePunch, settle: eSettle, zoom: minJerk, cut: u => (u >= 1 ? 1 : u > 0 ? 1 : 0) };
 const MAX_PAN = 1.1;           // frames: a move that must travel further than about a screen becomes a transition
 const MAX_PAN_CLOSE = 0.55;    // (close up, half a screen: more of the way is crossed by blur transitions)
 const MAX_SPEED = 3.4;         // frames per second
@@ -66,13 +68,15 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       const boxWords = F ? [...new Set([...grp, ...F.words])] : grp;
       const B = boxIn(boxWords, S0.tilt, F ? F.pad : 0);
       // (a lyric frame is small — a word or two — so it never pulls the camera closer than the words' own framing)
-      let z = Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1);
+      // (the words' height sets the closeness; a group wider than the frame is not shrunk to fit: the camera follows the
+      // singing along it, so it stays as close as one word would be framed)
+      let z = Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, z1);
       if (F) z = Math.min(z, W * 0.8 / B.w, H * 0.58 / B.h);
       // close up: a character about two fifths of the frame high (the one being sung always wholly in view)
       if (close && !F) { const us = grp.flatMap(S => S.units), uh = us.map(u => u.h).sort((a, b) => a - b)[us.length >> 1] || B.h, uw = Math.max(...us.map(u => u.w), 1), uhm = Math.max(...us.map(u => u.h), 1);
         z = Math.min(H * 0.4 / uh * T, W * 0.5 / uw, H * 0.62 / uhm); }
       const last = grp[grp.length - 1], rd = P.rtl ? -1 : 1, dv = dirv(S0.ang);
-      stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 12 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,
+      stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 6 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,
         t: S0.w.t, arrive: 0, leave: 0, sungEnd: last.end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: S0.tilt }, dir: [dv[0] * rd, dv[1] * rd], drift: 0,
         cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0 });
       k = j;
@@ -87,7 +91,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   // neighbours: at most 1.6× change in closeness within a line, 2.2× across lines (more only across a cut)
   for (let i = 1; i < stops.length; i++) { const a = stops[i - 1], b = stops[i], k = a.words[0].line === b.words[0].line ? 1.6 : 2.2; if (!b.cut) b.z = clamp(b.z, a.z / k, a.z * k); }
   // a stop that is soon followed by a wider one already holds wider: no push-in only to pull out again
-  for (let i = stops.length - 2; i >= 0; i--) { const a = stops[i], b = stops[i + 1]; if (!b.cut && b.t - a.t < 1.2 && b.z < a.z) a.z = Math.max(b.z, a.z * 0.85); }
+  if (!close) for (let i = stops.length - 2; i >= 0; i--) { const a = stops[i], b = stops[i + 1]; if (!b.cut && b.t - a.t < 1.2 && b.z < a.z) a.z = Math.max(b.z, a.z * 0.85); }
 
   /* ---- composition: the follow along the characters, room ahead in the singing direction, a slow drift on ----
      The camera's centre for each character c_j (along the follow axis, from the box's centre) sits a little ahead of
@@ -96,8 +100,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
      backwards along it. Each step is timed by the style (punch: a quick step on the character; waltz: a steady one
      around it; glide and close: on the way the whole time from the character before, setting off no earlier than
      LEAD before the next one, and only creeping through a long pause). */
-  const LEADK = { punch: 0.05, waltz: 0.07, glide: 0.09, close: 0.08 }[cut as 'punch'] ?? 0.08, FOLLOWK = { punch: 0.55, waltz: 0.6, glide: 0.7, close: 1 }[cut as 'punch'] ?? 0.6;
-  const driftRate = cut === 'punch' ? 0.02 : 0.045, LEADT = (close ? 0.8 : 1) / sp;
+  const LEADK = { punch: 0.07, waltz: 0.08, glide: 0.1, close: 0.06 }[cut as 'punch'] ?? 0.08;
+  const driftRate = cut === 'punch' ? 0.03 : 0.05, LEADT = (close ? 0.8 : 1) / sp;
   const track = (s: Stop) => {
     s.follow = []; s.fax = s.dir; s.head = s.words.map(ubox); s.ubox = unitBoxes(s.words);
     if (s.words.some(w => w.frame && w.frame.words[w.frame.words.length - 1] === w)) { s.x = s.box.x; s.y = s.box.y; s.drift = 0; return; }   // a lyric frame is framed whole, still
@@ -107,24 +111,26 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     const V = (across ? H * SAFE_Y : W * SAFE_X) / s.z * 0.94;
     const pos = U.map(u => (u.x - s.box.x) * ax[0] + (u.y - s.box.y) * ax[1]), half = U.map(u => (across ? u.lh : u.lw) / 2);
     let b0 = Infinity, b1 = -Infinity; pos.forEach((p, i) => { b0 = Math.min(b0, p - half[i]); b1 = Math.max(b1, p + half[i]); });
-    const fitsAll = b1 - b0 <= 2 * V, mid = (b0 + b1) / 2, leadW = LEADK * W / s.z;
+    const leadW = LEADK * W / s.z;
+    // the centre just ahead of the character being sung (it sits a little before the middle, room opening to the
+    // right), always keeping that character in view, the frame's left edge never far into the blank before the words
     const c: number[] = [];
     pos.forEach((p, j) => { let v = p + leadW;
-      v = clamp(v, p + half[j] - V, p - half[j] + V);                                   // the character itself in view
-      if (fitsAll) v = mid + (clamp(v, b1 - V, b0 + V) - mid) * FOLLOWK;                 // all of it in view: a smaller travel
-      else v = Math.max(v, Math.min(b0 + V * 0.8, p - half[j] + V));                   // a long stretch: not into the blank before it
+      v = Math.max(v, Math.min(b0 + V * 0.45, p - half[j] + V));
+      v = clamp(v, p + half[j] - V, p - half[j] + V);
       c.push(j ? Math.max(v, c[j - 1]) : v); });
     s.x = s.box.x + ax[0] * c[0]; s.y = s.box.y + ax[1] * c[0];
     s.head = U.filter((u, j) => Math.abs(pos[j] - c[0]) + half[j] <= V);
     for (let j = 1; j < U.length; j++) { const dc = c[j] - c[j - 1]; if (dc < 0.5) continue;
       const t0 = U[j - 1].t, t1 = U[j].t, gap = Math.max(0.02, t1 - t0), dx = ax[0] * dc, dy = ax[1] * dc;
-      if (cut === 'punch') s.follow.push([t1 - Math.min(0.03, gap * 0.3), t1 + clamp(0.8 * gap, 0.06, 0.14 / sp), dx, dy, 'punch']);
-      else if (cut === 'waltz') s.follow.push([t1 - Math.min(0.22, gap * 0.45), t1 + clamp(0.6 * gap, 0.1, 0.35 / sp), dx, dy, 'zoom']);
-      else if (gap <= LEADT + 0.05) s.follow.push([t0, t1 + 0.08, dx, dy, 'lin']);
+      // punch: the glide's follow, quicker and crisper (a short drive onto each character); waltz: a steady step around it
+      if (cut === 'punch') s.follow.push([t1 - Math.min(0.06, gap * 0.35), t1 + clamp(0.7 * gap, 0.1, 0.2 / sp), dx, dy, 'punch']);
+      else if (cut === 'waltz') s.follow.push([t1 - Math.min(0.22, gap * 0.45), t1 + clamp(0.6 * gap, 0.12, 0.35 / sp), dx, dy, 'zoom']);
+      else if (gap <= LEADT + 0.05) s.follow.push([j === 1 ? t0 - 0.35 : t0, t1 + 0.08, dx, dy, 'lin']);   // (the first a moment before: no pause on it)
       else { s.follow.push([t0, t1 - LEADT, dx * 0.12, dy * 0.12, 'lin']); s.follow.push([t1 - LEADT, t1 + 0.08, dx * 0.88, dy * 0.88, 'lin']); }   // creep through the pause, then on
     }
     // on after the last character, as far as keeps it in view (and all of it, when it all fits)
-    const j = U.length - 1, cl = c[j], room = Math.min(pos[j] - half[j] + V, fitsAll ? b0 + V : Infinity) - cl;
+    const j = U.length - 1, cl = c[j], room = pos[j] - half[j] + V * 0.9 - cl;
     s.drift = Math.max(0, Math.min(room, driftRate * W / s.z * 2.5));
   };
   for (const s of stops) track(s);
@@ -139,10 +145,14 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   const follow = (A: Stop, by: number) => { let end = A.arrive;
     for (const [a0, b0, dx, dy, e] of A.follow || []) { if (Math.hypot(dx, dy) < 1e-3) continue;
       // (from the arrival on: a follow never runs into the move bringing the camera here)
-      const a = Math.min(Math.max(a0, A.arrive), by - 0.04), b = Math.max(a + 0.04, Math.min(b0, by));
+      // (a character sung before the camera landed is caught up right after it lands, never during the move in)
+      const a = Math.max(A.arrive, Math.min(a0, by - 0.04, b0 - 0.04)), b = Math.max(a + 0.04, Math.min(b0 <= A.arrive ? a + 0.12 : b0, by));
       drifts.push([a, b, dx, dy, e]); A.x += dx; A.y += dy; end = Math.max(end, b); }
     A.follow = []; return end; };
 
+  // glide and close never stop: their moves keep the pace they arrive with (a steady run, rounded by the smoothing)
+  const glideE = cut === 'glide' || close ? 'cruise' : 'glide';
+  const lastSung = (A: Stop) => { const U = A.ubox || []; return U.length ? U[U.length - 1].t : A.t; };
   /* ---- timing ---- */
   const lead = clamp(M.lead ?? 0.15, 0, 1.2), moves: Move[] = [], drifts: CameraPlan['drifts'] = [];
   const restSlow = (rest: number) => clamp((rest - 1) / 2);
@@ -177,6 +187,10 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     if (!isCut) {
       // stay until A's words are (nearly) sung, then go decisively
       s = Math.max(s, Math.min(A.sungEnd - 0.12, B.t - 0.25 / sp), A.arrive + 0.05);
+      // close up, the last character is sung before the camera leaves it (just as the next word is about to be)
+      if (close) s = Math.max(s, Math.min(lastSung(A) + 0.04, B.t - 0.12));
+      // a lyric frame is held whole for its time on screen before the camera goes on
+      { const Fa = A.words.find(w => w.frame)?.frame; if (Fa) s = Math.max(s, Math.min(Fa.ts + 1.25, B.t - 0.05)); }
       // a move always takes its time: a tight gap lands a moment late rather than snapping across
       // (in a quick succession of words the moves are as quick as the words: never longer than the time between them)
       const minDur = Math.min((smooth ? 0.45 : 0.4) / sp, Math.max(0.12, 0.85 * (B.t - A.t)));
@@ -185,7 +199,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       // when that is a reasonable framing; otherwise the camera sets off only once they are sung
       if (A.sungEnd > s + 0.02) {
         const still = A.ubox!.filter(u => u.end > s + 0.02), head = B.head!;
-        if (still.length && !fits([...still, ...head], B, W, H)) {
+        if (still.length && !close && !fits([...still, ...head], B, W, H)) {
           const both = fitPose([...still, ...head], B.box.tilt, B.r, W, H, T);
           if (both.z > B.z * (smooth ? 0.5 : 0.6) && fits([...still, ...head], { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)) { B.z = Math.min(B.z, both.z); track(B);
             if (!fits([...still, ...B.head!], B, W, H)) retarget(B, both.x, both.y); }
@@ -195,7 +209,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       }
       // A's follow along its characters (finished by the time the camera leaves), then its hold drift until it does
       const fEnd = follow(A, s);
-      { const h0 = Math.max(A.arrive, fEnd), h1 = Math.max(h0, s), ax = A.fax || A.dir;
+      // (the drift on begins once the last character is sung, never while the words are still waiting to be sung)
+      { const h0 = Math.max(A.arrive, fEnd, lastSung(A)), h1 = Math.max(h0, s), ax = A.fax || A.dir;
         if (A.drift > 0 && h1 - h0 > 0.2 && !A.over) { const dd = Math.min(A.drift, A.drift * (h1 - h0) / 2.5); drifts.push([h0, h1, ax[0] * dd, ax[1] * dd, smooth ? 'lin' : undefined]); A.x += ax[0] * dd; A.y += ax[1] * dd; } }
       // too far or too fast for one move: a quick transition instead (when the pause allows one)
       const zm = Math.abs(B.z - A.z) > 1e-6 ? (B.z - A.z) / Math.log(B.z / A.z) : A.z, D = Math.hypot(B.x - A.x, B.y - A.y) * zm / W, gapT = B.words[0].show - A.sungEnd;   // apparent travel: the log-mean closeness
@@ -218,7 +233,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     let bow: [number, number] = [0, 0], bend = 0;
     if (smooth && !B.cut && L > 1) { const C = stops[i + 1], nx = -dy / L, ny = dx / L; let side = rnd(i * 3.7 + 1) < 0.5 ? -1 : 1, turn = 0;
       if (C && !C.cut) { const cx = C.x - B.x, cy = C.y - B.y, lc = Math.hypot(cx, cy); if (lc > 1) { const cr = (dx * cy - dy * cx) / (L * lc), dt = (dx * cx + dy * cy) / (L * lc); turn = clamp((1 - dt) / 1.5); if (Math.abs(cr) > 0.05) side = cr > 0 ? -1 : 1; } }
-      const a = L * (waltz ? 0.03 + 0.08 * turn : 0.0125 + 0.03 * turn); bow = [nx * a * side, ny * a * side]; bend = side * turn; }
+      // (waltz: every move a curve — out wide on the way in, the more the sharper the corner ahead)
+      const a = L * (waltz ? 0.07 + 0.1 * turn : 0.0125 + 0.03 * turn); bow = [nx * a * side, ny * a * side]; bend = side * (waltz ? 0.35 + 0.65 * turn : turn); }
     if (roll) {
       // the way it was asked to turn (half a turn has two ways round), sprung by the force knob, swinging further and
       // breathing out more with the turns knob
@@ -227,17 +243,18 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         spring: [clamp(0.75 + M.punch * 0.9, 0.6, 2.4), clamp(0.05 + 0.09 * TK, 0.02, 0.32)], zb: clamp(0.1 * TK, 0, 0.3) });
       continue;
     }
-    const mv: Move = { s, a: B.cut ? s : arrive, dx, dy, dz: Math.log(B.z / A.z), dr: angDiff(B.r, A.r), dd: B.d - A.d, ease: B.cut ? 'cut' : smooth ? (waltz ? 'waltz' : 'glide') : (slow > 0 ? 'glide' : 'punch'), bow };
-    // the turn: punch cuts it hard partway into the move; waltz takes it on a curve, a little behind the pan, leaning into
-    // the bend and taking the corner wide first; glide and close land it long and soft
-    if (!B.cut) { if (!smooth) mv.rot = [0.4, 0.4, 'cut']; else if (waltz) { mv.rot = [0.12, 1.3, 'waltz']; mv.bank = -bend * (1.5 + 3.5 * Math.abs(bend)) * TK; mv.apex = true; } else mv.rot = [0, 1.6, 'zoom']; }
+    const mv: Move = { s, a: B.cut ? s : arrive, dx, dy, dz: Math.log(B.z / A.z), dr: angDiff(B.r, A.r), dd: B.d - A.d, ease: B.cut ? 'cut' : smooth ? (waltz ? 'waltz' : glideE === 'cruise' && L * Math.sqrt(A.z * B.z) / W > 0.5 ? 'reach' : glideE) : (slow > 0 ? 'glide' : 'punch'), bow };
+    // the turn: punch turns with its move (only quicker); waltz takes it on a curve — a little behind the pan, swinging
+    // just past and back like a car through a bend, leaning into it, the corner taken wide first; glide and close land
+    // it long and soft
+    if (!B.cut && smooth) { if (waltz) { mv.rot = [0.1, 1.45, 'swing']; mv.bank = -bend * (3 + 4 * Math.abs(bend)) * TK; mv.apex = true; } else mv.rot = [0, 1.6, 'zoom']; }
     moves.push(mv);
   }
   // the last stop drifts until the ending
   const lastS = stops[stops.length - 1];
 
   /* ---- the ending: no pull-back — the camera stays with the last words and keeps drifting gently until the end ---- */
-  { const go = Math.max(inp.musicEnd, lastS.sungEnd, lastS.arrive + 0.2) + 3, h0 = Math.max(lastS.arrive, follow(lastS, Infinity)), ax = lastS.fax || lastS.dir;
+  { const go = Math.max(inp.musicEnd, lastS.sungEnd, lastS.arrive + 0.2) + 3, h0 = Math.max(lastS.arrive, follow(lastS, Infinity), lastSung(lastS)), ax = lastS.fax || lastS.dir;
     if (lastS.drift > 0 && go - h0 > 0.2) { const dd = Math.min(lastS.drift, lastS.drift * (go - h0) / 2.5); drifts.push([h0, go, ax[0] * dd, ax[1] * dd]); lastS.x += ax[0] * dd; lastS.y += ax[1] * dd; } }
 
   /* ---- cuts: the jump the base path makes at each transition (the backdrop does not follow these) ---- */
@@ -334,13 +351,13 @@ function smoothPath(c: CameraPlan, dur: number, style: string, sp: number, overS
   for (let f = n - 1; f >= 0; f--) hi[f] = f < n - 1 && seg[f + 1] === seg[f] ? hi[f + 1] : f;
   const overF = Math.min(n, Math.floor(overStart * RATE));
   // zoom envelope (the widest framing a moment ahead, never more than 1.25x wider than now)
-  if (!punch) { const ahead = Math.round(Math.min(1.4, (waltz ? 0.6 : 0.9) / sp) * RATE), back = Math.round(0.35 * RATE), Zr = Z.slice(), maxWide = Math.log(1.25);
+  if (!punch && style !== 'close') { const ahead = Math.round(Math.min(1.4, (waltz ? 0.6 : 0.9) / sp) * RATE), back = Math.round(0.35 * RATE), Zr = Z.slice(), maxWide = Math.log(1.25);
     for (let f = 0; f < overF; f++) { let m = Zr[f]; const a = Math.max(lo[f], f - back), b = Math.min(overF - 1, hi[f], f + ahead); for (let j = a; j <= b; j++) if (Zr[j] < m) m = Zr[j]; Z[f] = Math.max(m, Zr[f] - maxWide); } }
   const gauss = (a: Float32Array, sig: number) => { const rad = Math.max(1, Math.round(sig * RATE * 3)), ker: number[] = []; let ks = 0;
     for (let k = -rad; k <= rad; k++) { const v = Math.exp(-0.5 * (k / (sig * RATE)) ** 2); ker.push(v); ks += v; }
     const o = new Float32Array(n); for (let f = 0; f < n; f++) { let v = 0; for (let k = -rad; k <= rad; k++) { const g = f + k; v += a[g < lo[f] ? lo[f] : g > hi[f] ? hi[f] : g] * ker[k + rad]; } o[f] = v / ks; } return o; };
-  const ps = punch ? 0.035 : waltz ? 0.08 : 0.12, zsig = (punch ? 0.12 : waltz ? 0.3 : 0.45) / sp;
-  return { rate: RATE, n, seg, cutT: cuts, x: gauss(X, ps), y: gauss(Y, ps), lz: gauss(Z, zsig), r: punch ? R : gauss(R, style === 'waltz' ? ps : ps * 1.6), d: gauss(Dd, ps) };
+  const ps = punch ? 0.05 : waltz ? 0.1 : style === 'close' ? 0.16 : 0.2, rsig = punch ? 0.05 : waltz ? 0.1 : 0.16, zsig = (punch ? 0.15 : waltz ? 0.3 : 0.45) / sp;
+  return { rate: RATE, n, seg, cutT: cuts, x: gauss(X, ps), y: gauss(Y, ps), lz: gauss(Z, zsig), r: gauss(R, rsig), d: gauss(Dd, ps) };
 }
 /** The planned camera at t (on its smoothed path when there is one). Pure. */
 export function basePose(c: CameraPlan, t: number): Pose & { tx: number; ty: number } {

@@ -36,11 +36,23 @@ export class Signals {
   /* The groove's hits: the accents a listener feels and nods to, not every note an onset detector finds. An event counts
      when it stands out from what is around it (louder than the bar's usual events) and sits where the ear expects
      weight — the downbeat, the backbeat, the other beats, and a syncopated push ("卡點") between them when it really
-     stands out; the small, busy notes are left to the background's pulse. At most one hit a fifth of a beat apart. */
+     stands out; the small, busy notes are left to the background's pulse. And a beat that keeps hammering — a hit on
+     every beat as strong as the song's usual ones (pop's steady kick, which mixed with the snare and the hats is often
+     heard as a mid-band onset) — counts on every beat even though none of them stands out from the others: it is what
+     the body follows. At most one hit a fifth of a beat apart. */
   private hits: { t: number; a: number }[] | null = null;
   grooveHits(): { t: number; a: number }[] {
     if (this.hits) return this.hits;
-    const ev = this.map.events.filter(e => e.tier > 0), meter = this.map.meter, out: { t: number; a: number; s: number }[] = [];
+    const meter = this.map.meter, out: { t: number; a: number; s: number }[] = [];
+    const onBeat = (e: RhythmEvent) => { const fr = e.pos - Math.floor(e.pos); return fr < 0.12 || fr > 0.88; }, lowish = (e: RhythmEvent) => e.band === 'low' || e.band === 'broad';
+    const firm = (e: RhythmEvent) => onBeat(e) && e.band !== 'high';
+    const ev = this.map.events.filter(e => e.tier > 0 || firm(e));
+    // the song's usual hit on a beat: a steady run of hits about as strong as that is felt on every beat
+    const ons = ev.filter(firm), ss = ons.map(e => e.s).sort((a, b) => a - b), typ = ss.length ? ss[ss.length >> 1] : 1;
+    const steadyAt = (i: number) => { const e = ev[i], bl = this.map.beatLen(e.t), w = 2 * meter * bl; let n = 0;
+      for (let j = i; j >= 0 && e.t - ev[j].t <= w; j--) if (firm(ev[j]) && ev[j].s >= 0.45 * typ) n++;
+      for (let j = i + 1; j < ev.length && ev[j].t - e.t <= w; j++) if (firm(ev[j]) && ev[j].s >= 0.45 * typ) n++;
+      return n >= 0.75 * (2 * w / bl); };   // (a hit on three beats of four, or more, around it)
     for (let i = 0; i < ev.length; i++) {
       const e = ev[i], bar = meter * this.map.beatLen(e.t), around: number[] = [];
       for (let j = i - 1; j >= 0 && e.t - ev[j].t <= bar; j--) around.push(ev[j].s);
@@ -48,7 +60,8 @@ export class Signals {
       around.sort((a, b) => a - b); const med = around.length ? around[around.length >> 1] : e.s, stand = e.s / Math.max(0.05, med);
       const fr = e.pos - Math.floor(e.pos), onB = fr < 0.12 || fr > 0.88, beat = ((Math.round(e.pos) % meter) + meter) % meter;
       const place = onB ? (beat === 0 ? 1 : meter === 4 && beat % 2 === 1 ? 0.85 : 0.7) : Math.abs(fr - 0.5) < 0.1 ? (stand >= 1.25 ? 0.6 : 0) : stand >= 1.6 ? 0.3 : 0;
-      const lowish = e.band === 'low' || e.band === 'broad', score = place * clamp((stand - 0.85) / 0.6, 0, 1.4) * (lowish ? 1 : 0.75) * clamp(e.s / 1.4, 0.3, 1.2);
+      const low = lowish(e), prom = place * clamp((stand - 0.85) / 0.6, 0, 1.4) * (low ? 1 : 0.75) * clamp(e.s / 1.4, 0.3, 1.2);
+      const steady = firm(e) && ons.length >= 8 && steadyAt(i) ? place * 0.75 * clamp((e.s / Math.max(0.05, typ) - 0.3) / 0.45, 0, 1.15) : 0, score = Math.max(prom, steady);
       if (score < 0.28) continue;
       const a = clamp(score, 0, 1.3) * (e.tier === 2 ? 1 : 0.8), last = out[out.length - 1], gap = 0.2 * this.map.beatLen(e.t);
       if (last && e.t - last.t < gap) { if (a > last.a) out[out.length - 1] = { t: e.t, a, s: e.s }; continue; }

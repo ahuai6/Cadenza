@@ -9,6 +9,7 @@ import { register, type Ctx, type BackdropView } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { drawAmbient } from './ambient';
+import { drawRings } from './overlays';
 
 type Img = CanvasImageSource & { width: number; height: number };
 interface Layers { key: string; subj: HTMLCanvasElement; vinyl: HTMLCanvasElement | null; blend: HTMLCanvasElement | null }
@@ -119,8 +120,9 @@ export const coverRadius = (edge: string | undefined, S: number) => (edge === 'f
 register({ id: 'cover', label: 'bg.cover', layer: 'backdrop', kind: 'backdrop',
   draw(g, f, a) {
     drawAmbient(g, f, a.bd.Ev, f.pal.dark ? 0.2 : 0.1);
-    if (f.coverOwner !== 'backdrop') return;                       // the handoff is drawing the cover right now
-    const c = coverRest(f, a.bd); drawCoverSubject(g, f, c.x, c.y, c.S, f.vinylOut);
+    const c = coverRest(f, a.bd);
+    if (f.style.fx.rings) drawRings(g, f, c.x + c.S / 2, c.y + c.S / 2);   // the beat rings, from behind the sleeve
+    if (f.coverOwner !== 'backdrop') return;                       // the handoff is drawing the cover right now drawCoverSubject(g, f, c.x, c.y, c.S, f.vinylOut);
     g.fillStyle = rgba(f.pal.bg, f.pal.dark ? 0.16 : 0.18); g.fillRect(-a.bd.Ev, -a.bd.Ev, f.W + 2 * a.bd.Ev, f.H + 2 * a.bd.Ev);
   } });
 export const _D2R = D2R;

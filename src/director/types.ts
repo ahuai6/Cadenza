@@ -52,7 +52,7 @@ export interface PLine {
 export interface FrameRef { words: PWord[]; ts: number; corner: boolean; pad: number }
 
 /** A full-frame blur transition: the blur rises over [t-inn, t], the camera cuts at t, clears over [t, t+out]. */
-export interface Passage { t: number; inn: number; out: number; line: number; quick: boolean; reason: 'gap' | 'layout' | 'distance' | 'crowd' }
+export interface Passage { t: number; inn: number; out: number; line: number; quick: boolean; reason: 'gap' | 'layout' | 'distance' | 'crowd' | 'seam' }
 
 export interface Pose { x: number; y: number; z: number; r: number; d: number }
 /** A camera stop: what is framed, from when. */

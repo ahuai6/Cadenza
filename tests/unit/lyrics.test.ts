@@ -60,15 +60,3 @@ describe('lyrics', () => {
   });
 });
 
-describe('lyric motion: groove', () => {
-  it('moves only sung characters of a word being sung, hopping on the beat and settling between', async () => {
-    const { LYRIC_MOTIONS } = await import('../../src/render/motions');
-    const { RhythmMap } = await import('../../src/rhythm/map');
-    const map = RhythmMap.grid(120, 0, 60), g = LYRIC_MOTIONS.groove;
-    const S: any = { w: { t: 1 }, units: [{ t: 1 }, { t: 1.5 }] };
-    expect(g.unit({ S, ui: 1, t: 1.2, map, live: true, k: 1 })).toBeNull();          // not sung yet
-    expect(g.unit({ S, ui: 0, t: 2.05, map, live: false, k: 1 })).toBeNull();         // its word left behind
-    const on = g.unit({ S, ui: 0, t: 2.05, map, live: true, k: 1 })!, off = g.unit({ S, ui: 0, t: 2.4, map, live: true, k: 1 })!;
-    expect(on.dy).toBeLessThan(off.dy);                                               // higher just after the beat
-  });
-});

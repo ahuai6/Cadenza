@@ -15,6 +15,7 @@ import type { PWord, PLine, Passage, FrameRef } from './types';
 import { gapPassages, timePassage, roomForQuick } from './passages';
 import { scenesOf, fastLine } from './scenes';
 import { unitsOf } from '../lyrics/script';
+import { lyricType } from './lyrictypes';
 
 export const TIN_MIX = ['blur', 'drift', 'rise', 'track'];
 export const FRAME_NEED = 1.3;
@@ -45,7 +46,7 @@ const ANTIC = (st: Style) => clamp((st.m.enter ?? 0.3) * 0.3, 0.05, 0.14);
 export function layout(inp: LayoutInput): LayoutResult {
   const { doc, map, style: st, measure, W, H } = inp, M = st.m, T = tsz(st);
   const BASE = EM, gap = BASE * 0.14 * T, TURN = clamp(M.turn ?? 0.4, 0, 1), TA = M.tang ?? 90, TK = M.tilt, DEP = M.depth ?? 1;
-  const waltz = st.cut === 'waltz', smooth = st.cut !== 'punch';
+  const waltz = st.cut === 'waltz', smooth = st.cut !== 'punch', LT = lyricType(st.ltype);
 
   /* ---- words, measured ---- */
   const lines: PLine[] = [], words: PWord[] = [], vruns = st.cut === 'center' ? new Set<number>() : vertRuns(doc.lines);
@@ -56,12 +57,13 @@ export function layout(inp: LayoutInput): LayoutResult {
       const k = Wd.k, n = Wd.units.length;
       const vert = !!P.vert;
       const mb = measure.word(Wd.units.map(u => u.c), { vertical: vert, rtl: L.rtl });
-      let s0 = Wd.latin ? 1.1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
+      let s0 = Wd.latin ? 1.1 : !LT.sizes ? 1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
       // words sung as one quick run (one gesture) share one size and one entrance, so they read as one beat, not a stutter
       const fused: boolean = !!prev && prev.group === Wd.group; if (fused) s0 = prev!.s0;
       const tinV = st.tin || 'mix', tin: string = fused ? prev!.tin : tinV === 'mix' ? TIN_MIX[Math.floor(rnd(L.i * 13.7 + k * 7.1 + 2) * TIN_MIX.length)] : tinV, s = s0 * T;
-      const show: number = fused ? prev!.show : Wd.t - ANTIC(st);
+      // (a type that brings the line in whole: every word with the first)
+      const show: number = LT.together && P.words.length ? P.words[0].show : fused ? prev!.show : Wd.t - ANTIC(st);
       prev = { group: Wd.group, s0, tin, show };
       const pw: PWord = { w: Wd, line: P, k, x: 0, y: 0, tilt: 0, d: 0, s, lw: mb.w0 * s, lh: mb.h0 * s, w0: mb.w0, h0: mb.h0, vert,
         units: Wd.units.map((u, ui) => ({ c: u.c, t: u.t, ox: mb.units[ui].cx * s, oy: mb.units[ui].cy * s, w: mb.units[ui].w * s, h: mb.units[ui].h * s, rot: mb.units[ui].rot })),
@@ -85,7 +87,8 @@ export function layout(inp: LayoutInput): LayoutResult {
   const chars = (S: PWord) => { const s = S.w.text.trim(); return /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/.test(s) ? [...s].length : Math.ceil([...s].length / 3); };
   const small = (S: PWord) => chars(S) <= 4;
   const lineEnd = (P: PLine) => { const q = nextPass.get(P.i + 1); return q ? Math.min(P.L.end, q.t - q.inn) : P.L.end; };
-  if (st.fx.frame) { let want = false;
+  // (close up there are none: a frame would have the camera pull back from the characters to show it whole)
+  if (st.fx.frame && st.cut !== 'close') { let want = false;
     for (const P of lines) {
       const n = P.words.length; let k0 = 0;
       if (!want && P.i > 0 && rnd(P.i * 7.7 + 3.3) < 0.5) { want = true; k0 = n === 1 ? 0 : Math.min(n - 1, Math.floor(rnd(P.i * 2.9) * Math.min(n, 3))); }
@@ -262,10 +265,17 @@ export function layout(inp: LayoutInput): LayoutResult {
   const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = st.cut === 'close' ? 4 : 10; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
-    // ten lines on the page are enough: the next line that leaves room for one clears the picture (the words stay few
-    // enough to draw lightly, and the page never gets crowded)
-    if (i > 0 && !startsAt.has(i) && canClear && onPage >= CROWD) { const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
-      if (roomForQuick(endA, Lp.words[0].show)) { passages.push({ ...timePassage(endA, Lp.words[0].show, map, true), line: i, quick: true, reason: 'crowd' }); startsAt.add(i); } }
+    // ten lines on the page at most: from two lines before that, a line with room for a quick clear clears the picture;
+    // from the tenth on, even a short breath (a quarter second: the blur peaks just after the last word ends) is taken,
+    // so a song sung without pauses still clears (the words stay few enough to draw lightly, the page never crowds)
+    if (i > 0 && !startsAt.has(i) && canClear && onPage >= CROWD - 2) { const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
+      const nx = Lp.words[0].show;
+      if (nx - endA >= (onPage >= CROWD ? 0.25 : 0.55)) { passages.push({ ...timePassage(endA, nx, map, true), line: i, quick: true, reason: 'crowd' }); startsAt.add(i); }
+      // no breath at all (lines sung straight into each other): the clear is short and sits on the seam between them —
+      // the last moment of one line and the first of the next go through a light blur, the page never grows past ten
+      else if (onPage >= CROWD) { const t = nx - 0.2; passages.push({ t, inn: 0.2, out: 0.16, line: i, quick: true, reason: 'seam' }); startsAt.add(i); }
+      // (a clear just made: a pause's own one a line or two later would only blur the page again at once)
+      if (startsAt.has(i)) for (let j = i + 1; j <= i + 2; j++) { const q = passages.findIndex(x => x.line === j && x.reason === 'gap'); if (q >= 0) { passages.splice(q, 1); startsAt.delete(j); } } }
     if (i > 0 && startsAt.has(i)) { newPassage(); onPage = 0; }
     onPage++;
     const before = save();
@@ -285,9 +295,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   });
   passages.sort((a, b) => a.t - b.t);
   assignSections(lines, passages);
-  // a quick clear decided while placing may still shorten a framed line: such a frame is not drawn rather than cut short
-  for (const P of lines) if (isFinite(P.secEnd)) for (const S of P.words) { const F = S.frame;
-    if (F && Math.min(P.L.end, P.secEnd - Math.max(0.4, P.secIn)) - 0.8 - F.ts < FRAME_NEED) for (const x of F.words) x.frame = null; }
+  dropShortFrames(lines);
   // draw order, fixed: deeper first, then in singing order (never re-sorted by the view)
   const order = [...words].sort((a, b) => b.d - a.d || a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
   const dmin = words.reduce((m, S) => Math.min(m, S.d), 0);
@@ -337,6 +345,12 @@ function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap:
   return { lines, words, passages: [], dmin: 0 };
 }
 
+/** A quick clear decided while placing (or by the camera) may still shorten a framed line: such a frame is not drawn
+ *  rather than cut short. */
+export function dropShortFrames(lines: PLine[]) {
+  for (const P of lines) if (isFinite(P.secEnd)) for (const S of P.words) { const F = S.frame;
+    if (F && Math.min(P.L.end, P.secEnd - Math.max(0.4, P.secIn)) - 0.8 - F.ts < FRAME_NEED) for (const x of F.words) x.frame = null; }
+}
 /** Which passage each line belongs to, and when it ends; a line's end is trimmed to before its passage's transition. */
 export function assignSections(lines: PLine[], passages: Passage[]) {
   const sorted = [...passages].sort((a, b) => a.t - b.t);

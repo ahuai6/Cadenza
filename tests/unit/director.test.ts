@@ -36,7 +36,7 @@ describe.each(styles)('director (%s)', cut => {
       if (transK(P.passages, t) > 0.02) continue;
       const f = cameraAt(P, sig, t, 0);                       // without the handheld layer: the plan itself
       for (const S of P.words) {
-        if (t < S.w.t + 0.05 || t > S.end - (cut === 'punch' ? 0.25 : 0.1)) continue; n++;   // a word's last moment is its sustain
+        if (t < S.w.t + 0.05 || t > S.end - (cut === 'punch' || cut === 'close' ? 0.25 : 0.1) || t >= S.line.secEnd) continue; n++;   // a word's last moment is its sustain (close up the camera is on to the next by then)
         const out = singing(S, t).some(([x, y]) => { const q = project(x, y, S.d, f.cam, NO_FX, P.W, P.H); return Math.abs(q.sx) > P.W / 2 || Math.abs(q.sy) > P.H / 2; });
         if (out) { bad++; if (worst.length < 5) worst.push(`${t.toFixed(2)} "${S.w.text}"`); }
       }
@@ -69,7 +69,8 @@ describe.each(styles)('director (%s)', cut => {
     for (const p of P.passages) {
       const first = P.lines[p.line].words[0];
       expect(p.t + p.out).toBeLessThanOrEqual(first.show + 0.001);
-      const pos = P.map.beatAt(p.t); expect(Math.min(pos.phase, 1 - pos.phase, Math.abs(pos.phase - 0.5))).toBeLessThan(0.02);
+      // (a seam — a clear forced between two lines sung straight into each other — sits on the seam, not on the beat)
+      if (p.reason !== 'seam') { const pos = P.map.beatAt(p.t); expect(Math.min(pos.phase, 1 - pos.phase, Math.abs(pos.phase - 0.5))).toBeLessThan(0.02); }
     }
   });
 });
@@ -81,7 +82,7 @@ describe.each(styles)('transitions (%s)', cut => {
       expect(Math.hypot(b.x - a.x, b.y - a.y) * b.z, `cut at ${k.t.toFixed(2)}`).toBeLessThan(2); expect(Math.abs(Math.log(b.z / a.z))).toBeLessThan(0.005); expect(Math.abs(b.r - a.r)).toBeLessThan(0.1); }
   });
   it('a transition never hides words still being sung', () => {
-    for (const q of P.passages) for (const S of P.lines[q.line - 1].words) expect(S.end - 0.12, `${q.reason} at ${q.t.toFixed(2)}: "${S.w.text}"`).toBeLessThanOrEqual(q.t - q.inn * 0.5 + 1e-6);
+    for (const q of P.passages) for (const S of P.lines[q.line - 1].words) expect(S.end - (q.reason === 'seam' ? 0.45 : 0.12), `${q.reason} at ${q.t.toFixed(2)}: "${S.w.text}"`).toBeLessThanOrEqual(q.t - q.inn * 0.5 + 1e-6);
   });
   it('a lyric frame always has its full time on screen', () => {
     for (const P1 of P.lines) for (const S of P1.words) { const F = S.frame; if (!F || F.words[F.words.length - 1] !== S) continue;
@@ -324,5 +325,23 @@ describe('album play', () => {
     const solo = planTitles({ on: true, title: 'T', artist: 'A' }, 20, map, 180, labels), album = planTitles({ on: true, title: 'T', artist: 'A', album: true }, 20, map, 180, labels);
     expect(solo.intro?.kind).toBe('card'); expect(solo.end).not.toBeNull();
     expect(album.intro?.kind).toBe('top'); expect(album.end).toBeNull();
+  });
+});
+
+describe('crowded pages', () => {
+  it('never holds more than ten lines before a clear, even when the lines run straight into each other', () => {
+    const src = Array.from({ length: 40 }, (_, i) => `[${String(Math.floor((2 + i * 2.2) / 60)).padStart(2, '0')}:${((2 + i * 2.2) % 60).toFixed(2).padStart(5, '0')}]一句接著一句 不停`).join('\n');
+    for (const cut of ['glide', 'punch'] as const) { const P = make(cut, src, { frame: false }), at = [0, ...P.passages.map(q => q.line).sort((a, b) => a - b), P.lines.length];
+      for (let i = 1; i < at.length; i++) expect(at[i] - at[i - 1]).toBeLessThanOrEqual(10); }
+  });
+});
+
+describe('lyric types', () => {
+  it('whole line: every word of a line comes in with its first, all one size; flow: each word just before it is sung', () => {
+    const p = parse(LRC), map = RhythmMap.grid(112, 0.3, 160), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6, doc = buildLyrics(p, map, musicEnd);
+    const mk = (ltype: string) => plan({ doc, map, style: normalizeStyle({ ...presetStyle('cover'), preset: 'custom', ltype }), measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+    const line = mk('line'), flow = mk('flow');
+    for (const L of line.lines) { for (const S of L.words) expect(S.show).toBe(L.words[0].show); expect(new Set(L.words.filter(S => !S.w.latin).map(S => S.s)).size).toBeLessThanOrEqual(1); }
+    expect(flow.lines.some(L => L.words.some(S => S.show > L.words[0].show + 0.1))).toBe(true);
   });
 });

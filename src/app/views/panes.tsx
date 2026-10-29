@@ -9,7 +9,7 @@ import { exportVideo, estimate, blobSink } from '../../engine';
 import { PRESETS, KNOBS, presetStyle, type Style } from '../../theme/style';
 import { FONTS } from '../../text/fonts';
 import { effects, type Param } from '../../render/effects/registry';
-import { LYRIC_MOTIONS } from '../../render/motions';
+import { LYRIC_TYPES } from '../../director/lyrictypes';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
 import { Button, Seg, Section, Row, Select, Slider, Check, TextField, Note } from '../ui/kit';
@@ -96,7 +96,7 @@ const GROUPS = [...new Set(KNOBS.map(k => k[1]))];
 export function MotionPane({ s: ss, edit }: PaneProps) {
   const st = ss.style, custom = st.preset === 'custom', set = (k: string, v: unknown) => edit(x => x.setStyle(k, v));
   const resetGroup = (g: string) => edit(x => { for (const [k, gg] of KNOBS) if (gg === g && k !== 'size') x.setKnob(k, 1); });
-  const resetAll = () => edit(x => { const b = presetStyle(x.style.from); for (const k of ['cut', 'trans', 'flashMode', 'future', 'tin', 'tout', 'lmo']) x.setStyle(k, (b as any)[k] ?? (k === 'lmo' ? 'none' : undefined)); for (const [k] of KNOBS) if (k !== 'size') x.setKnob(k, 1); });
+  const resetAll = () => edit(x => { const b = presetStyle(x.style.from); for (const k of ['cut', 'trans', 'flashMode', 'future', 'tin', 'tout', 'ltype']) x.setStyle(k, (b as any)[k] ?? (k === 'ltype' ? 'flow' : undefined)); for (const [k] of KNOBS) if (k !== 'size') x.setKnob(k, 1); });
   return (
     <>
       {!custom && <Note>{tx('th.locked')}</Note>}
@@ -110,12 +110,12 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
           <Row><Button size="sm" onClick={resetAll}>{tx('reset.all')}</Button></Row>
         </Section>
         <Section title={tx('grp.lyrics')} note={tx('future.help')}>
+          <Select label={tx('ltype')} value={st.ltype || 'flow'} options={opts(Object.keys(LYRIC_TYPES), 'lt.')} onChange={v => set('ltype', v)} />
           <Select label={tx('future')} value={st.future} options={opts(['dim', 'hide'], 'future.')} onChange={v => set('future', v)} />
           <Row>
             <Select label={tx('tin')} value={st.tin || 'mix'} options={opts(TIN, 'tin.')} onChange={v => set('tin', v)} />
             <Select label={tx('tout')} value={st.tout === 'drift' ? 'drift' : 'none'} options={opts(['none', 'drift'], 'tout.')} onChange={v => set('tout', v)} />
           </Row>
-          <Select label={tx('lmo')} value={st.lmo || 'none'} options={opts(Object.keys(LYRIC_MOTIONS), 'lmo.')} onChange={v => set('lmo', v)} />
         </Section>
         {GROUPS.map(g => (
           <Section key={g} title={tx(g)} action={<Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>{tx('reset.group')}</Button>} note={g === 'grp.triggers' ? tx('help.triggers') : undefined}>

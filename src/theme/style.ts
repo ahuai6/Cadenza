@@ -15,7 +15,7 @@ export interface Style {
   /** a custom theme changed since it was taken from a preset or a saved theme (only then is it an unsaved theme of its own) */
   edited?: boolean;
   bg: string; bg2: string; text: string; accent: string; flash: string;
-  font: string; tin: string; tout: string; cut: CameraStyleId; bgStyle: string; flashMode: 'color' | 'invert'; future: 'dim' | 'hide'; trans?: 'auto' | 'off'; /** the lyric motion (render/motions.ts), 'none' by default */ lmo?: string;
+  font: string; tin: string; tout: string; cut: CameraStyleId; bgStyle: string; flashMode: 'color' | 'invert'; future: 'dim' | 'hide'; trans?: 'auto' | 'off'; /** the lyric type (director/lyrictypes.ts): how the lyrics are presented and come in; 'flow' by default */ ltype?: string;
   coverEdge?: 'album' | 'float' | 'blend'; coverBlur?: number; coverSize?: number; vidDark?: number; vidBlur?: number; vidDesat?: number; /** the video backdrop never turns, so it is barely cropped */ vidFit?: boolean;
   m0: Motion; k: Record<string, number>; m: Motion;
   fx: Record<string, boolean>;

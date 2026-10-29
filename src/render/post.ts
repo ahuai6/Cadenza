@@ -43,7 +43,8 @@ function spacing(g: Ctx, px: number) { if ('letterSpacing' in g) (g as any).lett
 /** The ending's card (title and credits); returns how visible it is. */
 export function drawEndCard(g: Ctx, f: RenderFrame) {
   const T = f.plan.titles; if (!T.end) return 0;
-  const o = eOut(clamp((f.t - T.end.t0) / 0.9)); if (o <= 0) return 0;
+  // (a picture of the effect view only: leaving it for the play page takes the card with it)
+  const o = eOut(clamp((f.t - T.end.t0) / 0.9)) * f.view.effect; if (o <= 0.003) return 0;
   card(g, f, T.title, T.credits, o, 0.55, (1 - o) * 12); return o;
 }
 function card(g: Ctx, f: RenderFrame, title: string, credits: [string, string][], o: number, veil: number, dy: number) {

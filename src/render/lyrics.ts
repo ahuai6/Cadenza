@@ -15,7 +15,6 @@ import { EM } from '../text/metrics';
 import { blurGlyph, drawFocus, focusW, sharpGlyph, strokeGlyph, type InkGrad } from './glyphs';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
-import { motionOf } from './motions';
 
 /** Culling can be switched off to prove it never removes anything visible (render tests). */
 let CULL = true; export const setCulling = (on: boolean) => { CULL = on; };
@@ -64,7 +63,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   inkG.addColorStop(0, grad[0]); inkG.addColorStop(0.55, grad[1]); inkG.addColorStop(1, grad[2]);
   const edgeC = rgba(mix(pal.bg, o.ink as any, 0.25), 1), yaw = f.cam.cam.yaw ?? 0, pitch = f.cam.cam.pitch ?? 0;
   const ex = clamp(0.35 - yaw * 0.12, -0.6, 0.9), ey = clamp(1 - pitch * 0.12, 0.4, 1.4);
-  const shadowC = shadowOf(pal), LM = trail || ov > 0 ? null : motionOf(st.lmo), map = f.plan.map;
+  const shadowC = shadowOf(pal);
   g.save(); g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font;
   for (const v of vis) {
     const { S, ws, p } = v, n = S.units.length, spec = TIN_SPEC[ws.tin] || TIN_SPEC.blur, blurMax = Math.min(32, v.glyphPx * spec.blur);
@@ -90,9 +89,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       }
       const bpx = blurOn ? blurMax * up.uq * f.px : 0, blurred = bpx > 0.4;
       if (trail && blurred) continue;
-      const lm = LM ? LM.unit({ S, ui, t: f.t, map, live: ws.live, k: f.motion }) : null;   // the lyric motion (律動 …), on top of the pose
-      g.save(); g.translate(up.rx + up.dx + jx + (lm ? lm.dx : 0), up.ry + up.dy + jy + (lm ? lm.dy : 0)); const ur = up.ur + (lm ? lm.rot : 0), um = up.um * (lm ? lm.sc : 1);
-      if (ur) g.rotate(ur * D2R); if (um !== 1) g.scale(um, um); if (u.rot) g.rotate(Math.PI / 2);
+      g.save(); g.translate(up.rx + up.dx + jx, up.ry + up.dy + jy); if (up.ur) g.rotate(up.ur * D2R); if (up.um !== 1) g.scale(up.um, up.um); if (u.rot) g.rotate(Math.PI / 2);
       const sp = sp0 * focusW(bpx);
       const Gpx = v.glyphPx * f.px * up.um;
       if (sp > 0.4) { g.fillStyle = g1; g.globalAlpha = A * up.ua * 0.35; sharpGlyph(g, u.c, Gpx, null, sp, 0); g.fillStyle = g2; g.globalAlpha = A * up.ua * 0.25; sharpGlyph(g, u.c, Gpx, null, -sp, 0); }
