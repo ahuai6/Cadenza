@@ -285,6 +285,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const an = () => C(() => window.cadenzaLib.get().then(v => v.tracks.find(t => t.title === '晨光').analyzed));
     const dropped = await an(); let back = 0; for (let i = 0; i < 60 && !(back > 0); i++) { await W(1000); back = await an(); }
     ok('rescan: a song analysed again from its menu (dropped, then analysed anew)', back > 0, JSON.stringify({ dropped, back })); }
+  /* ---------- edited lyrics written into the song's own tags (the file let go of and taken up again) ---------- */
+  { await C(id => window.__cadenza.api.playIds([id], 0), ids['無詞的歌']); await W(2500);
+    const before = await C(id => window.cadenzaLib.get().then(v => v.tracks.find(t => t.id === id).analyzed), ids['無詞的歌']);
+    await C(() => window.__cadenza.api.useLyrics('[00:01.00]寫入標籤測試\n[00:05.00]第二行')); await W(1500);
+    const r = await C(id => Promise.all([window.cadenzaLib.lyrics(id), window.cadenzaLib.get().then(v => v.tracks.find(t => t.id === id))]).then(([l, t]) => ({ src: l && l.source, has: !!(l && l.text.includes('寫入標籤測試')), analyzed: t.analyzed, embedded: t.embedded, playing: window.__cadenza.player.get().playing, shown: window.__cadenza.player.get().shownId === id })), ids['無詞的歌']);
+    ok('lyrics into the tags: written into the file, read back from it, the song playing on, its analysis kept', r.src === 'embedded' && r.has && r.embedded && r.shown && r.analyzed === before && before > 0, JSON.stringify({ ...r, before })); }
   /* ---------- poster wall, settings, light theme ---------- */
   await win.getByRole('button', { name: '海報牆' }).click(); await W(900); await shot('wall');
   await win.getByRole('button', { name: '設定' }).click(); await W(600); await shot('settings');

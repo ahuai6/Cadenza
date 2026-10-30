@@ -87,7 +87,8 @@
   "author": "Cadenza",
   "license": "AGPL-3.0-only",
   "dependencies": {
-    "music-metadata": "12.3.2"
+    "music-metadata": "12.3.2",
+    "node-taglib-sharp": "6.0.3"
   },
   "devDependencies": {
     "@fontsource-variable/caveat": "^5.3.0",

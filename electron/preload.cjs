@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('cadenzaLib', {
   analysis: (id, version) => L('lib:analysis', id, version), saveAnalysis: (id, a) => L('lib:saveAnalysis', id, a), saveLoudness: (id, l) => L('lib:saveLoudness', id, l), analysisFailed: (id, why) => L('lib:analysisFailed', id, why), reanalyze: ids => L('lib:reanalyze', ids), verified: (id, v) => L('lib:verified', id, v), unverified: v => L('lib:unverified', v), clearCaches: () => L('lib:clearCaches'), resetAll: () => L('lib:resetAll'),
   nextAnalysis: version => L('lib:nextAnalysis', version), prioritize: ids => L('lib:prioritize', ids),
   song: id => L('lib:song', id), setSong: (id, d) => L('lib:setSong', id, d),
-  lyrics: id => L('lib:lyrics', id), writeLyrics: (id, t) => L('lib:writeLyrics', id, t), importLyricsFile: () => L('lib:importLyricsFile'),
+  lyrics: id => L('lib:lyrics', id), writeLyrics: (id, t, target) => L('lib:writeLyrics', id, t, target), importLyricsFile: () => L('lib:importLyricsFile'),
   searchLyrics: q => L('lib:searchLyrics', q), searchMeta: q => L('lib:searchMeta', q), applyMeta: (id, m) => L('lib:applyMeta', id, m), clearMeta: (id, part) => L('lib:clearMeta', id, part), instrumental: (id, on) => L('lib:instrumental', id, on),
   editMeta: (id, f) => L('lib:editMeta', id, f), searchCovers: q => L('lib:searchCovers', q), setCover: (id, how) => L('lib:setCover', id, how),
   bindMv: id => L('lib:bindMv', id),

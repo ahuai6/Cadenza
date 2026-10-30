@@ -15,7 +15,7 @@ import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
 import { engine, sessionEnv } from './stage';
 import { analyzeNow } from './analysis';
-import { hifiOn, output, load as hifiLoad, preload as hifiPreload, refresh as hifiRefresh, release as hifiRelease, onTrouble, hwGain, hifi } from './hifi';
+import { hifiOn, output, load as hifiLoad, preload as hifiPreload, refresh as hifiRefresh, release as hifiRelease, onTrouble, hwGain, hifi, stop as hifiStop } from './hifi';
 
 export type Mode = 'loop' | 'shuffle' | 'one' | 'stop';
 export const MODES: Mode[] = ['loop', 'shuffle', 'one', 'stop'];
@@ -285,9 +285,23 @@ export function editSong(fn: (s: Session) => unknown) {
 export async function useLyrics(text: string) {
   const p = player.get(), s = p.session; if (!p.shownId || !s || !Lib) return false;
   s.setLyrics(text); await s.flush(); engine.invalidate();
-  await Lib.writeLyrics(p.shownId, text);
-  player.set({ hasLyrics: s.hasLyrics, lyrics: { source: 'lrc', text }, rev: p.rev + 1 });
+  player.set({ hasLyrics: s.hasLyrics, lyrics: { source: settings.get().lyricsTarget === 'lrc' ? 'lrc' : 'embedded', text }, rev: p.rev + 1 });
+  if (settings.get().lyricsTarget === 'lrc') await Lib.writeLyrics(p.shownId, text, 'lrc');
+  else await writeIntoFile(p.shownId, text);
   return s.hasLyrics;
+}
+/** The lyrics written into the song's own tags. The file must not be held while it is rewritten: the Hi-Fi player is
+ *  stopped (its decoder closed) first, and the song is loaded again afterwards at the same moment, playing if it was. A
+ *  format without a lyrics tag gets the .lrc beside it instead; a file another program holds is said so. */
+async function writeIntoFile(id: string, text: string) {
+  const p = player.get(), hi = p.route === 'hifi' && p.shownId === id, was = engine.isPlaying, at = engine.time, index = p.index;
+  if (hi) { engine.pause(); hifiStop(); await new Promise(r => setTimeout(r, 260)); }
+  const r = await Lib!.writeLyrics(id, text, 'tag').catch(e => ({ ok: false, why: String(e) }));
+  if (!r.ok && r.why === 'unsupported') { await Lib!.writeLyrics(id, text, 'lrc'); toast(tx('s.lyr.tagUnsupported')); }
+  else if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
+  else toast(tx('s.lyr.tagSaved'));
+  // (back to where it was: the song opened again from the rewritten file)
+  if (hi && player.get().shownId === id) await loadAt(index, was, at);
 }
 /** The shown song's lines as its words are spaced now (one per line). */
 export const spacedLines = () => (player.get().session?.doc?.lines || []).filter(L => L.words.length).map(L => L.words.map(w => w.text).join(' '));

@@ -16,6 +16,7 @@ import { NpLyrics } from './NowPlaying';
 import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, ExportPanel } from './panes';
 import { askMv, askMvOffset } from './Modals';
 import { MvLook } from './Settings';
+import { setSettings } from '../actions/settings';
 import s from './Effect.module.css';
 
 const IDLE_MS = 2600;
@@ -153,7 +154,7 @@ function SpacingEditor() {
   );
 }
 export function LyricsTab() {
-  const p = useStore(player), t = trackOf(p.shownId), session = p.session!;
+  const p = useStore(player), t = trackOf(p.shownId), session = p.session!, target = useStore(settings, x => x.lyricsTarget) === 'lrc' ? 'lrc' : 'tag';
   const [text, setText] = useState(() => (p.hasLyrics ? session.spec.lyrics : '') || ''), [msg, setMsg] = useState('');
   const [q, setQ] = useState({ title: t ? t.title : '', artist: t ? t.artist : '' }), [res, setRes] = useState<Awaited<ReturnType<NonNullable<typeof Lib>['searchLyrics']>> | null>(null);
   const [busy, setBusy] = useState(false), [pick, setPick] = useState<number | null>(null);
@@ -168,6 +169,7 @@ export function LyricsTab() {
         <textarea className={s.lyricsTa} spellCheck={false} value={text} onChange={e => setText(e.target.value)} placeholder="[00:12.30]…" />
         <Row>
           <Button kind="primary" size="sm" onClick={() => use(hasTimedLines(text) ? text : spreadPlain(text, end))}>{tx('s.lyr.saveLrc')}</Button>
+          <Dropdown className={s.target} label={tx('s.lyr.target')} value={target} onChange={v => setSettings({ lyricsTarget: v as 'tag' | 'lrc' })} options={[['tag', tx('s.lyr.target.tag')], ['lrc', tx('s.lyr.target.lrc')]]} />
           <Button size="sm" onClick={async () => { const x = await Lib!.importLyricsFile(); if (x) use(/\[\d+:\d+/.test(x) ? x : spreadPlain(x, end)); }}>{tx('s.lyr.import')}</Button>
         </Row>
         {msg && <Note>{msg}</Note>}

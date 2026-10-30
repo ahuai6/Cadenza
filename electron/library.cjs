@@ -243,10 +243,45 @@ async function readLyrics(id) {
     if (L) { const txt = L.syncText && L.syncText.length ? L.syncText.map(s => `[${lrcTime((s.timestamp || 0) / 1000)}]${s.text}`).join('\n') : (L.text || ''); if (txt.trim()) return { source: 'embedded', text: txt }; } } catch (e) { /* unreadable tags */ } }
   return null;
 }
-async function writeLyrics(id, text) {
-  const t = db.tracks[id]; if (!t || t.protected) return false;
-  const p = sidecar(t.path) || t.path.slice(0, -path.extname(t.path).length) + '.lrc';
-  await fsp.writeFile(p, '\ufeff' + String(text).replace(/\r?\n/g, '\r\n'), 'utf8'); t.lrc = true; changed(); return true;
+/** Save a song's lyrics: into the file's own lyrics tag (target 'tag': ID3 USLT, Vorbis LYRICS, MP4 ©lyr), or as the .lrc
+ *  beside it. A .lrc already there is kept in step either way (it is read first). Returns how it went. */
+async function writeLyrics(id, text, target = 'lrc') {
+  const t = db.tracks[id]; if (!t || t.protected) return { ok: false, why: 'protected' };
+  const crlf = String(text).replace(/\r?\n/g, '\r\n'), sc = sidecar(t.path);
+  if (target === 'tag') {
+    const why = await writeTagLyrics(t.path, String(text).replace(/\r\n/g, '\n'));
+    if (why) return { ok: false, why };
+    t.embedded = true;
+    if (sc) await fsp.writeFile(sc, '\ufeff' + crlf, 'utf8');
+    // (the file's new size and time: the next scan sees the same song — its audio key is unchanged, so its analysis stays)
+    const st = await fsp.stat(t.path).catch(() => null); if (st) { t.size = st.size; t.mtime = st.mtimeMs; }
+    save(); changed(); return { ok: true, target: 'tag' };
+  }
+  await fsp.writeFile(sc || t.path.slice(0, -path.extname(t.path).length) + '.lrc', '\ufeff' + crlf, 'utf8'); t.lrc = true; changed(); return { ok: true, target: 'lrc' };
+}
+/** The lyrics written into the file's tags (node-taglib-sharp, LGPL — NOTICE.md). The edit is made on a copy beside the
+ *  file and the copy then takes its place, so a failure never leaves a half-written song; a file still held by another
+ *  program is tried again for a few seconds. Returns null, or why not. */
+let taglib = null;
+async function writeTagLyrics(p, text) {
+  taglib ||= require('node-taglib-sharp');
+  // (a hidden name — the scan skips dot-files — with the song's own extension, which says the format)
+  const ext = path.extname(p), tmp = path.join(path.dirname(p), '.' + path.basename(p, ext) + '.cadenza-tmp' + ext);
+  for (let k = 0; k < 8; k++) {
+    try {
+      await fsp.copyFile(p, tmp);
+      const f = taglib.File.createFromPath(tmp); let ok = false;
+      try { if (f.tag) { f.tag.lyrics = text; f.save(); ok = true; } } finally { f.dispose(); }
+      if (!ok) { await fsp.rm(tmp, { force: true }).catch(() => {}); return 'unsupported'; }
+      await fsp.rename(tmp, p); return null;
+    } catch (e) {
+      await fsp.rm(tmp, { force: true }).catch(() => {});
+      const busy = ['EBUSY', 'EPERM', 'EACCES'].includes(e && e.code);
+      if (!busy) return /unsupported|not supported|unknown file/i.test(String(e && e.message)) ? 'unsupported' : String((e && e.message) || e).slice(0, 160);
+      await new Promise(r => setTimeout(r, 400 + k * 300));
+    }
+  }
+  return 'busy';
 }
 // .lrc files come in UTF-8 (with or without a BOM), UTF-16, or GBK/Big5 from older tools
 function decodeText(b) {
@@ -458,7 +493,7 @@ function register(ipcMain, getWin) {
   ipcMain.handle('lib:song', async (_e, id) => { const s = await getSong(id); if (s && s.mv) s.mv = { name: s.mv.name, offset: s.mv.offset || 0 }; return s; });
   ipcMain.handle('lib:setSong', (_e, id, d) => setSong(id, d));
   ipcMain.handle('lib:lyrics', (_e, id) => readLyrics(id));
-  ipcMain.handle('lib:writeLyrics', (_e, id, text) => writeLyrics(id, text));
+  ipcMain.handle('lib:writeLyrics', (_e, id, text, target) => writeLyrics(id, text, target === 'tag' ? 'tag' : 'lrc'));
   ipcMain.handle('lib:searchLyrics', (_e, q) => searchLyrics(q));
   ipcMain.handle('lib:searchMeta', (_e, q) => searchMeta(q));
   ipcMain.handle('lib:applyMeta', (_e, id, m) => applyMeta(id, m));

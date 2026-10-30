@@ -31,6 +31,14 @@ Cadenza 以 **GNU Affero General Public License v3.0**（AGPL-3.0-only）發佈�
 | BudouX | 日文文節切分 | Apache-2.0 | https://github.com/google/budoux |
 | opencc-js | 只在建置時用來產生繁轉簡字表 | Apache-2.0 | https://github.com/nk2028/opencc-js |
 
+## 標籤寫入
+
+- **node-taglib-sharp**（LGPL-2.1-or-later，<https://github.com/benrr101/node-taglib-sharp>）：把編輯過的歌詞寫入歌曲標籤（MP3 的 USLT、FLAC／Ogg 的 Vorbis 註解、M4A 的 ©lyr）。以未修改的 npm 套件形式獨立隨附於 `node_modules`，可自行替換為其他版本。
+
+## 字體
+
+所有隨程式附帶的字體皆為 SIL Open Font License 1.1（經由 Fontsource 套件取得），授權允許隨軟體散布。清單見 `scripts/fonts.mjs`。
+
 ## 模型權重（不在 git 中，打包時下載並以 SHA-256 校驗）
 
 | 檔案 | 模型 | 授權 | 上游 |

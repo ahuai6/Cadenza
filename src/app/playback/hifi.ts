@@ -61,6 +61,8 @@ export function load(id: string): Promise<{ dur: number; src: { rate: number; ch
 export const preload = (id: string) => A && A.cmd({ cmd: 'load', id, next: true });
 /** Let go of the device (the workshop plays through the standard output). */
 export const release = () => A && A.cmd({ cmd: 'release' });
+/** Stop and let go of the song (its decoder closed: the file is no longer held). */
+export const stop = () => A && A.cmd({ cmd: 'stop' });
 
 type Trouble = 'fallback' | 'device' | 'down';
 const listeners = new Set<(k: Trouble) => void>();
