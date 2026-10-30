@@ -6,8 +6,10 @@
    than the ear separates a camera move (FUSE) form one *group*: the camera frames the group once, instead of starting a
    move for each (word timing like <25.570>１ <25.600>２ <25.630>３ used to start three moves in 60 ms). */
 import type { Parsed, RawLine } from './parse';
-import { graphemes, unitsOf, isLatin, RE_CJK, RE_COMPLEX, RE_RTL, syllables } from './script';
-import type { RhythmMap } from '../rhythm/map';
+import { graphemes, unitsOf, isLatin, RE_CJK, RE_COMPLEX, RE_RTL, syllables } from '../text/script';
+/** What pacing the words needs from the rhythm (RhythmMap is one): the tempo, the beat's length at a moment, and a
+ *  time snapped to the grid within a tolerance. The lyric model reads the beat through this and knows nothing else of it. */
+export interface BeatGrid { readonly bpm: number; beatLen(t: number): number; snap(t: number, tol: number, div: number): number }
 
 export interface Unit { c: string; /** sung time, or null when the line is timed only as a whole */ t: number | null }
 export interface Word {
@@ -44,7 +46,7 @@ export const FUSE = 0.12;
 const syllableTime = (n: number, bpm: number) => n * 0.3 * Math.sqrt(120 / bpm);
 
 /** end: where the song's music ends (song time) — the last line stays current until a few bars after it is sung. */
-export function buildLyrics(p: Parsed, map: RhythmMap, end: number): LyricDoc {
+export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
   const bpm = map.bpm, raw = p.lines, lines: Line[] = [];
   const sungEndOf = (L: RawLine) => {
     if (L.kar) { const lk = Math.max(...L.kar.flat().map(u => u.t)); return L.close ?? lk + 0.5; }
@@ -98,7 +100,7 @@ export function buildLyrics(p: Parsed, map: RhythmMap, end: number): LyricDoc {
 
 /** Line-timed words: each starts at its share of the line's syllables across the sung part, drawn onto a beat when
  *  one is close (an eighth otherwise), always after the word before. */
-function paceWords(L: Line, map: RhythmMap) {
+function paceWords(L: Line, map: BeatGrid) {
   const n = L.words.length; if (!n) return;
   const beat = map.beatLen(L.t), q = beat / 2;
   const D = Math.max(n * q / 2, Math.min(L.end, L.sung) - L.t), R = n > 1 ? Math.min(2 * beat, D * 0.3) : 0, avail = D - R;
@@ -112,10 +114,4 @@ function paceWords(L: Line, map: RhythmMap) {
   }
 }
 
-/** The line current at t (the last one started), or -1. */
-export function lineAt(doc: LyricDoc, t: number): number {
-  let lo = 0, hi = doc.lines.length - 1, r = -1;
-  while (lo <= hi) { const m = (lo + hi) >> 1; if (doc.lines[m].t <= t) { r = m; lo = m + 1; } else hi = m - 1; }
-  return r;
-}
 export { graphemes };

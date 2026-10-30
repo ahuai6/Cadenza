@@ -9,13 +9,6 @@ export function paletteOf(st: Style): Palette {
   const P = { bg: hex2rgb(st.bg), bg2: hex2rgb(st.bg2), text: hex2rgb(st.text), accent: hex2rgb(st.accent), flash: hex2rgb(st.flash) };
   return { ...P, dark: lum(P.bg) < 0.3, invertOnFlash: Math.abs(lum(P.flash) - lum(P.text)) < 0.35 };
 }
-/** The interface's colours, following the picture (so panels over it match). */
-export function uiPalette(p: Palette, st: Style) {
-  const fg = p.dark ? [238, 238, 240] as RGB : mix(p.text, K3, 0.4);
-  return { dark: p.dark, bg: st.bg, fg: hexOf(p.dark && lum(p.text) > 0.5 ? p.text : fg), accent: st.accent,
-    dim: p.dark ? 'rgba(255,255,255,.6)' : 'rgba(0,0,0,.58)', line: p.dark ? 'rgba(255,255,255,.16)' : 'rgba(0,0,0,.14)',
-    wash: p.dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.05)', panel: `rgba(${mix(p.bg, p.dark ? K3 : W3, 0.3).map(Math.round)},.94)` };
-}
 type Img = CanvasImageSource & { width: number; height: number };
 /** A theme's colours from a cover: background from its dominant colour, accent from its most vivid, text with contrast. */
 export function paletteFromImage(img: Img): Pick<Style, 'bg' | 'bg2' | 'text' | 'accent' | 'flash'> {

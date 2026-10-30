@@ -11,7 +11,7 @@ import { Button, IconButton, Seg, Section, Row, Check, TextField, Note, Slider }
 import { yieldAudio, songForWorkshop } from '../../playback/player';
 import { storedStyle } from '../../../theme/style';
 import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, EndPane, ExportPanel } from '../panes';
-import { ws, engine, canvas, start, edit, applyLyrics, resetDemo, importAudio, clearAudio, importCover, clearCover, importVideo, clearVideo, setVideoOpt, importProject, projectData, queueImport } from './project';
+import { ws, engine, canvas, start, edit, applyLyrics, resetDemo, importAudio, clearAudio, importCover, clearCover, importVideo, clearVideo, setVideoOpt, importProject, projectData, queueImport } from '../../workshop/project';
 import s from './Workshop.module.css';
 
 const TABS: [string, string][] = [['lyrics', 'tab.lyrics'], ['look', 'tab.look'], ['motion', 'tab.motion'], ['fx', 'tab.fx'], ['end', 'tab.end']];

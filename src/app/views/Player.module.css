@@ -4,11 +4,11 @@
 .prog[data-times="false"] { grid-template-columns: 1fr; }
 .pt { font-size: 11.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
 .bar { position: relative; height: 18px; cursor: pointer; touch-action: none; --k: 0; }
-.bar::before, .fill { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 3px; transition: height var(--t-fast) var(--ease), margin var(--t-fast) var(--ease); }
+.bar::before, .fill { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: var(--r-bar); transition: height var(--t-fast) var(--ease), margin var(--t-fast) var(--ease); }
 .bar::before { background: var(--line-2); }
 .fill { background: var(--fg); clip-path: inset(0 calc((1 - var(--k)) * 100%) 0 0 round 3px); }
 .bar:hover::before, .bar:hover .fill, .bar[data-drag="true"]::before, .bar[data-drag="true"] .fill { height: 6px; margin-top: -3px; }
-.head { position: absolute; top: 50%; left: calc(var(--k) * 100%); width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 4.5px; background: var(--fg); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); opacity: 0; transform: scale(0.5); transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); pointer-events: none; }
+.head { position: absolute; top: 50%; left: calc(var(--k) * 100%); width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: var(--r-knob); background: var(--fg); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); opacity: 0; transform: scale(0.5); transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); pointer-events: none; }
 .bar:hover .head, .bar[data-drag="true"] .head, .bar:focus-visible .head { opacity: 1; transform: none; }
 .bar:focus-visible { outline: none; }
 
@@ -20,7 +20,7 @@
 .vol input { width: 92px; }
 .volFixed { display: flex; align-items: center; gap: 5px; color: var(--fg-3); font-size: 11px; font-weight: 650; }
 .hifi { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
-.hifi em { font-style: normal; font-weight: 650; padding: 1px 7px; border-radius: 6px; background: var(--surface-3); }
+.hifi em { font-style: normal; font-weight: 650; padding: 1px 7px; border-radius: var(--r-chip); background: var(--surface-3); }
 
 /* the floating player card */
 .card {
@@ -32,7 +32,7 @@
 .id { display: flex; align-items: center; gap: 12px; min-width: 0; text-align: left; padding: 4px 10px 4px 4px; margin-left: -4px; border-radius: calc(var(--r-md) + 2px); cursor: pointer;
   transition: background var(--t-fast) var(--ease); }
 .id:hover { background: var(--hover); }
-.mini { width: 56px; height: 56px; --cover-r: 12px; border-radius: 12px; box-shadow: var(--shadow-1); flex: none; transition: transform var(--t-med) var(--spring, var(--ease)), box-shadow var(--t-med) var(--ease); }
+.mini { width: 56px; height: 56px; --cover-r: 12px; border-radius: var(--r-cover-md); box-shadow: var(--shadow-1); flex: none; transition: transform var(--t-med) var(--spring, var(--ease)), box-shadow var(--t-med) var(--ease); }
 .mini .mini { transition: none; }
 .id:hover > .mini { transform: scale(1.06); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32); }
 .id:active > .mini { transform: scale(0.97); }
@@ -64,7 +64,7 @@
 .qmain { display: contents; text-align: left; }
 .qcover { position: relative; width: 40px; height: 40px; }
 .qcover > span:first-child { width: 40px; height: 40px; --cover-r: 9px; }
-.qcover .qeq { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 9px; background: rgba(0, 0, 0, 0.45); }
+.qcover .qeq { position: absolute; inset: 0; display: grid; place-items: center; border-radius: var(--r-cover-sm); background: rgba(0, 0, 0, 0.45); }
 .qtext { display: grid; min-width: 0; text-align: left; }
 .qtext b { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .qtext small { color: var(--fg-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

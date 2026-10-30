@@ -4,8 +4,8 @@
 import { rnd } from '../../core/rng';
 import { rgba, mix, type RGB } from '../../core/color';
 import { register, type Ctx, type Param } from './registry';
-import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
+import { wordPlacement } from '../../director/words';
 
 const COLOR: Param = { key: 'color', label: 'p.color', kind: 'select', options: [['rgb', 'p.color.rgb'], ['theme', 'p.color.theme']], def: 'rgb' };
 const C2 = (c: HTMLCanvasElement) => c.getContext('2d')!;
@@ -17,7 +17,6 @@ function snapshot(g: Ctx) {
 }
 /** The snapshot through one colour (multiply), into TINT. */
 function tinted(col: string) { const t = C2(TINT); t.setTransform(1, 0, 0, 1, 0, 0); t.globalCompositeOperation = 'copy'; t.drawImage(SNAP, 0, 0); t.globalCompositeOperation = 'multiply'; t.fillStyle = col; t.fillRect(0, 0, TINT.width, TINT.height); t.globalCompositeOperation = 'destination-in'; t.drawImage(SNAP, 0, 0); return TINT; }
-const env = (dt: number, atk: number, len: number) => (dt < 0 ? 0 : dt < atk ? dt / atk : Math.max(0, 1 - (dt - atk) / len) ** 2);
 /** A hit: it snaps apart within a frame or two and snaps most of the way back at once, then the rest settles quickly,
  *  with a small second kick (a lens rattled by the blow) — nothing drags behind the beat. */
 const snapEnv = (dt: number) => (dt < 0 ? 0 : dt < 0.012 ? dt / 0.012 : Math.exp(-(dt - 0.012) / 0.06) * 0.8 + 0.2 * Math.exp(-(dt - 0.012) / 0.2) * Math.abs(Math.cos((dt - 0.012) * 26)));
@@ -52,8 +51,8 @@ register({ id: 'glitch', label: 'fx.glitch', layer: 'screen', kind: 'effect', z:
   const cols: string[] = theme ? [rgba(f.pal.accent, 1), rgba(f.pal.flash, 1), rgba(mix(f.pal.accent, f.pal.bg2, 0.5) as RGB, 1)] : ['#ff0040', '#00ffd0', '#4060ff'];
   // where: the words being sung (their boxes on screen), else the middle of the picture
   const boxes: [number, number, number, number][] = [];
-  for (const v of f.vis || []) { if (!v.ws.live || v.o < 0.3) continue; const S = v.S, k2 = S.s * v.ws.sc * v.p.k, w = (S.lw / S.s) * k2 * px, h = (S.lh / S.s) * k2 * px;
-    boxes.push([(f.W / 2 + v.p.sx) * px - w / 2, (f.H / 2 + v.p.sy) * px - h / 2, w, h]); if (boxes.length >= 3) break; }
+  for (const v of f.vis || []) { if (!v.ws.live || v.o < 0.3) continue; const S = v.S, wp = wordPlacement(S, v.p, v.ws), w = S.lw * wp.sc * v.p.k * px, h = S.lh * wp.sc * v.p.k * px;
+    boxes.push([(f.W / 2 + wp.x) * px - w / 2, (f.H / 2 + wp.y) * px - h / 2, w, h]); if (boxes.length >= 3) break; }
   if (!boxes.length) boxes.push([W * 0.3, H * 0.4, W * 0.4, H * 0.2]);
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
   boxes.forEach(([bx, by, bw, bh], j) => {

@@ -5,26 +5,12 @@ import { D, Lib, type Settings } from '../bridge';
 import { settings, lib, useStore } from '../state';
 import { Icon } from '../ui/icons';
 import { Button, Seg, Toggle, Note, Slider } from '../ui/kit';
-import { engine } from '../playback/stage';
-import { switchOutput, applyBalance } from '../playback/player';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
-import { applyRhythmSettings } from '../playback/analysis';
-import { neuralStatus } from '../../rhythm';
-import { setLang, renderSettings, mvLook } from './Shell';
+import { neuralStatus } from '../../engine';
+import { setLang, setSettings } from '../actions/settings';
 import s from './Settings.module.css';
-import { applyGfx } from './Shell';
 
 const SCALES: ('auto' | number)[] = ['auto', 1, 0.85, 0.7, 0.55], FPS = [0, 120, 60, 30];
-export async function setSettings(patch: Partial<Settings>) {
-  settings.set(patch); const n = D ? await D.setSettings(patch) : { ...settings.get(), ...patch }; settings.set(n);
-  if ('scale' in patch || 'fps' in patch || 'prerender' in patch) engine.setRender(renderSettings(n));
-  if ('audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch) switchOutput();
-  if ('fixedVolume' in patch) engine.setVolume(engine.volume);
-  if ('volBalance' in patch || 'fixedVolume' in patch) applyBalance();
-  if ('rhythmEngine' in patch || 'rhythmDrums' in patch) applyRhythmSettings(n);
-  if ('gfx' in patch) applyGfx(n);
-  if (Object.keys(patch).some(k => k.startsWith('mv'))) { engine.mvLook = mvLook(n); engine.invalidate(); }
-}
 const pc = (v: number | string) => Math.round(+v * 100) + '%';
 /** How a song's own MV sits behind the lyrics (app-wide: shown here and in a song's panel). */
 export function MvLook() {

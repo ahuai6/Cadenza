@@ -34,7 +34,7 @@
 /* a favourite: a white heart (the foreground in the library, so it still shows on a light page; white on the picture) */
 .ib[data-fav][data-on="true"] { color: var(--fg); }
 :global(.on-picture) .ib[data-fav][data-on="true"], :global(.glass) .ib[data-fav][data-on="true"] { color: #fff; }
-.badgeN { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 6px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; line-height: 15px; font-style: normal; text-align: center; }
+.badgeN { position: absolute; top: 2px; right: 1px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: var(--r-chip); background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; line-height: 15px; font-style: normal; text-align: center; }
 
 /* segmented control: equal columns, one line each — labels never wrap, they shorten */
 .seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; padding: 3px; border-radius: var(--r-sm); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); max-width: 100%; }
@@ -51,8 +51,8 @@
 .toggle > span { flex: 1; display: grid; gap: 2px; }
 .toggle small { color: var(--fg-3); font-size: 12.5px; }
 .toggle input { position: absolute; opacity: 0; pointer-events: none; }
-.toggle i { position: relative; width: 40px; height: 24px; border-radius: 9px; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--line); flex: none; transition: background var(--t-med) var(--ease); }
-.toggle i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 7px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: transform var(--t-med) var(--ease); }
+.toggle i { position: relative; width: 40px; height: 24px; border-radius: var(--r-cover-sm); background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--line); flex: none; transition: background var(--t-med) var(--ease); }
+.toggle i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: var(--r-xs); background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: transform var(--t-med) var(--ease); }
 .toggle input:checked + i { background: var(--accent); }
 .toggle input:checked + i::after { transform: translateX(16px); }
 .toggle input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -60,7 +60,7 @@
 /* checkbox: a rounded square */
 .check { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; min-height: 30px; }
 .check input { position: absolute; opacity: 0; pointer-events: none; }
-.check i { width: 18px; height: 18px; border-radius: 6px; box-shadow: inset 0 0 0 1.5px var(--line-2); display: grid; place-items: center; transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); flex: none; }
+.check i { width: 18px; height: 18px; border-radius: var(--r-chip); box-shadow: inset 0 0 0 1.5px var(--line-2); display: grid; place-items: center; transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); flex: none; }
 .check i svg { opacity: 0; transform: scale(0.6); transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); color: var(--on-accent); }
 .check input:checked + i { background: var(--accent); box-shadow: none; }
 .check input:checked + i svg { opacity: 1; transform: none; }
@@ -71,8 +71,8 @@
 .slider label { color: var(--fg-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slider output { text-align: right; color: var(--fg-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .range { appearance: none; -webkit-appearance: none; width: 100%; height: 22px; background: transparent; margin: 0; cursor: pointer; --p: 50%; }
-.range::-webkit-slider-runnable-track { height: 6px; border-radius: 4px; background: linear-gradient(90deg, var(--accent) var(--p), var(--surface-3) var(--p)); }
-.range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 6px; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.1); transition: transform var(--t-fast) var(--ease); }
+.range::-webkit-slider-runnable-track { height: 6px; border-radius: var(--r-track); background: linear-gradient(90deg, var(--accent) var(--p), var(--surface-3) var(--p)); }
+.range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: var(--r-chip); background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.1); transition: transform var(--t-fast) var(--ease); }
 .range:hover::-webkit-slider-thumb { transform: scale(1.12); }
 .range:focus-visible { outline: none; }
 .range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft), 0 1px 4px rgba(0, 0, 0, 0.35); }
@@ -89,7 +89,7 @@
 .row > * { min-width: 0; }
 .field select, .field input { width: 100%; min-width: 0; }
 .field > label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 6px; background: var(--surface-3); color: var(--fg-2); font-size: 11px; font-weight: 600; font-style: normal; white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: var(--r-chip); background: var(--surface-3); color: var(--fg-2); font-size: 11px; font-weight: 600; font-style: normal; white-space: nowrap; }
 .badge[data-k="warn"] { background: color-mix(in oklab, var(--warn) 18%, transparent); color: var(--warn); }
 .badge[data-k="accent"] { background: var(--accent-soft); color: var(--accent); }
 
@@ -107,7 +107,7 @@
 .emptyArt { width: 72px; height: 72px; border-radius: var(--r-xl); display: grid; place-items: center; background: var(--surface-2); color: var(--fg-3); box-shadow: inset 0 0 0 1px var(--line); }
 
 .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
-.eq i { width: 3px; border-radius: 1.5px; background: var(--accent); animation: eq 0.9s var(--ease) infinite alternate; }
+.eq i { width: 3px; border-radius: var(--r-mark); background: var(--accent); animation: eq 0.9s var(--ease) infinite alternate; }
 .eq[data-live] i { animation: none; height: 18%; transition: none; }
 .eq i:nth-child(2) { animation-delay: -0.3s; } .eq i:nth-child(3) { animation-delay: -0.6s; }
 @keyframes eq { from { height: 25%; } to { height: 100%; } }

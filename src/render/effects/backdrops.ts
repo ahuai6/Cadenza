@@ -7,7 +7,7 @@ import { register, type Ctx } from './registry';
 import { MV_LOOK, type RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { basePose } from '../../director/camera';
-import { accentClock } from './clock';
+import { accentClock } from '../../rhythm/accentclock';
 import { gfx } from '../gfx';
 
 const C2 = (c: HTMLCanvasElement | OffscreenCanvas) => (c as HTMLCanvasElement).getContext('2d')!;
@@ -20,7 +20,7 @@ const lq = makeCanvas(64, 36) as HTMLCanvasElement, lqx = C2(lq); let LQI: Image
 function renderLiquid(f: RenderFrame, Ev: number, ox: number, oy: number) {
   const w = f.W, h = f.H, W0 = w + 2 * Ev, H0 = h + 2 * Ev, gw = Math.max(48, Math.min(200, Math.round(W0 / 7))), gh = Math.max(27, Math.round(gw * H0 / W0));
   // (the flow on the drifting things' clock: it hangs on a heavy beat with the rest of the scene)
-  const P = f.P, sp = 0.6 + 0.5 * (f.style.m.speed ?? 1), t = accentClock(f), key = [t, w, h, Ev, ox, oy, P, sp, f.style.bg, f.style.bg2, f.style.accent, f.style.flash].join('|');
+  const P = f.P, sp = 0.6 + 0.5 * (f.style.m.speed ?? 1), t = accentClock(f.plan.map, f.t), key = [t, w, h, Ev, ox, oy, P, sp, f.style.bg, f.style.bg2, f.style.accent, f.style.flash].join('|');
   if (key === LQKEY && lq.width === gw && lq.height === gh) return lq;
   LQKEY = key; if (lq.width !== gw || lq.height !== gh) { lq.width = gw; lq.height = gh; LQI = null; }
   if (!LQI) LQI = lqx.createImageData(gw, gh);
@@ -44,7 +44,7 @@ register({ id: 'liquid', label: 'bg.liquid', layer: 'backdrop', kind: 'backdrop'
 const bk = makeCanvas(200, 120) as HTMLCanvasElement, bkx = C2(bk);
 const DISCS = Array.from({ length: 24 }, (_, i) => ({ x: rnd(i * 2.1 + 9), y: rnd(i * 3.9 + 8), z: 0.2 + rnd(i * 5.3 + 7) * 0.8, r: 0.03 + rnd(i * 7.1 + 6) * 0.1, k: i % 3, f: 0.3 + rnd(i * 1.3) * 0.8, p: rnd(i * 8.2) * 6.28 }));
 register({ id: 'bokeh', label: 'bg.bokeh', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
-  const E = a.bd.E, [lw, lh] = lowSize(bk, f.W + 2 * E, f.H + 2 * E, 200), c = bkx, P = f.P, t = accentClock(f), pal = f.pal;
+  const E = a.bd.E, [lw, lh] = lowSize(bk, f.W + 2 * E, f.H + 2 * E, 200), c = bkx, P = f.P, t = accentClock(f.plan.map, f.t), pal = f.pal;
   const cols = [pal.accent, mix(pal.accent, [255, 255, 255], 0.6), pal.flash];
   const gr = c.createLinearGradient(0, 0, 0, lh); gr.addColorStop(0, hexOf(mix(pal.bg, pal.bg2, 0.15))); gr.addColorStop(1, hexOf(mix(pal.bg, pal.bg2, 0.75)));
   c.globalCompositeOperation = 'source-over'; c.fillStyle = gr; c.fillRect(0, 0, lw, lh); c.globalCompositeOperation = pal.dark ? 'lighter' : 'source-over';
@@ -167,7 +167,7 @@ const ROSES_FAR: [number, number, number, number, number, number][] = [[0, 0.82,
 const PETALS = Array.from({ length: 14 }, (_, i) => ({ x: rnd(i * 7.1 + 3), p: rnd(i * 3.3 + 9), s: 0.03 + rnd(i * 5.9) * 0.04, f: 0.4 + rnd(i * 2.2) * 0.8, ph: rnd(i * 8.8) * 6.28, z: 0.4 + rnd(i * 1.9) * 0.6 }));
 register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
   // (the roses' turn, the vines' sway and the petals on the drifting things' clock: they hang in the air on a heavy beat)
-  const Gs = gothicSprites(f), P = f.P, w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f), E = a.bd.Ev, ox = a.bd.ox, oy = a.bd.oy;
+  const Gs = gothicSprites(f), P = f.P, w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f.plan.map, f.t), E = a.bd.Ev, ox = a.bd.ox, oy = a.bd.oy;
   const flick = 0.94 + 0.06 * Math.sin(t * 7.1) * Math.sin(t * 3.3 + 1) + 0.03 * P, gr = g.createRadialGradient(w / 2, h * 0.42, m * 0.05, w / 2, h * 0.5, Math.max(w, h) * 0.85);
   gr.addColorStop(0, hexOf(mix(f.pal.bg2, K3, 1 - flick))); gr.addColorStop(0.55, hexOf(f.pal.bg)); gr.addColorStop(1, hexOf(mix(f.pal.bg, K3, 0.7))); g.fillStyle = gr; g.fillRect(-E, -E, w + 2 * E, h + 2 * E); a.under?.();
   // the far roses: three at their own depths (the farthest smallest and faintest, the nearest largest), set apart so

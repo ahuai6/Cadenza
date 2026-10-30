@@ -69,18 +69,45 @@ async function at441(buf: AudioLike): Promise<[Float32Array, Float32Array]> {
 }
 
 /** The neural engine's reading of a song, or null when it cannot run here (see neuralStatus) or the run fails. */
-export interface NeuralOptions { /** separate the drums (default: the setting) */ drums?: boolean; /** give up after this long (ms): the worker is dropped, the GPU let go */ timeoutMs?: number }
+export interface NeuralOptions {
+  /** separate the drums (default: the setting) */ drums?: boolean;
+  /** give up after this long (ms) of running — waiting in the queue does not count: the worker is dropped, the GPU let go */ timeoutMs?: number;
+  /** the song about to play: it goes ahead of the songs waiting in the background */ urgent?: boolean;
+}
+/* One song at a time: the worker's networks keep their buffers between runs, so two songs at once would write over
+   each other's (and a timeout on one would drop the worker under the other). Requests wait their turn — an urgent one
+   ahead of the rest, in order among themselves — and an urgent one does not wait behind a background song: that run is
+   stopped (the worker dropped with it) and goes back to the front of the background songs, to run again after. */
+type Turn = { urgent: boolean; go: () => void };
+const queue: Turn[] = [];
+let running: { urgent: boolean; stopped: boolean; onStop: () => void } | null = null;
+function turn(urgent: boolean, again = false): Promise<() => void> {
+  return new Promise(res => {
+    const go = () => { let done = false; running = { urgent, stopped: false, onStop: noop }; res(() => { if (done) return; done = true; running = null; queue.shift()?.go(); }); };
+    if (!running) { go(); return; }
+    const at = urgent || again ? queue.findIndex(q => !q.urgent) : -1, item = { urgent, go };
+    if (at < 0) queue.push(item); else queue.splice(at, 0, item);
+    if (urgent && !running.urgent && !running.stopped) { running.stopped = true; running.onStop(); }
+  });
+}
+const noop = () => {};
+const PREEMPTED = 'preempted by the song about to play';
 export async function neuralRhythm(buf: AudioLike, progress?: (k: number) => void, opts: NeuralOptions = {}): Promise<NeuralRhythm | null> {
   const st = await neuralStatus(); if (!st.ok || !base) return null;
-  let tm: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const [left, right] = await at441(buf);
-    const run = call<NeuralRhythm>({ kind: 'analyse', base, left, right, drums: opts.drums ?? drumsOn }, [left.buffer, right.buffer], progress);
-    if (!opts.timeoutMs) return await run;
-    return await Promise.race([run, new Promise<never>((_, rej) => { tm = setTimeout(() => rej(new Error(`no answer in ${opts.timeoutMs} ms`)), opts.timeoutMs); })]);
-  } catch (e) {
-    console.warn('[neural] analysis failed, the built-in analysis takes over:', (e as Error).message);
-    drop();          // (a lost device or a failed pipeline leaves nothing worth keeping: the next song gets a fresh worker)
-    return null;
-  } finally { if (tm) clearTimeout(tm); }
+  for (let again = false; ; again = true) {
+    const release = await turn(!!opts.urgent, again);
+    let tm: ReturnType<typeof setTimeout> | null = null; const me = running!;
+    try {
+      const [left, right] = await at441(buf); if (me.stopped) throw new Error(PREEMPTED);
+      const run = call<NeuralRhythm>({ kind: 'analyse', base, left, right, drums: opts.drums ?? drumsOn }, [left.buffer, right.buffer], progress);
+      const stop = new Promise<never>((_, rej) => { me.onStop = () => rej(new Error(PREEMPTED)); });
+      const limit = opts.timeoutMs ? [new Promise<never>((_, rej) => { tm = setTimeout(() => rej(new Error(`no answer in ${opts.timeoutMs} ms`)), opts.timeoutMs); })] : [];
+      return await Promise.race([run, stop, ...limit]);
+    } catch (e) {
+      if (me.stopped) { if (me.onStop !== noop) drop(); continue; }   // (stopped for the song about to play: its worker goes, this song runs again after)
+      drop();          // (a lost device or a failed pipeline leaves nothing worth keeping: the next song gets a fresh worker)
+      console.warn('[neural] analysis failed, the built-in analysis takes over:', (e as Error).message);
+      return null;
+    } finally { if (tm) clearTimeout(tm); release(); }
+  }
 }

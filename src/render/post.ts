@@ -1,9 +1,9 @@
 // What goes over the finished picture: the transition blur, flashes, titles (opening and ending), captions, idle dots.
 import { clamp, sstep } from '../core/math';
 import { eOut } from '../core/ease';
-import { rgba, hexOf, mix, K3 } from '../core/color';
+import { rgba, hexOf, mix } from '../core/color';
 import { fontStack, captionStack } from '../text/fonts';
-import { isLatin } from '../lyrics/script';
+import { isLatin } from '../text/script';
 import { makeCanvas } from './palette';
 import { filterSupported } from './glyphs';
 import { gfx, cheapBlurDraw } from './gfx';
@@ -113,4 +113,3 @@ export function drawIdleDots(g: Ctx, f: RenderFrame) {
   for (let i = 0; i < 3; i++) { const lit = sstep(clamp(p * 3 - i)), s = 1 + 0.28 * f.rs.pulse * (0.4 + 0.6 * lit); g.globalAlpha = k * (0.22 + 0.68 * lit); g.beginPath(); g.arc(f.W / 2 + (i - 1) * gap, y, r * s, 0, 6.283); g.fill(); }
   g.restore();
 }
-export const _k = K3; export const _m = mix;

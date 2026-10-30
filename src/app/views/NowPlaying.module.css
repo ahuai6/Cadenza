@@ -20,7 +20,7 @@
 .left { display: grid; align-content: center; justify-items: center; gap: 26px; min-height: 0; }
 .cover { width: min(44vh, 34vw, 460px); aspect-ratio: 1; border-radius: 0; overflow: hidden; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45); transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform; }
 .cover > span, .cover [data-swap] > span > span { width: 100%; height: 100%; --cover-r: 0; border-radius: 0; }
-.swapIn { position: absolute; inset: 0; animation: swap-in 520ms var(--ease) both; }
+.swapIn { position: absolute; inset: 0; animation: swap-in var(--t-reveal) var(--ease) both; }
 .meta > [data-swap] { min-width: 0; }
 .meta > [data-swap] > * > div { display: grid; gap: 3px; min-width: 0; }
 .np[data-fx="true"] .cover { visibility: hidden; }
@@ -38,7 +38,7 @@
 .lyr { position: absolute; inset: 0; overflow: hidden; padding: 0 8px; }
 .line { display: block; width: 100%; padding: 10px 12px; margin: 0 0 4px; border-radius: var(--r-lg); text-align: left; color: #fff; font-size: calc(clamp(22px, 2.3vw, 34px) * var(--np-fs, 1)); font-weight: 760; line-height: 1.28; letter-spacing: -0.01em;
   opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05); filter: blur(calc(min(var(--d, 1), 5) * 0.55px));
-  transition: opacity 420ms var(--ease), filter 420ms var(--ease), background var(--t-fast) var(--ease); }
+  transition: opacity var(--t-slow) var(--ease), filter var(--t-slow) var(--ease), background var(--t-fast) var(--ease); }
 :global(html[data-gfx="lite"]) .line { filter: none; }
 /* like Apple Music: the line being sung is sharp, the others softer the further they are; all sharp while the user
    scrolls through them, and the one under the pointer */
@@ -51,7 +51,7 @@
 .line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * (100% + 0.6em))); -webkit-background-clip: text; background-clip: text; color: transparent;
   text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3)); }
 /* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
-.line .w { transition: translate 420ms var(--ease); }
+.line .w { transition: translate var(--t-slow) var(--ease); }
 .line[data-on="true"] .w { transition: none; }
 .harmRow { display: block; font-size: 0.6em; font-weight: 600; opacity: 0.78; margin-top: 0.22em; }   /* the harmonies: their own smaller line under the words */
 .line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; }
@@ -65,7 +65,7 @@
 /* full screen: the lyrics sit a little further right (a better balance with the cover), and the page's controls fade
    away while the pointer rests, coming back as soon as it moves */
 :global(html[data-winfull="true"]) .right { margin-left: clamp(0px, 3vw, 56px); }
-.top > *, .info > * { transition: opacity 520ms var(--ease); }
+.top > *, .info > * { transition: opacity var(--t-reveal) var(--ease); }
 .np[data-idle="true"] .top > *, .np[data-idle="true"] .info > * { opacity: 0; pointer-events: none; }
 .np[data-idle="true"] { cursor: none; }
 

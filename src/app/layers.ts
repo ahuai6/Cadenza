@@ -128,9 +128,11 @@ const setVeil = (k: number) => { veilK = k; veil.style.display = k > 0.002 ? '' 
   const lite = document.documentElement.dataset.gfx === 'lite';
   veil.style.backdropFilter = lite ? 'none' : `blur(${b}px) saturate(${(1 + 0.15 * k).toFixed(3)})`; veil.style.background = `rgba(10, 8, 16, ${((lite ? 0.62 : 0.16) * k).toFixed(3)})`; };
 const frame = () => new Promise<number>(r => requestAnimationFrame(r));
+// (one tween drives the veil at a time: a newer one, of this request or a later one, takes it over from where it is)
+let veilTok = 0;
 async function tween(to: number, ms: number, ease: (u: number) => number, my: number) {
-  const from = veilK, t0 = performance.now();
-  for (;;) { const u = Math.min(1, (performance.now() - t0) / ms); setVeil(from + (to - from) * ease(u)); if (u >= 1) return true; await frame(); if (my !== tok) return false; }
+  const from = veilK, t0 = performance.now(), mine = ++veilTok;
+  for (;;) { const u = Math.min(1, (performance.now() - t0) / ms); setVeil(from + (to - from) * ease(u)); if (u >= 1) return true; await frame(); if (my !== tok || mine !== veilTok) return false; }
 }
 const easeIn = (u: number) => u * u * (3 - 2 * u) * 0.4 + u * u * 0.6, easeOut = (u: number) => 1 - (1 - u) ** 3;
 /** Soften everything, change what is underneath, give it two frames to draw, and bring it back into focus. */
@@ -157,6 +159,10 @@ engine.on('frame', () => { const el = refs.np; if (el && el.dataset.fx !== Strin
 let tok = 0;
 async function go(target: 'none' | 'np' | 'fx') {
   const my = ++tok;
+  // a request that interrupts a blur leaves the veil wherever it was: when this one does not go straight into a blur of
+  // its own (which starts from the veil as it is), the veil clears now instead of staying over everything
+  const swapsNow = engine.view === 'effect' ? target !== 'fx' : target === 'fx' && np.x >= 0.999 && np.target === 1;
+  if (!swapsNow && veilK > 0) { document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode; void tween(0, 360, easeOut, my); }
   if (target === 'none') {
     if (engine.view === 'effect') { if (!(await blurSwap(toNp, my))) return; }
     measure(); const done = await np.to(0); if (!done || my !== tok) return;

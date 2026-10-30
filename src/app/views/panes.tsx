@@ -7,12 +7,10 @@ import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
 import { PRESETS, KNOBS, presetStyle, type Style } from '../../theme/style';
-import { FONTS } from '../../text/fonts';
-import { effects, type Param } from '../../render/effects/registry';
-import { LYRIC_TYPES } from '../../director/lyrictypes';
+import { FONTS, effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
-import { Button, Seg, Section, Row, Select, Slider, Check, TextField, Note } from '../ui/kit';
+import { Button, Section, Row, Select, Slider, Check, TextField, Note } from '../ui/kit';
 import { useThemes, saveTheme, deleteTheme } from '../themes';
 import { pauseAnalysis } from '../playback/analysis';
 import s from './panes.module.css';
@@ -218,4 +216,3 @@ export function ExportPanel({ engine, s: ss, before }: { engine: Engine; s: Sess
     </div>
   );
 }
-export const Tabs = Seg;

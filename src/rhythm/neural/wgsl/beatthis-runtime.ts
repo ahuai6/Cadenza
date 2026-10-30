@@ -61,7 +61,7 @@ export class BeatThisWgsl {
         private readonly device: GPUDevice,
         private readonly build: (frames: number) => Graph,
         private readonly melBuffer: GPUBuffer,
-        private readonly outBuffer: GPUBuffer,
+        readonly outBuffer: GPUBuffer,
         private readonly owned: GPUBuffer[],
     ) {}
 

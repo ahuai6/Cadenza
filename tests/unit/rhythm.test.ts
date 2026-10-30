@@ -70,7 +70,7 @@ describe('rhythm: events', () => {
     expect(se.filter(e => (e as any).off).length / se.length).toBeGreaterThan(0.9);
   });
   it('hears an accent pushed ahead of the downbeat as that downbeat, early', () => {
-    const bpm = 120, b = 0.5, hits: Hit[] = [];
+    const b = 0.5, hits: Hit[] = [];
     for (let bar = 0; bar < 16; bar++) for (let k = 0; k < 4; k++) {
       const t = 0.5 + (bar * 4 + k) * b;
       const pushNext = bar % 2 === 1 && k === 3;                 // every other bar the next downbeat is pushed to the "and" of 4

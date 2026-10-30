@@ -77,6 +77,22 @@ const CHECKS = {
     ok('export: an MP4 at the asked size with its soundtrack', r.ok && r.h === 360 && r.size > 20000 && r.audio !== 'x.silent', JSON.stringify(r));
     ok('export: the MP4 reads back through the clip reader, frame by frame at any time', Array.isArray(r.back) && r.back.length === 4 && r.back.every(([w, h]) => w === 640 && h === 360), JSON.stringify(r.back));
   },
+  async exportMode(p) {
+    // the live picture's mode is not the export's: an export draws every frame in full quality, the live picture keeps
+    // its own mode meanwhile, and the setting changed in the middle of an export holds after it (nothing restores an
+    // older value over it)
+    const r = await p.evaluate(async () => {
+      const ses = await H.open({ theme: 'gothic', coverUrl: 'cover.jpg', lyrics: '[00:00.50]第一句 歌詞\n[00:03.00]第二句 歌詞' }); H.setGfx('lite');
+      const seen = new Set(), draw = H.drawFrame; let liveDuring = null;
+      // (watch the mode each export frame is drawn in, and draw a live frame in the middle of the export)
+      const orig = H.effects().find(e => e.id === 'feathers-fg'), keep = orig.draw; orig.draw = (g, f, a) => { seen.add(H.gfx()); return keep(g, f, a); };
+      const run = H.exportVideo(H.engine, ses, { res: 144, fps: 12, quality: 'q1', codec: 'avc', audio: false });
+      await new Promise(r => setTimeout(r, 300)); liveDuring = H.gfx(); H.setGfx('optimized');
+      const res = await run; orig.draw = keep; const after = H.gfx(); H.setGfx('default');
+      return { ok: res.ok, seen: [...seen], liveDuring, after };
+    });
+    ok('export: frames in full quality, the live mode kept meanwhile, a change during the export holds', r.ok && r.seen.length === 1 && r.seen[0] === 'default' && r.liveDuring === 'lite' && r.after === 'optimized', JSON.stringify(r));
+  },
 };
 (async () => {
   if (!fs.existsSync(path.join(DIST, 'harness.html')) || process.env.BUILD !== '0') execSync('npx vite build --mode harness', { cwd: ROOT, stdio: 'ignore' });

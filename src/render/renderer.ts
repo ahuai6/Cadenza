@@ -8,7 +8,7 @@ import { clamp, D2R } from '../core/math';
 import { sstep } from '../core/math';
 import { rgba } from '../core/color';
 import { effects, effect, paramsFor, type Ctx, type BackdropView, type Effect } from './effects/registry';
-import './effects/ambient'; import './effects/cover'; import './effects/backdrops'; import './effects/overlays'; import './effects/vinyl'; import './effects/strike';
+import './effects/ambient'; import './effects/cover'; import './effects/backdrops'; import './effects/particles'; import './effects/floor'; import './effects/rings'; import './effects/glass'; import './effects/glyph'; import './effects/frames'; import './effects/stars'; import './effects/screen'; import './effects/vinyl'; import './effects/strike';
 import type { RenderFrame } from './frame';
 import { visibleWords, drawLyrics } from './lyrics';
 import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';

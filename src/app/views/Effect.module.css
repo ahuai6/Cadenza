@@ -5,7 +5,7 @@
 
 /* the bottom bar rises when the pointer moves and sinks after a still moment */
 .bottom { position: absolute; left: 50%; bottom: 18px; width: min(1120px, calc(100% - 36px)); translate: -50% 0; display: grid; grid-template-columns: auto minmax(120px, 220px) minmax(140px, 1fr) auto auto; align-items: center; gap: 14px; padding: 10px 12px; border-radius: var(--r-xl);
-  opacity: calc(var(--show) * var(--bar, 1)); transform: translateY(calc((1 - var(--bar, 1)) * 18px)); transition: opacity 320ms var(--ease), transform 420ms var(--ease); }
+  opacity: calc(var(--show) * var(--bar, 1)); transform: translateY(calc((1 - var(--bar, 1)) * 18px)); transition: opacity var(--t-show) var(--ease), transform var(--t-slow) var(--ease); }
 .fx[data-bar="false"] .bottom { --bar: 0; pointer-events: none; }
 .meta { display: grid; min-width: 0; }
 .meta b { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -21,7 +21,7 @@
 .edge { position: absolute; top: var(--tb-h); right: 0; bottom: 0; width: 22px; }
 .panel[data-open] { background: var(--glass-strong); }
 .panel { position: absolute; top: calc(var(--tb-h) + 10px); right: 10px; bottom: 10px; width: 380px; display: grid; grid-template-rows: auto auto 1fr; border-radius: var(--r-xl); overflow: hidden;
-  transform: translateX(calc(100% + 24px)); transition: transform 460ms var(--ease); }
+  transform: translateX(calc(100% + 24px)); transition: transform var(--t-panel) var(--ease); }
 .panel[data-open="true"] { transform: none; }
 .phead { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 14px 8px 18px; }
 .phead > div { display: grid; }

@@ -179,6 +179,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   { const seen = await tbBack, early = seen.filter(x => x.view === 'effect' && x.o > 0.02), lateIn = seen.filter(x => x.view !== 'effect' && x.b > 18 && x.o > 0.6);
     ok('back to now playing: the brand and search fade in with the blur clearing, never before the swap', !early.length && !lateIn.length && seen[seen.length - 1].o > 0.9, JSON.stringify({ early: early.length, lateIn: lateIn.length, last: seen[seen.length - 1] })); }
   ok('effect lyrics: Esc hands back to now playing', await layerIs('np')); await W(300); await shot('np-back');
+  // interrupted blurs: effect lyrics and back again faster than a blur takes, then settled — the veil must clear (an
+  // interrupted blur used to leave the whole window blurred for good)
+  for (const [l, ms] of [['fx', 120], ['np', 90], ['fx', 200], ['np', 60], ['fx', 40], ['np', 150]]) { await C(l => window.__cadenza.ui.set({ layer: l }), l); await W(ms); }
+  await layerIs('np'); await W(1200);
+  const veilLeft = await C(() => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60'); return v ? { shown: v.style.display !== 'none', f: v.style.backdropFilter } : null; });
+  ok('transitions: blurs interrupted again and again leave no veil once settled', veilLeft && !veilLeft.shown, JSON.stringify(veilLeft));
   const npEdge = await C(() => { const st = document.querySelector('[data-test=stage]').getBoundingClientRect(), pg = document.querySelector('main[data-scroll]').getBoundingClientRect(); return { dx: Math.round(st.left - pg.left), dy: Math.round(st.top - pg.top) }; });
   ok('now playing: the page sits one pixel inside the main area, its edge the area\'s own', npEdge.dx === 1 && npEdge.dy === 1, JSON.stringify(npEdge));
   await win.keyboard.press('Escape');

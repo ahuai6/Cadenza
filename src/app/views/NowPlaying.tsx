@@ -1,16 +1,16 @@
 // The stage (the engine's picture) and the now-playing page over it: the cover on the left with the song's controls,
 // the lyrics on the right. The picture behind is the engine's ambient view — the same backdrop, palette and rhythm the
 // effect lyrics use — so it is always the shown song's, and the effect view grows out of it.
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { tx } from '../../i18n';
 import { ui, useStore, trackOf, openMenu, lib } from '../state';
 import { Icon } from '../ui/icons';
 import { Button, IconButton, Cover, Swap, Badge } from '../ui/kit';
 import { Drive } from '../motion';
-import { engine, canvas } from '../playback/stage';
+import { engine } from '../playback/stage';
 import { player } from '../playback/player';
 import { refs, openFx, back } from '../layers';
-import type { Line } from '../../lyrics/model';
+import type { LyricLine as Line } from '../../engine';
 import { QualityTag } from '../ui/quality';
 import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, QueueButton } from './Player';
 import { pickPlaylist, editMeta, npSettings } from './Modals';

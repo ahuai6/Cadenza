@@ -26,37 +26,5 @@ function impulsePeak(w: number, z: number): number {
   }
   return p;
 }
-/** Time of the first peak of the impulse response. */
-export function impulsePeakTime(omega: number, zeta: number): number {
-  if (zeta < 1) { const wd = omega * Math.sqrt(1 - zeta * zeta); return Math.atan2(wd, zeta * omega) / wd; }
-  return 1 / omega;
-}
 
-/** Step response (0 → 1) of the same oscillator: how a spring-driven value settles onto a new target. */
-export function stepResponse(dt: number, omega: number, zeta: number): number {
-  if (dt <= 0) return 0;
-  if (zeta < 1) {
-    const wd = omega * Math.sqrt(1 - zeta * zeta);
-    return 1 - Math.exp(-zeta * omega * dt) * (Math.cos(wd * dt) + (zeta * omega / wd) * Math.sin(wd * dt));
-  }
-  return 1 - Math.exp(-omega * dt) * (1 + omega * dt);
-}
 
-/** A live spring for interface motion (one value, any target, interruptible: it always continues from where it is). */
-export class Spring {
-  x: number; v = 0; target: number;
-  constructor(x = 0, public stiffness = 170, public damping = 26, public mass = 1) { this.x = x; this.target = x; }
-  set(target: number) { this.target = target; }
-  jump(x: number) { this.x = this.target = x; this.v = 0; }
-  /** Advances by dt seconds (sub-stepped for stability). Returns true while still moving. */
-  step(dt: number): boolean {
-    const n = Math.max(1, Math.ceil(dt / (1 / 240))), h = dt / n;
-    for (let i = 0; i < n; i++) {
-      const a = (-this.stiffness * (this.x - this.target) - this.damping * this.v) / this.mass;
-      this.v += a * h; this.x += this.v * h;
-    }
-    const moving = Math.abs(this.x - this.target) > 1e-4 || Math.abs(this.v) > 1e-3;
-    if (!moving) { this.x = this.target; this.v = 0; }
-    return moving;
-  }
-}

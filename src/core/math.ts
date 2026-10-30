@@ -1,12 +1,10 @@
 // Small numeric helpers shared by every module.
 
 export const D2R = Math.PI / 180;
-export const TAU = Math.PI * 2;
 
 export const clamp = (x: number, a = 0, b = 1) => (x < a ? a : x > b ? b : x);
 export const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 export const invLerp = (a: number, b: number, x: number) => (b === a ? 0 : (x - a) / (b - a));
-export const remap = (x: number, a0: number, a1: number, b0: number, b1: number) => lerp(b0, b1, clamp(invLerp(a0, a1, x)));
 /** Smootherstep on 0..1: eases in and out with zero first and second derivative at both ends. */
 export const sstep = (x: number) => { x = clamp(x); return x * x * x * (x * (x * 6 - 15) + 10); };
 export const smoothstep = (a: number, b: number, x: number) => sstep(invLerp(a, b, x));
@@ -14,7 +12,6 @@ export const smoothstep = (a: number, b: number, x: number) => sstep(invLerp(a, 
 export const angDiff = (a: number, b: number) => ((((a - b + 540) % 360) + 360) % 360) - 180;
 export const dirv = (deg: number): [number, number] => [Math.cos(deg * D2R), Math.sin(deg * D2R)];
 export const fract = (x: number) => x - Math.floor(x);
-export const mod = (x: number, m: number) => ((x % m) + m) % m;
 
 /** A smooth reading between samples p1 and p2 (k in 0..1) that never overshoots them (Fritsch–Carlson). */
 export function mcubic(p0: number, p1: number, p2: number, p3: number, k: number) {
@@ -56,8 +53,3 @@ export function sampleSeries(arr: ArrayLike<number>, rate: number, t: number): n
   return i + 1 < arr.length ? arr[i] * (1 - f) + arr[i + 1] * f : arr[i];
 }
 
-export interface Rect { x: number; y: number; w: number; h: number }
-export const rectUnion = (a: Rect, b: Rect): Rect => {
-  const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y), x1 = Math.max(a.x + a.w, b.x + b.w), y1 = Math.max(a.y + a.h, b.y + b.h);
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-};

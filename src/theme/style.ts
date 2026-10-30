@@ -22,13 +22,13 @@ export interface Style {
   fx: Record<string, boolean>;
   /** per-effect parameters (see the effect's own schema); missing values take the effect's defaults */
   fxp?: Record<string, Record<string, number | string | boolean>>;
-  aspect: string; quality: string; aa: string;
+  aspect: string; aa: string;
 }
 
 const FX_OFF = { motes: false, feathers: false, grid: false, eq: false, rings: false, scan: false, vignette: false, grain: false, glass: false, glyph: false, frame: false, stars: false, wires: false, shards: false, doors: false, lines: false, invgeo: false, chroma: false, glitch: false };
 /** (the presets' flash: the backdrop elements' colour, paler — see paleOf) */
 const paleHex = (accent: string) => hexOf(paleOf(hex2rgb(accent)));
-export const PRESETS: Record<string, Omit<Style, 'preset' | 'from' | 'k' | 'm' | 'aspect' | 'quality' | 'aa'>> = {
+export const PRESETS: Record<string, Omit<Style, 'preset' | 'from' | 'k' | 'm' | 'aspect' | 'aa'>> = {
   liquid: { tin: 'rise', tout: 'none', font: 'maru', bg: '#0b0820', bg2: '#2a1f66', text: '#ffffff', accent: '#ff5fc1', flash: paleHex('#ff5fc1'), cut: 'waltz', bgStyle: 'liquid', flashMode: 'color', future: 'dim',
     m0: { shake: .2, sway: .8, punch: .5, flash: 1, flashk: .35, impact: 1, impk: .6, speed: .75, pulse: .8, tilt: 1, turn: .45, tang: 45, drift: 1.1, split: .4, glow: .35, shadow: 0, enter: .3, lead: .15, depth: 1.2, float: .8, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
     fx: { ...FX_OFF, motes: true, vignette: true, stars: true } },
@@ -58,11 +58,11 @@ export const KNOBS: [string, string, number, number, number][] = [
   ['glow', 'grp.text', 0, 2, .05], ['split', 'grp.text', 0, 2, .05], ['jitter', 'grp.text', 0, 2, .05], ['trigger', 'grp.triggers', 0, 2, .05], ['glyph', 'grp.triggers', 0.25, 1.75, .05],
 ];
 export const AA_MODES = ['off', 'ssaa', 'ssaa3'];
-/** Style fields that belong to the project (frame, quality, the imported media), changeable even on a locked preset. */
+/** Style fields that belong to the project (frame, smoothing, the imported media), changeable even on a locked preset. */
 /** What makes a theme's look (colours, typeface, backdrop and how the cover or video sits in it) — not its motion,
  *  effects or camera: what album play carries from the first song to the rest. */
 export const LOOK_KEYS = ['bg', 'bg2', 'text', 'accent', 'flash', 'font', 'bgStyle', 'coverEdge', 'coverBlur', 'coverSize', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit'] as const;
-export const PROJECT_KEYS = ['aspect', 'quality', 'aa', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverEdge', 'coverBlur', 'coverSize'];
+export const PROJECT_KEYS = ['aspect', 'aa', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverEdge', 'coverBlur', 'coverSize'];
 /** What each knob rebuilds: 0 nothing, 1 the layout, 2 the camera path, 4 the effect cues. */
 export const KNOB_REBUILD: Record<string, number> = { jitter: 0, pace: 2, turns: 1, flip: 1, depth: 1, size: 1, glyph: 1, trigger: 4, energy: 4, groove: 0, float: 0, enter: 0, glow: 0, split: 0 };
 
@@ -90,7 +90,7 @@ export function knobbed(m0: Motion, k: Record<string, number>): Motion {
 const clone = <T>(o: T): T => JSON.parse(JSON.stringify(o));
 export function presetStyle(key: string, keep?: Partial<Style>): Style {
   const id = PRESETS[key] ? key : DEFAULT_THEME, p = clone(PRESETS[id]);
-  const s: Style = { ...p, preset: id, from: id, k: knobDefaults(), m: p.m0, aspect: keep?.aspect || '16:9', quality: keep?.quality || 'high', aa: AA_MODES.includes(keep?.aa as string) ? keep!.aa! : 'off' } as Style;
+  const s: Style = { ...p, preset: id, from: id, k: knobDefaults(), m: p.m0, aspect: keep?.aspect || '16:9', aa: AA_MODES.includes(keep?.aa as string) ? keep!.aa! : 'off' } as Style;
   if (keep?.k && keep.k.size != null) s.k.size = keep.k.size;            // lyric size is the project's, not the theme's
   s.m = knobbed(s.m0, s.k); return s;
 }
@@ -99,7 +99,7 @@ export function normalizeStyle(s: Partial<Style>): Style {
   const from = PRESETS[s.from as string] ? s.from! : PRESETS[s.preset as string] ? s.preset! : DEFAULT_THEME, base = PRESETS[from];
   const out = { ...clone(base), ...s, from, fx: { ...base.fx, ...(s.fx || {}) }, k: { ...knobDefaults(), ...(s.k || {}) }, m0: { ...base.m0, ...(s.m0 || {}) } } as Style;
   if (!AA_MODES.includes(out.aa)) out.aa = 'off';
-  if (!out.aspect) out.aspect = '16:9'; if (!out.quality) out.quality = 'high';
+  if (!out.aspect) out.aspect = '16:9'; delete (out as { quality?: unknown }).quality;   // (a field older saves carry, no longer read)
   out.m = knobbed(out.m0, out.k); return out;
 }
 export const isCustom = (s: Style) => s.preset === 'custom';

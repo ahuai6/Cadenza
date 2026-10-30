@@ -1,4 +1,4 @@
-.app { position: relative; height: 100%; display: grid; grid-template-columns: 1fr 0; grid-template-rows: 1fr auto; background: var(--bg); transition: grid-template-columns 420ms var(--ease); }
+.app { position: relative; height: 100%; display: grid; grid-template-columns: 1fr 0; grid-template-rows: 1fr auto; background: var(--bg); transition: grid-template-columns var(--t-slow) var(--ease); }
 .app[data-panel="true"] { grid-template-columns: 1fr 380px; }
 .web { position: fixed; inset: 0; }
 .stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #050409; }
@@ -6,7 +6,7 @@
 .hud { position: absolute; right: 14px; top: 12px; z-index: 2; display: flex; align-items: center; gap: 14px; padding: 7px 12px; border-radius: var(--r-md); font-size: 12px; color: rgba(255, 255, 255, 0.85); font-variant-numeric: tabular-nums; transition: opacity var(--t-med) var(--ease); }
 .hud b { font-weight: 700; color: #fff; }
 .pips { display: inline-flex; gap: 4px; }
-.pips i { width: 7px; height: 7px; border-radius: 2.5px; background: rgba(255, 255, 255, 0.25); }
+.pips i { width: 7px; height: 7px; border-radius: var(--r-dot); background: rgba(255, 255, 255, 0.25); }
 .pips i[data-on="true"] { background: #fff; }
 .app[data-idle="true"] .note, .app[data-idle="true"] .hud { opacity: 0; }
 

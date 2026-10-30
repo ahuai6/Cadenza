@@ -8,8 +8,7 @@
 // (card, now playing, effect lyrics) switches together, however fast the user skips (each request supersedes the last).
 import { createStore } from '../../core/emitter';
 import { Session, type AudioLike } from '../../engine';
-import { RHYTHM_VERSION, isCurrent, balanceDb, type RhythmAnalysis } from '../../rhythm';
-import { parse } from '../../lyrics/parse';
+import { RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, type RhythmAnalysis } from '../../engine';
 import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
 import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge';
@@ -34,7 +33,6 @@ export const player = createStore({
   /** which way the last change of song went (1 on to the next, −1 back, 0 a jump), for the pages' own transitions */
   dir: 0 as -1 | 0 | 1,
 });
-export const shownTrack = () => trackOf(player.get().shownId);
 
 /* ---------- decoding, with the next song prepared ahead ---------- */
 let decoder: OfflineAudioContext | null = null;

@@ -14,7 +14,6 @@ import { EM, type Measurer } from '../text/metrics';
 import type { PWord, PLine, Passage, FrameRef } from './types';
 import { gapPassages, timePassage, roomForQuick } from './passages';
 import { scenesOf, fastLine } from './scenes';
-import { unitsOf } from '../lyrics/script';
 import { lyricType } from './lyrictypes';
 
 export const TIN_MIX = ['blur', 'drift', 'rise', 'track'];
@@ -76,7 +75,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   const medLh = (P: PLine) => { const hs = P.words.filter(S => !S.vert).map(S => S.lh).sort((a, b) => a - b); return hs.length ? hs[hs.length >> 1] : P.words[0]?.lh ?? BASE; };
   const med = new Map(lines.map(P => [P, medLh(P)]));
   // how close each camera style holds a word: what the layout's limits (how far apart words may sit, in frames) are measured in
-  const close = st.cut === 'close', hover = st.cut === 'hover';
+  const close = st.cut === 'close';
   const zOf = (S: PWord) => close ? closeZoom(S, H, W, T) : wordZoom(S, med.get(S.line)!, W, H, T);
 
   /* ---- passages at pauses ---- */
@@ -403,5 +402,4 @@ export function assignSections(lines: PLine[], passages: Passage[]) {
     P.sec = k; P.secEnd = k < sorted.length ? sorted[k].t : Infinity; P.secIn = k < sorted.length ? sorted[k].inn : 0.4;
   }
 }
-export const unitText = unitsOf;
 export { angDiff };

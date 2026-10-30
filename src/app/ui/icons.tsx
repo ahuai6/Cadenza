@@ -67,4 +67,3 @@ export function Icon({ n, size = 18, className, filled }: { n: IconName; size?: 
     </svg>
   );
 }
-export const ICON_NAMES = Object.keys(ICONS);

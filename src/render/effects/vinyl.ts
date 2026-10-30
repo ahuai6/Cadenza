@@ -9,7 +9,7 @@ import { register } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeVinyl, coverSquare } from './cover';
 import { geoPattern, geoShapes } from './backdrops';
-import { accentClock } from './clock';
+import { accentClock } from '../../rhythm/accentclock';
 
 /* ---------- the record: the whole disc in the middle of the frame, turning, with the cover as its label ---------- */
 let REC: { key: string; c: HTMLCanvasElement } | null = null;
@@ -57,7 +57,7 @@ const wirePlace = (i: number, n: number) => ({ x: 0.08 + rnd(i * 7.3 + n * 3.17 
 /* Wireframe solids in the background: each turns in steps on the beat (a quick, eased turn on every beat, then still),
    drifts on the shared accent clock (so it hangs on a hit), and every so often fades away to reappear somewhere else. */
 register({ id: 'wires', label: 'fx.wires', layer: 'backdrop', kind: 'effect', z: 7, draw(g, f, a) {
-  const w = f.W, h = f.H, m = Math.min(w, h), t = f.t, tau = accentClock(f), col = mix(f.pal.accent, f.pal.text, 0.25), P = f.P, bt = f.rs.bt ?? t * 2;
+  const w = f.W, h = f.H, m = Math.min(w, h), t = f.t, tau = accentClock(f.plan.map, f.t), col = mix(f.pal.accent, f.pal.text, 0.25), P = f.P, bt = f.rs.bt ?? t * 2;
   const step = Math.floor(bt) + eOut(clamp((bt - Math.floor(bt)) / 0.4));       // the beat's turn: quick on the beat, then still
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   for (const [i, q] of WIRES.entries()) {
@@ -78,7 +78,7 @@ register({ id: 'wires', label: 'fx.wires', layer: 'backdrop', kind: 'effect', z:
 const SHARDS = Array.from({ length: 30 }, (_, i) => ({ z: 0.2 + rnd(i * 4.9) * 0.8, kind: Math.floor(rnd(i * 3.3) * 5), L: 0.012 + rnd(i * 8.7) * 0.026,
   r0: rnd(i * 5.1) * 6.28, vr: (rnd(i * 1.9) - 0.5) * 0.35, ph: rnd(i * 9.3) * 6.28, fx: 0.03 + rnd(i * 2.2) * 0.05, fy: 0.025 + rnd(i * 7.1) * 0.04, vy: 0.008 + rnd(i * 6.4) * 0.012, life: 0 }));
 register({ id: 'shards', label: 'fx.shards', layer: 'backdrop', kind: 'effect', z: 8, draw(g, f, a) {
-  const w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f), col = f.pal.accent, col2 = mix(f.pal.flash, W3, 0.2), glint = 0.85 + 0.15 * Math.exp(-f.rs.phase * 4) * (0.4 + 0.6 * f.I);
+  const w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f.plan.map, f.t), col = f.pal.accent, col2 = mix(f.pal.flash, W3, 0.2), glint = 0.85 + 0.15 * Math.exp(-f.rs.phase * 4) * (0.4 + 0.6 * f.I);
   g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
   for (const [i, q] of SHARDS.entries()) {
     // its path: a slow rise through the frame (a new one when it leaves), wandering both ways, its depth breathing
@@ -100,7 +100,7 @@ register({ id: 'shards', label: 'fx.shards', layer: 'backdrop', kind: 'effect', 
 /* ---------- a horizon of door frames: a ground, its horizon, and line-drawn frames receding to it, still (a backdrop:
    it gives depth, it does not dance; it moves only with the backdrop's own camera) ---------- */
 register({ id: 'doors', label: 'fx.doors', layer: 'backdrop', kind: 'effect', z: 4, draw(g, f, a) {
-  const E = a.bd.E, w = f.W, h = f.H, hy = h * 0.62, mx = w / 2, A = f.pal.accent, I = 0.5, t = accentClock(f);
+  const E = a.bd.E, w = f.W, h = f.H, hy = h * 0.62, mx = w / 2, A = f.pal.accent, I = 0.5, t = accentClock(f.plan.map, f.t);
   // the ground, a shade lifted towards the horizon
   const gg = g.createLinearGradient(0, hy, 0, h + E); gg.addColorStop(0, rgba(mix(f.pal.bg2, A, 0.15), 0.22)); gg.addColorStop(0.35, rgba(mix(f.pal.bg2, A, 0.08), 0.12)); gg.addColorStop(1, rgba(f.pal.bg, 0)); g.fillStyle = gg; g.fillRect(-E, hy, w + 2 * E, h - hy + E);
   // the ground's lines running to the vanishing point
@@ -119,7 +119,7 @@ register({ id: 'doors', label: 'fx.doors', layer: 'backdrop', kind: 'effect', z:
 /* ---------- plain lines on the background: a few compositions of solid strokes, drifting very slowly ---------- */
 const LINESETS = Array.from({ length: 5 }, (_, i) => ({ kind: i, x: [0.18, 0.82, 0.5, 0.12, 0.88][i], y: [0.2, 0.75, 0.12, 0.82, 0.3][i], a: (rnd(i * 4.7) - 0.5) * 1.2, ph: rnd(i * 2.9) * 6.28 }));
 register({ id: 'lines', label: 'fx.lines', layer: 'backdrop', kind: 'effect', z: 2, draw(g, f, a) {
-  const w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f), c1 = mix(f.pal.bg2, f.pal.accent, 0.45), c2 = mix(f.pal.bg2, W3, 0.25);
+  const w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f.plan.map, f.t), c1 = mix(f.pal.bg2, f.pal.accent, 0.45), c2 = mix(f.pal.bg2, W3, 0.25);
   g.save(); g.lineCap = 'butt';
   for (const q of LINESETS) {
     const x = q.x * w + Math.sin(t * 0.05 + q.ph) * w * 0.015 + a.bd.ox * 0.3, y = q.y * h + Math.cos(t * 0.04 + q.ph) * h * 0.015 + a.bd.oy * 0.3, al = 0.16 + 0.08 * f.I;

@@ -9,7 +9,7 @@ export function useReorder<T>(items: T[], onReorder: ((list: T[]) => void) | nul
   useEffect(() => { setLocal(null); }, [items]);
   const shown = local || items;
   useLayoutEffect(() => { if (box.current) for (const r of box.current.children as HTMLCollectionOf<HTMLElement>) { r.style.transition = 'none'; r.style.transform = ''; r.dataset.drag = ''; } }, [shown]);
-  const ease = 'transform 200ms cubic-bezier(0.22,1,0.36,1)';
+  const ease = 'transform var(--t-fade) var(--ease)';   // (the tokens: tokens.css)
   const layout = () => {
     const d = drag.current; if (!d || !box.current) return;
     const dy = d.last - d.y0 + (d.page ? d.page.scrollTop - d.s0 : 0);

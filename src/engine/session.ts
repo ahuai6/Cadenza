@@ -124,7 +124,7 @@ export class Session {
   setEffectParam(id: string, key: string, v: number | string | boolean) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; this.style.edited = true; return true; }
   makeCustom() { if (this.custom) return; this.style = { ...JSON.parse(JSON.stringify(this.style)), preset: 'custom', from: this.style.from || this.style.preset, id: null, name: '', edited: false }; this.style.m = knobbed(this.style.m0, this.style.k); }
   applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); this.style.edited = false; if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {}); this.colors(); this.dirty |= 2; }
-  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, quality: keep.quality, aa: keep.aa, edited: false }); this.colors(); this.dirty |= 2; }
+  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, aa: keep.aa, edited: false }); this.colors(); this.dirty |= 2; }
   coverPalette() { if (!this.cover) return; Object.assign(this.style, (this.style.bgStyle === 'vinyl' ? paletteVinyl : paletteFromImage)(this.cover)); this.colors(); }
   setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= 2; else this.dirty |= 1; }
   setLyrics(src: string) { this.spec.lyrics = src; this.dirty |= 2; }

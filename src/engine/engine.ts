@@ -42,7 +42,7 @@ export class Engine extends Emitter<EngineEvents> {
   labels: Record<string, string> = {};
   /** how the song's own video (MV mode) is graded and framed (an app setting) */
   mvLook: MvLook = { ...MV_LOOK };
-  private t = 0; private playing = false; private scrub = false; private last = 0; private lastDraw = 0; private dirty = true;
+  private t = 0; private playing = false; private scrub = false; private lastDraw = 0; private dirty = true;
   private pscale = 1; private ema = 0; private fast = 0;
   private fadeOut: { cv: HTMLCanvasElement; t0: number } | null = null;
   /** album play: the song before, still running on in the picture for a moment (see show) */
@@ -167,7 +167,7 @@ export class Engine extends Emitter<EngineEvents> {
   }
   private frame(now: number) {
     this.raf = requestAnimationFrame(n => this.frame(n));
-    const t0 = performance.now(), s = this.session, dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
+    const t0 = performance.now(), s = this.session;
     if (!s) { if (this.dirty && this.view !== 'hidden') { this.dirty = false; this.g.setTransform(1, 0, 0, 1, 0, 0); this.g.clearRect(0, 0, this.canvas.width, this.canvas.height); } return; }
     if (s.needsFlush) { s.flush().then(() => { this.dirty = true; this.emit('change', undefined); }).catch(e => console.warn(e)); }
     if (this.playing && !this.scrub) {
@@ -236,7 +236,7 @@ export class Engine extends Emitter<EngineEvents> {
     const glyphs = prewarmGlyphs(spec.font, spec.cols, spec.chars, [1, 2, 3, 4, 5], spec.grad), steps: (() => boolean)[] = [], heavy: boolean[] = [];
     steps.push(() => glyphs(3)); heavy.push(false);
     // the glyph panes (the large frosted character): each made once, ahead, never in the frame its slot comes in
-    { const panes = require_overlays().glyphPaneWarm(f0); steps.push(() => panes()); heavy.push(false); }
+    { const panes = require_glyph().glyphPaneWarm(f0); steps.push(() => panes()); heavy.push(false); }
     // the large levels only for the glyphs the camera will frame large (the plan knows each framing's closeness)
     const pxK = this.canvas.height / plan.H, big = new Set<string>();
     for (const st of plan.camera.stops) for (const S of st.words) if (EM * S.s * st.z * pxK > 150) for (const u of S.units) big.add(u.c);
@@ -289,5 +289,5 @@ import * as handoffMod from './handoff';
 import * as lyricsMod from '../render/lyrics';
 const require_handoff = () => handoffMod;
 const require_lyrics = () => lyricsMod;
-import * as overlaysMod from '../render/effects/overlays';
-const require_overlays = () => overlaysMod;
+import * as glyphMod from '../render/effects/glyph';
+const require_glyph = () => glyphMod;

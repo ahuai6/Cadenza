@@ -22,7 +22,6 @@ export const has = (key: string) => key in DICT.en || key in DICT['zh-Hant'];
 export function add(words: Record<string, string[]>) {
   for (const [k, arr] of Object.entries(words)) ORDER.forEach((l, i) => { if (arr[i] != null) DICT[l][k] = arr[i]; });
 }
-export function allKeys(l: Lang) { return Object.keys(DICT[l]); }
 
 /** The interface language from the system's preference, falling back to Traditional Chinese. */
 export function detectLang(pref: readonly string[] = (typeof navigator !== 'undefined' ? navigator.languages : []) as string[]): Lang {

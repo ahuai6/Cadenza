@@ -2,29 +2,26 @@
 // (Library, Poster wall, Lyric workshop; Settings at the bottom), the page, the floating player card, and above them
 // the stage (the engine's picture), the now-playing page and the effect-lyrics controls.
 import { useEffect, useLayoutEffect, useState } from 'react';
-import { tx, setLang as setI18n, detectLang, LANGS, type Lang, lang as langStore } from '../../i18n';
-import { D, Lib } from '../bridge';
+import { tx, lang as langStore } from '../../i18n';
+import { D } from '../bridge';
 import { ui, lib, settings, useStore, keep, type Page } from '../state';
 import { Icon } from '../ui/icons';
 import { ContextMenu, Toast, Seg } from '../ui/kit';
-import { engine } from '../playback/stage';
-import { player, toggle, seekBy, resumeLast } from '../playback/player';
-import { startAnalysis, applyRhythmSettings } from '../playback/analysis';
-import { RHYTHM_VERSION } from '../../rhythm';
-import { back } from '../layers';
-import { applyUiFont } from '../uifont';
+import { player } from '../playback/player';
+import { RHYTHM_VERSION } from '../../engine';
 import mark from '../brand/mark.svg';
 import { LibraryView, SECTIONS } from './Library';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { PosterWall } from './Wall';
-import { SettingsView, setSettings } from './Settings';
+import { SettingsView } from './Settings';
+import { setSettings } from '../actions/settings';
+import { boot, bindKeys, go } from '../actions/boot';
 import { PlayerCard, QueuePanel } from './Player';
 import { Stage, NowPlaying } from './NowPlaying';
 import { EffectView } from './Effect';
 import { ModalHost } from './Modals';
 import { WorkshopPage } from './workshop/Workshop';
 import s from './Shell.module.css';
-import { setGfx } from '../../render/gfx';
 
 function resolveTheme(t: string) { return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
 function useTheme() {
@@ -34,12 +31,6 @@ function useTheme() {
     apply(); const mq = matchMedia('(prefers-color-scheme: dark)'); mq.addEventListener('change', apply); return () => mq.removeEventListener('change', apply);
   }, [t]);
 }
-export async function setLang(l: Lang) { applyUiFont(l); setI18n(l); settings.set({ lang: l }); await D?.setSettings({ lang: l }); }
-/** The MV look from the settings. */
-export const mvLook = (n: Partial<import('../bridge').Settings>) => ({ dark: n.mvDark ?? 0.34, blur: n.mvBlur ?? 0.12, desat: n.mvDesat ?? 0, fit: !!n.mvFit });
-/** The picture-quality mode (render/gfx.ts), for the pictures and, through html[data-gfx], for the interface. */
-export function applyGfx(st: { gfx?: string }) { const m = st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default'; setGfx(m); document.documentElement.dataset.gfx = m; }
-export const renderSettings = (n: { scale: 'auto' | number; fps: number; prerender: boolean }) => ({ scale: n.scale === 'auto' ? 'auto' as const : +n.scale || 1, fps: +n.fps || 0, prerender: n.prerender !== false });
 
 export function Shell() {
   const page = useStore(ui, x => x.page), layer = useStore(ui, x => x.layer), modal = useStore(ui, x => !!x.modal), menu = useStore(ui, x => !!x.menu);
@@ -47,33 +38,9 @@ export function Shell() {
   const lng = useStore(langStore, x => x.lang);
   const [ready, setReady] = useState(false);
   useTheme();
-  // start: settings, language, the library and its live updates, the background analysis
-  useEffect(() => {
-    if (!D || !Lib) return;
-    (async () => {
-      const st = await D.settings(); settings.set(st);
-      const l = (st.lang && LANGS.some(([k]) => k === st.lang) ? st.lang : detectLang()) as Lang; applyUiFont(l); setI18n(l);
-      engine.setRender(renderSettings(st)); engine.mvLook = mvLook(st); applyRhythmSettings(st); applyGfx(st);
-      lib.set({ ...(await Lib.get()), loaded: true }); setReady(true);
-      resumeLast().catch(() => {});   // (the last song, paused: the play page is ready before it is opened)
-      startAnalysis();
-    })();
-    const offs = [Lib.onChanged(v => lib.set({ ...v, analysis: null })), Lib.onProgress(p => lib.set({ progress: p })), Lib.onAnalysis(a => lib.set({ analysis: a })),
-      D.onWin(win => ui.set({ win }))];
-    return () => offs.forEach(f => f());
-  }, []);
-  // keys: space plays, Esc steps back out of the effect view and the now-playing page, arrows seek there
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]')) return;
-      const u = ui.get();
-      if (e.key === 'Escape') { if (u.modal) ui.set({ modal: null }); else if (u.queue) ui.set({ queue: false }); else if (u.layer !== 'none') back(); }
-      else if (e.code === 'Space' && u.page !== 'workshop' || e.code === 'Space' && u.layer !== 'none') { e.preventDefault(); toggle(); }
-      else if (e.key === 'F11') { e.preventDefault(); D?.win('full'); }
-      else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && u.layer !== 'none' && !u.modal) { e.preventDefault(); seekBy(e.key === 'ArrowRight' ? 5 : -5); }
-    };
-    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
-  }, []);
+  // start (the settings, the library, the last song, the analysis) and the keys: actions/boot.ts
+  useEffect(() => boot(() => setReady(true)), []);
+  useEffect(bindKeys, []);
 
   if (!ready) return <div className={s.boot} />;
   const top = modal ? 'modal' : menu ? 'menu' : layer;
@@ -128,7 +95,6 @@ function TitleBar() {
 }
 
 const NAV: [Page, string, string][] = [['library', 'library', 's.library'], ['wall', 'wall', 's.wall'], ['workshop', 'workshop', 's.workshop']];
-export function go(page: Page) { const u = ui.get(); if (u.page === page && !u.detail) return; ui.set({ page, detail: null, layer: 'none', queue: false }); }
 function Sidebar() {
   const page = useStore(ui, x => x.page), prog = useStore(lib, x => x.progress), tracks = useStore(lib, x => x.tracks), an = useStore(lib, x => x.analysis);
   const favorites = useStore(lib, x => x.favorites), section = useStore(ui, x => x.section) || (favorites.length ? 'favorites' : 'songs'), detail = useStore(ui, x => x.detail);
@@ -170,8 +136,3 @@ function OutputSwitch() {
     options={[['standard', tx('s.set.out.std')], ['hifi', tx('s.set.out.hifi')]]} /></div>;
 }
 export { keep };
-// read by the desktop tests
-import * as playerApi from '../playback/player';
-import * as layers from '../layers';
-import { ws as workshop, engine as wsEngine } from './workshop/project';
-Object.assign((window as any).__cadenza, { ui, lib, settings, setSettings, player: playerApi.player, api: playerApi, layers, workshop, wsEngine });

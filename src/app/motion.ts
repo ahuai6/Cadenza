@@ -32,27 +32,12 @@ export class Drive {
   }
 }
 
-/** A spring baked into a CSS `linear()` easing, for small one-shot moves (a toast, a menu) where CSS animates. */
-const cache = new Map<string, { easing: string; duration: number }>();
-export function springEasing(stiffness = 170, damping = 26) {
-  const key = stiffness + '/' + damping, hit = cache.get(key); if (hit) return hit;
-  const dt = 1 / 240, pts = [0]; let x = 0, v = 0, t = 0;
-  while (t < 4) { v += (-stiffness * (x - 1) - damping * v) * dt; x += v * dt; t += dt; pts.push(x); if (Math.abs(x - 1) < 8e-4 && Math.abs(v) < 4e-3) break; }
-  pts[pts.length - 1] = 1;
-  const n = Math.min(pts.length, 64), out: string[] = [];
-  for (let i = 0; i < n; i++) out.push((+pts[Math.round(i * (pts.length - 1) / (n - 1))].toFixed(4)).toString());
-  const r = { easing: `linear(${out.join(', ')})`, duration: Math.round(t * 1000) }; cache.set(key, r); return r;
-}
-
 export interface Box { left: number; top: number; width: number; height: number }
 export const rectOf = (el: Element): Box => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height }; };
 /** Where an element sits without the transform it wears right now. */
 export function restRect(el: HTMLElement): Box {
   const t = el.style.transform; el.style.transform = 'none'; const r = rectOf(el); el.style.transform = t; return r;
 }
-export const lerpBox = (a: Box, b: Box, u: number): Box => ({ left: a.left + (b.left - a.left) * u, top: a.top + (b.top - a.top) * u, width: a.width + (b.width - a.width) * u, height: a.height + (b.height - a.height) * u });
-/** The transform that puts an element laid out at `rest` over `at`. */
-export const placeAt = (at: Box, rest: Box) => `translate(${(at.left - rest.left).toFixed(2)}px, ${(at.top - rest.top).toFixed(2)}px) scale(${(at.width / Math.max(1, rest.width)).toFixed(4)}, ${(at.height / Math.max(1, rest.height)).toFixed(4)})`;
 /** A sub-range of a progress value, eased (smoothstep) — how each part of a move reads the one progress. */
 export const part = (p: number, a: number, b: number) => { const u = clamp((p - a) / (b - a)); return u * u * (3 - 2 * u); };
 export const reduced = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;

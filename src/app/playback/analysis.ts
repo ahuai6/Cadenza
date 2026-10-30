@@ -2,13 +2,8 @@
 // first, then the most recently played and added), this page takes one song at a time, decodes it at the analysis rate
 // (22 kHz: a quarter of the memory of a full decode) and runs the rhythm SDK in its worker. One song at a time, with a
 // pause between songs and none at all while an export runs, so playback and the interface never compete with it.
-import { analyzeInBackground, loudnessInBackground, RHYTHM_VERSION, setRhythmEngine, setModelBase, setNeuralDrums, rhythmEngine, neuralDrums, neuralStatus, type RhythmAnalysis } from '../../rhythm';
-import type { Settings } from '../bridge';
+import { analyzeInBackground, loudnessInBackground, RHYTHM_VERSION, rhythmEngine, neuralDrums, neuralStatus, type RhythmAnalysis } from '../../engine';
 
-/** The rhythm engine as the settings say: the desktop app serves the neural engine's models as cadenza://model/. */
-export function applyRhythmSettings(st: Pick<Settings, 'rhythmEngine' | 'rhythmDrums'>) {
-  setModelBase('cadenza://model/'); setRhythmEngine(st.rhythmEngine === 'dsp' || st.rhythmEngine === 'neural' ? st.rhythmEngine : 'auto'); setNeuralDrums(st.rhythmDrums !== false);
-}
 import { Lib, mediaUrl } from '../bridge';
 import { lib } from '../state';
 
@@ -33,7 +28,7 @@ export function analyzeNow(id: string, decoded?: AudioBuffer | null, urgent = fa
     // (in the background the GPU has a time in proportion to the song — a minute and a little over half the song's own
     // length — then the built-in analysis answers: a slow or stalled GPU never holds the whole library's queue)
     p = (async () => { const buf = decoded || await decodeForAnalysis(id), dur = buf.length / buf.sampleRate;
-      const opts = urgent ? { drums: false, timeoutMs: 20_000 } : { timeoutMs: 60_000 + dur * 600 };
+      const opts = urgent ? { drums: false, timeoutMs: 20_000, urgent: true } : { timeoutMs: 60_000 + dur * 600 };
       // (the neural engine only, and it did not answer while the player waited: the song plays on a tempo grid, and is
       // analysed again in the background, with the time a background analysis has)
       const a = await analyzeInBackground(buf, k => lib.set({ analysisNow: k }), opts).catch(e => { if (urgent && rhythmEngine() === 'neural') { upgrade.add(id); setTimeout(() => loop(), 30_000); } throw e; }).finally(() => lib.set({ analysisNow: null })); await Lib?.saveAnalysis(id, a);

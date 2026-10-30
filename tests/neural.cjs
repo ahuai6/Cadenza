@@ -36,7 +36,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
       if (t0 < INTRO - 1e-6) continue;
       for (let k = 0; k < 4; k++) { const t = t0 + k * B; if (k % 2 === 0) kick(t); else snare(t); tone(t, rt / 2, B * 0.8, 0.16, 'square', 400); }
       for (let k = 0; k < 8; k++) hat(t0 + k * B / 2); }
-    const buf = await ctx.startRendering();
+    const buf = await ctx.startRendering(); window.__song = { buf, INTRO, SR, B };
     H.rhythm.setModelBase(new URL('models/', location.href).href); H.rhythm.setRhythmEngine('auto');
     const st = await H.rhythm.neuralStatus(); if (!st.ok) return { st };
     // the beats first (the urgent path: no drum stem), then the drums on a stretch of the kit (HTDemucs is slow on an
@@ -79,6 +79,24 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
       `intro ${r.introRhythmic.join('')}, groove ${r.introGroove}/${r.drumGroove}, strong in intro ${r.strongInIntro}`);
     ok('neural: the beats take seconds, not minutes (here on an emulated GPU)', r.ms < 600000, `${(r.ms / 1000).toFixed(0)} s`);
     ok('neural: progress is reported from start to end', r.prog[0] < 0.2 && r.prog[1] === 1, JSON.stringify(r.prog));
+    // songs asked for at once take turns on the one worker (its networks share their buffers): two in the background,
+    // then the song about to play — it does not wait behind them (the running one is stopped and runs again after),
+    // and every one of them comes back right, none of them dropped to the built-in analysis
+    if (!process.env.SKIP_QUEUE) {
+      const q = await p.evaluate(async () => {
+        const { buf, INTRO, SR, B } = window.__song, secs = +(window.QUEUE_SECS || 10), order = [];
+        const clip = k => ({ numberOfChannels: 2, sampleRate: SR, getChannelData: c => buf.getChannelData(c).subarray(Math.round((INTRO + k) * SR), Math.round((INTRO + k + secs) * SR)) });
+        const run = (name, k, o) => H.neuralRhythm(clip(k), null, { drums: false, ...o }).then(r => { order.push(name); return r; });
+        const bg1 = run('bg1', 0, {}), bg2 = run('bg2', 2, {});
+        await new Promise(r => setTimeout(r, 1500));
+        const urgent = run('urgent', 4, { urgent: true });
+        const rs = await Promise.all([bg1, bg2, urgent]);
+        const gap = r => { if (!r || r.beats.length < 4) return null; const g = r.beats.slice(1).map((t, i) => t - r.beats[i]).sort((x, y) => x - y); return g[g.length >> 1]; };
+        return { order, gaps: rs.map(gap), B };
+      });
+      ok('neural: songs asked for at once take turns, the one about to play first, and all come back right', q.order[0] === 'urgent' && q.gaps.every(g => g != null && Math.abs(g - q.B) < 0.015),
+        JSON.stringify({ order: q.order, gaps: q.gaps.map(g => g && +g.toFixed(4)) }));
+    }
   }
   ok('neural: no page errors', !errs.length, errs.slice(0, 3).join(' | '));
   await browser.close(); server.close();

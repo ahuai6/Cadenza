@@ -80,7 +80,7 @@ export class HtdemucsWgsl {
         private readonly device: GPUDevice,
         private readonly steps: Step[],
         private readonly mixBuffer: GPUBuffer,
-        private readonly outBuffer: GPUBuffer,
+        readonly outBuffer: GPUBuffer,
         private readonly owned: GPUBuffer[],
     ) {}
 

@@ -15,25 +15,30 @@ Cadenza 是「詞幕 Lyric Motion」的重構版：個人音樂庫 + 跟隨音�
 ## 模組與依賴方向
 
 ```
-core ──► rhythm ──► director ──► render ──► engine ──► app (React)
-  │        ▲           ▲  ▲         ▲          ▲
-  └──► lyrics ─────────┘  │         │          │
-  └──► text ──────────────┘─────────┘          │
-  └──► theme ──────────────────────────────────┘
+core ──► text ──► lyrics ──┐
+  ├────► rhythm ───────────┼──► director ──► render ──► engine ──► app (React)
+  ├────► theme ────────────┘                              ▲          ▲
+  └────► i18n ────────────────────────────────────────────┼──────────┘
+                                         (app 只讀 engine 的 index、core、theme、i18n)
 ```
-依賴只能由左往右；箭頭反向的引用一律不允許（以 `tests/arch.test.ts` 檢查 import）。
+依賴只能往下層走，反向的引用一律不允許。`tests/unit/arch.test.ts` 會檢查 `src/` 下每一個 import：
+- 每個模組只能引用表中列出的下層模組；
+- 介面（`app`）只能經由 `src/engine/index.ts` 取用引擎以下的一切。重做介面時，只需要這個入口。
+
+`lyrics` 只需要節拍來排詞，所以它定義了自己的最小介面 `BeatGrid`（速度、拍長、對齊到格線）。`RhythmMap` 正好符合這個介面，lyrics 因此不必引用 rhythm。
 
 | 模組 | 職責 | 不做的事 |
 |------|------|---------|
 | `core` | 數學、緩動、解析式彈簧、可種子亂數、事件、極小的狀態容器、顏色 | 任何業務 |
 | `rhythm` | **節奏識別 SDK**：從 PCM 算出 `RhythmAnalysis`（可序列化、有版本），`RhythmMap` 查詢介面，`Signals`（脈衝、紙盆彈簧等衍生訊號） | 不知道歌詞或畫面 |
-| `lyrics` | LRC/增強型 LRC 解析、歌詞模型、時間正規化（快速單位分群）、斷詞 | 不知道畫面 |
-| `text` | 字型登錄與載入、以 canvas 量字（不用 DOM） | |
+| `lyrics` | LRC/增強型 LRC 解析、歌詞模型、時間正規化（快速單位分群） | 不知道畫面，也不知道節奏引擎（只透過 `BeatGrid`） |
+| `text` | 文字系統（`script.ts`：字形叢集、CJK/RTL、斷詞）、字型登錄與載入、以 canvas 量字（不用 DOM） | |
+| `i18n` | 六種語言的介面文字 | |
 | `theme` | 主題預設、旋鈕、效果參數、樣式正規化（純資料） | |
 | `director` | **導演（強前瞻）**：一首歌載入後一次規劃出不可變的 `ScenePlan`；`evaluate(plan, t)` 為純函式 | 不畫任何東西 |
 | `render` | 依 `SceneFrame` 繪製；效果外掛登錄表；字形快取；後製 | 不決定時間與位置 |
-| `engine` | `Engine` 類別：工作階段（Session）、時鐘、音訊輸出、視圖（環境/特效）、跨 DOM 的共享元素過渡、導出 | |
-| `app` | React 介面（音樂庫、海報牆、播放頁、特效頁、工坊、設定） | 不碰引擎內部 |
+| `engine` | `Engine` 類別：工作階段（Session）、時鐘、音訊輸出、視圖（環境/特效）、跨 DOM 的共享元素過渡、導出；`configure()`（全部設定的唯一入口）；`index.ts` 是給介面的公開 API | |
+| `app` | React 介面（音樂庫、海報牆、播放頁、特效頁、工坊、設定） | 不碰引擎內部，只用 `engine/index.ts` |
 
 ## 時間模型（統一時間基準）
 
@@ -56,15 +61,18 @@ core ──► rhythm ──► director ──► render ──► engine ─�
 analyze(pcm: Float32Array[], sampleRate: number, opts?): RhythmAnalysis   // 在 Worker 中執行
 class RhythmMap {
   constructor(a: RhythmAnalysis, audioStart: number)  // 檔案時間 → 歌曲時間
-  beatAt(t): { index, phase, bar, beatInBar }
-  grid(t0, t1, division): number[]          // 拍、半拍、三連音…
-  events(t0, t1, minTier?): RhythmEvent[]   // 任意時間的節奏事件
-  select(sensitivity, opts): RhythmEvent[]  // 依靈敏度選事件（閃光/衝擊/碎玻璃共用）
-  energy(t), sounding(t), section(t), build(t)
+  beatAt(t): BeatPos                        // { bt 連續拍號, phase 拍內相位, inBar 小節內第幾拍, … }
+  timeOf(bt), beatLen(t), snap(t, tol, div) // 拍號 ↔ 時間、對齊格線
+  grid(t0, t1, div): number[]               // 拍、半拍、三連音…
+  eventsIn(t0, t1, minTier?), eventNear(t, tol?, minTier?), accentAt(t)
+  select(opts): RhythmEvent[]               // 依靈敏度選事件（閃光/衝擊/碎玻璃共用）
+  level(t), loud(t), spec(t), sounding(t), section(t), build(t)
 }
-interface RhythmEvent { t; strength; tier: 0|1|2 /* 輕/中重/重 */; band: 'low'|'mid'|'high'|'broad';
-                        metric: number /* 小節內位置 */; offbeat: boolean; anticipates?: number }
+interface RhythmEvent { t; s /* 感知強度，約 0..3 */; tier: 0|1|2 /* 輕/中重/重 */; band: 'low'|'mid'|'high'|'broad';
+                        pos: number /* 小節內位置（拍） */; off: boolean /* 反拍 */; push?: number /* 搶拍：所屬的拍 */ }
+accentClock(map, t): number                 // 漂浮物共用的時間：重拍時減速、懸停再恢復（羽毛、花瓣、光點…）
 ```
+`accentClock` 是對節奏的一種讀法，所以放在 SDK（`rhythm/accentclock.ts`），每個 map 一張表，預覽和導出一致。新的漂浮效果都必須從這裡取時間，不讀歌曲時間。
 演算法（細節見 `src/rhythm/README.md`）：多頻帶對數頻譜通量 → 自適應閾值取峰（拋物線內插的精確時間）→ 節奏圖（tempogram）+ 感知先驗估速 → 動態規劃拍點追蹤 → 小節/拍號/樂句 → 每個起音的**感知顯著度**（音量、頻帶、相對於同位置的意外度、節拍位置）分三層 → 切分/弱起標記 → 自相似新穎度切段落、能量、漸強與爆點。
 一拍內可以有多個不同強度的事件；最小間隔取感知融合門檻（約 70 ms）。
 
@@ -135,11 +143,43 @@ engine.show(s, { transition: 'song' })     // 切歌：兩個 session 同時渲�
 engine.view.to('effect', handoff)          // 環境（播放頁背景）↔ 特效歌詞，共享元素由引擎接手
 engine.transport.play() / pause() / seek(t)
 engine.export(s, opts)                     // 以獨立的渲染器實例導出，不改動任何共享狀態
+configure(engine, { render, gfx, mv, rhythm }) // 宿主（桌面介面、工坊、測試）設定引擎的唯一入口
 ```
+- **設定**：各層的設定（`render/gfx.ts` 的畫質模式、`rhythm` 的引擎選擇／鼓聲分離／模型位置、渲染尺寸、MV 外觀）都只從 `configure()` 設定。介面在 `app/engineConfig.ts` 把使用者設定轉成 `EngineConfig`。
+- **導出的畫質**：每一幀都在 `withGfx('default', …)` 中同步繪製。即時畫面保持自己的模式，導出期間改設定也不會被還原。
+- **神經網路分析排隊**：同一時間只跑一首歌，因為 Worker 中的網路會共用緩衝區。即將播放的歌（`urgent`）優先：
+  - 它會插到背景歌曲前面；
+  - 若此時正有一首背景歌曲在跑，那次分析會中止，該歌之後再重跑一次，不會退回內建分析。
 - **多頁面並行渲染**：播放頁背景就是引擎（環境視圖）；特效視圖在背景預熱（規劃、字形快取、精靈圖）；切歌時新舊兩個 session 同時渲染並交叉過渡。
 - **共享元素過渡**：介面量出 DOM 封面與歌詞行的位置交給 `handoff`；引擎從那些位置把封面（旋轉角同步、黑膠從封面下滑出）與歌詞行飛到場景位置；螢幕特效依過渡進度連續變化。返回時反向。
 
 ## 介面（`src/app`）
+
+介面是可以整個替換的一層。它和引擎之間的合約是：
+- **只引用** `src/engine/index.ts`、`core`、`theme`、`i18n`（由架構測試把關）。
+- **設定**：經由 `app/engineConfig.ts` → `configure()`。
+- **視覺參數**：一律用 `src/app/styles/tokens.css` 的設計變數（顏色、圓角、時長、緩動、陰影），元件裡不寫死數值。
+- **測試鉤子**：`data-test` 屬性和 `window.__cadenza`（由 `actions/boot.ts` 掛上）。新介面要保留同名的鉤子，桌面端到端測試才能沿用。
+
+介面內部分成兩半，重做時只換第二半：
+
+| 留下的（邏輯） | 內容 |
+|---|---|
+| `bridge.ts` | 與桌面主行程的型別化介面（音樂庫、設定、視窗、Hi-Fi） |
+| `state.ts` | 介面狀態（頁面、圖層、彈窗、音樂庫、設定）的 store |
+| `playback/` | 播放器、佇列、Hi-Fi、背景分析、引擎實例（`stage.ts`） |
+| `actions/` | 啟動（`boot`）、快捷鍵（`bindKeys`）、換頁（`go`）、改設定（`setSettings`、`setLang`） |
+| `engineConfig.ts` | 使用者設定 → `EngineConfig` |
+| `layers.ts`、`motion.ts` | 頁面 ⇄ 正在播放 ⇄ 特效歌詞 的圖層與轉場進度（與樣式無關） |
+| `workshop/project.ts` | 工坊的專案模型 |
+
+| 換掉的（外觀） | 內容 |
+|---|---|
+| `views/` | 各頁面元件與其 CSS Modules |
+| `ui/` | 元件庫（按鈕、滑桿、選單、圖示…） |
+| `styles/` | 設計變數（`tokens.css`）與基底樣式 |
+
+邏輯這一半不得引用 `views/` 或 `ui/`，只有入口 `main.tsx` 例外（架構測試把關）。所以新介面只要呼叫 `actions/`、讀 `state.ts`、掛上 `playback/stage.ts` 的畫布，就能接上整個播放器。
 
 - 設計語言：液態玻璃材質（背景模糊 + 飽和 + 內側高光 + 柔和陰影），**連續曲率圓角**（`corner-shape: superellipse()`，圓角半徑使用統一的尺度），以圓角矩形為主。
 - 元件樣式用 CSS Modules，類名不會互相覆蓋。

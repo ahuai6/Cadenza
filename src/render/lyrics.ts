@@ -8,7 +8,7 @@ import { rnd } from '../core/rng';
 import { project, onScreen, type Projected } from '../director/project';
 import { entryK } from '../director/entry';
 import { carryCam } from '../director/evaluate';
-import { wordState, unitPose, TIN_SPEC, type WordCtx, type WordState } from '../director/words';
+import { wordState, unitPose, wordPlacement, TIN_SPEC, type WordCtx, type WordState } from '../director/words';
 import type { PWord } from '../director/types';
 import { fontStack } from '../text/fonts';
 import { EM } from '../text/metrics';
@@ -76,9 +76,9 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   for (const v of vis) {
     const { S, ws, p } = v, n = S.units.length, spec = TIN_SPEC[ws.tin] || TIN_SPEC.blur, blurMax = Math.min(32, v.glyphPx * spec.blur);
     const A = v.o * AK * view; if (A < 0.003) continue;
-    const k = S.s * ws.sc * p.k;
+    const wp = wordPlacement(S, p, ws), k = wp.k;
     g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(f.W / 2 + p.sx + (trail?.dx ?? 0), f.H / 2 + p.sy + (trail?.dy ?? 0)); if (sk) g.transform(1, sk[0], sk[1], 1, 0, 0);
-    g.rotate((S.tilt + p.rot + ws.frot) * D2R);
+    g.rotate(wp.ang * D2R);
     // the line's plane leans in depth: turned a little about its upright (the far end foreshortened and drawn in) and
     // tipped back or forward, as much as the depth setting asks, with a slow breath — the words sit in space, not on glass
     if (lean > 0.01) { const sd = S.line.i * 7.31 + 1.7, yaw = ((rnd(sd) - 0.5) * 2 * 20 + Math.sin(f.t * 0.37 + sd) * 3) * lean * D2R, pitch = ((rnd(sd + 3.1) - 0.5) * 2 * 14 + Math.cos(f.t * 0.29 + sd) * 2.5) * lean * D2R;

@@ -7,14 +7,19 @@
      behind it reads that from a picture already drawn, at a reduced size, instead of blurring or copying it whole.
    - 'lite': no blur, no reflection of the picture in the glass, none of the costly effects, in every view — for a
      modest machine.
-   Exports always draw in 'default' (engine/export.ts): the mode is for what plays live. */
+   Exports always draw in 'default' (engine/export.ts, through withGfx): the mode is for what plays live. */
 import { makeCanvas } from './palette';
 import type { Ctx } from './effects/registry';
 
 export type GfxMode = 'default' | 'optimized' | 'lite';
 let MODE: GfxMode = 'default';
 export const gfx = () => MODE;
-export function setGfx(m: GfxMode) { MODE = m === 'optimized' || m === 'lite' ? m : 'default'; }
+let LIVE: GfxMode = 'default';
+/** The live picture's mode (the setting). */
+export function setGfx(m: GfxMode) { LIVE = MODE = m === 'optimized' || m === 'lite' ? m : 'default'; }
+/** Draw in another mode for just this (synchronous) call — an export's frames, while the live picture keeps its own:
+ *  nothing else can draw in between, and the setting is not touched, so a change of it meanwhile is not undone. */
+export function withGfx<T>(m: GfxMode, draw: () => T): T { MODE = m; try { return draw(); } finally { MODE = LIVE; } }
 /** Effects the lite mode leaves out (each reads the whole frame again, or blurs, every frame it shows). */
 export const LITE_OFF = new Set(['glyph', 'glass-shards', 'chroma', 'glitch']);
 

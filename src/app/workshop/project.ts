@@ -2,15 +2,14 @@
 // Everything it holds — lyrics, tempo, style, song titles, timing, cover, audio, background video — is one Session plus
 // what the session cannot keep as plain data (decoded audio, imported files). The project is kept in this profile
 // shortly after every change, and can be saved to a file and opened again.
-import { createStore } from '../../../core/emitter';
-import { Engine, Session } from '../../../engine';
-import { analyzeInBackground, type RhythmAnalysis } from '../../../rhythm';
-import { storedStyle, presetStyle, DEFAULT_THEME } from '../../../theme/style';
-import { DEMO_LYRICS } from '../../../theme/demo';
-import type { SongInfo } from '../../../director/titles';
-import { tx } from '../../../i18n';
-import { remember, keep } from '../../state';
-import { audioContext, sessionEnv } from '../../playback/stage';
+import { createStore } from '../../core/emitter';
+import { Engine, Session } from '../../engine';
+import { analyzeInBackground, type RhythmAnalysis, type SongInfo } from '../../engine';
+import { storedStyle, presetStyle, DEFAULT_THEME } from '../../theme/style';
+import { DEMO_LYRICS } from '../../theme/demo';
+import { tx } from '../../i18n';
+import { remember, keep } from '../state';
+import { audioContext, sessionEnv } from '../playback/stage';
 
 export interface Project { app: 'cadenza'; version: 1; lyrics: string; bpm: number; style: unknown; song: SongInfo; lshift: number; range: string; fade: boolean; endLen: number; cover: { data: string; name: string } | null }
 export interface Incoming { project: Project; buffer: AudioBuffer | null; analysis: RhythmAnalysis | null; name: string }

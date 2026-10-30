@@ -68,7 +68,6 @@ export const Section = ({ title, note, children, action }: { title?: ReactNode; 
 export const Row = ({ children }: { children: ReactNode }) => <div className={s.row}>{children}</div>;
 export const Note = ({ children }: { children: ReactNode }) => <p className={s.note}>{children}</p>;
 export const Badge = ({ children, k }: { children: ReactNode; k?: 'warn' | 'accent' }) => <i className={s.badge} data-k={k}>{children}</i>;
-export const Eq = () => <span className={s.eq} aria-hidden="true"><i /><i /><i /></span>;
 
 /** A change of song, as the pages show it: what was there slides out the way the queue went (on to the next: left;
  *  back: right; a jump: in place) and fades, the new one comes in from the other side. Keyed by `k`; the old content

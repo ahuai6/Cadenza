@@ -7,6 +7,7 @@ import { clamp, lerp, sstep } from '../core/math';
 import { eOut, eSine } from '../core/ease';
 import { rnd } from '../core/rng';
 import type { PWord, PLine } from './types';
+import type { Projected } from './project';
 
 /** Per entrance style: duration (× the theme's entrance time, never shorter than min) and blur (share of glyph height). */
 export const TIN_SPEC: Record<string, { dur: number; min: number; blur: number }> = {
@@ -20,6 +21,14 @@ export interface WordCtx { enter: number; tempo: number; float: number; future: 
 export interface WordState {
   o: number; pe: number; dimK: number; pastK: number; live: boolean; gk: number;
   sc: number; ox: number; oy: number; frot: number; tin: string; dur: number;
+}
+/** Where a word is on screen as it is drawn now: its centre (from the picture's centre), its angle (degrees: the word's
+ *  own tilt, the camera's roll at its depth, its entrance turn) and its scale (its size, its entrance scale, its depth).
+ *  The one placement every part that follows a word uses — the lyrics drawn, and the frames traced round them. Without
+ *  a state (a word not shown yet) it is the word at rest. */
+export function wordPlacement(S: PWord, p: Projected, ws?: Pick<WordState, 'sc' | 'ox' | 'oy' | 'frot'> | null) {
+  const ang = S.tilt + p.rot + (ws?.frot ?? 0), sc = ws?.sc ?? 1, k = S.s * sc * p.k, a = ang * Math.PI / 180, ox = (ws?.ox ?? 0) * k, oy = (ws?.oy ?? 0) * k;
+  return { x: p.sx + Math.cos(a) * ox - Math.sin(a) * oy, y: p.sy + Math.sin(a) * ox + Math.cos(a) * oy, ang, k, sc };
 }
 /** The word as a whole: opacity, entrance progress, entrance offset and scale, how far past it is. */
 export function wordState(S: PWord, t: number, ov: number, card: boolean, c: WordCtx): WordState | null {

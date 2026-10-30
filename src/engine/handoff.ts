@@ -5,7 +5,6 @@
    out the same flight runs back to where the page measures its elements now. One progress value drives all of it. */
 import { clamp, lerp, sstep, D2R } from '../core/math';
 import { fontStack } from '../text/fonts';
-import { rgba } from '../core/color';
 import { captionLayout } from '../render/post';
 import type { RenderFrame } from '../render/frame';
 import type { Ctx } from '../render/effects/registry';
@@ -135,4 +134,3 @@ export class Handoff {
   get vinyl() { return phases(this.p).vinyl; }
   get scene() { return phases(this.p).scene; }
 }
-export const _rgba = rgba;

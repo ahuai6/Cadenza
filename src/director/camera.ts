@@ -243,7 +243,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       { const h0 = Math.max(A.arrive, fEnd, lastSung(A)), h1 = Math.max(h0, s), ax = A.fax || A.dir;
         if (A.drift > 0 && h1 - h0 > 0.2 && !A.over) { const dd = Math.min(A.drift, A.drift * (h1 - h0) / 2.5); drifts.push([h0, h1, ax[0] * dd, ax[1] * dd, smooth ? 'lin' : undefined]); A.x += ax[0] * dd; A.y += ax[1] * dd; } }
       // too far or too fast for one move: a quick transition instead (when the pause allows one)
-      const zm = Math.abs(B.z - A.z) > 1e-6 ? (B.z - A.z) / Math.log(B.z / A.z) : A.z, D = Math.hypot(B.x - A.x, B.y - A.y) * zm / W, gapT = B.words[0].show - A.sungEnd;   // apparent travel: the log-mean closeness
+      const zm = Math.abs(B.z - A.z) > 1e-6 ? (B.z - A.z) / Math.log(B.z / A.z) : A.z, D = Math.hypot(B.x - A.x, B.y - A.y) * zm / W;   // apparent travel: the log-mean closeness
       // (only for a move far beyond what a camera can make, and only when the pause leaves room: a long move is better
       //  than a needless clear, and no clear may hide words still being sung)
       if ((D > (close ? MAX_PAN_CLOSE : MAX_PAN) || D / Math.max(0.05, arrive - s) > MAX_SPEED) && roomForQuick(A.sungEnd, B.words[0].show) && B.words[0].k === 0) {

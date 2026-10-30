@@ -25,7 +25,7 @@
 .lead > span:first-child { width: 44px; height: 44px; --cover-r: 9px; }
 /* (an album's track number, in the cover's place: centred in it, large enough to read at a glance) */
 .lead > .num { display: grid; place-items: center; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: var(--fg-2); }
-.lead .playOver { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 9px; background: rgba(0, 0, 0, 0.45); color: #fff; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.lead .playOver { position: absolute; inset: 0; display: grid; place-items: center; border-radius: var(--r-cover-sm); background: rgba(0, 0, 0, 0.45); color: #fff; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
 .row:hover .lead .playOver, .lead .playOver:focus-visible { opacity: 1; }
 .main { display: grid; min-width: 0; }
 .main b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

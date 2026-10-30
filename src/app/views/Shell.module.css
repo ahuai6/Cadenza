@@ -17,9 +17,9 @@
 /* the brand and the search leave the bar over the picture: on the way into the effect lyrics they fade with the blur
    rising, and on the way back they stay away until the page is under the blur again (the view swaps at the blur's
    peak: data-fxmode; the bar follows once the blur starts to lift: data-fxbar), then fade in with it clearing — the bar is above the blur, so nothing may show through early */
-.brand, .tbMid { transition: opacity 420ms var(--ease) 120ms, visibility 0s; }
+.brand, .tbMid { transition: opacity var(--t-slow) var(--ease) var(--t-delay), visibility 0s; }
 :global(html[data-winfull="true"]) .shell[data-layer="np"] :is(.brand, .tbMid), .shell[data-layer="fx"] :is(.brand, .tbMid), :global(html[data-fxbar="true"]) .shell :is(.brand, .tbMid) {
-  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 260ms var(--ease), visibility 0s 260ms; }
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--t-exit) var(--ease), visibility 0s var(--t-exit); }
 .winbtns { display: flex; align-items: center; gap: 2px; padding-right: 8px; }
 .winbtns button { width: 40px; height: 32px; border-radius: var(--r-xs); display: grid; place-items: center; color: var(--fg-2); transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .winbtns button:hover { background: var(--hover); color: var(--fg); }
@@ -46,11 +46,11 @@
 /* the output switch: two even halves, the width of the sidebar */
 .out > div { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
 .chip { position: relative; overflow: hidden; height: 30px; border-radius: var(--r-xs); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); display: flex; align-items: center; padding: 0 10px; font-size: 12px; color: var(--fg-2); }
-.chip i { position: absolute; inset: 0; background: var(--accent-soft); clip-path: inset(0 calc(100% - var(--p, 0%)) 0 0); transition: clip-path 300ms var(--ease); }
+.chip i { position: absolute; inset: 0; background: var(--accent-soft); clip-path: inset(0 calc(100% - var(--p, 0%)) 0 0); transition: clip-path var(--t-fill) var(--ease); }
 .chip span { position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .page { position: relative; min-height: 0; overflow: auto; background: var(--bg); border-top-left-radius: var(--r-xl); box-shadow: inset 1px 1px 0 var(--line); scrollbar-gutter: stable; }
 .pageInner { padding: 22px 30px calc(var(--card-h) + 48px); max-width: 1500px; margin: 0 auto; }
-.pageInner > * { animation: enter 380ms var(--ease) both; }        /* each page eases in as it opens */
+.pageInner > * { animation: enter var(--t-enter) var(--ease) both; }        /* each page eases in as it opens */
 .shell[data-page="workshop"] .page { overflow: hidden; }
 .shell[data-page="workshop"] .pageInner { padding: 0; max-width: none; height: 100%; }

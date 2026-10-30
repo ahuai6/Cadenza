@@ -3,13 +3,13 @@
    drawCoverSubject is the one drawing of the cover: the backdrop uses it where the cover rests, and the shared-element
    handoff uses it while the cover flies in from the now-playing page, so the hand-over is the same picture throughout.
    vinyl (0..1) is how far the record has slid out from under the sleeve: it comes out after the cover lands. */
-import { clamp, D2R } from '../../core/math';
-import { mix, rgba, hexOf, W3 } from '../../core/color';
+import { clamp } from '../../core/math';
+import { rgba, hexOf } from '../../core/color';
 import { register, type Ctx, type BackdropView } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { drawAmbient } from './ambient';
-import { drawRings } from './overlays';
+import { drawRings } from './rings';
 import { gfx, cheapBlurDraw } from '../gfx';
 
 type Img = CanvasImageSource & { width: number; height: number };
@@ -128,4 +128,3 @@ register({ id: 'cover', label: 'bg.cover', layer: 'backdrop', kind: 'backdrop',
     drawCoverSubject(g, f, c.x, c.y, c.S, f.vinylOut);
     g.fillStyle = rgba(f.pal.bg, f.pal.dark ? 0.16 : 0.18); g.fillRect(-a.bd.Ev, -a.bd.Ev, f.W + 2 * a.bd.Ev, f.H + 2 * a.bd.Ev);
   } });
-export const _D2R = D2R;

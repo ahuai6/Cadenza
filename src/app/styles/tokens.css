@@ -10,6 +10,29 @@
   --corner: superellipse(1.6);
   --ease: cubic-bezier(0.22, 1, 0.36, 1); --ease-in: cubic-bezier(0.55, 0, 0.75, 0.4);
   --t-fast: 140ms; --t-med: 240ms;
+  /* the rest of the motion scale, by role (an interface redo retunes it here, not in the components) */
+  --t-fade: 200ms;      /* a scrim fading in */
+  --t-exit: 260ms;      /* chrome leaving */
+  --t-swap-out: 280ms;  /* the old content of a swap leaving */
+  --t-fill: 300ms;      /* a progress fill moving */
+  --t-show: 320ms;      /* controls fading in */
+  --t-stagger: 360ms;   /* each item of a staggered list */
+  --t-enter: 380ms;     /* a page or block easing in */
+  --t-slow: 420ms;      /* larger moves: lyric lines, panels, chrome coming back */
+  --t-panel: 460ms;     /* a side panel sliding */
+  --t-reveal: 520ms;    /* the slowest reveals: cover wall, now-playing content */
+  --t-delay: 120ms;     /* chrome waits this long before coming back */
+  --t-stagger-step: 18ms;
+  /* the small end of the radius scale, by role */
+  --r-mark: 1.5px;      /* tiny bars (the playing-eq marks) */
+  --r-dot: 2.5px;       /* dots (timeline pips) */
+  --r-bar: 3px;         /* progress bars */
+  --r-track: 4px;       /* slider tracks */
+  --r-knob: 4.5px;      /* the progress bar's head */
+  --r-chip: 6px;        /* badges, chips, checkboxes, slider thumbs */
+  --r-tag: 8px;         /* small tags over covers */
+  --r-cover-sm: 9px;    /* small covers in lists (and what lies over them), toggles */
+  --r-cover-md: 12px;   /* the mini player's cover */
   --tb-h: 46px; --side-w: 220px; --card-h: 76px;
 
   /* dark (the default) */

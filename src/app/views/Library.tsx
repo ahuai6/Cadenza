@@ -5,7 +5,7 @@ import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match, type MenuItem } from '../state';
 import { player, playIds, enqueue, setMode, shufflePick, setInstrumental } from '../playback/player';
 import { Icon } from '../ui/icons';
-import { Button, IconButton, Seg, Cover, Mosaic, Empty, Badge } from '../ui/kit';
+import { Button, IconButton, Cover, Mosaic, Empty, Badge } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
 import { QualityTag } from '../ui/quality';
 import { useReorder } from '../ui/reorder';

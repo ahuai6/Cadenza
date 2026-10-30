@@ -1,7 +1,7 @@
 // Measuring words for the layout, with a canvas (no DOM): each word's box and where each of its units sits, at the
 // engine's one glyph size (150 px; the transform scales from there). Horizontal words lay units along the line,
 // vertical CJK blocks stack them; right-to-left words mirror.
-import { ROTATE_IN_VERTICAL } from '../lyrics/script';
+import { ROTATE_IN_VERTICAL } from './script';
 
 export const EM = 150;
 export const LINE_H = 1.04, VERT_H = 1.08;
