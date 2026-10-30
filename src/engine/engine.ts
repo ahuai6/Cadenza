@@ -157,9 +157,10 @@ export class Engine extends Emitter<EngineEvents> {
   frameAt(t: number, opts: { offline?: boolean; px?: number } = {}, sess?: Session): RenderFrame | null {
     const s = sess || this.session; if (!s) return null; const plan = s.plan, motion = RM ? 0.25 : 1;
     const cf = cameraAt(plan, s.sig, t, motion), rs = cf.rs, M = s.style.m;
+    const mvEnd = this.mv.k > 0 ? this.mv.endK(t, s.audioStart) : 1;   // (an MV shorter than the song: fading out at its end)
     const p = this.handoff.p, scene = opts.offline ? 1 : this.handoff.scene;
     return { plan, style: s.style, pal: s.pal, ambient: s.ambient, t, dt: 0, W: plan.W, H: plan.H, px: opts.px ?? this.canvas.height / plan.H,
-      cam: cf, rs, media: { cover: s.cover, coverKey: s.coverKey, video: s.style.bgStyle === 'video' ? this.video.drawable() : null, mv: this.mv.k > 0 ? { ...(this.mv.drawable() || { frame: null, w: 16, h: 9 }), k: this.mv.k } : null, mvLook: this.mvLook },
+      cam: cf, rs, media: { cover: s.cover, coverKey: s.coverKey, video: s.style.bgStyle === 'video' ? this.video.drawable() : null, mv: this.mv.k > 0 && mvEnd > 0 ? { ...(this.mv.drawable() || { frame: null, w: 16, h: 9 }), k: this.mv.k * mvEnd } : null, mvDone: this.mv.k > 0 && mvEnd < 1, mvLook: this.mvLook },
       view: { effect: opts.offline ? 1 : (this.view === 'effect' || p > 0 ? scene : 0) }, motion, offline: !!opts.offline, labels: this.labels,
       I: clamp(0.35 + 0.65 * rs.level), P: rs.pulse * clamp(M.pulse, 0, 2) * cf.calm * (1 - rs.still), ink: s.pal.text,
       coverOwner: opts.offline ? 'backdrop' : this.handoff.coverOwner, vinylOut: opts.offline ? 1 : this.handoff.vinyl,

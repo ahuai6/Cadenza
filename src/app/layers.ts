@@ -73,6 +73,8 @@ function applyNp(p: number) {
   const clip = p >= 0.9995 ? (full ? '' : `inset(0 round ${pageR}px 0 0 0)`) : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
   // (the play page's own shade and grain go with the picture: the same shape, the same fade)
+  // (and the page's own content: nothing of it shows outside the sheet as it rises — its header never over the library)
+  np.style.clipPath = p >= 0.9995 ? '' : clip;
   const amb = refs.npAmb; if (amb) { amb.dataset.vis = String(on); amb.style.clipPath = clip; amb.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.3).toFixed(3); }
   // while it rises, the page casts a soft shade up onto what it is covering: a wide falloff above its leading edge,
   // fading out at the sides, deepest mid-way through the move and gone once it has landed (or closed) — a sheet sliding

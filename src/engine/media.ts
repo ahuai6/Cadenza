@@ -48,5 +48,8 @@ export class MvSource extends VideoSource {
   setOn(on: boolean) { const n = !!on && !!this.el; if (n !== this.on) { this.k0 = this.k; this.t0 = performance.now(); } this.on = n; }
   /** Advance the fade (900 ms) by the interface clock; returns true while it changes. */
   tick(): boolean { const tgt = this.on ? 1 : 0; if (this.k === tgt) return false; const u = clamp((performance.now() - this.t0) / 900); this.k = u >= 1 ? tgt : this.k0 + (tgt - this.k0) * u; return true; }
+  /** How much of the MV is left at song time t: 1 while it plays, fading to 0 over its last moments (an MV shorter than
+   *  the song gives way to the cover's own backdrop instead of holding its last frame). */
+  endK(t: number, audioStart: number) { const v = this.el, d = v && isFinite(v.duration) ? v.duration : 0; if (!d) return 1; const x = audioStart + t + this.offset; return 1 - clamp((x - (d - 1.8)) / 1.6); }
   override timeAt(t: number, audioStart: number) { const v = this.el, d = v && isFinite(v.duration) ? v.duration : 0; return clamp(audioStart + t + this.offset, 0, Math.max(0, d - 0.05)); }
 }

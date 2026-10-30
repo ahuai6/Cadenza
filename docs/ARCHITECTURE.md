@@ -160,6 +160,14 @@ configure(engine, { render, gfx, mv, rhythm }) // 宿主（桌面介面、工坊
 
 ## 介面（`src/app`）
 
+視覺語言見 `docs/DESIGN.md`。所有元件只讀 `styles/tokens.css` 的變數（四級圓角、表面、動態曲線），架構測試會擋下寫死的圓角與時長。共用的互動元件都在 `ui/kit.tsx`：
+- `Dropdown`：自繪下拉，取代所有原生 `<select>`；
+- `ContextMenu`：右鍵選單，支援二級選單；
+- `Turn`：換頁與換區塊時，先淡出舊的、再淡入新的；
+- `usePresence`：讓會開關的東西都有離場動畫。
+
+離場中的畫面仍會重繪，因此元件要用傳入的資料，不要假設全域狀態仍在。字體選單在 `ui/fonts.tsx`，介面字體在 `uifont.ts`。特效歌詞的畫面比例（`settings.fxAspect`）由 `playback/player.ts` 的 `setFxAspect` 統一套用到場景、畫面框與匯出。
+
 介面是可以整個替換的一層。它和引擎之間的合約是：
 - **只引用** `src/engine/index.ts`、`core`、`theme`、`i18n`（由架構測試把關）。
 - **設定**：經由 `app/engineConfig.ts` → `configure()`。

@@ -12,6 +12,7 @@ export interface MediaSources {
   video: { frame: CanvasImageSource | null; w: number; h: number } | null;
   mv: { frame: CanvasImageSource | null; w: number; h: number; k: number } | null;
   /** how the song's own video (MV mode) is graded and framed */ mvLook?: MvLook;
+  /** the song's MV is on and has run out (or is running out): the cover's own backdrop takes over under it */ mvDone?: boolean;
 }
 export interface ViewMix {
   /** 0: the now-playing backdrop alone (ambient), 1: the full effect-lyrics picture */

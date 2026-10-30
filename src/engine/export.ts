@@ -14,11 +14,8 @@ export interface Sink { write(data: Uint8Array, pos: number): void | Promise<voi
 export interface ExportOptions { res?: number; fps?: number; quality?: string; codec?: 'auto' | 'avc' | 'hevc'; captions?: boolean; audio?: boolean; sink?: Sink; onProgress?: (phase: string, i: number, n: number) => void; signal?: { cancelled: boolean } }
 export interface ExportResult { ok: boolean; reason?: string; e?: string; w?: number; h?: number; codec?: string; mbps?: number; audio?: string; size?: number; sec?: number; result?: unknown; name?: string }
 
-import { ASPECTS } from '../director';
-export function exportSize(aspect: string, res: number, viewAspect: number): [number, number] {
-  const p = +res || 1080, a = ASPECTS[aspect] || (aspect === 'fill' ? 16 / 9 : viewAspect) || 16 / 9; let w: number, h: number;   // a picture that fills the window exports as 16:9
-  if (a >= 1) { h = p; w = Math.round(p * a); } else { w = p; h = Math.round(p / a); } return [w + (w % 2), h + (h % 2)];
-}
+import { exportSize } from './size';
+export { exportSize };
 // bits per pixel per frame, per quality (60 fps frames are more alike: less per frame)
 const XQ: Record<string, { b30: number; b60: number }> = { q1: { b30: 3, b60: 2 }, q2: { b30: 4.5, b60: 3 }, q3: { b30: 6, b60: 4 }, q4: { b30: 8, b60: 5.4 }, q5: { b30: 12, b60: 8 } };
 export function estimate(s: Session, o: { res?: number; fps?: number; quality?: string }, viewAspect: number) {
