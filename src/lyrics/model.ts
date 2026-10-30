@@ -25,6 +25,7 @@ export interface Word {
   /** a chorus comes in on this word: 1 strongest, 2 ordinary, 3 lighter */
   mark?: number;
   /** when the mark was sung (its own syllable, which may be inside the word): the chorus comes in then */ markT?: number;
+  /** a lyric frame was asked for on this word ('$1' in the lyrics) */ box?: boolean;
   /** framing group: consecutive words closer than FUSE share one */
   group: number;
   /** the pause after this word when it ends its line (0 otherwise) */
@@ -70,7 +71,7 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
       const hu = rw.harm ? (rw.harm.units?.length ? rw.harm.units.map(u => ({ c: u.c, t: Math.max(u.t, L.t) })) : unitsOf(rw.harm.text).map(c => ({ c, t: null as number | null }))) : null;
       return { id: words.length + k, line: i, k, text: w, units, t: tu ? tu[0].t! : L.t, end: 0, timed: !!tu,
         latin: isLatin(w), cjk: RE_CJK.test(w) && !RE_COMPLEX.test(w), complex: RE_COMPLEX.test(w), group: 0, rest: 0,
-        harm: rw.harm && hu ? { text: rw.harm.text, units: hu, t: hu[0]?.t ?? NaN } : null, ...(rw.mark ? { mark: rw.mark, ...((rw.markT ?? rw.units?.[0]?.t) != null ? { markT: (rw.markT ?? rw.units![0].t)! } : {}) } : {}) };
+        harm: rw.harm && hu ? { text: rw.harm.text, units: hu, t: hu[0]?.t ?? NaN } : null, ...(rw.box ? { box: true } : {}), ...(rw.mark ? { mark: rw.mark, ...((rw.markT ?? rw.units?.[0]?.t) != null ? { markT: (rw.markT ?? rw.units![0].t)! } : {}) } : {}) };
     });
     if (!timed) paceWords(L, map);
     // when each word is over

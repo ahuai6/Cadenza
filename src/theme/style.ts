@@ -25,7 +25,7 @@ export interface Style {
   aspect: string; aa: string;
 }
 
-const FX_OFF = { motes: false, feathers: false, grid: false, eq: false, rings: false, scan: false, vignette: false, grain: false, glass: false, glyph: false, frame: false, stars: false, wires: false, shards: false, doors: false, lines: false, invgeo: false, chroma: false, glitch: false };
+const FX_OFF = { wordring: false, motes: false, feathers: false, grid: false, eq: false, rings: false, scan: false, vignette: false, grain: false, glass: false, glyph: false, frame: false, stars: false, wires: false, shards: false, doors: false, lines: false, invgeo: false, chroma: false, glitch: false };
 /** (the presets' flash: the backdrop elements' colour, paler — see paleOf) */
 const paleHex = (accent: string) => hexOf(paleOf(hex2rgb(accent)));
 export const PRESETS: Record<string, Omit<Style, 'preset' | 'from' | 'k' | 'm' | 'aspect' | 'aa'>> = {

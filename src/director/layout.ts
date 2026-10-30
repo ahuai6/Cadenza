@@ -47,7 +47,7 @@ const ANTIC = (st: Style) => clamp((st.m.enter ?? 0.3) * 0.3, 0.05, 0.14);
 export function layout(inp: LayoutInput): LayoutResult {
   const { doc, map, style: st, measure, W, H } = inp, M = st.m, T = tsz(st);
   const BASE = EM, gap = BASE * 0.14 * T, TURN = clamp(M.turn ?? 0.4, 0, 1), TA = M.tang ?? 90, TK = M.tilt, DEP = M.depth ?? 1;
-  const waltz = st.cut === 'waltz' || st.cut === 'hover', smooth = st.cut !== 'punch', LT = lyricType(st.ltype);
+  const waltz = st.cut === 'waltz' || st.cut === 'hover', smooth = st.cut !== 'punch', LT = lyricType(st.ltype), LD = LT.depth ?? 1, ORBIT = !!LT.orbit;
 
   /* ---- words, measured ---- */
   const lines: PLine[] = [], words: PWord[] = [], vruns = st.cut === 'center' ? new Set<number>() : vertRuns(doc.lines);
@@ -95,10 +95,16 @@ export function layout(inp: LayoutInput): LayoutResult {
   const chars = (S: PWord) => { const s = S.w.text.trim(); return /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/.test(s) ? [...s].length : Math.ceil([...s].length / 3); };
   const small = (S: PWord) => chars(S) <= 4;
   const lineEnd = (P: PLine) => { const q = nextPass.get(P.i + 1); return q ? Math.min(P.L.end, q.t - q.inn) : P.L.end; };
-  // (close up there are none: a frame would have the camera pull back from the characters to show it whole)
+  // the frames the lyrics ask for ('$1' before a word): always, round that word — whether or not frames are on, close up too
+  const asked = new Set<number>();
+  for (const P of lines) for (const S of P.words) if (S.w.box && !S.frame) {
+    const F: FrameRef = { words: [S], ts: S.w.t, corner: rnd(P.i * 5.1 + S.k) < 0.5, pad: Math.min(S.lw, S.lh) * 0.15 * 2.3 }; S.frame = F; asked.add(P.i); }
+  // (close up there are none of the chosen ones: a frame would have the camera pull back from the characters to show it whole)
   if (st.fx.frame && st.cut !== 'close') { let want = false, lastF = -9;
     for (const P of lines) {
       const n = P.words.length; let k0 = 0;
+      // (a line with a frame of its own asked for: the chosen ones keep away from it, as from each other)
+      if (asked.has(P.i)) { lastF = P.i; want = false; continue; }
       if (!want && P.i > 0 && P.i - lastF >= 3 && rnd(P.i * 7.7 + 3.3) < 0.22) { want = true; k0 = n === 1 ? 0 : Math.min(n - 1, Math.floor(rnd(P.i * 2.9) * Math.min(n, 3))); }
       if (!want) continue;
       // a small target: one word (a short one by preference), or a very short word with the one before it — a few
@@ -143,10 +149,12 @@ export function layout(inp: LayoutInput): LayoutResult {
     return null;
   };
   // the empty space between two neighbours, in frames at the wider framing of the two
-  const SPAN = ({ punch: 0.6, waltz: 0.55, glide: 0.55, close: 0.4, hover: 0.5 } as Record<string, number>)[st.cut] ?? 0.55, BACK_REACH = 0.7, FOLD = 0.9;
+  const ORBIT_REACH = 1.0, SPAN = ({ punch: 0.6, waltz: 0.55, glide: 0.55, close: 0.4, hover: 0.5 } as Record<string, number>)[st.cut] ?? 0.55, BACK_REACH = 0.7, FOLD = 0.9;
   // where a new line goes, by style: below the line before, above it, or on to the right (the rest); close up it mostly
   // runs on (a short way, seen travelling), hovering it spreads round the middle
-  const [P_BELOW, P_ABOVE] = ({ punch: [0.3, 0.25], waltz: [0.3, 0.3], glide: [0.3, 0.25], close: [0.2, 0.15], hover: [0.35, 0.3] } as Record<string, number[]>)[st.cut] ?? [0.34, 0.26];
+  const [PB0, PA0] = ({ punch: [0.3, 0.25], waltz: [0.3, 0.3], glide: [0.3, 0.25], close: [0.2, 0.15], hover: [0.35, 0.3] } as Record<string, number[]>)[st.cut] ?? [0.34, 0.26];
+  // (the lyric type can ask for more lines above and below and fewer onward — the odds kept short of always)
+  const SK = Math.min(LT.stack ?? 1, 0.85 / (PB0 + PA0)), P_BELOW = PB0 * SK, P_ABOVE = PA0 * SK;
   const blankOf = (A: PWord, B: PWord) => { const z = Math.min(zOf(A), zOf(B)), d = dirv(A.tilt), n = dirv(A.tilt + 90), dx = B.x - A.x, dy = B.y - A.y;
     const ext = (Q: PWord, ax: number) => Math.abs(Q.lw / 2 * Math.cos((Q.tilt - A.tilt) * D2R + (ax ? Math.PI / 2 : 0))) + Math.abs(Q.lh / 2 * Math.sin((Q.tilt - A.tilt) * D2R + (ax ? Math.PI / 2 : 0)));
     return Math.max((Math.abs(dx * d[0] + dy * d[1]) - ext(A, 0) - ext(B, 0)) / (W / z), (Math.abs(dx * n[0] + dy * n[1]) - ext(A, 1) - ext(B, 1)) / (H / z)); };
@@ -179,6 +187,8 @@ export function layout(inp: LayoutInput): LayoutResult {
     S0.P = [sx, up ? y0 - BASE * (3 + rnd(secN * 2.2) * 1.5) : y1 + BASE * (2 + rnd(secN * 2.2) * 1.5)]; S0.lineStart = [...S0.P] as [number, number];
     S0.th = [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = secN % 2 ? -1 : 1; S0.flowFrom = null; S0.backN = 0; };
 
+  /** (the 圓心 type: which try at a line's angle round the line before this placement is, or null for the ordinary ones) */
+  let orbitTry: number | null = null;
   const placeLine = (Lp: PLine, i: number, mode: string | null): boolean => {
     let { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN } = S0, bad = false;
     Lp.back = false; Lp.west = false; const westStart = flow < 0 && secFirst; let align: { X: [number, number]; d: [number, number] } | null = null;
@@ -187,8 +197,24 @@ export function layout(inp: LayoutInput): LayoutResult {
       const tilt0 = rnd(i * 5 + k * 9.1) < 0.3 ? (rnd(i * 3 + k) - 0.5) * 12 : 0;
       let turn = 0; const rd = Lp.rtl ? -1 : 1; S.roll = 0;
       // (heading back, a line starts by folding back, never by turning: the turn would take the place of the fold)
-      const folds = k === 0 && flow < 0 && !!prevLine && !mode && !Lp.vert && !prevLine.vert && fitsWhole(Lp);
-      if (!first && !folds && !Lp.rtl && mode !== 'dash' && TURN > 0 && TA > 0 && S.s > 0.55 && !S.vert && S.w.t - lastTurn >= map.beatLen(S.w.t)) {
+      const folds = !ORBIT && k === 0 && flow < 0 && !!prevLine && !mode && !Lp.vert && !prevLine.vert && fitsWhole(Lp);
+      // round a centre (the 圓心 type): the line goes round the line before, at an angle of its own — upright, or now and
+      // then turned so its characters' tops face away from that centre (never towards it, never upside down)
+      let orb: [number, number] | null = null, orbR = 0;
+      if (k === 0 && orbitTry != null && prevLine && !first && !Lp.vert && !prevLine.vert && !Lp.rtl) {
+        const a = rnd(i * 23.1 + 4) * 360 + orbitTry * 137.5, radial = ((a + 90 + 540) % 360) - 180;
+        const turnIt = rnd(i * 5.9 + orbitTry * 1.7) < 0.35 && Math.abs(radial) <= 100;
+        th = turnIt ? radial : [0, -6, 5, -3][Math.floor(rnd(i * 2.7) * 4)] * TK * 0.6;
+        const Lw = Lp.words.reduce((t, Q) => t + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, hh = Math.max(...Lp.words.map(Q => Q.lh));
+        const ext = (bw: number, bh: number, ang: number) => Math.abs(bw / 2 * Math.cos((a - ang) * D2R)) + Math.abs(bh / 2 * Math.sin((a - ang) * D2R));
+        const R = ext(prevLine.bw, prevLine.bh, prevLine.prot) + ext(Lw, hh, th) + gap * 3, u = dirv(a), d1 = dirv(th);
+        const N: [number, number] = [prevLine.ax + u[0] * R, prevLine.ay + u[1] * R];
+        lineStart = [N[0] - d1[0] * Lw / 2, N[1] - d1[1] * Lw / 2]; orb = lineStart; orbR = R; if (turnIt) lastTurn = S.w.t;
+      }
+      // (a line of this type not placed round the one before — no angle fitted — stands upright: it is never left turned
+      // by the line before's angle, which would face its tops anywhere)
+      else if (ORBIT && k === 0 && !first && !Lp.vert) th = 0;
+      if (!first && !folds && !ORBIT && !Lp.rtl && mode !== 'dash' && TURN > 0 && TA > 0 && S.s > 0.55 && !S.vert && S.w.t - lastTurn >= map.beatLen(S.w.t)) {
         const acc = clamp(0.5 + map.accentAt(S.w.t) * 0.5, 0.5, 1.5);
         const p = TURN * (k === 0 ? 0.9 : 0.45) * acc * (0.6 + 0.8 * dens(S.w.t) / mxd) * (S.w.latin ? 0.7 : 1);
         if (rnd(i * 53 + k * 7.7 + 11) < p) {
@@ -221,8 +247,9 @@ export function layout(inp: LayoutInput): LayoutResult {
           const zz = Math.min(zOf(prevSeg), zOf(S)); run = (P[0] - lineStart[0]) * d[0] + (P[1] - lineStart[1]) * d[1];
           backMax = FOLD * 0.9 * W / zz - (run - prevSeg.lw - w); }
         let cc: [number, number] | null = null;
+        if (orb) { cc = [orb[0] + d[0] * w / 2, orb[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; }
         // (the camera frames a line heading back whole: how far back it may start is set by the line, not by a follow's reach)
-        if (backMax > -Infinity) {
+        else if (backMax > -Infinity) {
           // heading back: the new line starts a row above or below and well behind where the line before began, so the
           // lines go leftward one after another (framed whole by the camera, never followed along: camera.ts)
           const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, back = Lw * (0.55 + 0.35 * rnd(i * 2.9)) + gap * 3;   // (from the line before's start)
@@ -288,12 +315,18 @@ export function layout(inp: LayoutInput): LayoutResult {
         // (a line heading back is framed whole: the camera goes from the middle of the line before, framed whole, to its
         // middle — half a line on from the one before's start, a frame or so at that framing — never from the last word
         // sung to its first, so no follow's reach applies; a move too long is crossed by a transition, as any is)
-        if (k === 0) { if (!Lp.back && !inView(prevSeg, S) && blankOf(prevSeg, S) > (alongMotion(prevSeg, S) ? SPAN : SPAN * BACK_REACH)) bad = true; }
+        // (round a centre: the camera goes from the line before — the centre — out to this one's middle, so that distance
+        // is what must be within reach, about a frame — measured to its middle, not its first word, or only the lines
+        // to the right of the centre would ever fit)
+        if (k === 0) { if (orb) { if (orbR * zOf(S) / W > ORBIT_REACH) bad = true; }
+          else if (!Lp.back && !inView(prevSeg, S) && blankOf(prevSeg, S) > (alongMotion(prevSeg, S) ? SPAN : SPAN * BACK_REACH)) bad = true; }
         else if (blankOf(prevSeg, S) > SPAN) bad = true;
       }
       placed.push(S); prevSeg = S;
-      if (k === 0) Lp.d = first ? 0 : DEP * ((rnd(i * 7.9 + 2) - 0.5) * 600);
-      S.d = first ? 0 : Lp.d + DEP * ((rnd(i * 13 + k * 3.3) - 0.5) * 260 + (k % 2 ? 80 : -60));
+      // (a type set deeper: its lines further apart in depth, its words within a line a little more — √ of it — so a line
+      // still reads as one)
+      if (k === 0) Lp.d = first ? 0 : DEP * LD * ((rnd(i * 7.9 + 2) - 0.5) * 600);
+      S.d = first ? 0 : Lp.d + DEP * Math.sqrt(LD) * ((rnd(i * 13 + k * 3.3) - 0.5) * 260 + (k % 2 ? 80 : -60));
       if (!S.vert) prevH = h;
     });
     // a line that went back to the left: moved along so that its last character stands exactly over (under) the line
@@ -341,6 +374,8 @@ export function layout(inp: LayoutInput): LayoutResult {
     // a scene's own arrangement first (a dash runs on to the right); the ordinary tries after it
     Lp.scene = scenes[i];
     if (scenes[i] === 'dash' && i > 0 && !startsAt.has(i)) { if (placeLine(Lp, i, 'dash')) return; restore(before); Lp.scene = null; }
+    // (round the line before: a few angles, the first that fits — else the ordinary placements)
+    if (ORBIT && i > 0 && !startsAt.has(i)) for (let q = 0; q < 10; q++) { orbitTry = q; const ok = placeLine(Lp, i, null); orbitTry = null; if (ok) return; restore(before); }
     if (placeLine(Lp, i, null) || i === 0 || startsAt.has(i)) return;
     restore(before); if (placeLine(Lp, i, 'right')) return;
     restore(before); if (placeLine(Lp, i, 'below')) return;

@@ -14,7 +14,8 @@ export interface RawUnit { t: number; c: string; sp: boolean; /** when it stops 
 /** A harmony sung with a word (the part in brackets after it), with its own timing when the line has it. */
 export interface RawHarm { text: string; units?: RawUnit[] }
 export interface RawWord { text: string; units?: RawUnit[]; harm?: RawHarm; /** a chorus comes in on this word: 1 strongest .. 3 lighter */ mark?: number;
-  /** where the mark was written (timed lines: its syllable's stamp) — kept when the words are regrouped */ markT?: number }
+  /** where the mark was written (timed lines: its syllable's stamp) — kept when the words are regrouped */ markT?: number;
+  /** a lyric frame asked for on this word ('$1' before it) */ box?: boolean }
 export interface RawLine {
   t: number; text: string; subs: string[];
   /** the line's words (broken at spaces only), each with its harmony and chorus mark, if any */
@@ -44,18 +45,24 @@ export function parseRange(str: string | null | undefined): { a: number; b: numb
 }
 
 const OPEN = /[(（]/, CLOSE = /[)）]/, MARK = /^#([1-3])?/;
+/** '$1' before a word: a lyric frame round it. Read as one private character from the start, so the word breaking never
+ *  sees the '$' or the digit; never shown. */
+const BOX = '\uE001', BOX_SRC = /\$1/g, NO_BOX = /\uE001/g;
 /** The cue symbols a lyric can carry, as an editor offers them (one key each: Alt + key types it at the cursor). One
  *  list for every editor — a new kind of cue is one more entry here and its reading in this file. */
 export const CUE_SYMBOLS: readonly { text: string; key: string; label: string }[] = [
   { text: '#1', key: '1', label: 'lyr.cue.1' }, { text: '#2', key: '2', label: 'lyr.cue.2' }, { text: '#3', key: '3', label: 'lyr.cue.3' },
+  { text: '$1', key: '4', label: 'lyr.cue.box' },
 ];
 /** Words from a line's text: broken at spaces; '#N' before a word marks it; brackets make a harmony of the word before. */
 function plainWords(body: string): RawWord[] {
   const out: RawWord[] = []; let tok = '', harm = '', depth = 0, mark: number | undefined;
-  const push = () => { let s = tok; tok = ''; const m = s.match(MARK); if (m) { mark = m[1] ? +m[1] : 2; s = s.slice(m[0].length); }
+  const push = () => { let s = tok; tok = ''; let box = false;
+    for (let again = true; again;) { again = false; const m = s.match(MARK); if (m) { mark = m[1] ? +m[1] : 2; s = s.slice(m[0].length); again = true; } if (s.startsWith(BOX)) { box = true; s = s.slice(1); again = true; } }
+    if (s.includes(BOX)) { box = true; s = s.replace(NO_BOX, ''); }
     // (an older file's '#' inside a word is a break)
-    for (const [i, part] of s.split('#').entries()) { if (!part) continue; out.push({ text: part, ...(mark && i === 0 ? { mark } : {}) }); if (i === 0) mark = undefined; } };
-  const addHarm = () => { const h = harm.replace(/\s+/g, ' ').replace(/#[1-3]?/g, '').trim(); harm = ''; if (!h) return;
+    for (const [i, part] of s.split('#').entries()) { if (!part) continue; out.push({ text: part, ...(mark && i === 0 ? { mark } : {}), ...(box && i === 0 ? { box } : {}) }); if (i === 0) mark = undefined; } };
+  const addHarm = () => { const h = harm.replace(/\s+/g, ' ').replace(/#[1-3]?/g, '').replace(NO_BOX, '').trim(); harm = ''; if (!h) return;
     const host = out[out.length - 1]; if (host) host.harm = { text: host.harm ? host.harm.text + ' ' + h : h }; else out.push({ text: '', harm: { text: h } }); };
   for (const ch of body) {
     if (depth) { if (CLOSE.test(ch)) { if (--depth === 0) addHarm(); else harm += ch; } else { if (OPEN.test(ch)) depth++; harm += ch; } continue; }
@@ -73,13 +80,15 @@ function plainWords(body: string): RawWord[] {
 
 function parseKar(body: string, shift: number): { words: RawWord[]; close: number | null } {
   const re = /<(\d+):(\d+)(?:[.:](\d+))?>([^<]*)/g; let m: RegExpExecArray | null;
-  const words: RawWord[] = []; let cur: RawWord | null = null, close: number | null = null, depth = 0, mark: number | undefined;
+  const words: RawWord[] = []; let cur: RawWord | null = null, close: number | null = null, depth = 0, mark: number | undefined, boxNext = body.slice(0, Math.max(0, body.indexOf('<'))).includes(BOX);
   // a chorus mark written before the first stamp marks the first word
   { const lead = body.slice(0, Math.max(0, body.indexOf('<'))).trim().match(MARK); if (lead) mark = lead[1] ? +lead[1] : 2; }
   const flush = () => { if (cur && (cur.units?.length || cur.harm)) words.push(cur); cur = null; };
   while ((m = re.exec(body))) {
     const tt = tsec(m[1], m[2], m[3]) + shift; let raw = m[4];
     const mk = depth ? null : raw.match(/^\s*#([1-3])?/); if (mk) { flush(); mark = mk[1] ? +mk[1] : 2; raw = raw.slice(mk[0].length); }
+    // ('$1' in a unit: the frame goes round the word this unit's character is in — the next one, when it starts one)
+    if (raw.includes(BOX)) { boxNext = true; raw = raw.replace(NO_BOX, ''); }
     // the unit's characters, the brackets taken out (they only say that the unit is a harmony): a unit is the harmony's
     // when it starts inside brackets or opens them
     let c = ''; const before = depth; let opened = false;
@@ -94,7 +103,7 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
       } else {
         if (lead && cur && cur.units?.length) flush();
         if (!cur) { cur = { text: '', units: [], ...(mark ? { mark } : {}) }; mark = undefined; }
-        cur.units!.push(u); cur.text += txt;
+        cur.units!.push(u); cur.text += txt; if (boxNext) { cur.box = true; boxNext = false; }
         if (sp) flush();
       }
       close = null;
@@ -113,8 +122,9 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
 export function parse(src: string, off = 0, len = Infinity): Parsed {
   const map = new Map<number, RawLine>(), breaks: number[] = [], meta: Record<string, string> = {}, marks: { t: number; level: number }[] = [];
   const add = (tt: number, body: string, shift: number) => {
-    const key = Math.round(tt * 100), e = map.get(key), stripped = body.replace(/<[^>]*>/g, ''), plain = stripped.replace(/#[1-3]?/g, '').replace(/[()（）]/g, '').trim();
-    if (e) { if (plain) e.subs.push(stripped.replace(/#[1-3]?/g, '').trim()); return; }
+    body = body.replace(BOX_SRC, BOX);
+    const key = Math.round(tt * 100), e = map.get(key), stripped = body.replace(/<[^>]*>/g, ''), plain = stripped.replace(/#[1-3]?/g, '').replace(NO_BOX, '').replace(/[()（）]/g, '').trim();
+    if (e) { if (plain) e.subs.push(stripped.replace(/#[1-3]?/g, '').replace(NO_BOX, '').trim()); return; }
     // a stamp with only a chorus mark: the chorus comes in here (and the line before it ends, as with an empty stamp)
     if (!plain) { const mk = stripped.trim().match(MARK); if (mk) marks.push({ t: tt, level: mk[1] ? +mk[1] : 2 }); breaks.push(tt); return; }
     const L: RawLine = { t: tt, text: '', subs: [], words: [] };

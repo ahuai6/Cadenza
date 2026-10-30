@@ -60,6 +60,7 @@ function regroup(words: RawWord[], want: string[]): RawWord[] {
     else for (const ch of spacingKey(w.text)) { if (!cur || starts.has(pos)) open(); cur!.text += ch; pos++; }
     // its chorus mark with its first character, its harmony with its last
     // (its time stays its own syllable's: a new word that begins earlier must not pull the chorus earlier with it)
+    if (w.box && out[first]) out[first].box = true;
     if (w.mark && out[first]) { out[first].mark ??= w.mark; const mt = w.markT ?? w.units?.[0]?.t; if (mt != null && out[first].markT == null) out[first].markT = mt; }
     if (w.harm && cur) (cur as RawWord).harm = w.harm;
   }
