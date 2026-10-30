@@ -27,7 +27,8 @@ export interface RawLine {
   /** an empty stamp ending this line early */
   stop?: number;
 }
-export interface Parsed { lines: RawLine[]; meta: Record<string, string>; /** chorus marks on a stamp of their own (no words) */ marks: { t: number; level: number }[] }
+export interface Parsed { lines: RawLine[]; meta: Record<string, string>; /** chorus marks on a stamp of their own (no words) */ marks: { t: number; level: number }[];
+  /** curtain openings asked for ('@N': curtain N closed at once at that stamp, then drawn open) */ curtains?: { t: number; kind: number }[] }
 
 const tsec = (m: string, s: string, f?: string) => +m * 60 + +s + (f ? +('0.' + f) : 0);
 const STAMP = /\[(\d+):(\d+)(?:[.:](\d+))?\]/g;
@@ -48,11 +49,14 @@ const OPEN = /[(（]/, CLOSE = /[)）]/, MARK = /^#([1-3])?/;
 /** '$1' before a word: a lyric frame round it. Read as one private character from the start, so the word breaking never
  *  sees the '$' or the digit; never shown. */
 const BOX = '\uE001', BOX_SRC = /\$1/g, NO_BOX = /\uE001/g;
+/** '@N' (N 1..9): a curtain — closed over the picture at once at that moment, then drawn open (render/curtain.ts). */
+const CURTAIN = /@[1-9]/, CURTAIN_ALL = /@[1-9]/g, CURTAIN_SCAN = /<(\d+):(\d+)(?:[.:](\d+))?>|@([1-9])/g;
 /** The cue symbols a lyric can carry, as an editor offers them (one key each: Alt + key types it at the cursor). One
  *  list for every editor — a new kind of cue is one more entry here and its reading in this file. */
 export const CUE_SYMBOLS: readonly { text: string; key: string; label: string }[] = [
   { text: '#1', key: '1', label: 'lyr.cue.1' }, { text: '#2', key: '2', label: 'lyr.cue.2' }, { text: '#3', key: '3', label: 'lyr.cue.3' },
   { text: '$1', key: '4', label: 'lyr.cue.box' },
+  { text: '@1', key: '5', label: 'lyr.cue.curtain1' },
 ];
 /** Words from a line's text: broken at spaces; '#N' before a word marks it; brackets make a harmony of the word before. */
 function plainWords(body: string): RawWord[] {
@@ -120,8 +124,12 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
 
 /** Parse, shifted so that `off` (the audio range start, file seconds) is time 0; lines beyond `len` are dropped. */
 export function parse(src: string, off = 0, len = Infinity): Parsed {
-  const map = new Map<number, RawLine>(), breaks: number[] = [], meta: Record<string, string> = {}, marks: { t: number; level: number }[] = [];
+  const map = new Map<number, RawLine>(), breaks: number[] = [], meta: Record<string, string> = {}, marks: { t: number; level: number }[] = [], curtains: { t: number; kind: number }[] = [];
   const add = (tt: number, body: string, shift: number) => {
+    // a curtain ('@N', N a digit): at the stamp it is written after — the word's, in a word-timed line, else the line's —
+    // and taken out of the text (read once per line, not again for a line's repeats under other stamps' translations)
+    if (CURTAIN.test(body)) { let last = tt; for (const m of body.matchAll(CURTAIN_SCAN)) { if (m[1] != null) last = tsec(m[1], m[2], m[3]) + shift; else curtains.push({ t: last, kind: +m[4] }); }
+      body = body.replace(CURTAIN_ALL, ''); }
     body = body.replace(BOX_SRC, BOX);
     const key = Math.round(tt * 100), e = map.get(key), stripped = body.replace(/<[^>]*>/g, ''), plain = stripped.replace(/#[1-3]?/g, '').replace(NO_BOX, '').replace(/[()（）]/g, '').trim();
     if (e) { if (plain) e.subs.push(stripped.replace(/#[1-3]?/g, '').replace(NO_BOX, '').trim()); return; }
@@ -148,13 +156,13 @@ export function parse(src: string, off = 0, len = Infinity): Parsed {
     for (const tt of stamps) add(tt, body, tt - stamps[0]);
   }
   const out = [...map.values()].sort((a, b) => a.t - b.t);
-  if (!out.length) return { lines: out, meta, marks: [] };
+  if (!out.length) return { lines: out, meta, marks: [], curtains: [] };
   const shiftAll = (d: number) => { for (const L of out) { L.t -= d; if (L.close != null) L.close -= d;
       for (const w of L.words) { for (const u of w.units || []) u.t -= d; for (const u of w.harm?.units || []) u.t -= d; } }
-    for (let i = 0; i < breaks.length; i++) breaks[i] -= d; for (const m of marks) m.t -= d; };
+    for (let i = 0; i < breaks.length; i++) breaks[i] -= d; for (const m of marks) m.t -= d; for (const c of curtains) c.t -= d; };
   const lo = parseFloat(meta.offset); if (isFinite(lo) && lo) shiftAll(lo / 1000);     // [offset:+ms] shows lyrics that much earlier
   shiftAll(off);
   const lines = out.filter(L => L.t > -0.05 && L.t < len - 0.3), br = breaks.sort((a, b) => a - b);
   lines.forEach((L, i) => { const nx = lines[i + 1] ? lines[i + 1].t : Infinity, b = br.find(x => x > L.t + 0.05 && x < nx + 0.01); if (b != null) L.stop = b; });
-  return { lines, meta, marks: marks.filter(m => m.t > -0.05 && m.t < len).sort((a, b) => a.t - b.t) };
+  return { lines, meta, marks: marks.filter(m => m.t > -0.05 && m.t < len).sort((a, b) => a.t - b.t), curtains: curtains.filter(c => c.t > -0.05 && c.t < len).sort((a, b) => a.t - b.t) };
 }

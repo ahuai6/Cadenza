@@ -159,7 +159,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   { const ta = win.locator('[data-test=song-panel] textarea').first(); await ta.click(); await win.keyboard.press('Control+End');
     await win.keyboard.press('Alt+1'); await win.locator('[data-test=song-panel]').getByRole('toolbar').getByRole('button', { name: /#3/ }).click(); await W(200);
     const v = await ta.inputValue(), keys = await win.locator('[data-test=song-panel]').getByRole('toolbar').getByRole('button').count();
-    ok('lyrics editor: cue symbols typed at the cursor, by Alt + their key or their button', v.endsWith('#1#3') && keys === 4, JSON.stringify({ tail: v.slice(-12), keys }));
+    ok('lyrics editor: cue symbols typed at the cursor, by Alt + their key or their button', v.endsWith('#1#3') && keys === 5, JSON.stringify({ tail: v.slice(-12), keys }));
     await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace');
     await C(() => document.activeElement.blur()); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '動態' }).click(); await W(300);

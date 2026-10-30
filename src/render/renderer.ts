@@ -12,6 +12,7 @@ import './effects/ambient'; import './effects/cover'; import './effects/backdrop
 import type { RenderFrame } from './frame';
 import { visibleWords, drawLyrics } from './lyrics';
 import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';
+import { curtainAt, curtainWords, drawCurtain, drawCurtainGround } from './curtain';
 import { makeCanvas } from './palette';
 import { cameraAt } from '../director/evaluate';
 import type { Signals } from '../rhythm/signals';
@@ -84,6 +85,9 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   /* ---- the lyric world ---- */
   const card = !!f.plan.titles.end;
   f.vis = visibleWords(f, card);
+  // a curtain the lyrics asked for ('@N', curtain.ts): its ground under the words, the words fading in as it opens
+  const cu = view > 0.001 ? curtainAt(f) : null;
+  if (cu) { drawCurtainGround(g, f, cu); const wk = curtainWords(cu); if (wk < 1) for (const v of f.vis) v.o *= wk; }
   const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen') => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id))).sort(byZ)) e.draw(g, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
   if (view > 0.001) {
     world('world-back');
@@ -92,7 +96,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
     if (tk > 0.02) { const len = mb * 1.6, d = Math.hypot(vx, vy) || 1, c = Math.cos(-cam.r * D2R), s = Math.sin(-cam.r * D2R), mdx = (vx * c - vy * s) / d, mdy = (vx * s + vy * c) / d;
       drawLyrics(g, f, f.vis, { ink: f.ink, split, trail: { k: 0.22 * tk, dx: mdx * len * 0.7, dy: mdy * len * 0.7 } }); }
     drawLyrics(g, f, f.vis, { ink: f.ink, split });
-    world('world-front'); world('foreground'); world('screen');
+    world('world-front'); world('foreground');
   }
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   if (inv) { g.save(); g.globalCompositeOperation = 'difference'; g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H); g.restore(); }
@@ -103,6 +107,11 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   drawIntro(g, f);
   drawEndCard(g, f);
   const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6) * view; if (fo > 0) { g.fillStyle = rgba(f.pal.bg, fo); g.fillRect(0, 0, W, H); }
+  // the curtain: over the picture, its captions and titles — fixed to the screen, never moved by the camera or its shake
+  if (cu) { g.setTransform(f.px, 0, 0, f.px, 0, 0); drawCurtain(g, f, cu); }
+  // the screen's own effects (grain, scan lines, vignette, colour split…) last: they are the display's, over everything
+  // in the picture, the curtain too
+  g.setTransform(f.px, 0, 0, f.px, 0, 0); if (view > 0.001) world('screen');
   o.overlay?.(g, f);
 }
 /** Effects that belong to a backdrop and follow it rather than a switch (they check the backdrop themselves). */

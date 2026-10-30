@@ -40,7 +40,8 @@ export interface Line {
   text: string; subs: string[]; words: Word[];
   kar: boolean; rtl: boolean;
 }
-export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number; /** where choruses come in (the lyrics' own marks): time, level 1..3, and whether that time is a stamp (exact) */ marks: Mark[] }
+export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number; /** where choruses come in (the lyrics' own marks): time, level 1..3, and whether that time is a stamp (exact) */ marks: Mark[];
+  /** curtains the lyrics ask for ('@N'): curtain N closed at t, then drawn open */ curtains: { t: number; kind: number }[] }
 export interface Mark { t: number; level: number; exact?: boolean }
 
 /** Words starting closer than this (s) are one gesture for the camera and the entrance. */
@@ -101,7 +102,7 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
   // (exact: on a stamp of its own — a syllable's, or a stamp with only the mark — so the chorus comes in right there; a
   // word timed only by its line's spread has a guessed time, which the cues bring onto the beat)
   const marks = [...words.filter(W => W.mark).map(W => ({ t: W.markT ?? W.t, level: W.mark!, exact: W.markT != null })), ...(p.marks || []).map(m => ({ ...m, exact: true }))].sort((a, b) => a.t - b.t);
-  return { lines, words, meta: p.meta, groups: gid + 1, marks };
+  return { lines, words, meta: p.meta, groups: gid + 1, marks, curtains: (p.curtains || []).map(c => ({ ...c, t: Math.max(0, c.t) })).filter((c, i, all) => !all.slice(0, i).some(x => x.kind === c.kind && Math.abs(x.t - c.t) < 0.05)) };
 }
 
 /** Line-timed words: each starts at its share of the line's syllables across the sung part, drawn onto a beat when
