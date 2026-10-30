@@ -10,6 +10,7 @@ import type { RenderFrame } from '../frame';
 import { makeVinyl, coverSquare } from './cover';
 import { geoPattern, geoShapes } from './backdrops';
 import { accentClock } from '../../rhythm/accentclock';
+import { band } from './drift';
 
 /* ---------- the record: the whole disc in the middle of the frame, turning, with the cover as its label ---------- */
 let REC: { key: string; c: HTMLCanvasElement } | null = null;
@@ -53,16 +54,21 @@ const SOLIDS: { v: V3[]; e: [number, number][] }[] = (() => {
 const WIRES = Array.from({ length: 8 }, (_, i) => ({ k: i % SOLIDS.length, z: 0.25 + rnd(i * 5.9) * 0.75, s: 0.05 + rnd(i * 2.7) * 0.06,
   w: [0.15 + rnd(i * 1.3) * 0.35, 0.1 + rnd(i * 4.4) * 0.3, 0.05 + rnd(i * 6.2) * 0.2] as V3, p: rnd(i * 8.1) * 6.28, f: 0.05 + rnd(i * 9.9) * 0.08, life: 11 + rnd(i * 3.7) * 7, ph: rnd(i * 6.6) }));
 /** where a solid is during one of its lives (each life somewhere else) */
-const wirePlace = (i: number, n: number) => ({ x: 0.08 + rnd(i * 7.3 + n * 3.17 + 1) * 0.84, y: 0.1 + rnd(i * 3.1 + n * 5.71 + 5) * 0.8 });
+// (each solid in its own column and its own row of the frame, a new spot within them each life — drift.ts — so two
+// never meet in one place)
+const wirePlace = (i: number, n: number) => ({ x: band(i, WIRES.length, n, 0.08, 0.92), y: band((i * 3 + 1) % WIRES.length, WIRES.length, n + 0.5, 0.12, 0.88) });
 /* Wireframe solids in the background: each turns in steps on the beat (a quick, eased turn on every beat, then still),
    drifts on the shared accent clock (so it hangs on a hit), and every so often fades away to reappear somewhere else. */
 register({ id: 'wires', label: 'fx.wires', layer: 'backdrop', kind: 'effect', z: 7, draw(g, f, a) {
   const w = f.W, h = f.H, m = Math.min(w, h), t = f.t, tau = accentClock(f.plan.map, f.t), col = mix(f.pal.accent, f.pal.text, 0.25), P = f.P, bt = f.rs.bt ?? t * 2;
-  const step = Math.floor(bt) + eOut(clamp((bt - Math.floor(bt)) / 0.4));       // the beat's turn: quick on the beat, then still
+  // the turn: steady on the accent clock (so it hangs on a hit with everything else that drifts), with a small step on
+  // each beat — quick on the beat, then still — only while the music is playing (a quiet passage turns smoothly, never
+  // ticking on through it); the step is a wobble about the steady turn, so it never piles up
+  const fr = bt - Math.floor(bt), beatK = f.plan.map.sounding(f.t) * clamp(0.3 + 0.7 * f.rs.level), step = (eOut(clamp(fr / 0.4)) - fr) * beatK;
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   for (const [i, q] of WIRES.entries()) {
     const u = t / q.life + q.ph, n = Math.floor(u), lu = u - n, life = sstep(clamp(lu / 0.14)) * (1 - sstep(clamp((lu - 0.84) / 0.16))); if (life < 0.01) continue;
-    const S = SOLIDS[q.k], pl = wirePlace(i, n), turn = 0.45 * tau + 0.22 * step, ax = turn * q.w[0] + q.p, ay = turn * q.w[1] + q.p * 1.7, az = turn * q.w[2];
+    const S = SOLIDS[q.k], pl = wirePlace(i, n), turn = 0.67 * tau + 0.22 * step, ax = turn * q.w[0] + q.p, ay = turn * q.w[1] + q.p * 1.7, az = turn * q.w[2];
     const cx = (pl.x + Math.sin(tau * q.f + q.p) * 0.04) * w + a.bd.ox * q.z * 1.6, cy = (pl.y + Math.cos(tau * q.f * 0.8 + q.p) * 0.03) * h + a.bd.oy * q.z * 1.6;
     const R = q.s * m * (0.6 + 0.9 * q.z) * (1 + 0.04 * P * q.z), ca = Math.cos(ax), sa = Math.sin(ax), cb = Math.cos(ay), sb = Math.sin(ay), cc = Math.cos(az), sc = Math.sin(az);
     const pts = S.v.map(([x, y, z]) => { let y1 = y * ca - z * sa, z1 = y * sa + z * ca; const x2 = x * cb + z1 * sb; z1 = -x * sb + z1 * cb; const x3 = x2 * cc - y1 * sc; y1 = x2 * sc + y1 * cc;

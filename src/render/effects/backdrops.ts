@@ -8,6 +8,7 @@ import { MV_LOOK, type RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { basePose } from '../../director/camera';
 import { accentClock } from '../../rhythm/accentclock';
+import { stagger, band, lifeFade, loop } from './drift';
 import { gfx } from '../gfx';
 
 const C2 = (c: HTMLCanvasElement | OffscreenCanvas) => (c as HTMLCanvasElement).getContext('2d')!;
@@ -42,14 +43,16 @@ register({ id: 'liquid', label: 'bg.liquid', layer: 'backdrop', kind: 'backdrop'
 
 /* ---------- bokeh: soft out-of-focus discs drifting through haze ---------- */
 const bk = makeCanvas(200, 120) as HTMLCanvasElement, bkx = C2(bk);
-const DISCS = Array.from({ length: 24 }, (_, i) => ({ x: rnd(i * 2.1 + 9), y: rnd(i * 3.9 + 8), z: 0.2 + rnd(i * 5.3 + 7) * 0.8, r: 0.03 + rnd(i * 7.1 + 6) * 0.1, k: i % 3, f: 0.3 + rnd(i * 1.3) * 0.8, p: rnd(i * 8.2) * 6.28 }));
+const DISCS = Array.from({ length: 24 }, (_, i) => ({ z: 0.2 + rnd(i * 5.3 + 7) * 0.8, r: 0.03 + rnd(i * 7.1 + 6) * 0.1, k: i % 3, f: 0.3 + rnd(i * 1.3) * 0.8, p: rnd(i * 8.2) * 6.28 }));
 register({ id: 'bokeh', label: 'bg.bokeh', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
   const E = a.bd.E, [lw, lh] = lowSize(bk, f.W + 2 * E, f.H + 2 * E, 200), c = bkx, P = f.P, t = accentClock(f.plan.map, f.t), pal = f.pal;
   const cols = [pal.accent, mix(pal.accent, [255, 255, 255], 0.6), pal.flash];
   const gr = c.createLinearGradient(0, 0, 0, lh); gr.addColorStop(0, hexOf(mix(pal.bg, pal.bg2, 0.15))); gr.addColorStop(1, hexOf(mix(pal.bg, pal.bg2, 0.75)));
   c.globalCompositeOperation = 'source-over'; c.fillStyle = gr; c.fillRect(0, 0, lw, lh); c.globalCompositeOperation = pal.dark ? 'lighter' : 'source-over';
-  for (const d of DISCS) { const x = (((d.x + Math.sin(t * d.f * 0.2 + d.p) * 0.04 + a.bd.ox * d.z * 0.0015) % 1) + 1) % 1 * lw, y = (((d.y - t * 0.008 * (0.4 + d.z) + a.bd.oy * d.z * 0.0015) % 1) + 1) % 1 * lh;
-    const r = d.r * lw * (0.7 + d.z * 0.8) * (1 + P * 0.08 * d.z), al = (0.18 + 0.32 * d.z) * (0.8 + 0.2 * Math.sin(t * d.f + d.p)), rg = c.createRadialGradient(x, y, 0, x, y, r), col = cols[d.k];
+  // (each light in its own band, their rises staggered, faded in at the foot and out at the top: drift.ts)
+  for (const [i, d] of DISCS.entries()) { const L = loop(t, 0.008 * (0.4 + d.z), stagger(i, DISCS.length)), r = d.r * lw * (0.7 + d.z * 0.8) * (1 + P * 0.08 * d.z);
+    const x = (band(i, DISCS.length, L.life) + Math.sin(t * d.f * 0.2 + d.p) * 0.04 + a.bd.ox * d.z * 0.0015) * lw, y = (1.15 - L.u * 1.3 + a.bd.oy * d.z * 0.0015) * lh;
+    const al = (0.18 + 0.32 * d.z) * (0.8 + 0.2 * Math.sin(t * d.f + d.p)) * lifeFade(L.u, 0.15, 0.15), rg = c.createRadialGradient(x, y, 0, x, y, r), col = cols[d.k];
     rg.addColorStop(0, rgba(col, al)); rg.addColorStop(0.72, rgba(col, al * 0.85)); rg.addColorStop(1, rgba(col, 0)); c.fillStyle = rg; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
   c.globalCompositeOperation = 'source-over'; g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high'; g.drawImage(bk, -E, -E, f.W + 2 * E, f.H + 2 * E); } });
 
@@ -164,7 +167,7 @@ function drawVines(g: Ctx, V: any) {
   for (const [x, y, r, rot, c] of V.roses) { g.save(); g.translate(x, y); g.rotate(rot); g.drawImage(V.sprites[c], -r * 256 / 224, -r * 256 / 224, r * 512 / 224, r * 512 / 224); g.restore(); }
 }
 const ROSES_FAR: [number, number, number, number, number, number][] = [[0, 0.82, 0.26, 0.1, 0.14, 0.06], [1, 0.14, 0.7, 0.14, 0.2, 0.1], [2, 0.6, 0.78, 0.2, 0.26, 0.16]];
-const PETALS = Array.from({ length: 14 }, (_, i) => ({ x: rnd(i * 7.1 + 3), p: rnd(i * 3.3 + 9), s: 0.03 + rnd(i * 5.9) * 0.04, f: 0.4 + rnd(i * 2.2) * 0.8, ph: rnd(i * 8.8) * 6.28, z: 0.4 + rnd(i * 1.9) * 0.6 }));
+const PETALS = Array.from({ length: 14 }, (_, i) => ({ s: 0.03 + rnd(i * 5.9) * 0.04, f: 0.4 + rnd(i * 2.2) * 0.8, ph: rnd(i * 8.8) * 6.28, z: 0.4 + rnd(i * 1.9) * 0.6 }));
 register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
   // (the roses' turn, the vines' sway and the petals on the drifting things' clock: they hang in the air on a heavy beat)
   const Gs = gothicSprites(f), P = f.P, w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f.plan.map, f.t), E = a.bd.Ev, ox = a.bd.ox, oy = a.bd.oy;
@@ -175,8 +178,9 @@ register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop'
   for (const [k, x0, y0, rs, al, par] of ROSES_FAR) { const x = x0 * w + ox * par, y = y0 * h + oy * par, r = m * rs * (1 + P * 0.015);
     g.save(); g.globalAlpha = al; g.translate(x, y); g.rotate(t * 0.02 * (k % 2 ? 1 : -1) + k); g.drawImage(Gs.rose, -r, -r, r * 2, r * 2); g.restore(); }
   g.save(); g.translate(w / 2 + ox * 0.35, h / 2 + oy * 0.35); g.rotate(Math.sin(t * 0.21) * 0.012); const vs = Math.max(w, h) * 1.15 / 1024 * (1 + P * 0.006); g.scale(vs, vs); g.translate(-512, -512); drawVines(g, Gs.vines); g.restore();
-  for (const pt of PETALS) { const y = ((pt.p + t * pt.s) % 1.3 - 0.15) * h + oy * pt.z, x = (pt.x + Math.sin(t * pt.f + pt.ph) * 0.04) * w + ox * pt.z, sz = m * 0.022 * (0.6 + pt.z);
-    g.save(); g.globalAlpha = 0.4 + 0.45 * pt.z; g.translate(x, y); g.rotate(t * pt.f + pt.ph); g.scale(Math.cos(t * pt.f * 1.3 + pt.ph), 1); g.drawImage(Gs.petal, -sz, -sz, sz * 2, sz * 2); g.restore(); }
+  // (the petals in their own bands across the frame, staggered, each faded in and out of its fall: drift.ts)
+  for (const [i, pt] of PETALS.entries()) { const L = loop(t, pt.s, stagger(i, PETALS.length), 1.3), y = (L.u * 1.3 - 0.15) * h + oy * pt.z, x = (band(i, PETALS.length, L.life, 0.03, 0.97) + Math.sin(t * pt.f + pt.ph) * 0.04) * w + ox * pt.z, sz = m * 0.022 * (0.6 + pt.z);
+    g.save(); g.globalAlpha = (0.4 + 0.45 * pt.z) * lifeFade(L.u, 0.1, 0.15); g.translate(x, y); g.rotate(t * pt.f + pt.ph); g.scale(Math.cos(t * pt.f * 1.3 + pt.ph), 1); g.drawImage(Gs.petal, -sz, -sz, sz * 2, sz * 2); g.restore(); }
   g.globalAlpha = 1; } });
 const calmOf = (f: RenderFrame) => f.cam.calm * (1 - f.rs.still);
 const FCHAINS = [{ y0: -0.02, y1: 0.4, sag: 0.1, ph: 0.4, k: 1 }, { y0: 1.12, y1: 0.66, sag: 0.07, ph: 2.1, k: -1 }];

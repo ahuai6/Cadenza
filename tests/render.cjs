@@ -85,7 +85,7 @@ const CHECKS = {
       const ses = await H.open({ theme: 'gothic', coverUrl: 'cover.jpg', lyrics: '[00:00.50]第一句 歌詞\n[00:03.00]第二句 歌詞' }); H.setGfx('lite');
       const seen = new Set(), draw = H.drawFrame; let liveDuring = null;
       // (watch the mode each export frame is drawn in, and draw a live frame in the middle of the export)
-      const orig = H.effects().find(e => e.id === 'feathers-fg'), keep = orig.draw; orig.draw = (g, f, a) => { seen.add(H.gfx()); return keep(g, f, a); };
+      const orig = H.effects().find(e => e.id === 'feathers-fg'), keep = orig.draw; orig.draw = (g, f, a) => { if (g.canvas.height < 400) seen.add(H.gfx()); return keep(g, f, a); };   // (the export's canvas, 144 px: not the live preview's)
       const run = H.exportVideo(H.engine, ses, { res: 144, fps: 12, quality: 'q1', codec: 'avc', audio: false });
       await new Promise(r => setTimeout(r, 300)); liveDuring = H.gfx(); H.setGfx('optimized');
       const res = await run; orig.draw = keep; const after = H.gfx(); H.setGfx('default');
