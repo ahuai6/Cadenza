@@ -17,6 +17,5 @@ export default defineConfig(({ mode }) => {
     worker: { format: 'es' },
     build: { outDir: app ? 'dist-app' : harness ? 'dist-harness' : 'dist-web', emptyOutDir: true, assetsInlineLimit: 100000000, chunkSizeWarningLimit: 100000,
       rollupOptions: { input: harness ? resolve(import.meta.dirname, 'harness.html') : app ? resolve(import.meta.dirname, 'index.html') : resolve(import.meta.dirname, 'web.html') } },
-    resolve: { alias: { '@': resolve(import.meta.dirname, 'src') } },
   };
 });

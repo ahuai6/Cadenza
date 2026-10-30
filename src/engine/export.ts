@@ -60,19 +60,24 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
 async function exportIn(engine: Engine, s: Session, o: ExportOptions = {}): Promise<ExportResult> {
   const [w, h] = exportSize(s.style.aspect, o.res || 1080, engine.viewAspect()), fps = +(o.fps || 30), sink = o.sink || blobSink(), prog = o.onProgress || (() => {}), sig = o.signal || { cancelled: false };
   if (typeof VideoEncoder === 'undefined') return { ok: false, reason: 'x.noenc' };
-  const { Muxer, StreamTarget } = await import('mp4-muxer');
+  const { Output, Mp4OutputFormat, StreamTarget, EncodedVideoPacketSource, EncodedAudioPacketSource, EncodedPacket } = await import('mediabunny');
   const cfg = await pickCodec(w, h, fps, o.quality || 'q1', o.codec || 'auto'); if (!cfg) return { ok: false, reason: 'x.nosize' };
   // the plan is made for the export's own aspect if the preview fills a different one
   const cnv = document.createElement('canvas'); cnv.width = w; cnv.height = h; const c = cnv.getContext('2d')!;
   const N = ssFactor(s.style.aa, w, h), big = N > 1 ? document.createElement('canvas') : null; if (big) { big.width = w * N; big.height = h * N; }
   let audio = s.audio; if (audio && audio.load && o.audio !== false) { try { audio = await audio.load(); } catch { audio = null; } }
   const ac = audio && (audio as AudioBuffer).getChannelData && o.audio !== false ? await pickAudio() : null;
-  let inflight = 0, chain: Promise<unknown> = Promise.resolve(), sinkErr: unknown = null;
-  const target = new StreamTarget({ chunked: true, chunkSize: 2 ** 24, onData: (data: Uint8Array, pos: number) => { const d = new Uint8Array(data); inflight += d.byteLength;
-    chain = chain.then(() => sink.write(d, pos)).then(() => { inflight -= d.byteLength; }, e => { sinkErr = e; inflight -= d.byteLength; }); } });
-  const muxer = new Muxer({ target, video: { codec: cfg.mux as 'avc' | 'hevc', width: w, height: h, frameRate: fps }, fastStart: false, firstTimestampBehavior: 'offset', ...(ac ? { audio: { codec: ac.mux as 'aac' | 'opus', numberOfChannels: 2, sampleRate: 48000 } } : {}) });
+  // the muxer (Mediabunny) writes through a stream to the sink; each packet it is handed is queued in order, and the
+  // encoders wait while too many are still being written, so a slow disk holds the export back instead of memory
+  let queued = 0, chain: Promise<unknown> = Promise.resolve(), sinkErr: unknown = null;
+  const target = new StreamTarget(new WritableStream({ write: c => sink.write(new Uint8Array(c.data), c.position) }), { chunked: true, chunkSize: 2 ** 24 });
+  const out = new Output({ format: new Mp4OutputFormat({ fastStart: false }), target });
+  const vsrc = new EncodedVideoPacketSource(cfg.mux as 'avc' | 'hevc'); out.addVideoTrack(vsrc, { frameRate: fps });
+  const asrc = ac ? new EncodedAudioPacketSource(ac.mux as 'aac' | 'opus') : null; if (asrc) out.addAudioTrack(asrc);
+  const put = (add: () => Promise<void>) => { queued++; chain = chain.then(add).then(() => { queued--; }, e => { sinkErr ??= e; queued--; }); };
   let encErr: unknown = null; const total = Math.round(s.dur * fps), t0 = performance.now();
-  const enc = new VideoEncoder({ output: (ch, meta) => muxer.addVideoChunk(ch, meta), error: e => { encErr = e; } });
+  await out.start();
+  const enc = new VideoEncoder({ output: (ch, meta) => put(() => vsrc.add(EncodedPacket.fromEncodedChunk(ch), meta)), error: e => { encErr = e; } });
   const vids: [VideoSource, FrameSource | null][] = [];
   try {
     if (ac) { prog('audio', 0, 0);
@@ -80,7 +85,7 @@ async function exportIn(engine: Engine, s: Session, o: ExportOptions = {}): Prom
       const off = s.audioStart, end = s.audioStart + s.musicEnd; if (off < 0) src.start(-off, 0, end); else src.start(0, off, end - off);
       g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(1, 0.02); if (s.spec.fade !== false) { g.gain.setValueAtTime(1, Math.max(0.03, s.musicEnd - 1.6)); g.gain.linearRampToValueAtTime(0, s.musicEnd); }
       const ab = await oc.startRendering(), n = ab.length, step = 4800, L0 = ab.getChannelData(0), L1 = ab.getChannelData(1);
-      const aenc = new AudioEncoder({ output: (ch, meta) => muxer.addAudioChunk(ch, meta), error: e => { encErr = e; } }); aenc.configure(ac.cfg as AudioEncoderConfig);
+      const aenc = new AudioEncoder({ output: (ch, meta) => put(() => asrc!.add(EncodedPacket.fromEncodedChunk(ch), meta)), error: e => { encErr = e; } }); aenc.configure(ac.cfg as AudioEncoderConfig);
       for (let i = 0; i < n; i += step) { const k = Math.min(step, n - i), data = new Float32Array(k * 2); data.set(L0.subarray(i, i + k), 0); data.set(L1.subarray(i, i + k), k);
         const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: k, numberOfChannels: 2, timestamp: Math.round(i / 48000 * 1e6), data }); aenc.encode(ad); ad.close(); }
       await aenc.flush(); aenc.close(); }
@@ -100,37 +105,37 @@ async function exportIn(engine: Engine, s: Session, o: ExportOptions = {}): Prom
       if (big) ssDown(big, cnv, N);
       const vf = new VideoFrame(cnv, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) }); enc.encode(vf, { keyFrame: i % (fps * 2) === 0 }); vf.close();
       while (enc.encodeQueueSize > 6) await new Promise(r => setTimeout(r, 2));
-      while (inflight > 256 * 1048576) await new Promise(r => setTimeout(r, 5));
+      while (queued > 24) await new Promise(r => setTimeout(r, 5));
       if (i % 3 === 0) prog('render', i + 1, total);
       await yieldUI();
     }
     engine.mv.k = mvK;
     for (const [v, fs] of vids) { v.exportFrame = null; fs?.close(); }
     if (!sig.cancelled && !encErr && !sinkErr) {
-      await enc.flush(); muxer.finalize(); await chain; if (sinkErr) throw sinkErr;
+      await enc.flush(); await chain; if (sinkErr) throw sinkErr; await out.finalize();
       const result = await sink.close() as any; prog('done', total, total);
       return { ok: true, w, h, codec: cfg.mux === 'hevc' ? 'H.265' : 'H.264', mbps: Math.round((cfg.bitrate || 0) / 1e6), audio: ac ? (ac.mux === 'aac' ? 'x.aac' : 'x.opus') : 'x.silent', size: result?.size || 0, sec: (performance.now() - t0) / 1000, result, name: `${slug(s.spec.song.title)}-${w}x${h}.mp4` };
     }
-    try { await chain; await sink.abort?.(); } catch { /* ignore */ }
+    try { await chain; await out.cancel(); await sink.abort?.(); } catch { /* ignore */ }
     return encErr ? { ok: false, reason: 'x.encfail', e: String((encErr as Error).message || encErr) } : sinkErr ? { ok: false, reason: 'x.fail', e: String((sinkErr as Error).message || sinkErr) } : { ok: false, reason: 'x.cancelled' };
-  } catch (e) { try { await sink.abort?.(); } catch { /* ignore */ } return { ok: false, reason: 'x.fail', e: String((e as Error).message || e) }; }
+  } catch (e) { try { await out.cancel(); } catch { /* ignore */ } try { await sink.abort?.(); } catch { /* ignore */ } return { ok: false, reason: 'x.fail', e: String((e as Error).message || e) }; }
   finally { for (const [v, fs] of vids) { v.exportFrame = null; fs?.close(); } try { enc.close(); } catch { /* ignore */ } }
 }
 
 /* ---- a clip decoded front to back with WebCodecs: for each time, the newest frame at or before it ---- */
 interface FrameSource { frameAt(x: number): Promise<{ cv: HTMLCanvasElement; displayWidth: number; displayHeight: number }>; close(): void }
-async function openFrameSource(file: Blob): Promise<FrameSource | null> {
+export async function openFrameSource(file: Blob): Promise<FrameSource | null> {
   if (typeof VideoDecoder === 'undefined') return null;
-  const MP4Box: any = await import('mp4box'), mp4 = MP4Box.default || MP4Box, buf: any = await file.arrayBuffer();
-  const got: any = await new Promise(res => { const mp = mp4.createFile(); let track: any = null; const samples: any[] = [];
-    mp.onError = () => res(null); mp.onReady = (info: any) => { track = info.videoTracks[0]; if (!track) { res(null); return; } mp.setExtractionOptions(track.id, null, { nbSamples: 1e9 }); mp.start(); };
+  const { createFile, DataStream, Endianness, MP4BoxBuffer } = await import('mp4box'), buf = await file.arrayBuffer();
+  const got: any = await new Promise(res => { const mp: any = createFile(); let track: any = null; const samples: any[] = [];
+    mp.onError = () => res(null); mp.onReady = (info: any) => { track = info.videoTracks[0]; if (!track) { res(null); return; } mp.setExtractionOptions(track.id, undefined, { nbSamples: 1e9 }); mp.start(); };
     mp.onSamples = (_id: number, _u: unknown, sm: any[]) => { for (const x of sm) samples.push(x); if (track && samples.length >= track.nb_samples) res({ mp, track, samples }); };
-    buf.fileStart = 0; mp.appendBuffer(buf); mp.flush(); setTimeout(() => res(track && samples.length ? { mp, track, samples } : null), 8000); });
+    mp.appendBuffer(MP4BoxBuffer.fromArrayBuffer(buf, 0)); mp.flush(); setTimeout(() => res(track && samples.length ? { mp, track, samples } : null), 8000); });
   if (!got) return null;
   const { mp, track, samples } = got, m = track.matrix || [65536, 0, 0, 0, 65536, 0];
   if (m[0] !== 65536 || m[1] !== 0 || m[3] !== 0 || m[4] !== 65536) return null;     // rotated: the element path handles it
   const trak = mp.getTrackById(track.id); let desc: Uint8Array | undefined, nal: { len: number; hevc: boolean } | null = null;
-  for (const en of trak.mdia.minf.stbl.stsd.entries) { const bx = en.avcC || en.hvcC || en.vpcC || en.av1C; if (bx) { const ds = new mp4.DataStream(undefined, 0, mp4.DataStream.BIG_ENDIAN); bx.write(ds); desc = new Uint8Array(ds.buffer, 8);
+  for (const en of trak.mdia.minf.stbl.stsd.entries) { const bx = en.avcC || en.hvcC || en.vpcC || en.av1C; if (bx) { const ds = new DataStream(undefined, 0, Endianness.BIG_ENDIAN); bx.write(ds); desc = new Uint8Array(ds.buffer, 8);
     if (en.avcC) nal = { len: (en.avcC.lengthSizeMinusOne & 3) + 1, hevc: false }; else if (en.hvcC) nal = { len: (en.hvcC.lengthSizeMinusOne & 3) + 1, hevc: true }; } }
   const irap = (d: Uint8Array) => { if (!nal) return null; let o2 = 0, seen = false; while (o2 + nal.len <= d.length) { let n = 0; for (let k = 0; k < nal.len; k++) n = n * 256 + d[o2 + k]; o2 += nal.len; if (n <= 0 || o2 + n > d.length) break;
     const ty = nal.hevc ? (d[o2] >> 1) & 63 : d[o2] & 31; seen = true; if (nal.hevc ? ty >= 16 && ty <= 21 : ty === 5) return true; o2 += n; } return seen ? false : null; };

@@ -7,15 +7,16 @@ use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use rubato::{FftFixedIn, Resampler};
-use symphonia::core::audio::{SampleBuffer, SignalSpec};
-use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+use rubato::audioadapter_buffers::owned::InterleavedOwned;
+use rubato::{Fft, FixedSync, Indexing, Resampler};
+use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymErr;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use symphonia::core::units::Time;
+use symphonia::core::units::{Time, TimeBase, Timestamp};
 
 #[derive(Clone, Debug)]
 pub struct SrcInfo {
@@ -93,9 +94,9 @@ pub fn spawn(path: String, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>) -
 
 struct Reader {
     fmt: Box<dyn FormatReader>,
-    dec: Box<dyn Decoder>,
+    dec: Box<dyn AudioDecoder>,
     tid: u32,
-    tb: Option<symphonia::core::units::TimeBase>,
+    tb: Option<TimeBase>,
 }
 
 fn open(path: &str) -> Result<(Reader, SrcInfo), String> {
@@ -105,21 +106,19 @@ fn open(path: &str) -> Result<(Reader, SrcInfo), String> {
     if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
-    let fo = FormatOptions { enable_gapless: true, ..Default::default() };
-    let probed = symphonia::default::get_probe().format(&hint, mss, &fo, &MetadataOptions::default()).map_err(|e| format!("probe: {e}"))?;
-    let fmt = probed.format;
-    let track = fmt.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL).ok_or("no audio track")?;
-    let p = &track.codec_params;
+    let fmt = symphonia::default::get_probe().probe(&hint, mss, FormatOptions::default(), MetadataOptions::default()).map_err(|e| format!("probe: {e}"))?;
+    let track = fmt.default_track(TrackType::Audio).ok_or("no audio track")?;
+    let p = track.codec_params.as_ref().and_then(|c| c.audio()).ok_or("no audio track")?;
     let rate = p.sample_rate.ok_or("unknown sample rate")?;
-    let ch = p.channels.map(|c| c.count()).unwrap_or(2).max(1);
-    let reg = symphonia::default::get_codecs();
-    let codec = reg.get_codec(p.codec).map(|d| d.short_name.to_string()).unwrap_or_else(|| "?".into());
+    let ch = p.channels.as_ref().map(|c| c.count()).unwrap_or(2).max(1);
+    // (gapless: the decoder trims the encoder's delay and padding)
+    let dec = symphonia::default::get_codecs().make_audio_decoder(p, &AudioDecoderOptions::default().gapless(true)).map_err(|e| format!("codec: {e}"))?;
+    let codec = dec.codec_info().short_name.to_string();
     let lossless = matches!(codec.as_str(), "flac" | "alac" | "wavpack") || codec.starts_with("pcm");
     let bits = if lossless { p.bits_per_sample.or(p.bits_per_coded_sample) } else { None };
-    let info = SrcInfo { rate, ch, bits, frames: p.n_frames, codec };
-    let dec = reg.make(p, &DecoderOptions::default()).map_err(|e| format!("codec: {e}"))?;
+    let info = SrcInfo { rate, ch, bits, frames: track.num_frames, codec };
     let tid = track.id;
-    let tb = p.time_base;
+    let tb = track.time_base;
     Ok((Reader { fmt, dec, tid, tb }, info))
 }
 
@@ -133,7 +132,7 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
     }
     let cap = (AHEAD_SEC * plan.rate as f64) as usize * plan.ch;
     let mut conv = Convert::new(&info, plan);
-    let mut sbuf: Option<SampleBuffer<i32>> = None;
+    let mut sbuf: Vec<i32> = Vec::new();
     let mut gen = 0u64;
     let mut skip: u64 = 0; // source frames still to drop after a seek (seeks land on a packet boundary)
     let mut done = false;
@@ -159,7 +158,7 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
         if let Some(to) = seek {
             // output frames → source frames
             let target = (to as f64 * info.rate as f64 / plan.rate as f64).round() as u64;
-            let t = Time::new(target / info.rate as u64, (target % info.rate as u64) as f64 / info.rate as f64);
+            let t = Time::try_from_secs_f64(target as f64 / info.rate as f64).unwrap_or(Time::ZERO);
             match rd.fmt.seek(SeekMode::Accurate, SeekTo::Time { time: t, track_id: Some(rd.tid) }) {
                 Ok(s) => {
                     skip = target.saturating_sub(ts_frames(s.actual_ts, rd.tb, info.rate));
@@ -180,8 +179,8 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
             continue;
         }
         let pkt = match rd.fmt.next_packet() {
-            Ok(p) => p,
-            Err(SymErr::IoError(_)) | Err(SymErr::ResetRequired) => {
+            Ok(Some(p)) => p,
+            Ok(None) | Err(SymErr::IoError(_)) | Err(SymErr::ResetRequired) => {
                 // the end of the file: flush the resampler's tail
                 let tail = conv.flush();
                 push(sh, gen, tail, true);
@@ -190,7 +189,7 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
             }
             Err(e) => return Err(format!("read: {e}")),
         };
-        if pkt.track_id() != rd.tid {
+        if pkt.track_id != rd.tid {
             continue;
         }
         let decoded = match rd.dec.decode(&pkt) {
@@ -198,18 +197,14 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
             Err(SymErr::DecodeError(_)) => continue, // a damaged packet: skip it, as players do
             Err(e) => return Err(format!("decode: {e}")),
         };
-        let spec: SignalSpec = *decoded.spec();
         let n = decoded.frames();
         if n == 0 {
             continue;
         }
-        if sbuf.as_ref().map(|b| b.capacity() < n).unwrap_or(true) {
-            sbuf = Some(SampleBuffer::<i32>::new(decoded.capacity() as u64, spec));
-        }
-        let sb = sbuf.as_mut().unwrap();
-        sb.copy_interleaved_ref(decoded);
-        let mut s = sb.samples();
-        let sch = spec.channels.count().max(1);
+        let sch = decoded.spec().channels().count().max(1);
+        sbuf.resize(decoded.samples_interleaved(), 0);
+        decoded.copy_to_slice_interleaved(&mut sbuf);
+        let mut s = &sbuf[..];
         if skip > 0 {
             let drop = (skip as usize).min(n);
             skip -= drop as u64;
@@ -223,13 +218,10 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
     }
 }
 
-fn ts_frames(ts: u64, tb: Option<symphonia::core::units::TimeBase>, rate: u32) -> u64 {
+fn ts_frames(ts: Timestamp, tb: Option<TimeBase>, rate: u32) -> u64 {
     match tb {
-        Some(tb) => {
-            let t = tb.calc_time(ts);
-            t.seconds * rate as u64 + (t.frac * rate as f64).round() as u64
-        }
-        None => ts,
+        Some(tb) => (tb.calc_time_saturating(ts).as_secs_f64() * rate as f64).round().max(0.0) as u64,
+        None => ts.get().max(0) as u64,
     }
 }
 
@@ -247,7 +239,7 @@ fn push(sh: &Shared, gen: u64, v: Vec<i32>, eof: bool) {
 // channel layout and rate conversion from the source to the plan
 struct Convert {
     plan: Plan,
-    rs: Option<FftFixedIn<f32>>,
+    rs: Option<Fft<f32>>,
     chunk: usize,
     pend: Vec<Vec<f32>>, // source frames waiting for a full resampler chunk, per output channel
     trim: usize,         // resampler delay still to drop
@@ -258,7 +250,7 @@ impl Convert {
     fn new(info: &SrcInfo, plan: Plan) -> Self {
         let mut c = Convert { plan, rs: None, chunk: 1024, pend: vec![Vec::new(); plan.ch], trim: 0, tmp: Vec::new() };
         if info.rate != plan.rate {
-            c.rs = FftFixedIn::<f32>::new(info.rate as usize, plan.rate as usize, c.chunk, 2, plan.ch).ok();
+            c.rs = Fft::<f32>::new(info.rate as usize, plan.rate as usize, c.chunk, plan.ch, FixedSync::Input).ok();
             c.reset();
         }
         c
@@ -292,8 +284,7 @@ impl Convert {
         let mut out = Vec::new();
         while self.pend[0].len() >= self.chunk {
             let chunk: Vec<Vec<f32>> = self.pend.iter_mut().map(|p| p.drain(..self.chunk).collect()).collect();
-            let r = self.rs.as_mut().unwrap().process(&chunk, None);
-            if let Ok(o) = r {
+            if let Some(o) = self.run(&chunk, self.chunk, None) {
                 self.emit(&o, &mut out);
             }
         }
@@ -305,26 +296,37 @@ impl Convert {
             return out;
         }
         let rest: Vec<Vec<f32>> = self.pend.iter_mut().map(std::mem::take).collect();
-        if let Ok(o) = self.rs.as_mut().unwrap().process_partial(Some(&rest), None) {
+        let n = rest[0].len();
+        if let Some(o) = self.run(&rest, n, Some(n)) {
             self.emit(&o, &mut out);
         }
         // the delay line still holds the last output_delay frames
+        let empty = vec![Vec::new(); self.plan.ch];
         for _ in 0..2 {
-            if let Ok(o) = self.rs.as_mut().unwrap().process_partial::<Vec<f32>>(None, None) {
+            if let Some(o) = self.run(&empty, 0, Some(0)) {
                 self.emit(&o, &mut out);
             }
         }
         out
     }
-    fn emit(&mut self, o: &[Vec<f32>], out: &mut Vec<i32>) {
-        let n = o[0].len();
-        let start = self.trim.min(n);
+    // one resampler chunk (per-channel input of `frames` frames, `partial` when short of a chunk) → interleaved output
+    fn run(&mut self, chunk: &[Vec<f32>], frames: usize, partial: Option<usize>) -> Option<Vec<f32>> {
+        let rs = self.rs.as_mut()?;
+        let och = self.plan.ch;
+        let inp = SequentialSliceOfVecs::new(chunk, och, frames).ok()?;
+        let mut o = InterleavedOwned::new(0.0f32, och, rs.output_frames_max());
+        let idx = Indexing { partial_len: partial, ..Default::default() };
+        let (_, got) = rs.process_into_buffer(&inp, &mut o, Some(&idx)).ok()?;
+        let mut v = o.take_data();
+        v.truncate(got * och);
+        Some(v)
+    }
+    fn emit(&mut self, o: &[f32], out: &mut Vec<i32>) {
+        let och = self.plan.ch;
+        let start = self.trim.min(o.len() / och);
         self.trim -= start;
-        for f in start..n {
-            for ch in o.iter() {
-                let x = (ch[f] as f64 * 2147483648.0).round().clamp(-2147483648.0, 2147483647.0);
-                out.push(x as i32);
-            }
+        for &x in &o[start * och..] {
+            out.push((x as f64 * 2147483648.0).round().clamp(-2147483648.0, 2147483647.0) as i32);
         }
     }
 }

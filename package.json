@@ -1,7 +1,7 @@
 {
   "name": "cadenza",
   "productName": "Cadenza",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "Cadenza: a personal music library whose songs play with lyrics that move to the music, exportable as lyric videos",
   "private": true,
   "type": "module",
@@ -66,12 +66,17 @@
       {
         "from": "models",
         "to": "models",
-        "filter": ["*.bin"]
+        "filter": [
+          "*.bin"
+        ]
       },
       {
         "from": ".",
         "to": "licenses",
-        "filter": ["LICENSE", "NOTICE.md"]
+        "filter": [
+          "LICENSE",
+          "NOTICE.md"
+        ]
       },
       {
         "from": "licenses",
@@ -82,7 +87,7 @@
   "author": "Cadenza",
   "license": "AGPL-3.0-only",
   "dependencies": {
-    "music-metadata": "^12.3.2"
+    "music-metadata": "12.3.2"
   },
   "devDependencies": {
     "@fontsource-variable/instrument-sans": "5.3.0",
@@ -108,18 +113,18 @@
     "@fontsource/dela-gothic-one": "5.3.0",
     "@fontsource/dotgothic16": "5.3.1",
     "@fontsource/zen-maru-gothic": "5.3.1",
-    "@types/node": "22.20.5",
+    "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
     "@webgpu/types": "0.1.74",
-    "electron": "44.0.0",
+    "electron": "45.1.0",
     "electron-builder": "26.18.0",
-    "mp4-muxer": "5.2.1",
-    "mp4box": "0.5.2",
+    "mediabunny": "1.64.0",
+    "mp4box": "2.5.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vite": "8.3.5",
     "vite-plugin-singlefile": "2.3.4",
     "vitest": "5.0.5"

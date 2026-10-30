@@ -136,7 +136,10 @@ const easeIn = (u: number) => u * u * (3 - 2 * u) * 0.4 + u * u * 0.6, easeOut =
 /** Soften everything, change what is underneath, give it two frames to draw, and bring it back into focus. */
 async function blurSwap(swap: () => void, my: number) {
   if (!(await tween(1, 300, easeIn, my))) return false;
-  swap(); await frame(); await frame(); if (my !== tok) return false;
+  swap(); await frame(); await frame();
+  // the title bar follows the clearing, not the swap: it shows again only once the blur starts to lift (two slow first
+  // frames of the new view would otherwise let it fade in over a picture still fully blurred)
+  document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode; if (my !== tok) return false;
   return tween(0, 460, easeOut, my);
 }
 const toFx = () => { document.documentElement.dataset.fxmode = 'true'; if (refs.stage) refs.stage.style.clipPath = ''; engine.setAspectBox(16 / 9, '#07060b'); engine.setView('effect', {}, { instant: true }); syncFx(); };

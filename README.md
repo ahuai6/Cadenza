@@ -46,6 +46,13 @@ npm run dist:win                         # Windows 安裝檔與免安裝版（re
 
 Hi-Fi 輸出是 `native/cadenza-audio`（Rust）。在 Linux 上可用 `x86_64-pc-windows-gnu` 交叉編譯。
 
+### 依賴：一律跟隨最新穩定版
+
+- **跟最新穩定版**：npm 套件、Rust crate、CI 的 Node 與 GitHub Actions 都用最新的穩定大版本。不停在舊的大版本，也不用預覽版。
+- **精確鎖定**：版本一律寫死（`package.json` 不用 `^`，`Cargo.toml` 用 `=`）。升級是一次明確的提交，並跑完上面全部測試。
+- **API 變動就遷移**：上游改了 API，就改寫我們的程式碼，不留相容墊片。上游停止維護並指定接替者時（例如 `mp4-muxer` → Mediabunny），就換到接替者。
+- **唯一例外**：`@types/node` 跟隨 Electron 內建的 Node 主版本，不跟 npm 上的最新版，這樣型別才符合實際執行環境。
+
 ## 授權
 
 Cadenza 以 **GNU AGPL-3.0**（AGPL-3.0-only）發佈，全文見 [`LICENSE`](LICENSE)。

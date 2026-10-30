@@ -11,7 +11,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         shell: bash
         env: { GH_TOKEN: "${{ github.token }}" }
@@ -20,8 +20,8 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           if gh release view "v$v" >/dev/null 2>&1; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
       - if: steps.v.outputs.skip == 'false'
-        uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        uses: actions/setup-node@v7
+        with: { node-version: 26 }
       - if: steps.v.outputs.skip == 'false'
         shell: bash
         run: |
