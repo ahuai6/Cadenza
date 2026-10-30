@@ -25,7 +25,9 @@ export interface Settings {
   /** the song's own video (MV mode): shade, soft focus, desaturation, and whether it is kept upright to crop it least */
   mvDark: number; mvBlur: number; mvDesat: number; mvFit: boolean;
   /** which engine finds the beats ('auto': the neural one where it can run), and whether it separates the drums */
-  rhythmEngine?: 'auto' | 'dsp'; rhythmDrums?: boolean;
+  rhythmEngine?: 'auto' | 'neural' | 'dsp'; rhythmDrums?: boolean;
+  /** the picture-quality mode (render/gfx.ts): as designed, optimised (cheap stand-ins for blurs and glass), or lite */
+  gfx?: 'default' | 'optimized' | 'lite';
 }
 type Off = () => void;
 export interface DesktopApi {

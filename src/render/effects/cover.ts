@@ -10,6 +10,7 @@ import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { drawAmbient } from './ambient';
 import { drawRings } from './overlays';
+import { gfx, cheapBlurDraw } from '../gfx';
 
 type Img = CanvasImageSource & { width: number; height: number };
 interface Layers { key: string; subj: HTMLCanvasElement; vinyl: HTMLCanvasElement | null; blend: HTMLCanvasElement | null }
@@ -83,7 +84,8 @@ export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S
   const bw = S + pl + pr, bh = S + pv * 2, W = Math.min(2048, Math.ceil(bw * q)), H = Math.min(2048, Math.ceil(bh * q)), k = W / bw;
   const A = groupCanvas(0, W, H), B = groupCanvas(1, W, H), a = A.getContext('2d')!, b = B.getContext('2d')!;
   a.setTransform(1, 0, 0, 1, 0, 0); a.clearRect(0, 0, W, H); a.setTransform(k, 0, 0, k, (pl - x) * k, (pv - y) * k); coverGroup(a, f, x, y, S, vinyl, 1, o);
-  b.setTransform(1, 0, 0, 1, 0, 0); b.clearRect(0, 0, W, H); b.filter = `blur(${(bl * S * k * 0.035).toFixed(2)}px)`; b.drawImage(A, 0, 0); b.filter = 'none';
+  b.setTransform(1, 0, 0, 1, 0, 0); b.clearRect(0, 0, W, H); const rb = bl * S * k * 0.035, md = gfx();
+  if (md === 'default') { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(A, 0, 0); b.filter = 'none'; } else if (md === 'optimized') cheapBlurDraw(b, A, W, H, rb, 0, 0, W, H); else b.drawImage(A, 0, 0);
   g.save(); g.globalAlpha *= alpha; g.drawImage(B, 0, 0, W, H, x - pl, y - pv, bw, bh); g.restore();
 }
 const GROUP: (HTMLCanvasElement | null)[] = [null, null];
@@ -94,12 +96,12 @@ function coverGroup(g: Ctx, f: RenderFrame, x: number, y: number, S: number, vin
   if (edge === 'album') {
     if (L.vinyl && vinyl > 0.001) {
       const R = S * 0.47, cx = x + S * 0.5 + S * 0.38 * vinyl, cy = y + S / 2;
-      g.save(); g.shadowColor = 'rgba(0,0,0,.4)'; g.shadowBlur = S * 0.05; g.translate(cx, cy); g.rotate(f.t * 0.9); g.drawImage(L.vinyl, -R, -R, 2 * R, 2 * R); g.restore();
+      g.save(); g.shadowColor = 'rgba(0,0,0,.4)'; g.shadowBlur = gfx() === 'lite' ? 0 : S * 0.05; g.translate(cx, cy); g.rotate(f.t * 0.9); g.drawImage(L.vinyl, -R, -R, 2 * R, 2 * R); g.restore();
       const sh = (g as CanvasRenderingContext2D).createConicGradient?.(-0.6, cx, cy);
       if (sh) { for (const [p, a] of [[0, 0], [0.08, 0.1], [0.16, 0], [0.5, 0], [0.58, 0.07], [0.66, 0], [1, 0]]) sh.addColorStop(p, `rgba(255,255,255,${a})`);
         g.fillStyle = sh; g.beginPath(); g.arc(cx, cy, R * 0.98, 0, 6.283); g.arc(cx, cy, R * 0.34, 0, 6.283, true); g.fill(); }
     }
-    if (shOn) { g.shadowColor = dark ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.3)'; g.shadowBlur = S * 0.08; g.shadowOffsetY = S * 0.025; }
+    if (shOn) { g.shadowColor = dark ? 'rgba(0,0,0,.55)' : 'rgba(0,0,0,.3)'; g.shadowBlur = gfx() === 'lite' ? 0 : S * 0.08; g.shadowOffsetY = S * 0.025; }
     g.drawImage(L.subj, x, y, S, S); g.shadowColor = 'transparent';
     if (fin > 0.003) { const a0 = g.globalAlpha; g.globalAlpha = a0 * fin;
       const sheen = g.createLinearGradient(x, y, x + S, y + S); sheen.addColorStop(0, 'rgba(255,255,255,.16)'); sheen.addColorStop(0.35, 'rgba(255,255,255,0)'); sheen.addColorStop(1, 'rgba(0,0,0,.12)');
@@ -107,7 +109,7 @@ function coverGroup(g: Ctx, f: RenderFrame, x: number, y: number, S: number, vin
       g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = S * 0.012; g.beginPath(); g.arc(x + S * 0.5, y + S * 0.5, S * 0.4, 0, 6.283); g.stroke();
       g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x + 0.5, y + S); g.lineTo(x + 0.5, y + 0.5); g.lineTo(x + S, y + 0.5); g.stroke(); g.globalAlpha = a0; }
   } else if (edge === 'float') {
-    const r = S * 0.045; if (shOn) { g.shadowColor = dark ? 'rgba(0,0,0,.6)' : 'rgba(0,0,0,.28)'; g.shadowBlur = S * 0.16; g.shadowOffsetY = S * 0.06; }
+    const r = S * 0.045; if (shOn) { g.shadowColor = dark ? 'rgba(0,0,0,.6)' : 'rgba(0,0,0,.28)'; g.shadowBlur = gfx() === 'lite' ? 0 : S * 0.16; g.shadowOffsetY = S * 0.06; }
     g.beginPath(); g.roundRect(x, y, S, S, r); g.fillStyle = hexOf(f.pal.bg); g.fill(); g.shadowColor = 'transparent'; g.clip(); g.drawImage(L.subj, x, y, S, S);
   } else if (L.blend) { const k = 2; g.drawImage(L.blend, x + S / 2 - S * k / 2, y + S / 2 - S * k / 2, S * k, S * k); }
   g.restore();

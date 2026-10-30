@@ -12,6 +12,7 @@ import { applyRhythmSettings } from '../playback/analysis';
 import { neuralStatus } from '../../rhythm';
 import { setLang, renderSettings, mvLook } from './Shell';
 import s from './Settings.module.css';
+import { applyGfx } from './Shell';
 
 const SCALES: ('auto' | number)[] = ['auto', 1, 0.85, 0.7, 0.55], FPS = [0, 120, 60, 30];
 export async function setSettings(patch: Partial<Settings>) {
@@ -21,6 +22,7 @@ export async function setSettings(patch: Partial<Settings>) {
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
   if ('volBalance' in patch || 'fixedVolume' in patch) applyBalance();
   if ('rhythmEngine' in patch || 'rhythmDrums' in patch) applyRhythmSettings(n);
+  if ('gfx' in patch) applyGfx(n);
   if (Object.keys(patch).some(k => k.startsWith('mv'))) { engine.mvLook = mvLook(n); engine.invalidate(); }
 }
 const pc = (v: number | string) => Math.round(+v * 100) + '%';
@@ -68,6 +70,8 @@ export function SettingsView() {
         <MvLook />
       </Group>
       <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
+        <Field label={tx('s.set.gfx')}><Seg size="sm" fit value={st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default'} onChange={v => set({ gfx: v })} options={[['default', tx('s.set.gfx.default')], ['optimized', tx('s.set.gfx.optimized')], ['lite', tx('s.set.gfx.lite')]]} /></Field>
+        <Note>{tx('s.set.gfx.' + (st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default') + 'Help')}</Note>
         <Field label={tx('s.set.scale')}><Seg size="sm" fit value={String(st.scale)} onChange={v => set({ scale: v === 'auto' ? 'auto' : +v })} options={SCALES.map(v => [String(v), v === 'auto' ? tx('s.set.scale.auto') : tx('s.set.scale.p', { n: Math.round(v * 100) })])} /></Field>
         <Field label={tx('s.set.fps')}><Seg size="sm" fit value={+st.fps} onChange={v => set({ fps: v })} options={FPS.map(v => [v, v ? `${v} fps` : tx('s.set.fps.none')])} /></Field>
         <Toggle label={tx('s.set.prerender')} help={tx('s.set.prerenderHelp')} on={st.prerender !== false} set={v => set({ prerender: v })} />
@@ -78,13 +82,14 @@ export function SettingsView() {
 }
 // the rhythm engine: the neural one (on the GPU, where it can run) or the built-in analysis; what runs it, or why not
 function RhythmGroup({ st }: { st: Settings }) {
-  const [ns, setNs] = useState<{ ok: boolean; device?: string; reason?: string } | null>(null), auto = st.rhythmEngine !== 'dsp';
+  const [ns, setNs] = useState<{ ok: boolean; device?: string; reason?: string } | null>(null), eng = st.rhythmEngine === 'dsp' || st.rhythmEngine === 'neural' ? st.rhythmEngine : 'auto', auto = eng !== 'dsp';
   useEffect(() => { let on = true; if (auto) neuralStatus().then(v => on && setNs(v)); return () => { on = false; }; }, [auto]);
   return (
     <Group title={tx('s.set.rhythm')} help={tx('s.set.rhythmHelp')}>
-      <Field label={tx('s.set.engine')}><Seg size="sm" fit value={auto ? 'auto' : 'dsp'} onChange={v => setSettings({ rhythmEngine: v })} options={[['auto', tx('s.set.engine.auto')], ['dsp', tx('s.set.engine.dsp')]]} /></Field>
+      <Field label={tx('s.set.engine')}><Seg size="sm" fit value={eng} onChange={v => setSettings({ rhythmEngine: v })} options={[['auto', tx('s.set.engine.auto')], ['neural', tx('s.set.engine.neural')], ['dsp', tx('s.set.engine.dsp')]]} /></Field>
       {auto && <Toggle label={tx('s.set.drums')} help={tx('s.set.drumsHelp')} on={st.rhythmDrums !== false} set={v => setSettings({ rhythmDrums: v })} />}
-      {auto && ns && <Note>{ns.ok ? tx('s.set.engine.on', { d: ns.device || 'GPU' }) : tx('s.set.engine.off', { r: ns.reason || '' })}</Note>}
+      {auto && ns && <Note>{ns.ok ? tx('s.set.engine.on', { d: ns.device || 'GPU' }) : tx(eng === 'neural' ? 's.set.engine.offForced' : 's.set.engine.off', { r: ns.reason || '' })}</Note>}
+      {eng === 'neural' && <Note>{tx('s.set.engine.neuralHelp')}</Note>}
       <Note>{tx('s.set.engine.note')}</Note>
     </Group>
   );

@@ -20,7 +20,7 @@ import { lyricType } from './lyrictypes';
 export const TIN_MIX = ['blur', 'drift', 'rise', 'track'];
 export const FRAME_NEED = 1.3;
 export interface LayoutInput { doc: LyricDoc; map: RhythmMap; style: Style; measure: Measurer; W: number; H: number; musicEnd: number }
-export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passage[]; dmin: number }
+export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passage[]; dmin: number; /** clears without a blur (plan.ts applySweeps) */ sweeps: { t: number; line: number }[] }
 
 export const tsz = (st: Style) => clamp(st.m.tsize ?? 1, 0.5, 2.5);
 /** How close the camera frames one word: about 68 % of the width or 46 % of the height, against the line's typical
@@ -82,7 +82,8 @@ export function layout(inp: LayoutInput): LayoutResult {
   /* ---- passages at pauses ---- */
   const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off', st.bgStyle === 'video');
   /* ---- lyric frames, before placement ----
-     About half the lines ask for one on a chosen word: a small target (one word, a few characters). When that word does
+     About one line in five asks for one on a chosen word (never two framed lines close together): a small target (one
+     word, a few characters). When that word does
      not leave the frame enough time on screen (its line ends, or a passage clears the picture), the frame moves on to the
      next word that does, into the following lines if need be: frames stay frequent and are never cut short. */
   const nextPass = new Map(passages.map(q => [q.line, q]));
@@ -90,10 +91,10 @@ export function layout(inp: LayoutInput): LayoutResult {
   const small = (S: PWord) => chars(S) <= 4;
   const lineEnd = (P: PLine) => { const q = nextPass.get(P.i + 1); return q ? Math.min(P.L.end, q.t - q.inn) : P.L.end; };
   // (close up there are none: a frame would have the camera pull back from the characters to show it whole)
-  if (st.fx.frame && st.cut !== 'close') { let want = false;
+  if (st.fx.frame && st.cut !== 'close') { let want = false, lastF = -9;
     for (const P of lines) {
       const n = P.words.length; let k0 = 0;
-      if (!want && P.i > 0 && rnd(P.i * 7.7 + 3.3) < 0.5) { want = true; k0 = n === 1 ? 0 : Math.min(n - 1, Math.floor(rnd(P.i * 2.9) * Math.min(n, 3))); }
+      if (!want && P.i > 0 && P.i - lastF >= 3 && rnd(P.i * 7.7 + 3.3) < 0.22) { want = true; k0 = n === 1 ? 0 : Math.min(n - 1, Math.floor(rnd(P.i * 2.9) * Math.min(n, 3))); }
       if (!want) continue;
       // a small target: one word (a short one by preference), or a very short word with the one before it — a few
       // characters at most, never a stretch of a line, so the outline sits snugly and the camera holds it at its usual closeness
@@ -101,8 +102,8 @@ export function layout(inp: LayoutInput): LayoutResult {
       let pick = -1; for (let k = k0; k < n; k++) if (ok(k) && small(P.words[k])) { pick = k; break; }
       if (pick < 0) for (let k = k0; k < n; k++) if (ok(k)) { pick = k; break; }
       if (pick >= 0) { const S = P.words[pick], prev = P.words[pick - 1];
-        const fw = prev && chars(S) <= 2 && chars(prev) + chars(S) <= 4 && Math.abs(prev.tilt - S.tilt) < 1 ? [prev, S] : [S], pad = Math.min(...fw.map(x => x.lh)) * 0.15 * 2.3;
-        const F: FrameRef = { words: fw, ts: S.w.t, corner: rnd(P.i * 5.1) < 0.5, pad }; for (const x of fw) x.frame = F; want = false; }
+        const fw = prev && chars(S) <= 2 && chars(prev) + chars(S) <= 4 && Math.abs(prev.tilt - S.tilt) < 1 ? [prev, S] : [S], pad = Math.min(...fw.map(x => Math.min(x.lw, x.lh))) * 0.15 * 2.3;   // (the characters' size: a column's length is not its margin)
+        const F: FrameRef = { words: fw, ts: S.w.t, corner: rnd(P.i * 5.1) < 0.5, pad }; for (const x of fw) x.frame = F; want = false; lastF = P.i; }
     } }
   const padOf = (S: PWord) => (S.frame ? S.frame.pad * 0.6 : 0);
 
@@ -281,7 +282,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     return !bad;
   };
   // (close up, a page holds fewer lines: more of the song is crossed by quick blur transitions)
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = 5; let onPage = 0;
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = 5, sweeps: { t: number; line: number }[] = []; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
     // ten lines on the page at most: from two lines before that, a line with room for a quick clear clears the picture;
@@ -289,10 +290,11 @@ export function layout(inp: LayoutInput): LayoutResult {
     // so a song sung without pauses still clears (the words stay few enough to draw lightly, the page never crowds)
     if (i > 0 && !startsAt.has(i) && canClear && onPage >= CROWD - 2) { const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
       const nx = Lp.words[0].show;
-      if (nx - endA >= (onPage >= CROWD ? 0.25 : 0.55)) { passages.push({ ...timePassage(endA, nx, map, true), line: i, quick: true, reason: 'crowd' }); startsAt.add(i); }
-      // no breath at all (lines sung straight into each other): the clear is short and sits on the seam between them —
-      // the last moment of one line and the first of the next go through a light blur, the page never grows past ten
-      else if (onPage >= CROWD) { const t = nx - 0.2; passages.push({ t, inn: 0.2, out: 0.16, line: i, quick: true, reason: 'seam' }); startsAt.add(i); }
+      // (a crowded page takes even a short breath: the line before sung out, then a quick blur in and out)
+      if (nx - endA >= (onPage >= CROWD ? 0.45 : 0.55)) { passages.push({ ...timePassage(endA, nx, map, true), line: i, quick: true, reason: 'crowd' }); startsAt.add(i); }
+      // no time for the line before to be sung out and the blur to pass: no blur — the lines the camera no longer sees
+      // are taken away instead, unseen (plan.ts applySweeps), and the singing goes on on the same page
+      else if (onPage >= CROWD) { sweeps.push({ t: nx - 0.05, line: i }); onPage = 0; }
       // (a clear just made: a pause's own one a line or two later would only blur the page again at once)
       if (startsAt.has(i)) for (let j = i + 1; j <= i + 2; j++) { const q = passages.findIndex(x => x.line === j && x.reason === 'gap'); if (q >= 0) { passages.splice(q, 1); startsAt.delete(j); } } }
     if (i > 0 && startsAt.has(i)) { newPassage(); onPage = 0; }
@@ -318,7 +320,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   // draw order, fixed: deeper first, then in singing order (never re-sorted by the view)
   const order = [...words].sort((a, b) => b.d - a.d || a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
   const dmin = words.reduce((m, S) => Math.min(m, S.d), 0);
-  return { lines, words, passages, dmin };
+  return { lines, words, passages, dmin, sweeps };
 }
 
 /** Which lines are set vertically: whole lines, in runs of two to four (a few lines down the page, then rows again),
@@ -369,7 +371,7 @@ function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap:
   });
   assignSections(lines, []);
   const order = [...words].sort((a, b) => a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
-  return { lines, words, passages: [], dmin: 0 };
+  return { lines, words, passages: [], dmin: 0, sweeps: [] };
 }
 
 /** A quick clear decided while placing (or by the camera) may still shorten a framed line: such a frame is not drawn

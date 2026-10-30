@@ -51,6 +51,11 @@ textarea { resize: vertical; font-family: ui-monospace, "Cascadia Mono", "Noto S
 [data-swap][data-fill] , [data-swap][data-fill] > * { width: 100%; height: 100%; }
 [data-swap-in] { animation: swap-in 420ms var(--ease) both; }
 [data-swap-out] { animation: swap-out 280ms var(--ease) both; pointer-events: none; }
-@keyframes swap-in { from { opacity: 0; transform: translateX(calc(var(--sd, 0) * 22px)); filter: blur(3px); } }
-@keyframes swap-out { to { opacity: 0; transform: translateX(calc(var(--sd, 0) * -22px)); filter: blur(3px); } }
+@keyframes swap-in { from { opacity: 0; transform: translateX(calc(var(--sd, 0) * 22px)); filter: blur(var(--swap-blur, 3px)); } }
+@keyframes swap-out { to { opacity: 0; transform: translateX(calc(var(--sd, 0) * -22px)); filter: blur(var(--swap-blur, 3px)); } }
 @media (prefers-reduced-motion: reduce) { [data-swap-in], [data-swap-out] { animation-duration: 1ms; } }
+
+/* 精簡 (lite): no blur anywhere in the interface — glass becomes a denser plain tint, nothing behind it is blurred, the
+   play page's soft focus and the swaps' blur go (render/gfx.ts does the same in the pictures) */
+html[data-gfx="lite"] { --glass-blur: none; --glass: var(--glass-strong); --swap-blur: 0px; }
+html[data-gfx="lite"] *, html[data-gfx="lite"] *::before, html[data-gfx="lite"] *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }

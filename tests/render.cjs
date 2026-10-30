@@ -51,6 +51,18 @@ const CHECKS = {
       await run(true); const off = await run(false), on = await run(true); gl.forEach((e, k) => { e.draw = keep[k]; }); return { n: 1, off, on }; });
     ok('glass: the shatter adds little to a frame', r.n > 0 && r.on < r.off * 1.25 + 4, JSON.stringify(r));
   },
+  async gfx(p) {
+    // the three picture modes: each draws the song (a real picture, also through a transition's blur), and the cheaper
+    // two draw a transition frame at less cost than the default (software canvas, 1280×720, each frame finished)
+    const r = await p.evaluate(async () => { const ses = await H.open({ theme: 'gothic', coverUrl: 'cover.jpg' }); const plan = H.engine.frameAt(1).plan, q = plan.passages[0];
+      const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720; const g = cv.getContext('2d', { willReadFrequently: true }), out = {};
+      const sd = () => { const d = g.getImageData(0, 0, 1280, 720).data; let m = 0, v = 0, n = 0; for (let i = 0; i < d.length; i += 4 * 97) { const y = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; m += y; v += y * y; n++; } m /= n; return Math.sqrt(v / n - m * m); };
+      for (const mode of ['default', 'optimized', 'lite']) { H.setGfx(mode); const ts = [];
+        for (let i = 0; i < 12; i++) { const f = H.engine.frameAt(q.t - 0.05 + i * 0.01, { px: 1 }), a = performance.now(); H.drawFrame(g, f, { sig: ses.sig }); g.getImageData(0, 0, 1, 1); ts.push(performance.now() - a); }
+        ts.sort((x, y) => x - y); const tr = sd(); H.drawFrame(g, H.engine.frameAt(8.4, { px: 1 }), { sig: ses.sig }); out[mode] = { ms: +ts[6].toFixed(1), sdTrans: +tr.toFixed(1), sd: +sd().toFixed(1) }; }
+      H.setGfx('default'); return { q: !!q, ...out }; });
+    ok('gfx: every mode draws the picture, through a transition too; the optimised and lite transitions cost less', r.q && ['default', 'optimized', 'lite'].every(m => r[m].sd > 2 && r[m].sdTrans > 1) && r.optimized.ms < r.default.ms && r.lite.ms < r.default.ms, JSON.stringify(r));
+  },
   async export(p) {
     // a short song with audio (a synthetic click track), exported at 360p: the MP4 has the right size, length and a soundtrack
     const r = await p.evaluate(async () => {

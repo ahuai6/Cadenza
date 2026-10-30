@@ -6,6 +6,7 @@
 .stage { position: fixed; inset: calc(var(--tb-h) + 1px) 0 0 calc(var(--side-w) + 1px); z-index: 40; background: #07060b; visibility: hidden; contain: strict; }
 :global(html[data-winfull="true"]) .stage, :global(html[data-fxmode="true"]) .stage { inset: 0; }
 .stage[data-vis="true"] { visibility: visible; }
+:global(html[data-layer="none"]) .stage { pointer-events: none; }
 
 .np { position: fixed; inset: calc(var(--tb-h) + 1px) 0 0 calc(var(--side-w) + 1px); z-index: 41; display: none; --h: 0; }
 :global(html[data-winfull="true"]) .np { inset: 0; --pad-t: var(--tb-h); }
@@ -38,6 +39,7 @@
 .line { display: block; width: 100%; padding: 10px 12px; margin: 0 0 4px; border-radius: var(--r-lg); text-align: left; color: #fff; font-size: calc(clamp(22px, 2.3vw, 34px) * var(--np-fs, 1)); font-weight: 760; line-height: 1.28; letter-spacing: -0.01em;
   opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05); filter: blur(calc(min(var(--d, 1), 5) * 0.55px));
   transition: opacity 420ms var(--ease), filter 420ms var(--ease), background var(--t-fast) var(--ease); }
+:global(html[data-gfx="lite"]) .line { filter: none; }
 /* like Apple Music: the line being sung is sharp, the others softer the further they are; all sharp while the user
    scrolls through them, and the one under the pointer */
 .line[data-on="true"] { opacity: 1; filter: none; }
@@ -51,7 +53,7 @@
 /* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
 .line .w { transition: translate 420ms var(--ease); }
 .line[data-on="true"] .w { transition: none; }
-.harm { display: inline-block; font-size: 0.55em; font-weight: 640; vertical-align: -0.45em; margin: 0 0.25em 0 0.12em; opacity: 0.72; white-space: pre-wrap; }   /* a harmony: small, at its word's lower right */
+.harmRow { display: block; font-size: 0.6em; font-weight: 600; opacity: 0.78; margin-top: 0.22em; }   /* the harmonies: their own smaller line under the words */
 .line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; }
 .np[data-fx="true"] .line[data-handed="true"] { visibility: hidden; }
 .compact .line { font-size: calc(17px * var(--np-fs, 1)); padding: 7px 10px; }

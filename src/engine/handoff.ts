@@ -10,6 +10,7 @@ import { captionLayout } from '../render/post';
 import type { RenderFrame } from '../render/frame';
 import type { Ctx } from '../render/effects/registry';
 import { coverRest, drawCoverSubject, coverRadius, coverShadow } from '../render/effects/cover';
+import { gfx } from '../render/gfx';
 
 export interface WinRect { left: number; top: number; width: number; height: number }
 export interface HandoffCover { rect: WinRect; radius: number }
@@ -79,7 +80,7 @@ export class Handoff {
     const kd = a.w / Math.max(1, sp.cover.rect.width) * f.px, sh0 = { blur: 35 * kd, oy: 24 * kd, a: 0.45 }, sh1 = coverShadow(f.style.coverEdge, tg.S, f.pal.dark);
     const sb = lerp(sh0.blur, tg.fade ? sh0.blur : sh1.blur, u), so = lerp(sh0.oy, tg.fade ? sh0.oy : sh1.oy, u), sa = lerp(sh0.a, tg.fade ? sh0.a : sh1.a, u) * alpha;
     g.save(); g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(cx, cy); g.rotate(rot * D2R);
-    if (sa > 0.005) { g.save(); g.shadowColor = `rgba(0,0,0,${sa.toFixed(3)})`; g.shadowBlur = sb; g.shadowOffsetY = so; g.fillStyle = '#000'; g.beginPath(); g.roundRect(-S / 2, -S / 2, S, S, Math.max(0, rad)); g.fill(); g.restore(); }
+    if (sa > 0.005) { g.save(); g.shadowColor = `rgba(0,0,0,${sa.toFixed(3)})`; g.shadowBlur = gfx() === 'lite' ? 0 : sb; g.shadowOffsetY = so; g.fillStyle = '#000'; g.beginPath(); g.roundRect(-S / 2, -S / 2, S, S, Math.max(0, rad)); g.fill(); g.restore(); }
     if (rad > 0.5) { g.beginPath(); g.roundRect(-S / 2, -S / 2, S, S, rad); g.clip(); }
     drawCoverSubject(g, f, -S / 2, -S / 2, S, tg.fade ? 0 : ph.vinyl, alpha, { finish: ph.scene, shadow: false });
     g.restore();

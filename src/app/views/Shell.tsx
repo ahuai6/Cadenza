@@ -10,6 +10,7 @@ import { ContextMenu, Toast, Seg } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { player, toggle, seekBy, resumeLast } from '../playback/player';
 import { startAnalysis, applyRhythmSettings } from '../playback/analysis';
+import { RHYTHM_VERSION } from '../../rhythm';
 import { back } from '../layers';
 import { applyUiFont } from '../uifont';
 import mark from '../brand/mark.svg';
@@ -23,6 +24,7 @@ import { EffectView } from './Effect';
 import { ModalHost } from './Modals';
 import { WorkshopPage } from './workshop/Workshop';
 import s from './Shell.module.css';
+import { setGfx } from '../../render/gfx';
 
 function resolveTheme(t: string) { return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
 function useTheme() {
@@ -35,6 +37,8 @@ function useTheme() {
 export async function setLang(l: Lang) { applyUiFont(l); setI18n(l); settings.set({ lang: l }); await D?.setSettings({ lang: l }); }
 /** The MV look from the settings. */
 export const mvLook = (n: Partial<import('../bridge').Settings>) => ({ dark: n.mvDark ?? 0.34, blur: n.mvBlur ?? 0.12, desat: n.mvDesat ?? 0, fit: !!n.mvFit });
+/** The picture-quality mode (render/gfx.ts), for the pictures and, through html[data-gfx], for the interface. */
+export function applyGfx(st: { gfx?: string }) { const m = st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default'; setGfx(m); document.documentElement.dataset.gfx = m; }
 export const renderSettings = (n: { scale: 'auto' | number; fps: number; prerender: boolean }) => ({ scale: n.scale === 'auto' ? 'auto' as const : +n.scale || 1, fps: +n.fps || 0, prerender: n.prerender !== false });
 
 export function Shell() {
@@ -49,7 +53,7 @@ export function Shell() {
     (async () => {
       const st = await D.settings(); settings.set(st);
       const l = (st.lang && LANGS.some(([k]) => k === st.lang) ? st.lang : detectLang()) as Lang; applyUiFont(l); setI18n(l);
-      engine.setRender(renderSettings(st)); engine.mvLook = mvLook(st); applyRhythmSettings(st);
+      engine.setRender(renderSettings(st)); engine.mvLook = mvLook(st); applyRhythmSettings(st); applyGfx(st);
       lib.set({ ...(await Lib.get()), loaded: true }); setReady(true);
       resumeLast().catch(() => {});   // (the last song, paused: the play page is ready before it is opened)
       startAnalysis();
@@ -129,7 +133,9 @@ function Sidebar() {
   const page = useStore(ui, x => x.page), prog = useStore(lib, x => x.progress), tracks = useStore(lib, x => x.tracks), an = useStore(lib, x => x.analysis);
   const favorites = useStore(lib, x => x.favorites), section = useStore(ui, x => x.section) || (favorites.length ? 'favorites' : 'songs'), detail = useStore(ui, x => x.detail);
   let done = 0, total = 0;
-  if (an) { done = an.done; total = an.total; } else { const playable = tracks.filter(t => !t.protected); total = playable.length; done = playable.filter(t => t.analyzed > 0).length; }
+  // (without a progress event yet: the songs analysed by this version of the rhythm analysis — an older one is to be redone)
+  if (an) { done = an.done; total = an.total; } else { const playable = tracks.filter(t => !t.protected); total = playable.length; done = playable.filter(t => t.analyzed === RHYTHM_VERSION).length; }
+  const now = useStore(lib, x => x.analysisNow);
   return (
     <nav className={s.side} aria-label="Cadenza">
       <div className={s.nav}>
@@ -148,7 +154,7 @@ function Sidebar() {
       </div>
       <div className={s.sideFoot}>
         {prog.phase === 'scan' && <div className={s.chip} style={{ ['--p' as string]: `${(prog.done / Math.max(1, prog.total)) * 100}%` }}><i /><span>{tx('s.scanning', prog)}</span></div>}
-        {prog.phase !== 'scan' && done < total && <div className={s.chip} style={{ ['--p' as string]: `${(done / Math.max(1, total)) * 100}%` }}><i /><span>{tx('s.analyzing', { done, total })}</span></div>}
+        {prog.phase !== 'scan' && done < total && <div className={s.chip} style={{ ['--p' as string]: `${(done / Math.max(1, total)) * 100}%` }}><i /><span>{tx('s.analyzing', { done, total })}{now != null && now > 0.01 ? ` · ${Math.round(now * 100)}%` : ''}</span></div>}
         <OutputSwitch />
         <button type="button" className={s.navi} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><Icon n="settings" size={19} /><span>{tx('s.settings')}</span></button>
       </div>

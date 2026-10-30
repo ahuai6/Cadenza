@@ -18,10 +18,11 @@ export function timePassage(endPrev: number, nextT: number, map: RhythmMap, quic
   let inn = quick ? clamp(0.75 * bl, 0.25, 0.45) : clamp(1.5 * bl, 0.45, 1.1);
   // a long pause (an instrumental, an idle stretch) takes its time: the picture dissolves slowly and comes back unhurried
   if (!quick && gap > 2.5) { const k = clamp((gap - 2.5) / 6); inn = lerp(inn, Math.min(2.4, Math.max(inn, 0.3 * gap)), k); out = lerp(out, Math.min(1.5, Math.max(out, 0.16 * gap)), k); }
-  const avail = gap + 0.15 - 0.06;                         // the blur may begin just before the last word ends
-  if (inn + out > avail) { const k = Math.max(0.2, avail) / (inn + out); inn = Math.max(0.22, inn * k); out = Math.max(0.18, out * k); }
-  // the blur is past half only once the last word is sung: nothing still being sung is hidden by it
-  const latest = nextT - 0.06 - out, earliest = Math.min(latest, Math.max(endPrev - 0.15 + inn, endPrev + inn * 0.5));
+  // the blur begins only once the line before is sung to its end: a line is never blurred away while still sung (a
+  // pause too short for that gets no blur — see `sweep` in layout.ts)
+  const avail = gap - 0.04;
+  if (inn + out > avail) { const k = Math.max(0.4, avail) / (inn + out); inn = Math.max(0.22, inn * k); out = Math.max(0.18, out * k); }
+  const latest = nextT - 0.04 - out, earliest = Math.min(latest, endPrev + inn);
   // the strongest grid point in [earliest, latest], later preferred (the blur then sits right before the new words)
   let best = latest, bv = -Infinity;
   let grid = map.grid(earliest, latest, 2);
@@ -32,9 +33,9 @@ export function timePassage(endPrev: number, nextT: number, map: RhythmMap, quic
     if (v > bv) { bv = v; best = g; }
   }
   const t = Math.min(best, latest);
-  return { t, inn: Math.max(0.22, Math.min(inn, t - (endPrev - 0.3))), out: Math.max(0.18, Math.min(out, nextT - 0.04 - t)) };
+  return { t, inn: Math.max(0.22, Math.min(inn, t - endPrev)), out: Math.max(0.18, Math.min(out, nextT - 0.04 - t)) };
 }
-/** Is there room for a quick transition between these words without hiding any of the words before it while sung? */
+/** Is there room for a quick transition between these words: the line before sung to its end, then the blur in and out? */
 export const roomForQuick = (endPrev: number, nextT: number) => nextT - endPrev >= 0.55;
 
 export interface GapLine { t: number; sungEnd: number }

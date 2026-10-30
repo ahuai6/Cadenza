@@ -58,7 +58,8 @@ export class Session {
     s.colors();
     let a = spec.analysis && isCurrent(spec.analysis) ? spec.analysis : null;
     const buf = spec.audio;
-    if (!a && buf && buf.getChannelData && !buf.load) { a = await analyzeInBackground(buf as AudioBuffer); env.onAnalysis?.(a); }
+    // (no analysis can be had — the neural engine only, and it cannot run: the song plays on a tempo grid)
+    if (!a && buf && buf.getChannelData && !buf.load) { a = await analyzeInBackground(buf as AudioBuffer).catch(() => null); if (a) env.onAnalysis?.(a); }
     s.analysis = a;
     await s.build();
     return s;

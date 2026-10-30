@@ -106,10 +106,13 @@ function warmPage() {
     if (!engine.warmPicture()) { warming = false; return; }                // (the song isn't ready yet: try again on a later frame)
     warmed = s;
     el.style.opacity = stage.style.opacity = '0.001'; el.style.pointerEvents = stage.style.pointerEvents = 'none'; el.dataset.vis = stage.dataset.vis = 'true';
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    // (put back after two frames — or, should the window be hidden meanwhile and draw no frames, a moment later anyway:
+    // a picture left shown at an unseen opacity would sit over the page and take its clicks)
+    let back = false; const settle = () => { if (back) return; back = true;
       el.style.opacity = el.style.pointerEvents = stage.style.pointerEvents = ''; warming = false;
-      if (closed()) applyNp(0); else stage.style.opacity = '';      // (opening meanwhile: the page's own progress has taken over)
-    }));
+      if (closed()) { applyNp(0); stage.style.opacity = ''; } else stage.style.opacity = '';      // (opening meanwhile: the page's own progress has taken over)
+    };
+    requestAnimationFrame(() => requestAnimationFrame(settle)); setTimeout(settle, 250);
   });
 }
 engine.on('frame', () => { if (np.x === 0) warmPage(); });
@@ -121,7 +124,9 @@ Object.assign(veil.style, { position: 'fixed', inset: '0', zIndex: '60', pointer
 document.body.appendChild(veil);
 let veilK = 0;
 const setVeil = (k: number) => { veilK = k; veil.style.display = k > 0.002 ? '' : 'none'; const b = (k * 26).toFixed(1);
-  veil.style.backdropFilter = `blur(${b}px) saturate(${(1 + 0.15 * k).toFixed(3)})`; veil.style.background = `rgba(10, 8, 16, ${(0.16 * k).toFixed(3)})`; };
+  // (lite: no backdrop blur — the veil dims a little more instead)
+  const lite = document.documentElement.dataset.gfx === 'lite';
+  veil.style.backdropFilter = lite ? 'none' : `blur(${b}px) saturate(${(1 + 0.15 * k).toFixed(3)})`; veil.style.background = `rgba(10, 8, 16, ${((lite ? 0.62 : 0.16) * k).toFixed(3)})`; };
 const frame = () => new Promise<number>(r => requestAnimationFrame(r));
 async function tween(to: number, ms: number, ease: (u: number) => number, my: number) {
   const from = veilK, t0 = performance.now();
@@ -166,7 +171,13 @@ async function go(target: 'none' | 'np' | 'fx') {
   if (target === 'np') { if (engine.view === 'effect') await blurSwap(toNp, my); return; }
   if (engine.view !== 'effect') await blurSwap(toFx, my);
 }
-ui.subscribe((s, prev) => { if (s.layer !== prev.layer) go(s.layer); if (s.win.full !== prev.win.full) { document.documentElement.dataset.winfull = String(s.win.full); if (np.x > 0 && engine.view !== 'effect') { measure(); applyNp(np.x); } } });
+// (which layer is up, for the stylesheet: with none, the picture never takes the pointer — the page under it does)
+document.documentElement.dataset.layer = ui.get().layer;
+// back in a window that was hidden (closed to the tray, minimised): a close the hidden window never finished drawing is
+// finished now, so nothing half-shown is left over the page
+document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible' || ui.get().layer !== 'none') return;
+  if (np.target === 0) { if (np.x > 0) np.jump?.(0); if (engine.view !== 'effect') { engine.setView('hidden'); applyNp(0); } if (refs.stage) refs.stage.style.opacity = ''; } });
+ui.subscribe((s, prev) => { if (s.layer !== prev.layer) { document.documentElement.dataset.layer = s.layer; go(s.layer); } if (s.win.full !== prev.win.full) { document.documentElement.dataset.winfull = String(s.win.full); if (np.x > 0 && engine.view !== 'effect') { measure(); applyNp(np.x); } } });
 document.documentElement.dataset.winfull = String(ui.get().win.full);
 export const openNp = () => ui.set({ layer: 'np', queue: false });
 export const openFx = () => ui.set({ layer: 'fx', queue: false });

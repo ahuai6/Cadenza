@@ -138,7 +138,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   const mark = (idx: number) => lineEls.current.forEach((el, i) => { if (!el) return; const d = i - idx;
     // a line left before its last word had lifted all the way: its words go the rest of the way up (softly, by the
     // transition) and stay there, never held half-way
-    if (d !== 0 && el.dataset.on === 'true') el.querySelectorAll<HTMLElement>('[data-w]:not([data-u-w]), [data-u]').forEach(w => { if (w.style.translate) w.style.translate = `0 ${-LIFT}px`; w.style.setProperty('--p', '1'); });
+    if (d !== 0 && el.dataset.on === 'true') el.querySelectorAll<HTMLElement>('[data-w]:not([data-u-w]), [data-u], [data-h]').forEach(w => { if (w.style.translate) w.style.translate = `0 ${w.dataset.h != null ? -LIFT * 0.6 : -LIFT}px`; w.style.setProperty('--p', '1'); });
     el.style.setProperty('--d', String(Math.min(5, Math.abs(d)))); el.dataset.on = String(d === 0); });
   const measure = () => {
     const S = st.current; lineEls.current.forEach(el => { if (el) el.style.transform = ''; });
@@ -169,6 +169,11 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
           const at = (i: number) => w.units[i]?.t ?? w.t + span * 0.85 * i / n;
           us.forEach((u, i) => fill(u, at(i), i + 1 < n ? at(i + 1) : w.end)); }
         else fill(e, w.t, w.end); });
+      // the harmonies: each from its own first sound to its last (at least as long as the word it goes with)
+      const hs = el.querySelectorAll<HTMLElement>('[data-h]');
+      L.words.filter(w => w.harm).forEach((w, k) => { const e = hs[k], H = w.harm!; if (!e) return; const t0 = isFinite(H.t) ? H.t : w.t, last = H.units[H.units.length - 1]?.t ?? t0;
+        const t1 = Math.max(t0 + 0.3, last + 0.25, w.end), q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0)));
+        e.style.setProperty('--p', q.toFixed(3)); e.style.translate = `0 ${(-LIFT * 0.6 * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; });
     });
   }, [lines, live]);
   const wheel = (e: React.WheelEvent) => { const S = st.current; S.manual -= e.deltaY; clearTimeout(S.mTm); aim(S.cur, false, false); if (box.current) box.current.dataset.manual = 'true';
@@ -177,7 +182,9 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel} data-blur={view.blur} data-subs={view.subs} style={{ '--np-fs': view.size } as React.CSSProperties}>
       {lines.map((L, i) => (
         <button key={i} type="button" data-test="line" className={s.line} ref={el => { lineEls.current[i] = el; }} onClick={() => { st.current.manual = 0; engine.seek(Math.max(0, L.t - 0.05)); if (!engine.isPlaying) engine.play(); }}>
-          {L.words.length ? L.words.map((w, k) => <Fragment key={k}>{byUnit(w) ? <span data-w data-u-w className={s.wu}>{w.units.map((u, i) => <span key={i} data-u className={s.w}>{u.c}</span>)}</span> : <span data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin && !w.harm ? ' ' : ''}</span>}{w.harm && <span className={s.harm}>{w.harm.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
+          {L.words.length ? L.words.map((w, k) => <Fragment key={k}>{byUnit(w) ? <span data-w data-u-w className={s.wu}>{w.units.map((u, i) => <span key={i} data-u className={s.w}>{u.c}</span>)}</span> : <span data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
+          {/* the harmonies, as Apple Music shows backing vocals: their own smaller line under the words, each lit as it is sung */}
+          {L.words.some(w => w.harm) && <span className={s.harmRow}>{L.words.filter(w => w.harm).map((w, k, a) => <span key={k} data-h className={s.w}>{w.harm!.text}{k < a.length - 1 ? ' ' : ''}</span>)}</span>}
           {L.subs.map((x, k) => <small key={k}>{x}</small>)}
         </button>
       ))}

@@ -7,9 +7,10 @@ import type { Settings } from '../bridge';
 
 /** The rhythm engine as the settings say: the desktop app serves the neural engine's models as cadenza://model/. */
 export function applyRhythmSettings(st: Pick<Settings, 'rhythmEngine' | 'rhythmDrums'>) {
-  setModelBase('cadenza://model/'); setRhythmEngine(st.rhythmEngine === 'dsp' ? 'dsp' : 'auto'); setNeuralDrums(st.rhythmDrums !== false);
+  setModelBase('cadenza://model/'); setRhythmEngine(st.rhythmEngine === 'dsp' || st.rhythmEngine === 'neural' ? st.rhythmEngine : 'auto'); setNeuralDrums(st.rhythmDrums !== false);
 }
 import { Lib, mediaUrl } from '../bridge';
+import { lib } from '../state';
 
 let busy = false, paused = false, wake: (() => void) | null = null;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -17,7 +18,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
  *  decode); 44.1 kHz stereo when the neural engine will run (HTDemucs separates the drums at that rate, on both channels). */
 export async function decodeForAnalysis(id: string, loudnessOnly = false) {
   const r = await fetch(mediaUrl(id)); if (!r.ok) throw new Error('read');
-  const neural = !loudnessOnly && rhythmEngine() === 'auto' && (await neuralStatus()).ok;
+  const neural = !loudnessOnly && rhythmEngine() !== 'dsp' && (await neuralStatus()).ok;
   return new OfflineAudioContext(neural ? 2 : 1, 1, neural ? 44100 : 22050).decodeAudioData(await r.arrayBuffer());
 }
 /** Songs analysed in a hurry (the player was waiting: the neural engine's beats only, no drum stem), to be analysed
@@ -29,10 +30,15 @@ export function analyzeNow(id: string, decoded?: AudioBuffer | null, urgent = fa
   let p = inflight.get(id);
   if (!p) {
     // (needed at once: the beats on the GPU have 20 s, else the built-in analysis answers; the drums come later)
-    const opts = urgent ? { drums: false, timeoutMs: 20_000 } : {};
-    p = (async () => { const a = await analyzeInBackground(decoded || await decodeForAnalysis(id), undefined, opts); await Lib?.saveAnalysis(id, a);
+    // (in the background the GPU has a time in proportion to the song — a minute and a little over half the song's own
+    // length — then the built-in analysis answers: a slow or stalled GPU never holds the whole library's queue)
+    p = (async () => { const buf = decoded || await decodeForAnalysis(id), dur = buf.length / buf.sampleRate;
+      const opts = urgent ? { drums: false, timeoutMs: 20_000 } : { timeoutMs: 60_000 + dur * 600 };
+      // (the neural engine only, and it did not answer while the player waited: the song plays on a tempo grid, and is
+      // analysed again in the background, with the time a background analysis has)
+      const a = await analyzeInBackground(buf, k => lib.set({ analysisNow: k }), opts).catch(e => { if (urgent && rhythmEngine() === 'neural') { upgrade.add(id); setTimeout(() => loop(), 30_000); } throw e; }).finally(() => lib.set({ analysisNow: null })); await Lib?.saveAnalysis(id, a);
       // (and a song the GPU did not answer in time, when it can run at all: no second built-in pass on a machine without one)
-      if (urgent && (a.stems === 'skipped' ? neuralDrums() : a.engine === 'dsp' && rhythmEngine() === 'auto' && (await neuralStatus()).ok)) { upgrade.add(id); setTimeout(() => loop(), 30_000); }
+      if (urgent && (a.stems === 'skipped' ? neuralDrums() : a.engine === 'dsp' && rhythmEngine() !== 'dsp' && (await neuralStatus()).ok)) { upgrade.add(id); setTimeout(() => loop(), 30_000); }
       return a; })();
     inflight.set(id, p); p.finally(() => inflight.delete(id));
   }

@@ -46,9 +46,9 @@ function prepare(id: string, route: 'std' | 'hifi') {
     let analysis = await Lib!.analysis(id, RHYTHM_VERSION).catch(() => null) as RhythmAnalysis | null;
     if (!isCurrent(analysis)) analysis = null;
     // the Hi-Fi output reads the file itself: the page decodes only to analyse a song the cache does not have yet
-    if (route === 'hifi') return { buffer: null, analysis: analysis || await analyzeNow(id, null, true) };
+    if (route === 'hifi') return { buffer: null, analysis: analysis || await analyzeNow(id, null, true).catch(() => null) };
     const buffer = await decodeFile(id);
-    return { buffer, analysis: analysis || await analyzeNow(id, buffer, true) };
+    return { buffer, analysis: analysis || await analyzeNow(id, buffer, true).catch(() => null) };
   })();
   cache.set(key, p); p.catch(() => cache.delete(key));
   while (cache.size > 4) cache.delete(cache.keys().next().value!);

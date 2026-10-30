@@ -155,6 +155,7 @@ const anFile = id => path.join(P.analysis(), id.replace(/[^a-f0-9]/g, '') + '.js
 async function saveAnalysis(id, a) {
   const t = db.tracks[id]; if (!t || !a || typeof a.version !== 'number' || !Array.isArray(a.beats)) return false;
   await fsp.writeFile(anFile(id), await gzip(Buffer.from(JSON.stringify(a)), { level: 6 }));
+  if (!want) want = a.version;      // (a song saved before the page's first request for the queue says which version is wanted)
   t.analyzed = a.version; t.failed = false; if (a.duration && !t.duration) t.duration = a.duration; if (a.loudness) setLoud(t, a.loudness); save(); analysisProgress(); return true;
 }
 async function getAnalysis(id, version) {

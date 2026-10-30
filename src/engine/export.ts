@@ -8,6 +8,7 @@ import { ssDown, ssFactor } from './ssaa';
 import type { Engine } from './engine';
 import type { Session } from './session';
 import type { VideoSource } from './media';
+import { gfx, setGfx } from '../render/gfx';
 
 export interface Sink { write(data: Uint8Array, pos: number): void | Promise<void>; close(): unknown; abort?(): unknown }
 export interface ExportOptions { res?: number; fps?: number; quality?: string; codec?: 'auto' | 'avc' | 'hevc'; captions?: boolean; audio?: boolean; sink?: Sink; onProgress?: (phase: string, i: number, n: number) => void; signal?: { cancelled: boolean } }
@@ -51,7 +52,12 @@ const ych = typeof MessageChannel !== 'undefined' ? new MessageChannel() : null;
 const yieldUI = () => (globalThis as any).scheduler?.yield ? (globalThis as any).scheduler.yield() : new Promise<void>(r => { yres.push(r); ych!.port2.postMessage(0); });
 const slug = (s: string) => (s || 'cadenza').trim().replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'cadenza';
 
+/** An export draws in full quality whatever the live picture's mode (render/gfx.ts): the mode is for what plays live. */
 export async function exportVideo(engine: Engine, s: Session, o: ExportOptions = {}): Promise<ExportResult> {
+  const live = gfx(); setGfx('default');
+  try { return await exportIn(engine, s, o); } finally { setGfx(live); }
+}
+async function exportIn(engine: Engine, s: Session, o: ExportOptions = {}): Promise<ExportResult> {
   const [w, h] = exportSize(s.style.aspect, o.res || 1080, engine.viewAspect()), fps = +(o.fps || 30), sink = o.sink || blobSink(), prog = o.onProgress || (() => {}), sig = o.signal || { cancelled: false };
   if (typeof VideoEncoder === 'undefined') return { ok: false, reason: 'x.noenc' };
   const { Muxer, StreamTarget } = await import('mp4-muxer');

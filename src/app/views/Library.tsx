@@ -111,7 +111,7 @@ export const TrackList = memo(function TrackList({ tracks, numbered, menuExtra, 
           onPointerDown={e => down(e, i)} onDoubleClick={() => play(t)} onKeyDown={e => { if (e.key === 'Enter') play(t); }} onContextMenu={e => trackMenu(e, t, shown, menuExtra?.(t))}>
           <span className={s.grip} aria-hidden="true">{onReorder && <Icon n="grip" size={15} />}</span>
           <span className={s.lead}>
-            {numbered ? <span>{t.track || i + 1}</span> : <Cover k={t.cover} />}
+            {numbered ? <span className={s.num}>{t.track || i + 1}</span> : <Cover k={t.cover} />}
             {isCur && playing ? <span className={s.playOver} style={{ opacity: 1 }}><LiveEq /></span>
               : !t.protected && <button type="button" className={s.playOver} aria-label={tx('s.play')} onClick={() => play(t)}><Icon n="play" size={16} /></button>}
           </span>

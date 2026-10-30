@@ -9,6 +9,7 @@ import { effects } from '../render/effects/registry';
 import { STATS as glyphStats } from '../render/glyphs';
 import * as rhythm from '../rhythm';
 import { neuralRhythm } from '../rhythm/neural';
+import { setGfx } from '../render/gfx';
 
 const canvas = document.createElement('canvas');
 const engine = new Engine(canvas, { audioContext: () => new AudioContext() });
@@ -21,6 +22,6 @@ async function open(spec: Partial<SessionSpec> & { theme?: string; cut?: string;
   const s = await Session.open({ key: 'h', lyrics: spec.lyrics ?? DEMO_LYRICS, song: spec.song ?? DEMO_SONG, bpm: spec.bpm ?? 120, style, coverUrl: spec.coverUrl, audio: spec.audio, analysis: spec.analysis }, env);
   engine.show(s, { play: false }); await engine.setView('effect'); engine.handoff.jump(1); return s;
 }
-(window as any).H = { exportVideo,engine, open, director, lyrics, drawFrame, effects, Session, setCulling: lyrics.setCulling, glyphStats, rhythm, neuralRhythm };
+(window as any).H = { exportVideo,engine, open, director, lyrics, drawFrame, effects, Session, setCulling: lyrics.setCulling, glyphStats, rhythm, neuralRhythm, setGfx };
 // (the neural engine is off unless a test points it at its models: the other render tests stay on the built-in analysis)
 rhythm.setRhythmEngine('dsp');

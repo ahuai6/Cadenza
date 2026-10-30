@@ -78,8 +78,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       let z = hover ? Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1) : Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, z1);
       // (a column: its characters' size sets the closeness, as a row's height does — about three of them down the frame,
       // the rest travelled as they are sung — never the whole column shrunk to fit the frame's height)
-      if (!hover && grp.every(S => S.vert)) { const cw = Math.max(1, ...grp.map(S => S.lw)); z = Math.min(H * 0.5 / cw * T, H * 0.6 / cw, H * 0.72 / clamp(B.h, cw * 2, cw * 3.2), W * 0.8 / B.w); }
-      if (F) z = Math.min(z, W * 0.8 / B.w, H * 0.58 / B.h);
+      if (!hover && grp.every(S => S.vert)) { const cw = Math.max(1, ...grp.map(S => S.lw)); z = Math.min(H * 0.55 / cw * T, H * 0.63 / cw, H * 0.77 / clamp(B.h, cw * 2, cw * 3.2), W * 0.8 / B.w); }
+      // (a framed word is shown whole, the camera pulling back for it — a column framed less far: it is long, not wide)
+      if (F) z = Math.min(z, W * 0.8 / B.w, H * (grp.every(S => S.vert) ? 0.76 : 0.58) / B.h);
       // close up: a character about two fifths of the frame high (the one being sung always wholly in view)
       if (close && !F) { const us = grp.flatMap(S => S.units), uh = us.map(u => u.h).sort((a, b) => a - b)[us.length >> 1] || B.h, uw = Math.max(...us.map(u => u.w), 1), uhm = Math.max(...us.map(u => u.h), 1);
         z = Math.min(H * 0.4 / uh * T, W * 0.5 / uw, H * 0.62 / uhm); }
@@ -184,7 +185,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     if (isCut) { arrive = P!.t; dur = 0; follow(A, arrive); }
     else if (smooth) {
       arrive = Math.max(A.arrive + 0.1, B.t - lead);
-      if (slow > 0) arrive = Math.max(arrive, Math.min(B.t + 0.85 * slow / sp, B.sungEnd + 0.4 * B.rest));
+      // (slower into the last words before a rest — but landing while they are sung, never after: the slowness is in the
+      // move, not in arriving late)
+      if (slow > 0) arrive = Math.max(arrive, Math.min(B.t + 0.85 * slow / sp, B.sungEnd + 0.4 * B.rest, B.t + 0.35));
       const gapT = arrive - A.arrive;
       dur = Math.min((waltz ? clamp(gapT * 0.45, 0.5 / sp, 1.3 / sp) : clamp(gapT * 0.62, 0.75 / sp, 1.9 / sp)) * (1 + 0.6 * slow), gapT * 0.9);
     } else {
@@ -215,7 +218,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         const still = A.ubox!.filter(u => u.end > s + 0.02), head = B.head!;
         if (still.length && !close && !fits([...still, ...head], B, W, H)) {
           const both = fitPose([...still, ...head], B.box.tilt, B.r, W, H, T);
-          if (both.z > B.z * (smooth ? 0.5 : 0.6) && fits([...still, ...head], { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)) { B.z = Math.min(B.z, both.z); track(B);
+          // (a column is not widened to hold the end of the one before — the travel down it would flatten: it waits instead)
+          const col = B.words.every(w => w.vert);
+          if (both.z > B.z * (col ? 0.85 : smooth ? 0.5 : 0.6) && fits([...still, ...head], { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)) { B.z = Math.min(B.z, both.z); track(B);
             if (!fits([...still, ...B.head!], B, W, H)) retarget(B, both.x, both.y); }
           else if (smooth) { s = Math.max(s, A.sungEnd - 0.12); arrive = Math.max(arrive, Math.min(s + Math.max(0.45 / sp, dur * 0.8), Math.max(B.t + 0.2, s + Math.min(0.3, Math.max(0.12, 0.85 * (B.t - A.t)))))); }
           // the hard cut lands on the word: the last moment of the word before (its sustain) may leave the frame first

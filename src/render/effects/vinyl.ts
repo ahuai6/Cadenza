@@ -100,7 +100,7 @@ register({ id: 'shards', label: 'fx.shards', layer: 'backdrop', kind: 'effect', 
 /* ---------- a horizon of door frames: a ground, its horizon, and line-drawn frames receding to it, still (a backdrop:
    it gives depth, it does not dance; it moves only with the backdrop's own camera) ---------- */
 register({ id: 'doors', label: 'fx.doors', layer: 'backdrop', kind: 'effect', z: 4, draw(g, f, a) {
-  const E = a.bd.E, w = f.W, h = f.H, hy = h * 0.62, mx = w / 2, A = f.pal.accent, I = 0.5, t = f.t;
+  const E = a.bd.E, w = f.W, h = f.H, hy = h * 0.62, mx = w / 2, A = f.pal.accent, I = 0.5, t = accentClock(f);
   // the ground, a shade lifted towards the horizon
   const gg = g.createLinearGradient(0, hy, 0, h + E); gg.addColorStop(0, rgba(mix(f.pal.bg2, A, 0.15), 0.22)); gg.addColorStop(0.35, rgba(mix(f.pal.bg2, A, 0.08), 0.12)); gg.addColorStop(1, rgba(f.pal.bg, 0)); g.fillStyle = gg; g.fillRect(-E, hy, w + 2 * E, h - hy + E);
   // the ground's lines running to the vanishing point
@@ -119,7 +119,7 @@ register({ id: 'doors', label: 'fx.doors', layer: 'backdrop', kind: 'effect', z:
 /* ---------- plain lines on the background: a few compositions of solid strokes, drifting very slowly ---------- */
 const LINESETS = Array.from({ length: 5 }, (_, i) => ({ kind: i, x: [0.18, 0.82, 0.5, 0.12, 0.88][i], y: [0.2, 0.75, 0.12, 0.82, 0.3][i], a: (rnd(i * 4.7) - 0.5) * 1.2, ph: rnd(i * 2.9) * 6.28 }));
 register({ id: 'lines', label: 'fx.lines', layer: 'backdrop', kind: 'effect', z: 2, draw(g, f, a) {
-  const w = f.W, h = f.H, m = Math.min(w, h), t = f.t, c1 = mix(f.pal.bg2, f.pal.accent, 0.45), c2 = mix(f.pal.bg2, W3, 0.25);
+  const w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f), c1 = mix(f.pal.bg2, f.pal.accent, 0.45), c2 = mix(f.pal.bg2, W3, 0.25);
   g.save(); g.lineCap = 'butt';
   for (const q of LINESETS) {
     const x = q.x * w + Math.sin(t * 0.05 + q.ph) * w * 0.015 + a.bd.ox * 0.3, y = q.y * h + Math.cos(t * 0.04 + q.ph) * h * 0.015 + a.bd.oy * 0.3, al = 0.16 + 0.08 * f.I;

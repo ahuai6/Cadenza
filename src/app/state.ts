@@ -24,9 +24,10 @@ export const ui = createStore({
   npLyr: remember('npLyr', { size: 1, blur: true, subs: true }),
 });
 export const lib = createStore({ ...({ folders: [], tracks: [], favorites: [], playlists: [] } as LibView), loaded: false,
-  progress: { phase: 'idle', done: 0, total: 0 }, analysis: null as null | { done: number; total: number } });
+  progress: { phase: 'idle', done: 0, total: 0 }, analysis: null as null | { done: number; total: number },
+  /** how far the song being analysed now is (0..1), null between songs */ analysisNow: null as null | number });
 export const settings = createStore<Settings>({ theme: 'system', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
-  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, rhythmEngine: 'auto', rhythmDrums: true, version: '' });
+  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, rhythmEngine: 'auto', rhythmDrums: true, gfx: 'default', version: '' });
 
 let toastTm = 0;
 export function toast(text: string, ms = 2600) { ui.set({ toast: { text, id: Date.now() } }); clearTimeout(toastTm); toastTm = window.setTimeout(() => ui.set({ toast: null }), ms); }

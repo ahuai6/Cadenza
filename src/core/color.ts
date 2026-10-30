@@ -27,3 +27,6 @@ export function hsl(h: number, s: number, l: number): RGB {
   return [f(0) * 255, f(8) * 255, f(4) * 255];
 }
 export const W3: RGB = [255, 255, 255], K3: RGB = [0, 0, 0];
+/** The flash's own colour on a dark scene: the colour the backdrop's elements are drawn in, paler — a light of the same
+ *  hue (a rose light for the gothic roses, the cover's own tint), never plain white. */
+export function paleOf(c: RGB): RGB { const [h, s] = toHsl(c); return hsl(h, Math.min(0.8, Math.max(0.35, s * 0.85)), 0.85); }

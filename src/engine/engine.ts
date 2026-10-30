@@ -246,7 +246,12 @@ export class Engine extends Emitter<EngineEvents> {
     { const seen = new Set<string>(), items: [string, number][] = [];
       for (const st of plan.camera.stops) for (const S of st.words) { const G = EM * S.s * st.z * pxK; if (G < 150) continue;
         for (const u of S.units) for (const g of [G, G * 1.12]) { const k = u.c + '|' + Math.round(Math.log2(g) * 4); if (!seen.has(k)) { seen.add(k); items.push([u.c, g]); } } }
-      if (items.length) { const sharp = prewarmSharp(spec.font, items.slice(0, 600), [spec.grad, spec.edge, { stroke: spec.ink, w: 2.4 }]); steps.push(() => sharp(3)); heavy.push(false); } }
+      if (items.length) { const sharp = prewarmSharp(spec.font, items.slice(0, 600), [spec.grad, spec.edge, { stroke: spec.ink, w: 2.4 }]); steps.push(() => sharp(3)); heavy.push(false); }
+      // (the emphasised words' own fill, at the same sizes)
+      const em = new Set(spec.emph.chars), emItems = items.filter(([c]) => em.has(c));
+      if (emItems.length) { const sharpE = prewarmSharp(spec.font, emItems.slice(0, 200), [spec.emph.grad]); steps.push(() => sharpE(3)); heavy.push(false); } }
+    // the emphasised words' blur levels in the flash's colour
+    if (spec.emph.chars.length) { const emG = prewarmGlyphs(spec.font, [], spec.emph.chars, [1, 2, 3, 4, 5], spec.emph.grad); steps.push(() => emG(3)); heavy.push(false); }
     // (the first transition at several depths of its blur: each depth works at its own size)
     const first = plan.words[0]?.show ?? 0, p0 = plan.passages[0], ramp = p0 ? [0.2, 0.4, 0.6, 0.8].map(u => p0.t - p0.inn * (1 - u)) : [];
     const times = [first + 0.3, ...ramp, ...plan.passages.map(p => p.t), ...plan.cues.glyphSlots.map(g => g.t + 0.6),

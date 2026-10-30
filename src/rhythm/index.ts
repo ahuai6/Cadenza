@@ -10,7 +10,7 @@ export const rhythmEngine = () => engine;
 import type { RhythmAnalysis } from './types';
 import type { Loudness } from './loudness';
 import { RHYTHM_VERSION } from './types';
-import { neuralRhythm, type NeuralOptions } from './neural';
+import { neuralRhythm, neuralStatus, type NeuralOptions } from './neural';
 // bundled inline (a blob: URL), so it also starts from a page loaded from file:// (the desktop app)
 import AnalysisWorker from './worker.ts?worker&inline';
 
@@ -28,8 +28,9 @@ function getWorker(): Worker {
   return worker;
 }
 /** Which engine finds the beats: 'auto' (the neural engine where it can run — WebGPU and its models — else the
- *  built-in analysis) or 'dsp' (the built-in analysis only). */
-export type RhythmEngine = 'auto' | 'dsp';
+ *  built-in analysis), 'neural' (the neural engine only: where it cannot run, or does not answer in time, the analysis
+ *  fails rather than falling back) or 'dsp' (the built-in analysis only). */
+export type RhythmEngine = 'auto' | 'neural' | 'dsp';
 let engine: RhythmEngine = 'auto';
 export function setRhythmEngine(e: RhythmEngine) { engine = e; }
 /** Analyse decoded audio in the background. The channel data is copied, the caller's buffer stays usable. One
@@ -38,7 +39,8 @@ export function setRhythmEngine(e: RhythmEngine) { engine = e; }
 export async function analyzeInBackground(buf: { numberOfChannels: number; sampleRate: number; getChannelData(i: number): Float32Array }, progress?: (k: number) => void, opts: NeuralOptions = {}): Promise<RhythmAnalysis> {
   const n = Math.min(2, buf.numberOfChannels), channels: Float32Array[] = [];
   for (let i = 0; i < n; i++) channels.push(new Float32Array(buf.getChannelData(i)));
-  const neural = engine === 'auto' ? await neuralRhythm(buf, k => progress?.(k * 0.8), opts).catch(() => null) : null, k0 = neural ? 0.8 : 0;
+  const neural = engine !== 'dsp' ? await neuralRhythm(buf, k => progress?.(k * 0.8), opts).catch(() => null) : null, k0 = neural ? 0.8 : 0;
+  if (engine === 'neural' && !neural) { const st = await neuralStatus(); throw new Error(`neural engine: ${st.ok ? 'no answer in time' : st.reason}`); }
   const id = nextId++;
   return new Promise((res, rej) => {
     pending.set(id, { res, rej, prog: progress && (k => progress(k0 + (1 - k0) * k)) });

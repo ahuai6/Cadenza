@@ -38,10 +38,14 @@ export function restK(plan: ScenePlan, t: number): number {
 }
 export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): CamFrame {
   const c = plan.camera, b = basePose(c, t), M = plan.style.m, W = plan.W;
+  // while a transition's blur is up the frame holds still — all of its own motion, the beat's and the heavy beats'
+  // alike: a shake under the blur reads as a twitch, not a beat. Held from early in the blur's rise to late in its fall
+  // (the blur's own curve is gentle at its ends; the hold is not)
+  const trans = transK(plan.passages, t), hold = 1 - sstep(clamp(trans / 0.35));
   const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t, idleK(plan, t)), calm = 1 - clamp((t - plan.musicEnd) / 0.3), still = 1 - rs.still;
   const cam: Cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
   // handheld float
-  const A = c.dyn.float * motion, hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
+  const A = c.dyn.float * motion * (0.25 + 0.75 * hold), hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
   // screen-space offsets (px) of the float and the idle drift: applied to the camera and the backdrop's camera alike, each
   // at its own closeness, so the backdrop's never jumps where the camera cuts
   let ox = hx, oy = hy, oz = 1;
@@ -57,9 +61,8 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   if (t < 1.2) cam.z *= Math.exp(-0.35 * (1 - eIO(clamp(t / 1.2))));
   let easeIn = 1; for (const k of c.cuts) { const dt = t - k.t; if (dt >= 0 && dt < 1.1) easeIn *= Math.exp(-0.22 * (1 - eIO(dt / 1.1))); }
   cam.z *= easeIn;
-  // the frame's own motion: cone spring, impacts, beat sway, build lean-in
-  // (while a transition's blur is up the frame holds still: a shake under the blur reads as a twitch, not a beat)
-  const trans = transK(plan.passages, t), fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still * (1 - 0.9 * trans);
+  // the frame's own motion: cone spring, impacts, beat sway, build lean-in (all held under a transition's blur, above)
+  const fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still * hold;
   const gv = M.groove ?? 1;                                     // the beat-and-melody motion (its own knob)
   fx.z *= 1 + c.dyn.cone * rs.cone * mo * gv;
   fx.r += c.dyn.coneRoll * rs.coneRoll * mo * gv;
@@ -85,7 +88,7 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   if (c.arrivals && mo > 0) for (const q of c.arrivals) { const dt = t - q.t; if (dt < 0) break; if (dt > 0.6) continue;
     const lb = lobe(dt, 0.05) * q.k, amp = (6 + 16 * rs.level) * lb * M.shake * (W / 1280);
     fx.x += Math.cos(q.ang) * amp * mo; fx.y += Math.sin(q.ang) * amp * mo; fx.r += q.sg * lb * 1.6 * M.shake * mo; }
-  fx.z *= 1 + 0.05 * rs.build * motion * calm;
+  fx.z *= 1 + 0.05 * rs.build * motion * calm * hold;
   let split = 0;
   const IK = (M.impk ?? 0.8) * mo;
   if (IK > 0.001) for (const e of plan.cues.impacts) {

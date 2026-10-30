@@ -15,6 +15,7 @@ import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } fr
 import { makeCanvas } from './palette';
 import { cameraAt } from '../director/evaluate';
 import type { Signals } from '../rhythm/signals';
+import { gfx, LITE_OFF } from './gfx';
 
 const byZ = (a: Effect, b: Effect) => (a.z ?? 0) - (b.z ?? 0);
 const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
@@ -39,7 +40,8 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(ra)) + H / 2 * Math.abs(Math.sin(ra))) / zz - W / 2, (W / 2 * Math.abs(Math.sin(ra)) + H / 2 * Math.abs(Math.cos(ra))) / zz - H / 2)) + 4);
   const bd: BackdropView = { roll, zoom, ox: (cf.fx.x * 0.5 - cf.hand[0] * 0.35) * hold, oy: (cf.fx.y * 0.5 - cf.hand[1] * 0.35) * hold, E, Ev, fit, rest };
   const bgFx = effect(st.bgStyle) || effect('minimal')!, sameAsAmbient = st.bgStyle === 'cover';
-  const bdEffects = effects('effect').filter(e => e.layer === 'backdrop' && (st.fx[e.id] || e.id === 'mv'));
+  // (lite: the effects that read the whole frame again or blur every frame are left out)
+  const lite = gfx() === 'lite', bdEffects = effects('effect').filter(e => e.layer === 'backdrop' && (st.fx[e.id] || e.id === 'mv') && !(lite && LITE_OFF.has(e.id)));
   if (bgFx.front) bdEffects.push({ id: bgFx.id + ':front', label: '', layer: 'backdrop', kind: 'effect', z: bgFx.frontZ ?? 0, draw: bgFx.front });
   bdEffects.sort(byZ);
   const inBackdrop = (c: Ctx) => { c.save(); c.translate(W / 2, H / 2); c.rotate(roll * D2R); c.scale(zoom, zoom); c.translate(-W / 2, -H / 2); };
@@ -80,7 +82,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   /* ---- the lyric world ---- */
   const card = !!f.plan.titles.end;
   f.vis = visibleWords(f, card);
-  const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen') => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x))).sort(byZ)) e.draw(g, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
+  const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen') => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id))).sort(byZ)) e.draw(g, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
   if (view > 0.001) {
     world('world-back');
     const split = (cf.split * 10 + f.rs.pulse * 1.5 * f.I) * f.motion * M.split;

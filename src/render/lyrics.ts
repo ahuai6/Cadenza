@@ -15,6 +15,7 @@ import { EM } from '../text/metrics';
 import { blurGlyph, drawFocus, focusW, sharpGlyph, strokeGlyph, type InkGrad } from './glyphs';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
+import { gfx } from './gfx';
 
 /** Culling can be switched off to prove it never removes anything visible (render tests). */
 let CULL = true; export const setCulling = (on: boolean) => { CULL = on; };
@@ -41,10 +42,14 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
 export function lyricBake(f: Pick<RenderFrame, 'plan' | 'style' | 'pal'>) {
   const st = f.style, fc = fontStack(st.font, f.plan.doc.lines.map(L => L.text).join('').slice(0, 400)), pal = f.pal;
   const chars = [...new Set(f.plan.words.flatMap(S => S.units.map(u => u.c)))];
-  return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [shadowOf(pal), glowOf(st, pal)], grad: inkGrad(pal.text, pal), chars, edge: rgba(mix(pal.bg, pal.text, 0.25), 1), ink: rgba(pal.text, 1) };
+  const emChars = [...new Set(f.plan.words.filter(S => S.emph).flatMap(S => S.units.map(u => u.c)))];
+  return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [shadowOf(pal), glowOf(st, pal), rgba(pal.flash, 1)], grad: inkGrad(pal.text, pal), chars, edge: rgba(mix(pal.bg, pal.text, 0.25), 1), ink: rgba(pal.text, 1),
+    emph: { grad: emphGrad(pal), chars: emChars } };
 }
 /** The lit fill of the sharp glyphs (top, middle, bottom), shared with their blurred versions. */
 export const inkGrad = (ink: RenderFrame['pal']['text'], pal: RenderFrame['pal']): InkGrad => [rgba(mix(ink, [255, 255, 255], 0.35), 1), rgba(ink, 1), rgba(mix(ink, pal.accent, 0.22), 0.92)];
+/** The emphasised word's fill: the flash's colour, lit brighter at the top (a soft highlight across it). */
+export const emphGrad = (pal: RenderFrame['pal']): InkGrad => [rgba(mix(pal.flash, [255, 255, 255], 0.55), 1), rgba(pal.flash, 1), rgba(mix(pal.flash, pal.accent, 0.3), 0.95)];
 const shadowOf = (pal: RenderFrame['pal']) => rgba(mix(pal.bg, [0, 0, 0], 0.75), 1);
 const glowOf = (st: RenderFrame['style'], pal: RenderFrame['pal']) => (st.bgStyle === 'cover' ? rgba(pal.bg, 0.9) : rgba(pal.accent, 0.85));
 /** Draw the lyrics. trail: a faint copy offset along the camera's travel (motion trail). */
@@ -55,7 +60,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   const g1 = rgba(pal.accent, 1), g2 = rgba(pal.flash, 1), inkC = rgba(o.ink as any, 1);
   const glowC = glowOf(st, pal), glowB = M.glow * 26 * f.px;
   const lean = clamp((M.depth ?? 1) * 0.6, 0, 1.4) * f.motion;
-  const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion * (1 - f.cam.trans), pulse = f.rs.pulse, fr = Math.floor(f.t * 12), blurOn = ov <= 0 && f.motion > 0.5;
+  const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion * (1 - Math.min(1, f.cam.trans / 0.35)), pulse = f.rs.pulse, fr = Math.floor(f.t * 12), lite = gfx() === 'lite', blurOn = ov <= 0 && f.motion > 0.5 && !lite;
   // the finish of a sharp glyph: lit from above (a soft gradient from the ink to a touch of the theme's light below, so the
   // type reads as translucent light rather than flat paint), a thin edge of thickness that leans against the camera's turn
   // (the plane of the words has depth), and a soft two-layer shadow (a contact shadow and a wide ambient one)
@@ -64,6 +69,9 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   const edgeC = rgba(mix(pal.bg, o.ink as any, 0.25), 1), yaw = f.cam.cam.yaw ?? 0, pitch = f.cam.cam.pitch ?? 0;
   const ex = clamp(0.35 - yaw * 0.12, -0.6, 0.9), ey = clamp(1 - pitch * 0.12, 0.4, 1.4);
   const shadowC = shadowOf(pal);
+  // the emphasised words: the flash's colour with its own lit fill, and a faint glow of it round them (on a dark scene)
+  const eGrad = emphGrad(pal), eG = g.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6), eC = rgba(pal.flash, 1), eGlow = rgba(mix(pal.flash, [255, 255, 255], 0.2), 1);
+  eG.addColorStop(0, eGrad[0]); eG.addColorStop(0.5, eGrad[1]); eG.addColorStop(1, eGrad[2]);
   g.save(); g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font;
   for (const v of vis) {
     const { S, ws, p } = v, n = S.units.length, spec = TIN_SPEC[ws.tin] || TIN_SPEC.blur, blurMax = Math.min(32, v.glyphPx * spec.blur);
@@ -93,9 +101,9 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       const sp = sp0 * focusW(bpx);
       const Gpx = v.glyphPx * f.px * up.um;
       if (sp > 0.4) { g.fillStyle = g1; g.globalAlpha = A * up.ua * 0.35; sharpGlyph(g, u.c, Gpx, null, sp, 0); g.fillStyle = g2; g.globalAlpha = A * up.ua * 0.25; sharpGlyph(g, u.c, Gpx, null, -sp, 0); }
-      const gk2 = M.glow > 0 && !trail ? (1 - up.uq) ** 2 * ws.gk : 0;
+      const gk2 = M.glow > 0 && !trail && !lite ? (1 - up.uq) ** 2 * ws.gk : 0;
       if (gk2 > 0.01) { g.fillStyle = glowC; g.globalAlpha = A * up.ua * gk2; blurGlyph(g, u.c, glowB * 0.5, Gpx); }
-      const shK = trail ? 0 : Math.max(0.35, M.shadow ?? 0), mt = g.getTransform(), det = mt.a * mt.d - mt.b * mt.c || 1;
+      const shK = trail || lite ? 0 : Math.max(0.35, M.shadow ?? 0), mt = g.getTransform(), det = mt.a * mt.d - mt.b * mt.c || 1;
       const toLocal = (sx: number, sy: number): [number, number] => [(mt.d * sx - mt.c * sy) / det, (-mt.b * sx + mt.a * sy) / det];   // a device-px offset in glyph space
       if (shK > 0.01) { const near = clamp(p.kp, 0.6, 1.6), sa = A * up.ua * (1 - up.uq * 0.35);
         // the wide ambient shadow (further down, very soft), then the contact shadow close under the glyph
@@ -108,7 +116,8 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       const eK = trail ? 0 : clamp(1 - bpx / 6) * clamp(Gpx / 14 - 0.5) * view;
       if (eK > 0.02) { const step = Math.min(1.1, Gpx * 0.011), nE = Gpx > 40 ? 3 : 2; g.fillStyle = edgeC;
         for (let e = nE; e >= 1; e--) { const [lx, ly] = toLocal(ex * step * e, ey * step * e); g.globalAlpha = A * up.ua * 0.55 * eK * (1 - (e - 1) / (nE + 1)); sharpGlyph(g, u.c, Gpx, null, lx, ly); } }
-      g.fillStyle = inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : inkG, trail ? null : grad);   // (blurred, the same light: no change on focusing)
+      if (S.emph && !trail && pal.dark && !lite) { g.save(); g.fillStyle = eGlow; g.globalAlpha = A * up.ua * 0.22 * (1 - up.uq * 0.6); blurGlyph(g, u.c, Math.max(3, Gpx * 0.09), Gpx); g.restore(); }
+      g.fillStyle = S.emph ? eC : inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : S.emph ? eG : inkG, trail ? null : S.emph ? eGrad : grad);   // (blurred, the same light: no change on focusing)
       g.restore();
     }
     if (S.harm && !trail) drawHarmony(g, S, f.t, A, fc, inkC, shadowC, c.future);

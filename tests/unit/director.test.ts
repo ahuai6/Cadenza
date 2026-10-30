@@ -70,8 +70,7 @@ describe.each(styles)('director (%s)', cut => {
     for (const p of P.passages) {
       const first = P.lines[p.line].words[0];
       expect(p.t + p.out).toBeLessThanOrEqual(first.show + 0.001);
-      // (a seam — a clear forced between two lines sung straight into each other — sits on the seam, not on the beat)
-      if (p.reason !== 'seam') { const pos = P.map.beatAt(p.t); expect(Math.min(pos.phase, 1 - pos.phase, Math.abs(pos.phase - 0.5))).toBeLessThan(0.02); }
+      const pos = P.map.beatAt(p.t); expect(Math.min(pos.phase, 1 - pos.phase, Math.abs(pos.phase - 0.5))).toBeLessThan(0.02);
     }
   });
 });
@@ -82,8 +81,20 @@ describe.each(styles)('transitions (%s)', cut => {
     for (const k of P.camera.cuts) { const a = cameraAt(P, sig, k.t - 1e-4, 1).cont, b = cameraAt(P, sig, k.t + 1e-4, 1).cont;
       expect(Math.hypot(b.x - a.x, b.y - a.y) * b.z, `cut at ${k.t.toFixed(2)}`).toBeLessThan(2); expect(Math.abs(Math.log(b.z / a.z))).toBeLessThan(0.005); expect(Math.abs(b.r - a.r)).toBeLessThan(0.1); }
   });
-  it('a transition never hides words still being sung', () => {
-    for (const q of P.passages) for (const S of P.lines[q.line - 1].words) expect(S.end - (q.reason === 'seam' ? 0.45 : 0.12), `${q.reason} at ${q.t.toFixed(2)}: "${S.w.text}"`).toBeLessThanOrEqual(q.t - q.inn * 0.5 + 1e-6);
+  it('the frame holds still under a blur: no shake, no heavy-beat kick, no beat sway', () => {
+    for (const q of P.passages) for (const dt of [-q.inn * 0.4, 0, q.out * 0.4]) { const f = cameraAt(P, sig, q.t + dt, 1).fx;
+      expect(Math.abs(f.x) + Math.abs(f.y) + Math.abs(f.r) + Math.abs(f.z - 1) * 100, `${q.reason} at ${(q.t + dt).toFixed(2)}`).toBeLessThan(1e-6); }
+  });
+  it('a blur begins only once the line before is sung to its end', () => {
+    for (const q of P.passages) { const A = P.lines[q.line - 1], end = Math.min(A.L.sung, A.L.end, ...A.words.map(S => S.end));
+      expect(end, `${q.reason} at ${q.t.toFixed(2)}: line ${A.i}`).toBeLessThanOrEqual(q.t - q.inn + 0.01); }
+  });
+  it('a clear without a blur takes away only lines the camera does not see', () => {
+    let n = 0;
+    for (const L of P.lines) { if (L.secIn !== 0.01) continue; n++; const t = L.secEnd - 0.005, cam = cameraAt(P, sig, t, 0).cam;
+      for (const S of L.words) { const p = project(S.x, S.y, S.d, cam, NO_FX, P.W, P.H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k;
+        expect(Math.abs(p.sx) - half > P.W * 0.5 || Math.abs(p.sy) - half > P.H * 0.5, `line ${L.i} at ${t.toFixed(2)}`).toBe(true); } }
+    if (cut === 'close') expect(n).toBeGreaterThan(0);
   });
   it('a lyric frame always has its full time on screen', () => {
     for (const P1 of P.lines) for (const S of P1.words) { const F = S.frame; if (!F || F.words[F.words.length - 1] !== S) continue;
@@ -125,9 +136,9 @@ describe('director: specific cases', () => {
         if (out) bad++; } }
     expect(n).toBeGreaterThan(0); expect(bad / n).toBeLessThan(0.05);
   });
-  it('a lyric frame takes a small target (a word or two of one line) and stays frequent', () => {
+  it('a lyric frame takes a small target (a word or two of one line), now and then', () => {
     const P = make('glide'), Fs = [...new Set(P.words.map(S => S.frame).filter(Boolean))] as NonNullable<(typeof P.words)[0]['frame']>[];
-    expect(Fs.length, 'frames in the song').toBeGreaterThanOrEqual(Math.floor(P.lines.length * 0.2));
+    expect(Fs.length, 'frames in the song: now and then, never most lines').toBeGreaterThanOrEqual(Math.floor(P.lines.length * 0.08)); expect(Fs.length).toBeLessThanOrEqual(Math.ceil(P.lines.length * 0.3));
     for (const F of Fs) { expect(F.words.length).toBeLessThanOrEqual(2); expect(new Set(F.words.map(S => S.line)).size).toBe(1);
       const txt = F.words.map(S => S.w.text.trim()).join(''), cjk = /[\u3000-\u9fff\uac00-\ud7af]/.test(txt);
       if (F.words.length === 2) expect([...txt].length, txt).toBeLessThanOrEqual(cjk ? 4 : 12); }
@@ -321,7 +332,7 @@ describe('vertical lines', () => {
     const P = make(cut, src, { frame: false }); let n = 0, moved = 0;
     for (const st of P.camera.stops) { const S = st.words[0]; if (!S.vert || st.words.length > 1 || S.units.length < 4) continue; const us = S.units, t0 = Math.max(st.arrive, us[0].t ?? S.w.t), t1 = us[us.length - 1].t ?? S.end; if (t1 - t0 < 0.3) continue; n++;
       const a = basePose(P.camera, t0 + 0.02), b = basePose(P.camera, t1 + 0.15), down = Math.hypot(us[us.length - 1].ox - us[0].ox, us[us.length - 1].oy - us[0].oy);
-      if ((b.y - a.y) > down * 0.2) moved++; }
+      const ax = st.fax || [0, 1]; if ((b.x - a.x) * ax[0] + (b.y - a.y) * ax[1] > down * 0.2) moved++; }   // (along the column, whichever way the page has turned)
     expect(n).toBeGreaterThan(0);
     expect(moved / n, `${moved} of ${n} columns`).toBeGreaterThan(0.6);
   });
@@ -344,10 +355,11 @@ describe('album play', () => {
 });
 
 describe('crowded pages', () => {
-  it('never holds more than ten lines before a clear, even when the lines run straight into each other', () => {
+  it('never keeps more than ten lines on the page, even when the lines run straight into each other (cleared unseen, no blur)', () => {
     const src = Array.from({ length: 40 }, (_, i) => `[${String(Math.floor((2 + i * 2.2) / 60)).padStart(2, '0')}:${((2 + i * 2.2) % 60).toFixed(2).padStart(5, '0')}]一句接著一句 不停`).join('\n');
-    for (const cut of ['glide', 'punch'] as const) { const P = make(cut, src, { frame: false }), at = [0, ...P.passages.map(q => q.line).sort((a, b) => a - b), P.lines.length];
-      for (let i = 1; i < at.length; i++) expect(at[i] - at[i - 1]).toBeLessThanOrEqual(10); }
+    for (const cut of ['glide', 'punch'] as const) { const P = make(cut, src, { frame: false });
+      for (let t = 2; t < P.musicEnd; t += 0.25) expect(P.lines.filter(L => L.words.length && L.words[0].show <= t && t < L.secEnd).length, `${cut} at ${t}`).toBeLessThanOrEqual(10);
+      expect(P.passages.length, 'no blur where the line before cannot be sung out').toBe(0); }
   });
 });
 

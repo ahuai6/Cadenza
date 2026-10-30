@@ -1,6 +1,6 @@
 // Colours for a frame: the theme's five colours as RGB, whether the scene is dark, the palette a cover suggests, and
 // the ambient palette (the now-playing backdrop's colours from the cover).
-import { hex2rgb, hexOf, lum, mix, contrast, toHsl, hsl, W3, K3, type RGB } from '../core/color';
+import { hex2rgb, hexOf, lum, mix, contrast, toHsl, hsl, paleOf, W3, K3, type RGB } from '../core/color';
 import { hashStr } from '../core/rng';
 import type { Style } from '../theme/style';
 
@@ -23,7 +23,7 @@ export function paletteFromImage(img: Img): Pick<Style, 'bg' | 'bg2' | 'text' | 
   const dark = lum(avg) < 0.5, bg = dark ? mix(dom, K3, 0.8) : mix(dom, W3, 0.84), bg2 = dark ? mix(dom, K3, 0.45) : mix(dom, W3, 0.55);
   let text = dark ? mix(W3, acc, 0.06) : mix([12, 12, 14], dom, 0.15); for (let k = 0; k < 10 && contrast(text, bg) < 7; k++) text = mix(text, dark ? W3 : K3, 0.35);
   let accent = acc; for (let k = 0; k < 10 && contrast(accent, bg) < 3; k++) accent = mix(accent, dark ? W3 : K3, 0.2);
-  const flash = dark ? mix(W3, accent, 0.15) : text;
+  const flash = dark ? paleOf(accent) : text;
   return { bg: hexOf(bg), bg2: hexOf(bg2), text: hexOf(text), accent: hexOf(accent), flash: hexOf(flash) };
 }
 /** The record theme's colours from a cover: the ground is the cover's own dominant colour, deepened (the record and white

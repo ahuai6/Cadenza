@@ -1,7 +1,7 @@
 // Effects switched on per theme: drawn in the backdrop's space (motes, feathers, floor grid, spectrum, beat rings, glass
 // cracks), in the lyric world (glyph contours, lyric frames, stars), in front (shards, feathers) or over the screen
 // (grain, vignette, scan lines).
-import { clamp, sstep, D2R, lerp } from '../../core/math';
+import { clamp, sstep, D2R, lerp, angDiff } from '../../core/math';
 import { eOut, eIO, eSine } from '../../core/ease';
 import { rnd } from '../../core/rng';
 import { mix, rgba, K3, W3, type RGB } from '../../core/color';
@@ -16,6 +16,7 @@ import { fontStack } from '../../text/fonts';
 import { graphemes, isLatin } from '../../lyrics/script';
 import { TIN_SPEC } from '../../director/words';
 import type { PLine } from '../../director/types';
+import { gfx, cheapBlurDraw } from '../gfx';
 
 const C2 = (c: HTMLCanvasElement | OffscreenCanvas) => (c as HTMLCanvasElement).getContext('2d')!;
 let DOT: { key: string; c: HTMLCanvasElement } | null = null;
@@ -229,7 +230,7 @@ register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'ef
   // what each flying piece carries is only the picture where it was: the frame is copied for those places alone, and
   // each piece draws only its own part of it (a piece no longer reads the whole frame — the cost of the shatter)
   // (a large frame is copied at a little under its full size: the pieces are in flight, a hair of softness is not seen)
-  const sk = cv.width > 1600 ? 1600 / cv.width : 1, SW = Math.round(cv.width * sk), SH = Math.round(cv.height * sk); if (GSNAP.width !== SW || GSNAP.height !== SH) { GSNAP.width = SW; GSNAP.height = SH; }
+  const sk = Math.min(cv.width > 1600 ? 1600 / cv.width : 1, gfx() === 'optimized' ? 0.5 : 1), SW = Math.round(cv.width * sk), SH = Math.round(cv.height * sk); if (GSNAP.width !== SW || GSNAP.height !== SH) { GSNAP.width = SW; GSNAP.height = SH; }
   const kx = SW / w, ky = SH / h, BOX = new Map<any, number[]>(); let U = [Infinity, Infinity, -Infinity, -Infinity];
   for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, reach = sstep(clamp(dt / 0.07)) * 1.2;
     for (const sh of G.shards) { if (sh.r0 > reach || !sh.fly) continue; const b = [Infinity, Infinity, -Infinity, -Infinity];
@@ -334,13 +335,14 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z:
       // time (each its own way), bobs and sways on a few slow waves that never line up, breathes, and turns a little in
       // depth (narrowing as it turns); it lies a good way behind the words, so the camera's moves slide it a little
       // against them (part of the backdrop's own parallax) — never pinned to the frame
+      const tt = accentClock(f);   // (its drift, sway and breath hang on a heavy beat like the other floating things)
       const at = glyphSpot(sl, f), ph = P.i * 1.37, life = Math.max(2, sl.end + 1.8 - (sl.t - 0.2)), u = clamp((t - sl.t + 0.2) / life) - 0.5, da = rnd(P.i * 5.3) * 6.283;
-      const br = 1 + 0.03 * Math.sin(t * 0.47 + ph) + 0.015 * Math.sin(t * 0.83 + ph * 1.9), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br;
+      const br = 1 + 0.03 * Math.sin(tt * 0.47 + ph) + 0.015 * Math.sin(tt * 0.83 + ph * 1.9), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br;
       const ly = glyphPane(ch, fc.w, fc.stack); if (!ly) continue;
-      const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + u * 7 * (rnd(P.i * 1.1) < 0.5 ? -1 : 1) + Math.sin(t * 0.37 + ph) * 3.5 + Math.sin(t * 0.71 + ph * 2.1) * 1.3) * D2R;
-      const yaw = 1 - 0.07 * (0.5 + 0.5 * Math.sin(t * 0.29 + ph * 1.3)), pitch = 1 - 0.035 * (0.5 + 0.5 * Math.sin(t * 0.41 + ph * 0.7));
-      const cx = f.W / 2 + at.x + Math.cos(da) * u * 0.09 * f.W + (Math.sin(t * 0.43 + ph) * 0.02 + Math.sin(t * 0.79 + ph * 1.7) * 0.008) * f.W + a.bd.ox * 0.5,
-        cy = f.H / 2 + at.y + Math.sin(da) * u * 0.07 * f.H + (Math.sin(t * 0.53 + ph * 0.8) * 0.026 + Math.sin(t * 0.97 + ph * 2.3) * 0.01) * f.H + a.bd.oy * 0.5, w = size * ly.S, half = w * 0.72;
+      const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + u * 7 * (rnd(P.i * 1.1) < 0.5 ? -1 : 1) + Math.sin(tt * 0.37 + ph) * 3.5 + Math.sin(tt * 0.71 + ph * 2.1) * 1.3) * D2R;
+      const yaw = 1 - 0.07 * (0.5 + 0.5 * Math.sin(tt * 0.29 + ph * 1.3)), pitch = 1 - 0.035 * (0.5 + 0.5 * Math.sin(tt * 0.41 + ph * 0.7));
+      const cx = f.W / 2 + at.x + Math.cos(da) * u * 0.09 * f.W + (Math.sin(tt * 0.43 + ph) * 0.02 + Math.sin(tt * 0.79 + ph * 1.7) * 0.008) * f.W + a.bd.ox * 0.5,
+        cy = f.H / 2 + at.y + Math.sin(da) * u * 0.07 * f.H + (Math.sin(tt * 0.53 + ph * 0.8) * 0.026 + Math.sin(tt * 0.97 + ph * 2.3) * 0.01) * f.H + a.bd.oy * 0.5, w = size * ly.S, half = w * 0.72;
       // the picture under the pane, small, blurred, lifted, cut to the glyph
       // (worked small: a quarter of its size on screen, never over 160 px — it is blurred, so nothing is lost, and a large
       // pane up close no longer costs a large blur)
@@ -350,7 +352,9 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z:
       // (only the part of the picture that is really there: a pane reaching past the frame reads no more than the frame)
       { const x0 = Math.max(0, dx), y0 = Math.max(0, dy), x1 = Math.min(cv.width, dx + ds), y1 = Math.min(cv.height, dy + ds), k = sw / ds;
         if (x1 - x0 < 1 || y1 - y0 < 1) continue; ax.clearRect(0, 0, sw, sw); ax.globalCompositeOperation = 'source-over'; ax.drawImage(cv, x0, y0, x1 - x0, y1 - y0, (x0 - dx) * k, (y0 - dy) * k, (x1 - x0) * k, (y1 - y0) * k); }
-      bx.setTransform(1, 0, 0, 1, 0, 0); bx.globalCompositeOperation = 'copy'; bx.filter = `blur(${Math.max(2, sw * 0.022).toFixed(1)}px)`; bx.drawImage(A, 0, 0); bx.filter = 'none';
+      bx.setTransform(1, 0, 0, 1, 0, 0); bx.globalCompositeOperation = 'copy';
+      if (gfx() === 'optimized') { bx.clearRect(0, 0, sw, sw); bx.globalCompositeOperation = 'source-over'; cheapBlurDraw(bx, A, sw, sw, Math.max(2, sw * 0.022), 0, 0, sw, sw); bx.globalAlpha = 1; }
+      else { bx.filter = `blur(${Math.max(2, sw * 0.022).toFixed(1)}px)`; bx.drawImage(A, 0, 0); bx.filter = 'none'; }
       bx.globalCompositeOperation = 'source-over'; bx.fillStyle = rgba(veil, f.pal.dark ? 0.1 : 0.22); bx.fillRect(0, 0, sw, sw);
       bx.globalCompositeOperation = 'destination-in'; bx.translate(sw / 2, sw / 2); bx.rotate(rot); const mw = w / (half * 2) * sw; bx.drawImage((mw <= 400 ? ly.small : ly.mask) as CanvasImageSource, -mw / 2, -mw / 2, mw, mw);
       g.save(); g.translate(cx, cy); g.scale(yaw, pitch); g.globalAlpha = al * 0.92; g.drawImage(B, -half, -half, half * 2, half * 2);
@@ -367,13 +371,19 @@ register({ id: 'frame', label: 'fx.frame', layer: 'world-back', kind: 'effect', 
   const seen = new Set<any>();
   for (const v0 of vis) { const F = v0.S.frame; if (!F || seen.has(F) || t < F.ts) continue; seen.add(F);
     const o = Math.max(...F.words.map(S => byS.get(S)?.o ?? 0)) * f.view.effect; if (o < 0.02) continue;
-    const pj = F.words.map(S => ({ S, p: project(S.x, S.y, S.d, f.cam.cam, f.cam.fx, f.W, f.H) }));
-    const boxes = pj.map(({ S, p }) => ({ x: p.sx, y: p.sy, lw: S.lw * p.k, lh: S.lh * p.k, tilt: S.tilt + p.rot }));
-    const vv = [{ S: F.words[0], p: pj[0].p }];
-    const L = vv[0].S.line, B = boxIn(boxes, L.prot + vv[0].p.rot), padd = Math.min(...boxes.map(b => b.lh)) * 0.15, w = B.w + padd * 2, h = B.h + padd * 2, per = 2 * (w + h);
+    // each word as it is drawn now (its float, its own turn, its size: lyrics.ts), not at its rest pose — a tilted or
+    // floating word stays inside; the words' leaning in depth is not followed exactly, a margin holds it
+    const boxes = F.words.map(S => { const v = byS.get(S), p = v ? v.p : project(S.x, S.y, S.d, f.cam.cam, f.cam.fx, f.W, f.H), ws = v?.ws;
+      const a = (S.tilt + p.rot + (ws?.frot ?? 0)) * D2R, k = S.s * (ws?.sc ?? 1) * p.k, ox = (ws?.ox ?? 0) * k, oy = (ws?.oy ?? 0) * k;
+      return { x: p.sx + Math.cos(a) * ox - Math.sin(a) * oy, y: p.sy + Math.sin(a) * ox + Math.cos(a) * oy, lw: S.lw * (ws?.sc ?? 1) * p.k, lh: S.lh * (ws?.sc ?? 1) * p.k, tilt: a / D2R }; });
+    const vv = [{ S: F.words[0], p: byS.get(F.words[0])?.p ?? project(F.words[0].x, F.words[0].y, F.words[0].d, f.cam.cam, f.cam.fx, f.W, f.H) }], L = vv[0].S.line;
+    // its angle: mostly the words' own, leaning a little back to the line's — close to them, never glued to them
+    const wa = Math.atan2(boxes.reduce((s, b) => s + Math.sin(b.tilt * D2R), 0), boxes.reduce((s, b) => s + Math.cos(b.tilt * D2R), 0)) / D2R, la = L.prot + vv[0].p.rot;
+    const fa = la + angDiff(wa, la) * 0.8, B = boxIn(boxes, fa), cs = Math.min(...boxes.map(b => Math.min(b.lw, b.lh)));
+    const padd = cs * 0.15 + Math.max(B.w, B.h) * 0.03, w = B.w + padd * 2, h = B.h + padd * 2, per = 2 * (w + h);
     const dt = t - F.ts, p = eOut(clamp(dt / 0.85)), tEnd = L.L.end - 0.8, q = 1 - eIO(clamp((t - tEnd) / 0.8)), vis1 = p * q; if (vis1 <= 0.002) continue;
     const fl = Math.sin(t * 0.9 + L.i) * 0.5, s1 = 1 + 0.012 * Math.sin(t * 1.3 + L.i * 2);
-    g.save(); g.translate(f.W / 2 + B.x + Math.sin(t * 0.7 + L.i) * padd * 0.08, f.H / 2 + B.y + Math.cos(t * 0.6 + L.i) * padd * 0.08); g.rotate((L.prot + vv[0].p.rot + fl) * D2R); g.scale(s1, s1);
+    g.save(); g.translate(f.W / 2 + B.x + Math.sin(t * 0.7 + L.i) * padd * 0.08, f.H / 2 + B.y + Math.cos(t * 0.6 + L.i) * padd * 0.08); g.rotate((fa + fl) * D2R); g.scale(s1, s1);
     g.strokeStyle = rgba(ink, 1); g.fillStyle = rgba(ink, 1); g.globalAlpha = o * 0.7; g.lineWidth = 1.6; g.lineJoin = 'miter'; g.lineCap = 'butt';
     const sx = F.corner ? 1 : -1, x0 = -w / 2 * sx, y0 = -h / 2, len = per / 2 * vis1;
     g.setLineDash([len, per]); g.beginPath(); g.moveTo(x0, y0); g.lineTo(-x0, y0); g.lineTo(-x0, -y0); g.lineTo(x0, -y0); g.closePath(); g.stroke();

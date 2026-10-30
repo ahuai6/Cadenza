@@ -6,6 +6,7 @@ import { fontStack, captionStack } from '../text/fonts';
 import { isLatin } from '../lyrics/script';
 import { makeCanvas } from './palette';
 import { filterSupported } from './glyphs';
+import { gfx, cheapBlurDraw } from './gfx';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
 
@@ -18,6 +19,11 @@ function work(w: number, h: number) { const key = w + 'x' + h; let p = WORK.get(
   if (!p) { p = [makeCanvas(w, h) as HTMLCanvasElement, makeCanvas(w, h) as HTMLCanvasElement]; WORK.set(key, p); if (WORK.size > 10) WORK.delete(WORK.keys().next().value!); } return p; }
 export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   const cv = g.canvas as HTMLCanvasElement, w = cv.width, h = cv.height, R = Math.max(w, h) * 0.014, r = k ** 0.9 * R; if (r < 0.25) return;
+  const tint = mix(mix(f.pal.bg, f.pal.bg2, 0.55), f.pal.dark ? [255, 255, 255] : f.pal.bg2, f.pal.dark ? 0.14 : 0.3), mode = gfx();
+  // (lite: no blur — the picture dims into the song's colour and back; optimised: the dual-filter blur, no Gaussian)
+  if (mode === 'lite') { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = k * k * 0.55; g.fillStyle = hexOf(mix(f.pal.bg, tint, 0.3)); g.fillRect(0, 0, w, h); g.restore(); return; }
+  if (mode === 'optimized') { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); cheapBlurDraw(g, cv, w, h, Math.max(1.6, r * 1.4), 0, 0, w, h, Math.min(1, k * 1.6) * 0.94);
+    g.globalAlpha = k * k * 0.085; g.fillStyle = hexOf(tint); g.fillRect(0, 0, w, h); g.restore(); return; }
   // one working scale for the whole transition (from its peak blur), so only the blur itself changes as it rises and
   // clears — a scale stepping with the blur re-sampled the picture at every step, which read as grain and a twitch
   const fct = filterSupported ? Math.max(2, R / 4) : 1, w1 = w / fct, h1 = h / fct, rb = r / fct, m = Math.min(30, Math.ceil(R / fct * 2.6) + 2);
@@ -34,7 +40,6 @@ export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   // loss of focus in the song's colour, never a curtain nor a plastic sheet
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high';
   g.globalAlpha = Math.min(1, k * 1.6) * 0.94; g.drawImage(TB, m, m, w1, h1, 0, 0, w, h);
-  const tint = mix(mix(f.pal.bg, f.pal.bg2, 0.55), f.pal.dark ? [255, 255, 255] : f.pal.bg2, f.pal.dark ? 0.14 : 0.3);
   g.globalAlpha = k * k * 0.085; g.fillStyle = hexOf(tint); g.fillRect(0, 0, w, h); g.restore();
 }
 

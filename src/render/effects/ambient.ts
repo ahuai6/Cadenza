@@ -5,6 +5,7 @@
 import { register, type Ctx } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
+import { gfx } from '../gfx';
 
 const SW = 128, SH = 80;
 const small = makeCanvas(SW, SH) as HTMLCanvasElement, sx = small.getContext('2d')!;
@@ -27,7 +28,8 @@ export function ambientField(f: RenderFrame): HTMLCanvasElement {
     const gr = sx.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${col.map(Math.round)},${0.75 - i * 0.08})`); gr.addColorStop(1, `rgba(${col.map(Math.round)},0)`);
     sx.fillStyle = gr; sx.fillRect(0, 0, SW, SH); });
   sx.globalCompositeOperation = 'source-over';
-  so.globalCompositeOperation = 'copy'; so.filter = 'blur(5px)'; so.drawImage(small, 0, 0); so.filter = 'none'; so.globalCompositeOperation = 'source-over';
+  // (lite: no blur — the colours are soft gradients already, drawn up from a small picture)
+  so.globalCompositeOperation = 'copy'; if (gfx() !== 'lite') so.filter = 'blur(5px)'; so.drawImage(small, 0, 0); so.filter = 'none'; so.globalCompositeOperation = 'source-over';
   return soft;
 }
 /** Draw the ambient field over the whole frame (plus bleed), with a veil that keeps white text readable. */
