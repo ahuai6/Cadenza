@@ -93,7 +93,7 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
       if (sig.cancelled || encErr || sinkErr) break;
       const t = i / fps;
       for (const [v, fs] of vids) { const x = v.timeAt(t, s.audioStart); if (fs) { try { v.exportFrame = await fs.frameAt(x); } catch { v.exportFrame = null; } } if (!fs || !v.exportFrame) { v.exportFrame = null; await v.seek(x); } }
-      const f = engine.frameAt(t, { offline: true, px: h * N / s.plan.H })!; f.media = { ...f.media, video: s.style.bgStyle === 'video' ? engine.video.drawable() : null, mv: engine.mv.on ? { ...(engine.mv.drawable() || { frame: null, w: 16, h: 9 }), k: 1 } : null };
+      const f = engine.frameAt(t, { offline: true, px: h * N / s.plan.H })!; f.media = { ...f.media, video: s.style.bgStyle === 'video' ? engine.video.drawable() : null, mv: engine.mv.on && engine.mv.endK(t, s.audioStart) > 0 ? { ...(engine.mv.drawable() || { frame: null, w: 16, h: 9 }), k: engine.mv.endK(t, s.audioStart) } : null };
       const tg = big ? big.getContext('2d')! : c; tg.setTransform(1, 0, 0, 1, 0, 0);
       withGfx('default', () => drawFrame(tg, f, { sig: s.sig, captions: o.captions !== false, captionBottom: s.plan.H * 0.915 }));
       if (big) ssDown(big, cnv, N);

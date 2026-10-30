@@ -155,6 +155,13 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   ok('song panel: typing with an input method keeps it open; it closes once focus and pointer leave', ime.composing === 'true' && ime.typing === 'true' && ime.left !== 'true', JSON.stringify(ime));
   await win.mouse.move(1436, 450, { steps: 6 }); await W(800); await win.mouse.move(1250, 300, { steps: 8 }); await W(200);
   console.log('      panel', await C(() => document.querySelector('[data-test=song-panel]')?.dataset.open));
+  // the cue symbols: Alt + a number types its symbol at the cursor, and its key above the text does the same
+  { const ta = win.locator('[data-test=song-panel] textarea').first(); await ta.click(); await win.keyboard.press('Control+End');
+    await win.keyboard.press('Alt+1'); await win.locator('[data-test=song-panel]').getByRole('toolbar').getByRole('button', { name: /#3/ }).click(); await W(200);
+    const v = await ta.inputValue(), keys = await win.locator('[data-test=song-panel]').getByRole('toolbar').getByRole('button').count();
+    ok('lyrics editor: cue symbols typed at the cursor, by Alt + their key or their button', v.endsWith('#1#3') && keys === 3, JSON.stringify({ tail: v.slice(-12), keys }));
+    await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace');
+    await C(() => document.activeElement.blur()); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '動態' }).click(); await W(300);
   await C(() => window.__cadenza.api.editSong(s => s.setKnob('energy', 1.6))); await W(1000);
   const saved = await C(id => window.cadenzaLib.song(id).then(s => ({ k: s && s.style && s.style.k && s.style.k.energy, custom: s && s.style && s.style.preset })), ids['晨光']);
@@ -168,6 +175,11 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await win.locator('[data-test=modal]').getByRole('button', { name: /選擇/ }).click(); await W(2800);
   const mv = await C(() => { const e = window.__cadenza.engine; return { on: e.mv.on, k: e.mv.k, bg: e.session.style.bgStyle, ready: window.__cadenza.player.get().mv.ready }; });
   ok('MV mode: bound, fading in over the song\'s own backdrop', mv.on && mv.ready && mv.k > 0.99 && mv.bg === 'cover', JSON.stringify(mv));
+  // an MV shorter than the song: once it has run out, the song is as it is without one — whatever its theme is now
+  { const r = await C(() => { const e = window.__cadenza.engine, s = e.session, d = e.mv.el.duration, keep = s.style.bgStyle;
+      s.style.bgStyle = 'gothic'; const tin = 5, tout = d - s.audioStart - e.mv.offset + 1.5, a = e.frameAt(tin), b = e.frameAt(tout); s.style.bgStyle = keep;
+      return { dur: s.dur, tout, during: !!(a && a.media.mv && a.media.mv.k > 0.9), after: b ? b.media.mv : 'none', stale: b ? 'mvDone' in b.media : true }; });
+    ok('MV shorter than the song: after it the song is as without one (no MV layer, no stand-in theme)', r.tout < r.dur && r.during && r.after === null && !r.stale, JSON.stringify(r)); }
   await shot('fx-mv');
   await C(() => window.__cadenza.api.setMvOn(false)); await W(1200);
   // back to the page: the title bar's brand and search (above the blur) stay away until the page is under it again
@@ -188,6 +200,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const npEdge = await C(() => { const st = document.querySelector('[data-test=stage]').getBoundingClientRect(), pg = document.querySelector('main[data-scroll]').getBoundingClientRect(); return { dx: Math.round(st.left - pg.left), dy: Math.round(st.top - pg.top) }; });
   // (the page area's own edge is the hairline beside the sidebar: the play page starts just inside it, flush with the top)
   ok('now playing: the page covers the main area exactly, inside its edge line', npEdge.dx === 1 && npEdge.dy === 0, JSON.stringify(npEdge));
+  ok('now playing: no "now playing" label at the top (the page itself says it)', !(await C(() => [...document.querySelectorAll('.kicker')].some(k => k.textContent === '正在播放' && k.getClientRects().length))));
   await win.keyboard.press('Escape');
   ok('now playing: Esc closes into the card', await layerIs('none')); await W(300);
 
@@ -320,6 +333,11 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const warn = await C(() => document.body.innerText.includes('光敏性癲癇提醒'));
     ok('settings: clearing the caches asks first, and cancelling keeps them; the photosensitivity warning is shown', !!dlg && dlg.includes('清除') && !after.modal && after.an > 0 && warn, JSON.stringify({ dlg: dlg && dlg.slice(0, 40), ...after, warn })); }
   await win.getByRole('radio', { name: '淺色' }).click(); await W(600); await shot('settings-light');
+  { await win.getByRole('radio', { name: '白色' }).click(); await W(500); await shot('settings-white');
+    const white = await C(() => ({ tone: document.documentElement.dataset.tone, bg: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() }));
+    await win.getByRole('radio', { name: '紙色' }).click(); await W(400);
+    const paper = await C(() => ({ tone: document.documentElement.dataset.tone, bg: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() }));
+    ok('settings: the light theme in white (as before) or paper', white.tone === 'white' && ['#fff', '#ffffff'].includes(white.bg) && paper.tone === 'paper' && paper.bg === '#faf9f5', JSON.stringify({ white, paper })); }
   await win.getByRole('button', { name: '音樂庫' }).click(); await W(600); await shot('library-light');
   await win.locator('[data-test=card]').getByTitle('展開').first().click(); await layerIs('np'); await W(300); await shot('np-light');
   await win.keyboard.press('Escape'); await layerIs('none');

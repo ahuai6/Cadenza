@@ -1,5 +1,5 @@
-// An MV shorter than its song: it plays whole, then fades out over its last moments (the cover's own backdrop then
-// carries the picture to the end); one as long as the song is never faded. And the frame shapes: each a size, never a crop.
+// An MV shorter than its song: it plays whole, then fades out over its last moments (the song then goes on as it is
+// without an MV, in its own theme); one as long as the song is never faded. And the frame shapes: each a size, never a crop.
 import { describe, it, expect } from 'vitest';
 import { MvSource } from '../../src/engine/media';
 import { ASPECTS } from '../../src/director';

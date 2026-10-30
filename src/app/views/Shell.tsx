@@ -25,11 +25,11 @@ import s from './Shell.module.css';
 
 function resolveTheme(t: string) { return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
 function useTheme() {
-  const t = useStore(settings, x => x.theme);
+  const t = useStore(settings, x => x.theme), tone = useStore(settings, x => x.tone);
   useLayoutEffect(() => {
-    const apply = () => { document.documentElement.dataset.theme = resolveTheme(t); };
+    const apply = () => { const r = document.documentElement; r.dataset.theme = resolveTheme(t); r.dataset.tone = tone === 'white' ? 'white' : 'paper'; };
     apply(); const mq = matchMedia('(prefers-color-scheme: dark)'); mq.addEventListener('change', apply); return () => mq.removeEventListener('change', apply);
-  }, [t]);
+  }, [t, tone]);
 }
 
 export function Shell() {

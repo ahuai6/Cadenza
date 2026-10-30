@@ -57,7 +57,8 @@ export function NowPlaying() {
     <section data-test="np" className={s.np + ' on-picture'} ref={root} style={tone} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
       <header className={s.top} ref={top}>
         <div className={s.fade}><IconButton n="chevronDown" label={tx('s.collapse')} onClick={back} /></div>
-        <div className={s.topMid + ' ' + s.fade}><span className="kicker">{tx('s.nowPlaying')}</span>{t.album && <small>{t.album}</small>}</div>
+        {/* (nothing in the middle: the page itself says what is playing — its cover, title, artist and album on the left) */}
+        <div className={s.topMid} />
         <div className={s.topR + ' ' + s.fade}>
           <Button glass icon="sparkles" onClick={openFx}>{tx('s.fxLyrics')}</Button>
           <IconButton n="more" label={tx('s.more')} onClick={more} />

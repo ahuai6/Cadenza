@@ -26,9 +26,7 @@
 .fade { opacity: calc(1 - min(1, var(--h) * 3.2)); }
 
 .top { position: absolute; left: 0; right: 0; top: var(--pad-t); height: 60px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 24px; }
-.topMid { display: grid; justify-items: center; gap: 2px; min-width: 0; text-align: center; }
-.topMid .kicker { color: var(--fg-3); }
-.topMid small { color: var(--fg-2); font-size: 12.5px; max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topMid { min-width: 0; }
 .topR { display: flex; gap: 6px; justify-self: end; }
 .main { position: absolute; inset: calc(var(--pad-t) + 60px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(320px, 1.1fr); gap: clamp(24px, 4vw, 80px); padding: 0 clamp(28px, 5vw, 96px) 44px; }
 .left { display: grid; align-content: center; justify-items: center; gap: 30px; min-height: 0; }

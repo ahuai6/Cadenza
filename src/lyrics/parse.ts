@@ -44,6 +44,11 @@ export function parseRange(str: string | null | undefined): { a: number; b: numb
 }
 
 const OPEN = /[(（]/, CLOSE = /[)）]/, MARK = /^#([1-3])?/;
+/** The cue symbols a lyric can carry, as an editor offers them (one key each: Alt + key types it at the cursor). One
+ *  list for every editor — a new kind of cue is one more entry here and its reading in this file. */
+export const CUE_SYMBOLS: readonly { text: string; key: string; label: string }[] = [
+  { text: '#1', key: '1', label: 'lyr.cue.1' }, { text: '#2', key: '2', label: 'lyr.cue.2' }, { text: '#3', key: '3', label: 'lyr.cue.3' },
+];
 /** Words from a line's text: broken at spaces; '#N' before a word marks it; brackets make a harmony of the word before. */
 function plainWords(body: string): RawWord[] {
   const out: RawWord[] = []; let tok = '', harm = '', depth = 0, mark: number | undefined;

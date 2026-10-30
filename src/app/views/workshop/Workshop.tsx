@@ -8,6 +8,7 @@ import { desktop, offerFile, pickSavePath, D, type Track } from '../../bridge';
 import { ui, useStore, toast } from '../../state';
 import { Icon } from '../../ui/icons';
 import { Button, IconButton, Seg, Section, Row, Check, TextField, Note, Slider, Dropdown } from '../../ui/kit';
+import { CueBar, cueKeyDown } from '../../ui/cues';
 import { yieldAudio, songForWorkshop } from '../../playback/player';
 import { storedStyle } from '../../../theme/style';
 import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, EndPane, ExportPanel } from '../panes';
@@ -147,7 +148,7 @@ function Timeline({ s: ss }: { s: Session }) {
 
 function LyricsPane({ s: ss }: { s: Session }) {
   const st = useStore(ws, x => x.status), audioName = useStore(ws, x => x.audioName), analyzing = useStore(ws, x => x.analyzing);
-  const [text, setText] = useState(ss.spec.lyrics), [bpm, setBpm] = useState(String(ss.spec.bpm || 120)), [projMsg, setProjMsg] = useState(''), editing = useRef(false);
+  const [text, setText] = useState(ss.spec.lyrics), [bpm, setBpm] = useState(String(ss.spec.bpm || 120)), [projMsg, setProjMsg] = useState(''), editing = useRef(false), ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { if (!editing.current) setText(ss.spec.lyrics); }, [ss, ss.spec.lyrics]);
   useEffect(() => { setBpm(String(+(ss.spec.bpm || 120).toFixed(1))); }, [ss.spec.bpm]);
   const audioFile = useRef<HTMLInputElement>(null), projFile = useRef<HTMLInputElement>(null);
@@ -166,7 +167,8 @@ function LyricsPane({ s: ss }: { s: Session }) {
           <p dangerouslySetInnerHTML={{ __html: tx('lyr.karHelp') }} />
           <h4>{tx('lyr.marks')}</h4><pre>{'[01:02.00]#1 夜に駆ける\n[01:10.00]I love you (love you)'}</pre>
           <p dangerouslySetInnerHTML={{ __html: tx('lyr.marksHelp') }} /><p>{tx('lyr.auto')}</p></details>
-        <textarea className={s.lyrics} spellCheck={false} aria-label={tx('lyr.ta')} value={text} onFocus={() => { editing.current = true; }} onChange={e => setText(e.target.value)} />
+        <CueBar target={ta} />
+        <textarea ref={ta} className={s.lyrics} spellCheck={false} aria-label={tx('lyr.ta')} value={text} onFocus={() => { editing.current = true; }} onKeyDown={cueKeyDown} onChange={e => setText(e.target.value)} />
         <Row>
           <TextField label="BPM" value={bpm} inputMode="decimal" onCommit={v => { setBpm(v); edit(x => x.setTiming({ bpm: Math.max(40, Math.min(240, +v || 120)) })); }} />
           <Button size="sm" disabled={!ss.analysis} title={ss.analysis ? '' : tx('bpm.need')} onClick={() => ss.analysis && edit(x => x.setTiming({ bpm: +ss.analysis!.tempo.bpm.toFixed(1) }))}>{tx('bpm.detect')}</Button>

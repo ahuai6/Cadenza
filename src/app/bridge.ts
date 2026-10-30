@@ -23,7 +23,7 @@ export interface Settings {
   /** the interface's typeface (uifont.ts) */ uiFont?: string;
   /** where edited lyrics are saved: into the song's own tags (default), or as the .lrc beside it */ lyricsTarget?: 'tag' | 'lrc';
   /** the effect lyrics' frame shape, in the window, full screen and in exports: 16:9, 16:10, 9:16, 1:1 */ fxAspect?: string;
-  theme: 'system' | 'light' | 'dark'; scanOnLaunch: boolean; openAtLogin: boolean; closeToTray: boolean; lang: string; scale: 'auto' | number; fps: number; prerender: boolean;
+  theme: 'system' | 'light' | 'dark'; /** the light theme's ground: paper (warm) or the earlier white */ tone?: 'paper' | 'white'; scanOnLaunch: boolean; openAtLogin: boolean; closeToTray: boolean; lang: string; scale: 'auto' | number; fps: number; prerender: boolean;
   audioOut: 'standard' | 'hifi'; audioMode: 'exclusive' | 'shared'; audioDevice: string; fixedVolume: boolean; /** the volume balance: every song at a like loudness */ volBalance?: boolean; platform?: string; version?: string;
   /** the song's own video (MV mode): shade, soft focus, desaturation, and whether it is kept upright to crop it least */
   mvDark: number; mvBlur: number; mvDesat: number; mvFit: boolean;

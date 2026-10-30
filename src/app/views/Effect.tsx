@@ -7,6 +7,7 @@ import { tx } from '../../i18n';
 import { D, Lib } from '../bridge';
 import { ui, settings, useStore, trackOf, toast, openMenu } from '../state';
 import { Button, IconButton, Seg, Row, Slider, Note, Badge, Section, Dropdown } from '../ui/kit';
+import { CueBar, cueKeyDown } from '../ui/cues';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
 import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setMvOn, unbindMv, spacedLines, saveSpacing, fxAspect, FX_ASPECTS, setFxAspect } from '../playback/player';
@@ -157,7 +158,7 @@ export function LyricsTab() {
   const p = useStore(player), t = trackOf(p.shownId), session = p.session!, target = useStore(settings, x => x.lyricsTarget) === 'lrc' ? 'lrc' : 'tag';
   const [text, setText] = useState(() => (p.hasLyrics ? session.spec.lyrics : '') || ''), [msg, setMsg] = useState('');
   const [q, setQ] = useState({ title: t ? t.title : '', artist: t ? t.artist : '' }), [res, setRes] = useState<Awaited<ReturnType<NonNullable<typeof Lib>['searchLyrics']>> | null>(null);
-  const [busy, setBusy] = useState(false), [pick, setPick] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false), [pick, setPick] = useState<number | null>(null), ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { setText((player.get().hasLyrics ? player.get().session?.spec.lyrics : '') || ''); }, [p.shownId]);
   const use = async (src: string) => { const ok = await useLyrics(src); setText(src); setMsg(tx(ok ? 's.lyr.saved' : 'load.none')); };
   const search = async () => { setBusy(true); setRes(null); setPick(null); try { setRes(await Lib!.searchLyrics({ ...q, album: t?.album, duration: t?.duration })); } catch { setMsg(tx('s.netFail')); } setBusy(false); };
@@ -166,7 +167,8 @@ export function LyricsTab() {
     <>
       <div style={{ display: 'grid', gap: 8, padding: '6px 0 14px' }}>
         <Row><b style={{ fontSize: 13 }}>{tx('s.lyr.edit')}</b><span className="muted" style={{ fontSize: 12 }}>{tx(p.lyrics ? 's.lyr.source.' + p.lyrics.source : 's.lyr.source.none')}</span></Row>
-        <textarea className={s.lyricsTa} spellCheck={false} value={text} onChange={e => setText(e.target.value)} placeholder="[00:12.30]…" />
+        <CueBar target={ta} />
+        <textarea ref={ta} className={s.lyricsTa} spellCheck={false} value={text} onKeyDown={cueKeyDown} onChange={e => setText(e.target.value)} placeholder="[00:12.30]…" />
         <Row>
           <Button kind="primary" size="sm" onClick={() => use(hasTimedLines(text) ? text : spreadPlain(text, end))}>{tx('s.lyr.saveLrc')}</Button>
           <Dropdown className={s.target} label={tx('s.lyr.target')} value={target} onChange={v => setSettings({ lyricsTarget: v as 'tag' | 'lrc' })} options={[['tag', tx('s.lyr.target.tag')], ['lrc', tx('s.lyr.target.lrc')]]} />

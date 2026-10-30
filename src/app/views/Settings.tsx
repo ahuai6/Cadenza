@@ -33,6 +33,7 @@ export function SettingsView() {
       <header className={s.head}><span className="kicker">Cadenza</span><h1 className="display">{tx('s.settings')}</h1></header>
       <Group title={tx('s.set.look')}>
         <Field label={tx('s.set.theme')}><Seg size="sm" fit value={st.theme} onChange={v => set({ theme: v })} options={[['system', tx('s.set.system')], ['light', tx('s.set.light')], ['dark', tx('s.set.dark')]]} /></Field>
+        {st.theme !== 'dark' && <Field label={tx('s.set.tone')}><Seg size="sm" fit value={st.tone === 'white' ? 'white' : 'paper'} onChange={v => set({ tone: v })} options={[['paper', tx('s.set.tone.paper')], ['white', tx('s.set.tone.white')]]} /></Field>}
         <Field label={tx('s.set.uiFont')}><Dropdown label={tx('s.set.uiFont')} value={st.uiFont || 'default'} options={Object.keys(UI_FONTS).map(k => [k, tx('s.set.uiFont.' + k)])}
           onChange={async v => { await applyUiFont(currentLang(), v, words(currentLang())); set({ uiFont: v }); }} /></Field>
         <Field label={tx('s.set.lang')}><Dropdown label={tx('s.set.lang')} value={currentLang()} onChange={v => setLang(v as Lang)} options={LANGS.map(([v, n]) => [v, n])} /></Field>

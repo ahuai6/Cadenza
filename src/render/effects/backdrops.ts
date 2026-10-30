@@ -197,12 +197,17 @@ register({ id: 'gothic', label: 'bg.gothic', layer: 'backdrop', kind: 'backdrop'
     g.save(); g.globalAlpha = (0.4 + 0.45 * pt.z) * lifeFade(L.u, 0.1, 0.15); g.translate(x, y); g.rotate(t * pt.f + pt.ph); g.scale(Math.cos(t * pt.f * 1.3 + pt.ph), 1); g.drawImage(Gs.petal, -sz, -sz, sz * 2, sz * 2); g.restore(); }
   g.globalAlpha = 1; } });
 const calmOf = (f: RenderFrame) => f.cam.calm * (1 - f.rs.still);
+const CHAIN_PEAK = 0.33;   // beats from the downbeat to the chain's lowest point
 const FCHAINS = [{ y0: -0.02, y1: 0.4, sag: 0.1, ph: 0.4, k: 1 }, { y0: 1.12, y1: 0.66, sag: 0.07, ph: 2.1, k: -1 }];
 register({ id: 'gothic-chains', label: 'bg.gothic', layer: 'foreground', kind: 'effect', z: 3, draw(g, f) {
   if (f.style.bgStyle !== 'gothic' || f.view.effect <= 0.01) return;
   // the chains are heavy: they answer the downbeat only (a slight drop and swing out that settles over the bar), never
-  // every beat or eighth, and they turn with the frame only a little
-  const rs = f.rs, down = rs.inBar === 0 && rs.bar >= 0 ? Math.exp(-rs.phase * 2.2) * (0.4 + 0.6 * rs.level) * calmOf(f) : 0;
+  // every beat or eighth, and they turn with the frame only a little. The answer is a weight's: it rises from rest (no
+  // jump on the downbeat), peaks a third of a beat later, swings back once a little and has settled to nothing before the
+  // next downbeat — continuous over the whole bar, so the chain never jerks (it used to leap on the beat and snap back
+  // at the bar's second beat)
+  const rs = f.rs, u = rs.inBar + rs.phase, a = u / CHAIN_PEAK, heave = a * Math.exp(1 - a) - 0.22 * Math.exp(-u * 0.9) * Math.sin(Math.min(u, 3.5) * 1.8) * (1 - Math.exp(-u * 4));
+  const down = rs.bar >= 0 ? heave * (0.4 + 0.6 * rs.level) * calmOf(f) : 0;
   const Gs = gothicSprites(f), w = f.W, h = f.H, m = Math.min(w, h), link = m * 0.085, step = link * 0.8, calm = f.cam.calm, cam = f.cam.cont, t = f.t, roll = f.cam.fx.r - cam.r;
   g.save(); g.globalAlpha = f.view.effect; g.translate(w / 2, h / 2); g.rotate(roll * 0.06 * D2R); g.translate(-w / 2, -h / 2);
   for (const ch of FCHAINS) {

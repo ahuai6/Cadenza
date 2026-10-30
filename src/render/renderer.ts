@@ -39,9 +39,9 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const roll = (cf.fx.r - cf.cont.r) * settle, zoom = 1 + (cf.fx.z * (1 + Math.min(0.15, mb * 0.01)) - 1) * hold, ra = Math.abs(roll * D2R), zz = Math.max(0.05, zoom), E = Math.max(W, H) * 0.7;
   const Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(ra)) + H / 2 * Math.abs(Math.sin(ra))) / zz - W / 2, (W / 2 * Math.abs(Math.sin(ra)) + H / 2 * Math.abs(Math.cos(ra))) / zz - H / 2)) + 4);
   const bd: BackdropView = { roll, zoom, ox: (cf.fx.x * 0.5 - cf.hand[0] * 0.35) * hold, oy: (cf.fx.y * 0.5 - cf.hand[1] * 0.35) * hold, E, Ev, fit, rest };
-  // (an MV that has run out fades over the cover's own backdrop, which carries the picture to the song's end)
-  const mvOut = !!f.media.mvDone;
-  const bgFx = (mvOut ? effect('cover') : effect(st.bgStyle)) || effect('minimal')!, sameAsAmbient = mvOut || st.bgStyle === 'cover';
+  // (an MV is one layer over the song's own theme: one that has run out fades away and leaves the song as it is without
+  // it — its theme, whatever it is changed to, and no MV framing — never a stand-in backdrop)
+  const bgFx = effect(st.bgStyle) || effect('minimal')!, sameAsAmbient = st.bgStyle === 'cover';
   // (lite: the effects that read the whole frame again or blur every frame are left out)
   const lite = gfx() === 'lite', bdEffects = effects('effect').filter(e => e.layer === 'backdrop' && (st.fx[e.id] || e.id === 'mv') && !(lite && LITE_OFF.has(e.id)));
   if (bgFx.front) bdEffects.push({ id: bgFx.id + ':front', label: '', layer: 'backdrop', kind: 'effect', z: bgFx.frontZ ?? 0, draw: bgFx.front });
