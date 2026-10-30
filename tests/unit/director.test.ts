@@ -85,6 +85,15 @@ describe.each(styles)('transitions (%s)', cut => {
     for (const q of P.passages) for (const dt of [-q.inn * 0.4, 0, q.out * 0.4]) { const f = cameraAt(P, sig, q.t + dt, 1).fx;
       expect(Math.abs(f.x) + Math.abs(f.y) + Math.abs(f.r) + Math.abs(f.z - 1) * 100, `${q.reason} at ${(q.t + dt).toFixed(2)}`).toBeLessThan(1e-6); }
   });
+  it('the frame moves again only once the blur is all but gone, and without a jolt', () => {
+    const mag = (t: number) => { const f = cameraAt(P, sig, t, 1).fx; return [f.x, f.y, f.r * 10, (f.z - 1) * 1000]; };
+    // the usual step of the frame's motion from one 10 ms to the next, while playing far from any blur
+    let usual = 0; for (let t = 5; t < P.musicEnd - 5; t += 0.01) { if (P.passages.some(q => Math.abs(t - q.t) < 3)) continue; const a = mag(t), b = mag(t + 0.01); usual = Math.max(usual, Math.hypot(...a.map((v, i) => v - b[i]))); }
+    for (const q of P.passages) for (let t = q.t - q.inn; t < q.t + q.out + 0.7; t += 0.01) {
+      const m = mag(t), moving = Math.hypot(...m) > 1e-3;
+      if (moving) expect(transK(P.passages, t), `${q.reason} at ${t.toFixed(2)}: moving under the blur`).toBeLessThan(0.08);
+      const n = mag(t + 0.01); expect(Math.hypot(...m.map((v, i) => v - n[i])), `${q.reason} at ${t.toFixed(2)}: a jolt`).toBeLessThanOrEqual(usual * 1.05 + 1e-6); }
+  });
   it('a blur begins only once the line before is sung to its end', () => {
     for (const q of P.passages) { const A = P.lines[q.line - 1], end = Math.min(A.L.sung, A.L.end, ...A.words.map(S => S.end));
       expect(end, `${q.reason} at ${q.t.toFixed(2)}: line ${A.i}`).toBeLessThanOrEqual(q.t - q.inn + 0.01); }

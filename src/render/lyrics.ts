@@ -60,7 +60,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   const g1 = rgba(pal.accent, 1), g2 = rgba(pal.flash, 1), inkC = rgba(o.ink as any, 1);
   const glowC = glowOf(st, pal), glowB = M.glow * 26 * f.px;
   const lean = clamp((M.depth ?? 1) * 0.6, 0, 1.4) * f.motion;
-  const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion * (1 - Math.min(1, f.cam.trans / 0.35)), pulse = f.rs.pulse, fr = Math.floor(f.t * 12), lite = gfx() === 'lite', blurOn = ov <= 0 && f.motion > 0.5 && !lite;
+  const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion * (f.cam.hold ?? 1), pulse = f.rs.pulse, fr = Math.floor(f.t * 12), lite = gfx() === 'lite', blurOn = ov <= 0 && f.motion > 0.5 && !lite;
   // the finish of a sharp glyph: lit from above (a soft gradient from the ink to a touch of the theme's light below, so the
   // type reads as translucent light rather than flat paint), a thin edge of thickness that leans against the camera's turn
   // (the plane of the words has depth), and a soft two-layer shadow (a contact shadow and a wide ambient one)
