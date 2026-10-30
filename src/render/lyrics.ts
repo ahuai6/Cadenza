@@ -21,7 +21,7 @@ let CULL = true; export const setCulling = (on: boolean) => { CULL = on; };
 export interface VisWord { S: PWord; ws: WordState; p: Projected; o: number; glyphPx: number }
 export function wordCtx(f: RenderFrame): WordCtx {
   const M = f.style.m, bl = f.plan.map.beatLen(f.t);
-  return { enter: Math.max(0.05, M.enter), tempo: Math.sqrt(clamp(bl / 0.5, 0.5, 2)), float: (M.float ?? 0) * f.motion, future: f.style.future, smooth: f.style.cut !== 'punch', punch: M.punch, motion: f.motion, drift: f.style.tout === 'drift', solo: f.style.cut === 'center' };
+  return { enter: Math.max(0.05, M.enter), tempo: Math.sqrt(clamp(bl / 0.5, 0.5, 2)), float: (M.float ?? 0) * f.motion, future: f.style.future, smooth: f.style.cut !== 'punch', punch: M.punch, motion: f.motion, drift: f.style.tout === 'drift', spread: f.style.tout === 'spread', held: f.style.cut === 'center' };
 }
 /** Which words are on screen this frame, and how. Read by the lyric pass and by world effects (frames, stars, glyphs). */
 export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {

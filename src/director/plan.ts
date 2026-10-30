@@ -8,6 +8,7 @@ import { REF_H } from './types';
 import { layout, assignSections, dropShortFrames, PAGE_LINES } from './layout';
 import { planCamera } from './camera';
 import { lyricType } from './lyrictypes';
+import { curtainDown } from './curtains';
 import { planCues } from './cues';
 import { planTitles, type SongInfo } from './titles';
 import { planEntries } from './entry';
@@ -37,6 +38,8 @@ export function plan(inp: PlanInput): ScenePlan {
   const { camera, extraPassages } = planCamera({ lines: lay.lines, words: lay.words, passages: lay.passages, map, style, W, H, musicEnd: inp.musicEnd, dur: inp.musicEnd + inp.endLen, introHold });
   const passages = [...lay.passages, ...extraPassages].sort((a, b) => a.t - b.t);
   assignSections(lay.lines, passages); dropShortFrames(lay.lines);
+  // (lines the layout gave a leaving time of their own: the centred stage's groups)
+  for (const q of lay.leaves || []) { const P = lay.lines[q.line]; if (P && q.t < P.secEnd) { P.secEnd = q.t; P.secIn = q.inn; } }
   // a line fades out before its passage's transition; a word is over by then too
   for (const P of lay.lines) if (isFinite(P.secEnd)) { P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd - 0.4) }; }
   // every lyric frame wholly in the picture while it is up, the word being sung with it (fit.ts) — before the clears,
@@ -66,13 +69,14 @@ function sweepUnseen(lines: PLine[], cam: CameraPlan, W: number, H: number) {
 /** A curtain the lyrics ask for ('@N') clears the scene as it comes down: every line begun before it — its words and
  *  its captions — is gone at that moment (under the curtain, closed at once), so it opens onto the lines from there on
  *  only. The line it is written on (and any after) stays. */
-function applyCurtains(lines: PLine[], curtains: { t: number }[]) {
-  for (const c of curtains) for (const P of lines) {
-    if (!P.words.length || P.L.t >= c.t - 0.05 || P.secEnd <= c.t) continue;
+function applyCurtains(lines: PLine[], curtains: { t: number; kind: number }[]) {
+  for (const q of curtains) { const down = curtainDown(q.kind, q.t); if (down == null) continue; const c = { t: down };
+   for (const P of lines) {
+    if (!P.words.length || P.L.t >= q.t - 0.05 || P.secEnd <= c.t) continue;
     // (the words at once; the captions, which fade out over a quarter second from a little before their end, end just
     // after it — under the curtain either way)
     P.secEnd = c.t; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, c.t + 0.15) };
-  }
+  } }
 }
 /** Clears without a blur: at a sweep, every earlier line of the page the camera does not see is taken away there and
  *  then (unseen, so nothing visibly vanishes); a line still in view stays until the camera has left it. */

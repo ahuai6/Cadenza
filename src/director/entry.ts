@@ -22,7 +22,7 @@ function bounds(S: PWord, v: View, W: number, H: number, ox = 0, oy = 0, sc = 1)
 }
 export function planEntries(plan: ScenePlan) {
   const { W, H } = plan, lx = W / 2 * 0.97, ly = H / 2 * 0.95, sig = new Signals(plan.map), M = plan.style.m;
-  const ctx = (t: number): WordCtx => ({ enter: Math.max(0.05, M.enter), tempo: Math.sqrt(clamp(plan.map.beatLen(t) / 0.5, 0.5, 2)), float: M.float ?? 0, future: plan.style.future, smooth: plan.style.cut !== 'punch', punch: M.punch, motion: 1, drift: plan.style.tout === 'drift', solo: plan.style.cut === 'center' });
+  const ctx = (t: number): WordCtx => ({ enter: Math.max(0.05, M.enter), tempo: Math.sqrt(clamp(plan.map.beatLen(t) / 0.5, 0.5, 2)), float: M.float ?? 0, future: plan.style.future, smooth: plan.style.cut !== 'punch', punch: M.punch, motion: 1, drift: plan.style.tout === 'drift', spread: plan.style.tout === 'spread', held: plan.style.cut === 'center' });
   for (const S of plan.words) {
     S.entry = null;
     const t0 = S.show + 0.03, v0 = viewAt(plan, sig, t0);

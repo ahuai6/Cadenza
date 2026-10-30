@@ -81,6 +81,10 @@ function radialBase(g: Ctx, f: RenderFrame, E: number, geo: boolean) {
   g.fillStyle = gr; g.fillRect(-E, -E, w + 2 * E, h + 2 * E);
 }
 register({ id: 'minimal', label: 'bg.minimal', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) { radialBase(g, f, a.bd.E, false); } });
+/* ---------- solid: one colour of the listener's own choice (the background colour), as dark as asked; its beat glint
+   shows more than on the other backdrops (renderer.ts), there being nothing else on it to move ---------- */
+register({ id: 'solid', label: 'bg.solid', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
+  const E = a.bd.E; g.fillStyle = hexOf(mix(f.pal.bg, [0, 0, 0], clamp(f.style.solidDark ?? 0, 0, 0.9))); g.fillRect(-E, -E, f.W + 2 * E, f.H + 2 * E); } });
 
 /* ---------- geometric: faint construction lines behind; cut-out shapes inverting the whole frame, one composition a bar ---------- */
 export function geoPattern(f: RenderFrame, barOffset = 0) {

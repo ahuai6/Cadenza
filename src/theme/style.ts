@@ -17,7 +17,7 @@ export interface Style {
   edited?: boolean;
   bg: string; bg2: string; text: string; accent: string; flash: string;
   font: string; tin: string; tout: string; cut: CameraStyleId; bgStyle: string; flashMode: 'color' | 'invert'; future: 'dim' | 'hide'; trans?: 'auto' | 'off'; /** the lyric type (director/lyrictypes.ts): how the lyrics are presented and come in; 'flow' by default */ ltype?: string;
-  coverEdge?: 'album' | 'float' | 'blend'; coverBlur?: number; coverSize?: number; vidDark?: number; vidBlur?: number; vidDesat?: number; /** the video backdrop never turns, so it is barely cropped */ vidFit?: boolean;
+  coverEdge?: 'album' | 'float' | 'blend'; coverBlur?: number; coverSize?: number; vidDark?: number; /** the solid backdrop: how much darker than the background colour it is drawn (0..0.9) */ solidDark?: number; vidBlur?: number; vidDesat?: number; /** the video backdrop never turns, so it is barely cropped */ vidFit?: boolean;
   m0: Motion; k: Record<string, number>; m: Motion;
   fx: Record<string, boolean>;
   /** per-effect parameters (see the effect's own schema); missing values take the effect's defaults */
@@ -61,7 +61,7 @@ export const AA_MODES = ['off', 'ssaa', 'ssaa3'];
 /** Style fields that belong to the project (frame, smoothing, the imported media), changeable even on a locked preset. */
 /** What makes a theme's look (colours, typeface, backdrop and how the cover or video sits in it) — not its motion,
  *  effects or camera: what album play carries from the first song to the rest. */
-export const LOOK_KEYS = ['bg', 'bg2', 'text', 'accent', 'flash', 'font', 'bgStyle', 'coverEdge', 'coverBlur', 'coverSize', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit'] as const;
+export const LOOK_KEYS = ['bg', 'bg2', 'text', 'accent', 'flash', 'font', 'bgStyle', 'coverEdge', 'coverBlur', 'coverSize', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'solidDark'] as const;
 export const PROJECT_KEYS = ['aspect', 'aa', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverEdge', 'coverBlur', 'coverSize'];
 /** What each knob rebuilds: 0 nothing, 1 the layout, 2 the camera path, 4 the effect cues. */
 export const KNOB_REBUILD: Record<string, number> = { jitter: 0, pace: 2, turns: 1, flip: 1, depth: 1, size: 1, glyph: 1, trigger: 4, energy: 4, groove: 0, float: 0, enter: 0, glow: 0, split: 0 };

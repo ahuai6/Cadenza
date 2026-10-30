@@ -17,10 +17,13 @@ export const TIN_SPEC: Record<string, { dur: number; min: number; blur: number }
 const DRIFT_DIRS = [[0, 1], [0, 1], [-1, 0], [0, -1], [1, 0], [-0.7, 0.7]];
 export const SUNG = 0.42, PAST = 0.3, END_DIM = 0.3, END_DIM_CARD = 0.25;
 
-export interface WordCtx { enter: number; tempo: number; float: number; future: 'dim' | 'hide'; smooth: boolean; punch: number; motion: number; drift: boolean; /** one line at a time (the centred stage): a line over leaves altogether */ solo?: boolean }
+export interface WordCtx { enter: number; tempo: number; float: number; future: 'dim' | 'hide'; smooth: boolean; punch: number; motion: number; drift: boolean;
+  /** the 'spread' exit: once in, the line's characters drift slowly apart, and it fades out as it goes */ spread?: boolean;
+  /** lines held up together and taken away together (the centred stage's groups of three): none leaves on its own */ held?: boolean }
 export interface WordState {
   o: number; pe: number; dimK: number; pastK: number; live: boolean; gk: number;
   sc: number; ox: number; oy: number; frot: number; tin: string; dur: number;
+  /** the spread exit: the extra space between characters now (word-local units, unscaled) */ gapx: number;
 }
 /** Where a word is on screen as it is drawn now: its centre (from the picture's centre), its angle (degrees: the word's
  *  own tilt, the camera's roll at its depth, its entrance turn) and its scale (its size, its entrance scale, its depth).
@@ -44,7 +47,9 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
     live = dimK < 0.5 && pastK < 1;
     o = (tin === 'rise' || tin === 'track' ? 1 : p) * Math.min(lerp(1, SUNG, dimK), lerp(1, PAST, pastK));
   }
-  if (c.solo) o *= 1 - pastK;
+  // (spreading out: it leaves altogether, fading as it goes, instead of staying on dimmed — or, held with its group,
+  // fades out with the group as it leaves)
+  if (c.spread && !c.held) o *= 1 - pastK;
   const secK = isFinite(L.secEnd) ? 1 - sstep(clamp((t - (L.secEnd - L.secIn)) / L.secIn)) : 1;
   o = ov > 0 ? lerp(o * secK, t >= S.show ? Math.min(o, card ? END_DIM_CARD : END_DIM) : 0, ov) : o * secK;
   if (o <= 0.003) return null;
@@ -53,10 +58,16 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   else if (tin === 'drift') { const d = DRIFT_DIRS[Math.floor(rnd(L.i * 5.3 + S.k * 2.9) * DRIFT_DIRS.length)]; ox = d[0] * 130 * q; oy = d[1] * 110 * q; }
   else if (tin === 'pop') sc = 1 + q * (c.smooth ? 0.08 : 0.45 * Math.min(1.5, c.punch + 0.3)) * c.motion;
   if (c.drift) oy -= dimK * 16 + pastK * 26;
+  // the spread exit: from the line's entrance on, the space between its characters widens, slowly and steadily (a
+  // little faster as it leaves); each word moves along with its share, so the whole line opens out evenly from its middle
+  let gapx = 0;
+  if (c.spread) { const h0 = S.lh / S.s; gapx = h0 * (0.3 * eSine(clamp((t - L.L.t) / (5 * c.tempo))) + 0.35 * pastK);
+    const n = (Q: PWord) => Q.units.length; let before = 0; for (let j = 0; j < S.k; j++) before += n(L.words[j]);
+    const all = L.words.reduce((a, Q) => a + n(Q), 0); ox += gapx * (before + (n(S) - 1) / 2 - (all - 1) / 2); }
   const ph = rnd(L.i * 3.1 + S.k * 1.7) * 6.28;
   oy += Math.sin(t * 0.9 + ph) * c.float * 7;
   const frot = Math.sin(t * 0.6 + ph * 1.3) * c.float * 1.2;
-  return { o, pe, dimK, pastK, live, gk: ov > 0 ? 0 : (1 - dimK) * (1 - pastK), sc, ox, oy, frot, tin, dur };
+  return { o, pe, dimK, pastK, live, gk: ov > 0 ? 0 : (1 - dimK) * (1 - pastK), sc, ox, oy, frot, tin, dur, gapx };
 }
 
 export interface UnitPose {
@@ -71,6 +82,7 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
   const u = S.units[ui], n = S.units.length, L = S.line;
   const s = S.s;                                   // unit offsets are stored scaled; the word transform scales by s
   let rx = u.ox / s, ry = u.oy / s;
+  if (ws.gapx) rx += ws.gapx * (ui - (n - 1) / 2);                 // (the spread exit: its characters apart, round the word's middle)
   if (c.float > 0) ry += Math.sin(t * 1.15 + ui * 0.7 + L.i) * c.float * 2.6;     // float: part of the rest pose
   let ua = 1, um = 1, dx = 0, dy = 0, ur = 0, uq = 1 - ws.pe, ghost = false, outline = 0;
   if ((S.w.timed || S.w.paced) && u.t != null && ov === 0) {   // (a paced word: its characters at their estimated moments)

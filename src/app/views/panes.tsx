@@ -11,6 +11,7 @@ import { effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
 import { Button, Section, Row, Select, Slider, Check, TextField, Note, kit } from '../ui/kit';
+import { ColorField } from '../ui/color';
 import { FontPicker } from '../ui/fonts';
 import { useThemes, saveTheme, deleteTheme } from '../themes';
 import { pauseAnalysis } from '../playback/analysis';
@@ -18,7 +19,7 @@ import s from './panes.module.css';
 
 export type Edit = (fn: (s: Session) => unknown) => void;
 export interface PaneProps { s: Session; edit: Edit; ctx: 'song' | 'workshop' }
-export const BG_STYLES = ['cover', 'vinyl', 'liquid', 'gothic', 'stage', 'minimal', 'bokeh', 'geo', 'video'];
+export const BG_STYLES = ['cover', 'vinyl', 'liquid', 'gothic', 'stage', 'minimal', 'solid', 'bokeh', 'geo', 'video'];
 const COVER_EDGE = ['album', 'float', 'blend'], ASPECTS: [string, string][] = [['16:9', 'aspect.169'], ['9:16', 'aspect.916'], ['1:1', 'aspect.11'], ['4:5', 'aspect.45'], ['fill', 'aspect.fill']];
 const CUTS = ['punch', 'waltz', 'glide', 'close', 'hover', 'center'], TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
 const f2 = (v: number) => (+v).toFixed(2), fmtK = (v: number) => `${(+v).toFixed(2)}×`;
@@ -61,6 +62,7 @@ export function LookPane({ s: ss, edit, ctx, media }: PaneProps & { media?: Reac
       {(custom || media || st.bgStyle === 'cover' || ctx === 'workshop') && <Section title={tx('s.sec.bg')} note={ctx === 'song' && st.bgStyle === 'cover' ? tx('s.coverFromMeta') : undefined}>
         {custom && <Select label={tx('bg')} value={st.bgStyle} options={opts(BG_STYLES.filter(v => ctx === 'workshop' || v !== 'video'), 'bg.')} onChange={v => set('bgStyle', v)} />}
         {media}
+        {st.bgStyle === 'solid' && <Slider label={tx('vd.dark')} min={0} max={0.9} step={0.05} value={st.solidDark ?? 0} format={f2} onChange={v => set('solidDark', v)} />}
         {st.bgStyle === 'cover' && <>
           <Select label={tx('cv.edge')} value={st.coverEdge || 'album'} options={opts(COVER_EDGE, 'cv.')} onChange={v => set('coverEdge', v)} />
           <Slider label={tx('cv.blur')} min={0} max={1} step={0.05} value={st.coverBlur ?? 0} format={f2} onChange={v => set('coverBlur', v)} />
@@ -75,7 +77,7 @@ export function LookPane({ s: ss, edit, ctx, media }: PaneProps & { media?: Reac
       {custom && <Section title={tx('col.h')}>
         <Row><Button size="sm" onClick={() => edit(x => x.coverPalette())} disabled={!ss.cover}>{tx('cv.pal')}</Button></Row>
         <div className={s.colors}>{(['bg', 'bg2', 'text', 'accent', 'flash'] as const).map(k => (
-          <label key={k} className={s.color}><input type="color" value={st[k]} onChange={e => set(k, e.target.value)} /><span>{tx('col.' + k)}</span></label>))}</div>
+          <ColorField key={k} label={tx('col.' + k)} value={st[k]} cover={ss.spec.coverUrl || null} onChange={v => set(k, v)} />))}</div>
       </Section>}
     </>
   );
@@ -113,7 +115,7 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
           <Select label={tx('future')} value={st.future} options={opts(['dim', 'hide'], 'future.')} onChange={v => set('future', v)} />
           <Row>
             <Select label={tx('tin')} value={st.tin || 'mix'} options={opts(TIN, 'tin.')} onChange={v => set('tin', v)} />
-            <Select label={tx('tout')} value={st.tout === 'drift' ? 'drift' : 'none'} options={opts(['none', 'drift'], 'tout.')} onChange={v => set('tout', v)} />
+            <Select label={tx('tout')} value={st.tout === 'drift' || st.tout === 'spread' ? st.tout : 'none'} options={opts(['none', 'drift', 'spread'], 'tout.')} onChange={v => set('tout', v)} />
           </Row>
         </Section>
         {GROUPS.map(g => (

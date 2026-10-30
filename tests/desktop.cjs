@@ -145,6 +145,19 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '背景' }).click(); await W(300); await shot('fx-panel-bg');
   { const sp = win.locator('[data-test=song-panel]'), heads = await sp.locator('h2, h3, header').allInnerTexts();
     ok('song panel: the background tab holds the MV settings (no empty section)', await sp.getByText('MV 畫面').count() > 0 && await sp.getByRole('slider').count() >= 3, JSON.stringify(heads)); }
+  // the colour picker of our own: its square, hue and hex; the eyedropper lays the song's cover over the square
+  { const sp = win.locator('[data-test=song-panel]'), fieldBtn = sp.locator('button[aria-haspopup="dialog"]').first();
+    const bg0 = await C(() => window.__cadenza.player.get().session.style.bg);
+    await fieldBtn.scrollIntoViewIfNeeded(); await fieldBtn.click(); await W(300);
+    const pop = win.locator('[data-colorpop]'), opened = await pop.count();
+    const hex = pop.locator('input[aria-label="HEX"]'); await hex.fill('#3366cc'); await hex.press('Enter'); await W(400);
+    const bg = await C(() => window.__cadenza.player.get().session.style.bg);
+    await pop.getByRole('button', { name: /螢幕吸色/ }).click(); await W(400); await shot('fx-colorpick');
+    const coverUp = await pop.locator('img').count();
+    await C(() => document.querySelector('[data-test=song-panel] button[aria-haspopup="dialog"]').click()); await W(300);   // (closed from its own swatch: the panel stays)
+    const closed = await pop.count() === 0;
+    await C(v => window.__cadenza.api.editSong(s => s.setStyle('bg', v)), bg0);   // (the song's colour as it was, for what follows)
+    ok('colour picker: opens over the panel, takes a hex, and the eyedropper lays the cover over the square', opened === 1 && bg === '#3366cc' && coverUp === 1 && closed, JSON.stringify({ opened, bg, coverUp, closed })); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click(); await W(300); await shot('fx-panel-lyrics');
   const ime = {};
   await win.locator('[data-test=song-panel] textarea').first().click(); await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ㄋ' })));

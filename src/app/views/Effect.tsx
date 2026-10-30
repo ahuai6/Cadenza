@@ -110,7 +110,7 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const composing = useRef(false), inside = useRef(false);
   const typing = () => { const a = document.activeElement as HTMLElement | null; return !!(el.current && a && el.current.contains(a) && a.matches('input,textarea,select,[contenteditable="true"]')); };
   const leave = () => { clearTimeout(leaveTm.current); leaveTm.current = window.setTimeout(() => {
-    if (!inside.current && !composing.current && !typing() && document.hasFocus() && !ui.get().modal && !ui.get().menu) onClose(); }, 600); };
+    if (!inside.current && !composing.current && !typing() && document.hasFocus() && !ui.get().modal && !ui.get().menu && !document.querySelector('[data-colorpop]')) onClose(); }, 600); };   // (nor while a colour picker of its is open: its eyedropper roams the whole screen)
   useEffect(() => () => clearTimeout(leaveTm.current), []);
   const props = { s: session, edit: editSong, ctx: 'song' as const };
   return (

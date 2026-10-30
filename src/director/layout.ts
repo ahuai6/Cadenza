@@ -21,7 +21,8 @@ export const FRAME_NEED = 1.3;
 export interface LayoutInput { doc: LyricDoc; map: RhythmMap; style: Style; measure: Measurer; W: number; H: number; musicEnd: number }
 /** The most lines a page keeps up at once (the one being sung among them). */
 export const PAGE_LINES = 4;
-export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passage[]; dmin: number; /** clears without a blur (plan.ts applySweeps) */ sweeps: { t: number; line: number }[] }
+export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passage[]; dmin: number; /** clears without a blur (plan.ts applySweeps) */ sweeps: { t: number; line: number }[];
+  /** lines that leave at a set time of their own, fading over `inn` (the centred stage's groups of three) */ leaves?: { line: number; t: number; inn: number }[] }
 
 export const tsz = (st: Style) => clamp(st.m.tsize ?? 1, 0.5, 2.5);
 /** How close the camera frames one word: about 68 % of the width or 46 % of the height, against the line's typical
@@ -459,25 +460,35 @@ export function centerZoom(words: PWord[], H: number, T: number) {
   const hs = words.filter(S => !S.vert).map(S => S.lh / S.s).sort((a, b) => a - b), h0 = hs.length ? hs[hs.length >> 1] : EM;
   return clamp(H * 0.12 / (h0 * T), 0.15, 2);
 }
-/** The centred stage (camera style 'center'): every line is set level, wrapped into rows that fit the frame, its block
- *  centred above the middle and the next one below it, so a line never lands on the one just before; no depth, no turns
- *  and no transitions (each line leaves on its own, see words.ts). */
+/** The centred stage (camera style 'center'): every line is set level, wrapped into rows that fit the frame, three at a
+ *  time in a set order — the middle, above it, below it — the three leaving together as the next three begin; no
+ *  depth, no turns and no transitions. */
 function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap: number, T: number): LayoutResult {
-  const z = centerZoom(words, H, T), maxW = W * 0.8 / z, slot = H * 0.2 / z;
-  lines.forEach((P, i) => {
-    const rows: PWord[][] = [[]]; let rw = 0;
-    for (const S of P.words) { const g = rows[rows.length - 1].length ? (S.w.latin ? Math.max(gap, S.lh * 0.32) : gap) : 0;
+  const z = centerZoom(words, H, T), maxW = W * 0.8 / z, rg = gap * 2.2, sp = (S: PWord) => (S.w.latin ? Math.max(gap, S.lh * 0.32) : gap);
+  // each line wrapped into rows that fit the frame
+  const blocks = lines.map(P => { const rows: PWord[][] = [[]]; let rw = 0;
+    for (const S of P.words) { const g = rows[rows.length - 1].length ? sp(S) : 0;
       if (rows[rows.length - 1].length && rw + g + S.lw > maxW) { rows.push([]); rw = 0; } rw += (rows[rows.length - 1].length ? g : 0) + S.lw; rows[rows.length - 1].push(S); }
-    const rh = rows.map(r => Math.max(...r.map(S => S.lh))), rg = gap * 2.2, bh = rh.reduce((a, h) => a + h, 0) + rg * (rows.length - 1);
-    const cy = (i % 2 ? 1 : -1) * Math.max(bh / 2 + gap, slot) * (rows.length > 2 ? 0.6 : 1); let y = cy - bh / 2;
-    rows.forEach((r, ri) => { const ws = r.reduce((a, S, k) => a + S.lw + (k ? (S.w.latin ? Math.max(gap, S.lh * 0.32) : gap) : 0), 0); let x = -ws / 2;
-      for (const [k, S] of r.entries()) { if (k) x += S.w.latin ? Math.max(gap, S.lh * 0.32) : gap; S.x = x + S.lw / 2; S.y = y + rh[ri] / 2; S.tilt = 0; S.ang = 0; S.d = 0; S.roll = 0; x += S.lw; }
+    const rh = rows.map(r => r.length ? Math.max(...r.map(S => S.lh)) : 0), bh = rh.reduce((a, h) => a + h, 0) + rg * (rows.length - 1);
+    return { rows, rh, bh }; });
+  // three lines at a time, in a set order: the first in the middle, the next above it, the third below it; then all three
+  // go together as the next three begin (the first of them in the middle again)
+  const sung = lines.filter(P => P.words.length), groupOf = new Map(sung.map((P, k) => [P, Math.floor(k / 3)])), slotOf = new Map(sung.map((P, k) => [P, k % 3]));
+  const mid = new Map<number, number>(); for (const P of sung) if (slotOf.get(P) === 0) mid.set(groupOf.get(P)!, blocks[P.i].bh);
+  lines.forEach((P, i) => { if (!P.words.length) return;
+    const { rows, rh, bh } = blocks[i], slot = slotOf.get(P)!, m = mid.get(groupOf.get(P)!) ?? bh, away = m / 2 + bh / 2 + rg * 1.6;
+    const cy = slot === 0 ? 0 : slot === 1 ? -away : away; let y = cy - bh / 2;
+    rows.forEach((r, ri) => { const ws = r.reduce((a, S, k) => a + S.lw + (k ? sp(S) : 0), 0); let x = -ws / 2;
+      for (const [k, S] of r.entries()) { if (k) x += sp(S); S.x = x + S.lw / 2; S.y = y + rh[ri] / 2; S.tilt = 0; S.ang = 0; S.d = 0; S.roll = 0; x += S.lw; }
       y += rh[ri] + rg; });
     const B = boxIn(P.words, 0); P.ax = B.x; P.ay = B.y; P.bw = B.w; P.bh = B.h; P.prot = 0; P.d = 0;
   });
   assignSections(lines, []);
+  // (all three of a group leave together, fading out just before the next group's first line comes in)
+  const leaves: { line: number; t: number; inn: number }[] = [];
+  for (const P of sung) { const nx = sung.find(Q => groupOf.get(Q) === groupOf.get(P)! + 1); if (nx) leaves.push({ line: P.i, t: nx.words[0].show, inn: 0.35 }); }
   const order = [...words].sort((a, b) => a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
-  return { lines, words, passages: [], dmin: 0, sweeps: [] };
+  return { lines, words, passages: [], dmin: 0, sweeps: [], leaves };
 }
 
 /** A quick clear decided while placing (or by the camera) may still shorten a framed line: such a frame is not drawn
