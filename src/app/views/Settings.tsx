@@ -4,7 +4,7 @@ import { tx, LANGS, currentLang, type Lang } from '../../i18n';
 import { D, Lib, type Settings } from '../bridge';
 import { settings, lib, useStore } from '../state';
 import { Icon } from '../ui/icons';
-import { Button, Seg, Toggle, Note, Slider } from '../ui/kit';
+import { Button, Seg, Toggle, Note, Slider, Dropdown } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { neuralStatus } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
@@ -28,11 +28,11 @@ export function SettingsView() {
   useEffect(() => { D?.settings().then(v => settings.set(v)); }, []);
   const set = setSettings;
   return (
-    <div className={s.settings}>
-      <h1>{tx('s.settings')}</h1>
+    <div className={s.settings + ' stagger'}>
+      <header className={s.head}><span className="kicker">Cadenza</span><h1 className="display">{tx('s.settings')}</h1></header>
       <Group title={tx('s.set.look')}>
         <Field label={tx('s.set.theme')}><Seg size="sm" fit value={st.theme} onChange={v => set({ theme: v })} options={[['system', tx('s.set.system')], ['light', tx('s.set.light')], ['dark', tx('s.set.dark')]]} /></Field>
-        <Field label={tx('s.set.lang')}><select value={currentLang()} onChange={e => setLang(e.target.value as Lang)}>{LANGS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select></Field>
+        <Field label={tx('s.set.lang')}><Dropdown label={tx('s.set.lang')} value={currentLang()} onChange={v => setLang(v as Lang)} options={LANGS.map(([v, n]) => [v, n])} /></Field>
       </Group>
       <Group title={tx('s.set.folders')} help={tx('s.set.watchHelp')}>
         <div className={s.folders}>
@@ -111,8 +111,7 @@ function AudioGroup({ st }: { st: Settings }) {
       {!h.supported && <Note>{tx('s.set.hifiNo')}</Note>}
       {on && h.supported && <>
         <Field label={tx('s.set.device')}>
-          <select value={st.audioDevice || ''} onChange={e => set({ audioDevice: e.target.value })}>
-            <option value="">{tx('s.set.device.def')}</option>{h.devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
+          <Dropdown label={tx('s.set.device')} value={st.audioDevice || ''} onChange={v => set({ audioDevice: v })} options={[['', tx('s.set.device.def')], ...h.devices.map(d => [d.id, d.name] as [string, string])]} />
         </Field>
         <Field label={tx('s.set.mode')}><Seg size="sm" fit value={st.audioMode === 'shared' ? 'shared' : 'exclusive'} onChange={v => set({ audioMode: v })} options={[['exclusive', tx('s.set.mode.ex')], ['shared', tx('s.set.mode.sh')]]} /></Field>
         <Toggle label={tx('s.set.fixedVol')} help={tx('s.set.fixedVolHelp')} on={st.fixedVolume !== false} set={v => set({ fixedVolume: v })} />
@@ -125,5 +124,6 @@ function AudioGroup({ st }: { st: Settings }) {
     </Group>
   );
 }
-const Group = ({ title, help, children }: { title: string; help?: string; children: ReactNode }) => <section className={s.group + ' enter'}><h2>{title}</h2>{help && <Note>{help}</Note>}<div className={s.body}>{children}</div></section>;
+// a group: its title and what it is for on the left, its controls on the right, a hairline above
+const Group = ({ title, help, children }: { title: string; help?: string; children: ReactNode }) => <section className={s.group}><header><h2>{title}</h2>{help && <Note>{help}</Note>}</header><div className={s.body}>{children}</div></section>;
 const Field = ({ label, children }: { label: string; children: ReactNode }) => <div className={s.field}><span>{label}</span>{children}</div>;

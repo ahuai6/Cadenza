@@ -26,10 +26,13 @@ export function NowPlaying() {
   const album = useStore(player, x => !!x.album), dir = useStore(player, x => x.dir), shownId = useStore(player, x => x.shownId), hasLyrics = useStore(player, x => x.hasLyrics), session = useStore(player, x => x.session);
   useStore(lib, x => x.tracks);
   const t = trackOf(shownId);
-  const root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null);
+  const amb = useRef<HTMLDivElement>(null), root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null);
   const layer = useStore(ui, x => x.layer);
-  useLayoutEffect(() => { refs.np = root.current; refs.npCover = cover.current; refs.npParts = [top.current, info.current, right.current]; });
-  useEffect(() => () => { refs.np = null; refs.npCover = null; refs.npParts = []; }, []);
+  useLayoutEffect(() => { refs.np = root.current; refs.npAmb = amb.current; refs.npCover = cover.current; refs.npParts = [top.current, info.current, right.current]; });
+  useEffect(() => () => { refs.np = null; refs.npAmb = null; refs.npCover = null; refs.npParts = []; }, []);
+  // the song's own light, for the glow under the cover and the tint of the shade at the edges (the engine's palette)
+  const tone = useMemo(() => { const A = session?.ambient; if (!A) return {}; const c = A.cols[0] || A.base, rgb = (v: number[]) => v.map(x => Math.round(x)).join(',');
+    return { '--amb': rgb(c), '--amb-base': rgb(A.base) } as React.CSSProperties; }, [session]);
   // full screen: the controls rest out of sight while the pointer does (any move, key or wheel brings them back)
   const full = useStore(ui, x => x.win.full);
   useEffect(() => {
@@ -48,12 +51,16 @@ export function NowPlaying() {
   ]);
   const live = layer === 'np';
   return (
-    <section data-test="np" className={s.np + ' on-picture'} ref={root} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
+    <>
+    {/* the cinema around the picture: a shade at the edges in the song's own dark, and a fine grain over the colour */}
+    <div className={s.amb} ref={amb} style={tone} data-vis="false" aria-hidden="true" />
+    <section data-test="np" className={s.np + ' on-picture'} ref={root} style={tone} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
       <header className={s.top} ref={top}>
-        <div className={s.fade}><IconButton n="chevronDown" glass label={tx('s.collapse')} onClick={back} /></div>
+        <div className={s.fade}><IconButton n="chevronDown" label={tx('s.collapse')} onClick={back} /></div>
+        <div className={s.topMid + ' ' + s.fade}><span className="kicker">{tx('s.nowPlaying')}</span>{t.album && <small>{t.album}</small>}</div>
         <div className={s.topR + ' ' + s.fade}>
           <Button glass icon="sparkles" onClick={openFx}>{tx('s.fxLyrics')}</Button>
-          <IconButton n="more" glass label={tx('s.more')} onClick={more} />
+          <IconButton n="more" label={tx('s.more')} onClick={more} />
         </div>
       </header>
       <div className={s.main}>
@@ -62,7 +69,7 @@ export function NowPlaying() {
           <div className={s.info} ref={info}>
             <div className={s.fade} style={{ display: 'grid', gap: 14 }}>
               <div className={s.meta}>
-                <Swap k={t.id} dir={dir}><div><b>{t.title}</b><small>{[t.artist || tx('s.unknownArtist'), t.album].filter(Boolean).join(' — ')}</small><HifiBadge /></div></Swap>
+                <Swap k={t.id} dir={dir}><div><b className="display">{t.title}</b><small>{[t.artist || tx('s.unknownArtist'), t.album].filter(Boolean).join(' — ')}</small><HifiBadge /></div></Swap>
                 <Heart id={t.id} />
               </div>
               <div className={s.qrow}><QualityTag t={t} look="glass" />{album && <Badge>{tx('s.albumOn')}</Badge>}</div>
@@ -83,6 +90,7 @@ export function NowPlaying() {
         </div>
       </div>
     </section>
+    </>
   );
 }
 function NoLyrics() { return <div className={s.none}><Icon n="lyrics" size={30} /><b>{tx('s.noLyrics')}</b><p>{tx('s.noLyricsHelp')}</p></div>; }

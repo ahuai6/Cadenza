@@ -12,7 +12,8 @@ export const keep = (k: string, v: unknown) => { try { localStorage.setItem('cz-
 
 export type Page = 'library' | 'wall' | 'workshop' | 'settings';
 export type Detail = { kind: 'album' | 'artist' | 'genre' | 'playlist'; key: string } | null;
-export interface MenuItem { label: string; icon?: string; danger?: boolean; disabled?: boolean; run: () => void }
+/** A menu's entry: an action (run), or a submenu (sub) that opens beside it. */
+export interface MenuItem { label: string; icon?: string; danger?: boolean; disabled?: boolean; run?: () => void; sub?: (MenuItem | '-')[] }
 /** Where the user is. `layer` is what they asked to see on top of the page; the stage animates toward it. */
 export const ui = createStore({
   page: 'library' as Page, section: remember<string | null>('section', null), detail: null as Detail, search: '',

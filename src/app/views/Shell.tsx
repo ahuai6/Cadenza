@@ -1,12 +1,12 @@
 // The desktop app: a personal music library around the lyric engine. Title bar (its own window buttons), a sidebar
 // (Library, Poster wall, Lyric workshop; Settings at the bottom), the page, the floating player card, and above them
 // the stage (the engine's picture), the now-playing page and the effect-lyrics controls.
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tx, lang as langStore } from '../../i18n';
 import { D } from '../bridge';
 import { ui, lib, settings, useStore, keep, type Page } from '../state';
 import { Icon } from '../ui/icons';
-import { ContextMenu, Toast, Seg } from '../ui/kit';
+import { ContextMenu, Toast, Seg, Turn } from '../ui/kit';
 import { player } from '../playback/player';
 import { RHYTHM_VERSION } from '../../engine';
 import mark from '../brand/mark.svg';
@@ -51,12 +51,13 @@ export function Shell() {
       <div className={s.body}>
         <Sidebar />
         <main data-scroll className={s.page} aria-hidden={layer !== 'none'} inert={layer !== 'none'}>
-          <div className={s.pageInner}>
+          {/* a page turns: the old one fades out, the new one rises in */}
+          <Turn k={page} className={s.pageInner}>
             {page === 'library' && <LibraryView />}
             {page === 'wall' && <PosterWall />}
             {page === 'settings' && <SettingsView />}
             {page === 'workshop' && <WorkshopPage />}
-          </div>
+          </Turn>
         </main>
       </div>
       {page !== 'workshop' && hasTrack && <PlayerCard />}
@@ -75,7 +76,7 @@ function TitleBar() {
   const st = useStore(ui, x => x.win), page = useStore(ui, x => x.page), search = useStore(ui, x => x.search);
   return (
     <header data-test="titlebar" className={s.tb} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,input')) D?.win('max'); }}>
-      <div className={s.brand}><img src={mark} alt="" /><span>Cadenza</span></div>
+      <div className={s.brand}><img src={mark} alt="" /><span className="display">Cadenza</span></div>
       <div className={s.tbMid}>
         {page === 'library' && (
           <label className={s.search}><Icon n="search" size={16} />
@@ -102,27 +103,31 @@ function Sidebar() {
   // (without a progress event yet: the songs analysed by this version of the rhythm analysis — an older one is to be redone)
   if (an) { done = an.done; total = an.total; } else { const playable = tracks.filter(t => !t.protected); total = playable.length; done = playable.filter(t => t.analyzed === RHYTHM_VERSION).length; }
   const now = useStore(lib, x => x.analysisNow);
+  // the chosen place is marked by one bar that slides to it (from page to page and section to section)
+  const navRef = useRef<HTMLDivElement>(null), [mark, setMark] = useState<{ y: number; h: number } | null>(null);
+  useLayoutEffect(() => { const el = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]'); setMark(el ? { y: el.offsetTop, h: el.offsetHeight } : null); }, [page, section, detail]);
   return (
     <nav className={s.side} aria-label="Cadenza">
-      <div className={s.nav}>
+      <div className={s.nav} ref={navRef}>
+        {mark && <i className={s.mark} style={{ transform: `translateY(${mark.y}px)`, height: mark.h }} aria-hidden="true" />}
         {NAV.map(([k, ic, label]) => (
           <div key={k} className={s.navGroup}>
-            <button type="button" className={s.navi} aria-current={page === k && (k !== 'library' || !!detail) ? 'page' : undefined} data-open={page === k} onClick={() => go(k)}><Icon n={ic} size={19} /><span>{tx(label)}</span></button>
+            <button type="button" className={s.navi} aria-current={page === k && (k !== 'library' || !!detail) ? 'page' : undefined} data-open={page === k} onClick={() => go(k)}><Icon n={ic} size={18} /><span>{tx(label)}</span></button>
             {/* the library's own sections sit right under it: one click to any of them */}
             {k === 'library' && <div className={s.sub}>
               {SECTIONS.map(([sk, sl, sic]) => (
                 <button key={sk} type="button" className={s.subi} aria-current={page === 'library' && !detail && section === sk ? 'page' : undefined}
-                  onClick={() => { ui.set({ page: 'library', section: sk, detail: null, layer: 'none', queue: false }); keep('section', sk); }}><Icon n={sic} size={16} /><span>{tx(sl)}</span></button>
+                  onClick={() => { ui.set({ page: 'library', section: sk, detail: null, layer: 'none', queue: false }); keep('section', sk); }}><Icon n={sic} size={15} /><span>{tx(sl)}</span></button>
               ))}
             </div>}
           </div>
         ))}
       </div>
       <div className={s.sideFoot}>
-        {prog.phase === 'scan' && <div className={s.chip} style={{ ['--p' as string]: `${(prog.done / Math.max(1, prog.total)) * 100}%` }}><i /><span>{tx('s.scanning', prog)}</span></div>}
-        {prog.phase !== 'scan' && done < total && <div className={s.chip} style={{ ['--p' as string]: `${(done / Math.max(1, total)) * 100}%` }}><i /><span>{tx('s.analyzing', { done, total })}{now != null && now > 0.01 ? ` · ${Math.round(now * 100)}%` : ''}</span></div>}
+        {prog.phase === 'scan' && <div className={s.chip} style={{ ['--p' as string]: `${(prog.done / Math.max(1, prog.total)) * 100}%` }}><span>{tx('s.scanning', prog)}</span><i /></div>}
+        {prog.phase !== 'scan' && done < total && <div className={s.chip} style={{ ['--p' as string]: `${(done / Math.max(1, total)) * 100}%` }}><span>{tx('s.analyzing', { done, total })}{now != null && now > 0.01 ? ` · ${Math.round(now * 100)}%` : ''}</span><i /></div>}
         <OutputSwitch />
-        <button type="button" className={s.navi} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><Icon n="settings" size={19} /><span>{tx('s.settings')}</span></button>
+        <button type="button" className={s.navi} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><Icon n="settings" size={18} /><span>{tx('s.settings')}</span></button>
       </div>
     </nav>
   );

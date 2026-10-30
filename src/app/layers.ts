@@ -12,7 +12,7 @@ import { engine } from './playback/stage';
 import { ui } from './state';
 
 export const refs = {
-  stage: null as HTMLElement | null, np: null as HTMLElement | null, npCover: null as HTMLElement | null, npParts: [] as (HTMLElement | null)[],
+  stage: null as HTMLElement | null, np: null as HTMLElement | null, npAmb: null as HTMLElement | null, npCover: null as HTMLElement | null, npParts: [] as (HTMLElement | null)[],
   card: null as HTMLElement | null, mini: null as HTMLElement | null, fxUi: null as HTMLElement | null,
 };
 
@@ -35,7 +35,7 @@ const measure = () => {
   // the area's edge is a 1 px line (an inset shadow moved in by a pixel); the picture one pixel inside meets that line
   // all the way round the corner at the area's radius less 5 px (measured on the rendered corner: larger left a sliver of
   // the page between them, smaller covered the line)
-  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, (radiusOf(pg) || 22) - 5); }
+  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, radiusOf(pg) - 5); }
 };
 function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;
@@ -70,6 +70,8 @@ function applyNp(p: number) {
   const k = part(p, 0.55, 1), full = document.documentElement.dataset.winfull === 'true', rTL = cardR + ((full ? 0 : pageR) - cardR) * k, rO = cardR * (1 - k);
   const clip = p >= 0.9995 ? (full ? '' : `inset(0 round ${pageR}px 0 0 0)`) : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
+  // (the play page's own shade and grain go with the picture: the same shape, the same fade)
+  const amb = refs.npAmb; if (amb) { amb.dataset.vis = String(on); amb.style.clipPath = clip; amb.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.3).toFixed(3); }
   // while it rises, the page casts a soft shade up onto what it is covering: a wide falloff above its leading edge,
   // fading out at the sides, deepest mid-way through the move and gone once it has landed (or closed) — a sheet sliding
   // over the library, not a line drawn on it
@@ -119,6 +121,10 @@ engine.on('frame', () => { if (np.x === 0) warmPage(); });
 addEventListener('resize', () => { if (np.x > 0 && engine.view !== 'effect') { measure(); applyNp(np.x); } });
 
 /* ---------- np ⇄ fx: a full-screen blur ---------- */
+/** The song's own deepest tone (its cover's base colour, sunk most of the way to black): the effect view's letterbox
+ *  and the blur's veil take it, so they sit with the play page instead of a fixed near-black. */
+function deepTone(): [number, number, number] { const A = engine.session?.ambient; const b = A ? A.base : [10, 8, 16]; return [0, 1, 2].map(i => Math.round(b[i] * 0.22 + 4)) as [number, number, number]; }
+const hex = (c: number[]) => '#' + c.map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
 const veil = document.createElement('div');
 Object.assign(veil.style, { position: 'fixed', inset: '0', zIndex: '60', pointerEvents: 'none', display: 'none' });
 document.body.appendChild(veil);
@@ -126,7 +132,7 @@ let veilK = 0;
 const setVeil = (k: number) => { veilK = k; veil.style.display = k > 0.002 ? '' : 'none'; const b = (k * 26).toFixed(1);
   // (lite: no backdrop blur — the veil dims a little more instead)
   const lite = document.documentElement.dataset.gfx === 'lite';
-  veil.style.backdropFilter = lite ? 'none' : `blur(${b}px) saturate(${(1 + 0.15 * k).toFixed(3)})`; veil.style.background = `rgba(10, 8, 16, ${((lite ? 0.62 : 0.16) * k).toFixed(3)})`; };
+  veil.style.backdropFilter = lite ? 'none' : `blur(${b}px) saturate(${(1 + 0.15 * k).toFixed(3)})`; veil.style.background = `rgba(${deepTone().join(',')}, ${((lite ? 0.62 : 0.18) * k).toFixed(3)})`; };
 const frame = () => new Promise<number>(r => requestAnimationFrame(r));
 // (one tween drives the veil at a time: a newer one, of this request or a later one, takes it over from where it is)
 let veilTok = 0;
@@ -144,7 +150,7 @@ async function blurSwap(swap: () => void, my: number) {
   document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode; if (my !== tok) return false;
   return tween(0, 460, easeOut, my);
 }
-const toFx = () => { document.documentElement.dataset.fxmode = 'true'; if (refs.stage) refs.stage.style.clipPath = ''; engine.setAspectBox(16 / 9, '#07060b'); engine.setView('effect', {}, { instant: true }); syncFx(); };
+const toFx = () => { document.documentElement.dataset.fxmode = 'true'; if (refs.stage) refs.stage.style.clipPath = ''; engine.setAspectBox(16 / 9, hex(deepTone())); engine.setView('effect', {}, { instant: true }); syncFx(); };
 const toNp = () => { document.documentElement.dataset.fxmode = 'false'; engine.setAspectBox({ cover: 16 / 9 }); engine.setView('ambient', {}, { instant: true }); syncFx(); applyNp(np.x); };
 // the page and the effect controls follow the view (the page hides under the effect lyrics; their controls show)
 function syncFx() {

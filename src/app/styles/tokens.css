@@ -1,72 +1,79 @@
-/* Cadenza's design language, as tokens.
-   - Corners: continuous curves (superellipse) everywhere a shape is rounded; radii come from one scale, and a nested
-     shape takes its parent's radius minus the gap between them, so outlines stay concentric.
-   - Surfaces: solid for pages, glass (blur + a faint light edge) only for what floats above content.
-   - Motion: one family of springs (see motion.ts); CSS transitions use the same curve for hover and press. */
+/* Cadenza's design language, "Liner Notes", as tokens (docs/DESIGN.md).
+   - Type and hairlines carry the structure; pages are flat, only what floats has a surface and a shadow.
+   - Corners: four steps, chosen by whether a thing floats: content 2px, controls 6px, floating 12px, pill.
+   - Colour: ink (dark) or paper (light), one accent (vermilion).
+   - Motion: one curve, fast then slow; exits shorter than entrances so two layers never stack. */
 :root {
   --font-ui: "Instrument Sans Variable", "Instrument Sans", var(--font-cjk), system-ui, sans-serif;
   --font-cjk: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR";
-  --r-xs: 7px; --r-sm: 10px; --r-md: 13px; --r-lg: 17px; --r-xl: 22px; --r-2xl: 30px;
-  --corner: superellipse(1.6);
-  --ease: cubic-bezier(0.22, 1, 0.36, 1); --ease-in: cubic-bezier(0.55, 0, 0.75, 0.4);
-  --t-fast: 140ms; --t-med: 240ms;
-  /* the rest of the motion scale, by role (an interface redo retunes it here, not in the components) */
-  --t-fade: 200ms;      /* a scrim fading in */
-  --t-exit: 260ms;      /* chrome leaving */
-  --t-swap-out: 280ms;  /* the old content of a swap leaving */
+  --font-cjk-serif: "Noto Serif TC", "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", serif;
+  --font-display: "Fraunces Variable", "Fraunces", var(--font-cjk-serif);
+  --font-mono: ui-monospace, "Cascadia Mono", "Noto Sans Mono", monospace;
+
+  /* corners */
+  --r-1: 2px; --r-2: 6px; --r-3: 12px; --r-pill: 999px;
+  --corner: superellipse(1.4);
+  /* (the earlier names, onto the same four steps: a component not yet rewritten still lands on the scale) */
+  --r-xs: var(--r-2); --r-sm: var(--r-2); --r-md: var(--r-2); --r-lg: var(--r-3); --r-xl: var(--r-3); --r-2xl: var(--r-3);
+  --r-mark: 1px; --r-dot: 50%; --r-bar: var(--r-pill); --r-track: var(--r-pill); --r-knob: var(--r-pill);
+  --r-chip: var(--r-1); --r-tag: var(--r-1); --r-cover-sm: var(--r-1); --r-cover-md: var(--r-1); --r-cover-np: var(--r-2);
+
+  /* motion: fast in, slow settle */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.5, 0, 0.75, 0); --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 120ms; --t-med: 220ms;
+  --t-fade: 180ms;      /* a scrim fading in */
+  --t-out: 120ms;       /* anything leaving: menus, modals, the old page */
+  --t-exit: 220ms;      /* chrome leaving */
+  --t-swap-out: 220ms;  /* the old content of a swap leaving */
   --t-fill: 300ms;      /* a progress fill moving */
-  --t-show: 320ms;      /* controls fading in */
-  --t-stagger: 360ms;   /* each item of a staggered list */
-  --t-enter: 380ms;     /* a page or block easing in */
+  --t-show: 280ms;      /* controls fading in */
+  --t-stagger: 420ms;   /* each item of a staggered list */
+  --t-enter: 320ms;     /* a page or block easing in */
   --t-slow: 420ms;      /* larger moves: lyric lines, panels, chrome coming back */
   --t-panel: 460ms;     /* a side panel sliding */
-  --t-reveal: 520ms;    /* the slowest reveals: cover wall, now-playing content */
+  --t-reveal: 560ms;    /* the slowest reveals */
   --t-delay: 120ms;     /* chrome waits this long before coming back */
-  --t-stagger-step: 18ms;
-  /* the small end of the radius scale, by role */
-  --r-mark: 1.5px;      /* tiny bars (the playing-eq marks) */
-  --r-dot: 2.5px;       /* dots (timeline pips) */
-  --r-bar: 3px;         /* progress bars */
-  --r-track: 4px;       /* slider tracks */
-  --r-knob: 4.5px;      /* the progress bar's head */
-  --r-chip: 6px;        /* badges, chips, checkboxes, slider thumbs */
-  --r-tag: 8px;         /* small tags over covers */
-  --r-cover-sm: 9px;    /* small covers in lists (and what lies over them), toggles */
-  --r-cover-md: 12px;   /* the mini player's cover */
-  --tb-h: 46px; --side-w: 220px; --card-h: 76px;
+  --t-stagger-step: 16ms;
 
-  /* dark (the default) */
-  --bg: #111015; --bg-side: #0d0c11; --surface: #1a1920; --surface-2: #22212a; --surface-3: #2c2b35;
-  --fg: #f4f2f8; --fg-2: #b6b2c2; --fg-3: #7d7889; --line: rgba(255, 255, 255, 0.08); --line-2: rgba(255, 255, 255, 0.14);
-  --hover: rgba(255, 255, 255, 0.06); --press: rgba(255, 255, 255, 0.1);
-  --accent: #9d8cff; --accent-2: #f070d6; --accent-3: #ffb37a; --on-accent: #120e24; --accent-soft: rgba(157, 140, 255, 0.16);
-  --danger: #ff6b81; --ok: #61d6a4; --warn: #ffc46b;
-  --glass: rgba(28, 26, 36, 0.62); --glass-strong: rgba(24, 22, 31, 0.82); --glass-edge: rgba(255, 255, 255, 0.12); --glass-blur: blur(26px) saturate(1.7);
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.22);
-  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 18px 48px rgba(0, 0, 0, 0.42);
+  --tb-h: 44px; --side-w: 232px; --card-h: 72px;
+  --kicker: 600 10.5px/1.2 var(--font-ui);
+  --kicker-track: 0.14em;
+
+  /* dark: ink */
+  --bg: #0e0e0d; --bg-side: #0e0e0d; --surface: #161615; --surface-2: #1c1c1a; --surface-3: #262624;
+  --float: #1b1b19; --float-2: #232321;
+  --fg: #eeece6; --fg-2: #aeaba3; --fg-3: #77756f; --line: rgba(238, 236, 230, 0.085); --line-2: rgba(238, 236, 230, 0.16);
+  --hover: rgba(238, 236, 230, 0.045); --press: rgba(238, 236, 230, 0.08);
+  --accent: #ff6a3d; --accent-2: #ff6a3d; --accent-3: #f2b766; --on-accent: #150b07; --accent-soft: rgba(255, 106, 61, 0.14); --accent-ink: #ff8a64;
+  --danger: #ff6670; --ok: #6fcf97; --warn: #f2b766;
+  --glass: rgba(20, 20, 19, 0.72); --glass-strong: rgba(22, 22, 21, 0.9); --glass-edge: rgba(255, 255, 255, 0.1); --glass-blur: blur(28px) saturate(1.5);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 1px 1px rgba(0, 0, 0, 0.3), 0 12px 32px -6px rgba(0, 0, 0, 0.55), 0 28px 64px -18px rgba(0, 0, 0, 0.5);
   --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
-  --menu-bg: #22202a; --menu-fg: #f4f2f8;
-  --brand: linear-gradient(135deg, var(--accent-3), var(--accent-2) 45%, var(--accent));
+  --menu-bg: var(--float); --menu-fg: var(--fg);
+  --brand: linear-gradient(90deg, var(--accent), var(--accent-3));
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   color-scheme: dark;
 }
 :root[data-theme="light"] {
-  --bg: #f6f5f9; --bg-side: #efedf4; --surface: #ffffff; --surface-2: #f1eff6; --surface-3: #e6e3ee;
-  --fg: #17151f; --fg-2: #55516a; --fg-3: #8b8799; --line: rgba(20, 16, 40, 0.08); --line-2: rgba(20, 16, 40, 0.14);
-  --hover: rgba(20, 16, 40, 0.05); --press: rgba(20, 16, 40, 0.09);
-  --accent: #6b55f0; --accent-2: #d6439f; --accent-3: #f08a4b; --on-accent: #ffffff; --accent-soft: rgba(107, 85, 240, 0.12);
-  --danger: #d93a55; --ok: #1f9e6b; --warn: #b9770e;
-  --glass: rgba(255, 255, 255, 0.66); --glass-strong: rgba(255, 255, 255, 0.86); --glass-edge: rgba(255, 255, 255, 0.7);
-  --shadow-1: 0 1px 2px rgba(20, 16, 40, 0.08), 0 4px 14px rgba(20, 16, 40, 0.08);
-  --shadow-2: 0 2px 6px rgba(20, 16, 40, 0.08), 0 18px 48px rgba(20, 16, 40, 0.16);
-  --menu-bg: #ffffff; --menu-fg: #17151f;
+  --bg: #f4f2ec; --bg-side: #f4f2ec; --surface: #faf9f5; --surface-2: #ebe8e0; --surface-3: #dfdbd1;
+  --float: #fdfcf9; --float-2: #f2efe8;
+  --fg: #1a1916; --fg-2: #57544c; --fg-3: #8d897f; --line: rgba(26, 25, 22, 0.1); --line-2: rgba(26, 25, 22, 0.2);
+  --hover: rgba(26, 25, 22, 0.04); --press: rgba(26, 25, 22, 0.08);
+  --accent: #d4461f; --accent-2: #d4461f; --accent-3: #b7791f; --on-accent: #ffffff; --accent-soft: rgba(212, 70, 31, 0.1); --accent-ink: #b83a16;
+  --danger: #c8323f; --ok: #2a8a5a; --warn: #a86a12;
+  --glass: rgba(253, 252, 249, 0.78); --glass-strong: rgba(253, 252, 249, 0.94); --glass-edge: rgba(26, 25, 22, 0.08);
+  --shadow-1: 0 1px 2px rgba(26, 25, 22, 0.08);
+  --shadow-2: 0 1px 1px rgba(26, 25, 22, 0.05), 0 12px 32px -8px rgba(26, 25, 22, 0.18), 0 28px 64px -20px rgba(26, 25, 22, 0.2);
   color-scheme: light;
 }
-/* over the picture (now playing, effect lyrics) the interface is always light-on-dark */
+/* over the picture (now playing, effect lyrics) the interface is light on a dark, cover-tinted glass */
 .on-picture {
-  --fg: #ffffff; --fg-2: rgba(255, 255, 255, 0.74); --fg-3: rgba(255, 255, 255, 0.5); --line: rgba(255, 255, 255, 0.14); --line-2: rgba(255, 255, 255, 0.22);
-  --hover: rgba(255, 255, 255, 0.12); --press: rgba(255, 255, 255, 0.18);
-  --glass: rgba(18, 16, 24, 0.34); --glass-strong: rgba(18, 16, 24, 0.62); --glass-edge: rgba(255, 255, 255, 0.16);
-  --surface: rgba(255, 255, 255, 0.1); --surface-2: rgba(255, 255, 255, 0.14); --surface-3: rgba(255, 255, 255, 0.2);
-  --accent: #ffffff; --on-accent: #16141c; --accent-soft: rgba(255, 255, 255, 0.18); --bg: #16141c; --menu-bg: #22202a; --menu-fg: #f4f2f8;
+  --fg: #ffffff; --fg-2: rgba(255, 255, 255, 0.72); --fg-3: rgba(255, 255, 255, 0.48); --line: rgba(255, 255, 255, 0.12); --line-2: rgba(255, 255, 255, 0.2);
+  --hover: rgba(255, 255, 255, 0.1); --press: rgba(255, 255, 255, 0.16);
+  --glass: rgba(12, 11, 14, 0.42); --glass-strong: rgba(14, 13, 16, 0.78); --glass-edge: rgba(255, 255, 255, 0.12);
+  --float: rgba(18, 17, 20, 0.86); --float-2: rgba(255, 255, 255, 0.08);
+  --surface: rgba(255, 255, 255, 0.08); --surface-2: rgba(255, 255, 255, 0.11); --surface-3: rgba(255, 255, 255, 0.17);
+  --accent: #ffffff; --on-accent: #121114; --accent-soft: rgba(255, 255, 255, 0.16); --accent-ink: #ffffff; --bg: #121114; --menu-bg: var(--float); --menu-fg: #fff;
   color-scheme: dark; color: var(--fg);
 }

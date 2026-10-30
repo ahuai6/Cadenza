@@ -5,11 +5,11 @@ import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match, type MenuItem } from '../state';
 import { player, playIds, enqueue, setMode, shufflePick, setInstrumental } from '../playback/player';
 import { Icon } from '../ui/icons';
-import { Button, IconButton, Cover, Mosaic, Empty, Badge } from '../ui/kit';
+import { Button, IconButton, Cover, Mosaic, Empty, Badge, Dropdown, Turn } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
 import { QualityTag } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
-import { askText, pickPlaylist, editMeta, exportTrack } from './Modals';
+import { askText, editMeta, exportTrack } from './Modals';
 import { sendToWorkshop } from './workshop/Workshop';
 import s from './Library.module.css';
 
@@ -22,21 +22,22 @@ export function LibraryView() {
   if (loaded && !folders.length && !tracks.length) return <EmptyLibrary />;
   return (
     <div className={s.libWrap}>
-      {detail ? <Detail idx={idx} search={search} /> : (
+      <Turn k={detail ? detail.kind + ':' + detail.key : 'list'}>{detail ? <Detail idx={idx} search={search} /> : (
         <>
           <header className={s.head}>
-            <h1>{tx(SECTIONS.find(x => x[0] === section)?.[1] || 's.library')}</h1>
+            <span className="kicker">{tx('s.library')}</span>
+            <h1 className="display">{tx(SECTIONS.find(x => x[0] === section)?.[1] || 's.library')}</h1>
           </header>
-          <div key={section} className="enter">
+          <Turn k={section}>
             {section === 'favorites' && <Favorites idx={idx} search={search} />}
             {section === 'playlists' && <Playlists idx={idx} search={search} />}
             {section === 'songs' && <Songs tracks={tracks} search={search} />}
             {section === 'albums' && <CardGrid items={idx.albums.filter(a => match(search, a.name, a.artist))} kind="album" />}
             {section === 'artists' && <CardGrid items={idx.artists.filter(a => match(search, a.name))} kind="artist" />}
             {section === 'genres' && <CardGrid items={idx.genres.filter(a => match(search, a.name))} kind="genre" />}
-          </div>
+          </Turn>
         </>
-      )}
+      )}</Turn>
     </div>
   );
 }
@@ -61,8 +62,8 @@ function Songs({ tracks, search }: { tracks: Track[]; search: string }) {
       <div className={s.tools}>
         <span className={s.count}>{tx('s.tracks', { n: list.length })}</span>
         <PlayButtons ids={list.map(t => t.id)} />
-        <label className={s.sel}><span>{tx('s.sort')}</span>
-          <select value={sort} onChange={e => { setSort(e.target.value); keep('sort', e.target.value); }}>{SORTS.map(([v, k]) => <option key={v} value={v}>{tx(k)}</option>)}</select></label>
+        <label className={s.sel}><span className="kicker">{tx('s.sort')}</span>
+          <Dropdown label={tx('s.sort')} value={sort} onChange={v => { setSort(v); keep('sort', v); }} options={SORTS.map(([v, k]) => [v, tx(k)])} /></label>
       </div>
       {list.length ? <TrackList tracks={list} /> : <Empty title={tx('s.empty.results')} icon="search" />}
     </>
@@ -90,7 +91,11 @@ export function trackMenu(e: React.MouseEvent, t: Track, list: Track[], extra?: 
     !t.protected && { label: tx('s.play'), icon: 'play', run: () => playIds(ids, ids.indexOf(t.id)) },
     !t.protected && { label: tx('s.queue.add'), icon: 'queue', run: () => enqueue([t.id]) },
     { label: tx(fav ? 's.unfav' : 's.fav'), icon: 'heart', run: () => Lib!.favorite(t.id, !fav) },
-    { label: tx('s.addToPl'), icon: 'plus', run: () => pickPlaylist([t.id]) },
+    // (into a playlist: a submenu of them, and a new one)
+    { label: tx('s.addToPl'), icon: 'plus', sub: [
+      ...lib.get().playlists.map(p => ({ label: p.name, icon: 'lyrics', run: () => { Lib!.playlist('add', p.id, [t.id]); toast(tx('s.addedTo', { name: p.name })); } })),
+      ...(lib.get().playlists.length ? ['-' as const] : []),
+      { label: tx('s.newPlaylist') + '…', icon: 'plus', run: async () => { const n = await askText(tx('s.newPlaylist'), tx('s.plName'), tx('s.untitledPl')); if (n != null) Lib!.playlist('create', n || tx('s.untitledPl'), [t.id]); } }] },
     extra, '-',
     !t.protected && { label: tx('s.toWorkshop'), icon: 'workshop', run: () => sendToWorkshop(t) },
     !t.protected && { label: tx('s.exportMp4'), icon: 'film', run: () => exportTrack(t, list) },
@@ -107,6 +112,7 @@ export const TrackList = memo(function TrackList({ tracks, numbered, menuExtra, 
   const play = (t: Track) => { if (t.protected) { toast(tx('s.protectedHelp'), 4200); return; } const ids = shown.map(x => x.id); playIds(ids, ids.indexOf(t.id)); };
   return (
     <div className={s.tracks + ' stagger'} role="list" data-reorder={!!onReorder} {...listProps}>
+      <div className={s.colHead} aria-hidden="true"><span /><span className={s.lead}>{numbered ? '#' : ''}</span><span>{tx('s.col.title')}</span><span className={s.album}>{tx('s.col.album')}</span><span className={s.badges}>{tx('s.col.format')}</span><span /><span /><span className={s.time}>{tx('s.col.time')}</span><span /></div>
       {shown.map((t, i) => { const on = fav.has(t.id), isCur = t.id === cur; return (
         <div key={t.id} role="listitem" className={s.row} data-cur={isCur} data-protected={t.protected} tabIndex={0} style={{ '--i': i } as React.CSSProperties}
           onPointerDown={e => down(e, i)} onDoubleClick={() => play(t)} onKeyDown={e => { if (e.key === 'Enter') play(t); }} onContextMenu={e => trackMenu(e, t, shown, menuExtra?.(t))}>
@@ -143,30 +149,38 @@ function Playlists({ idx, search }: { idx: Idx; search: string }) {
     <div className={s.cards + ' stagger'}>
       <button type="button" className={s.card + ' ' + s.newCard} onClick={create}><span><Icon n="plus" size={30} /></span><b>{tx('s.newPlaylist')}</b></button>
       {pls.map((p, pi) => (
-        <button key={p.id} type="button" className={s.card} style={{ '--i': pi } as React.CSSProperties} onClick={() => ui.set({ detail: { kind: 'playlist', key: p.id } })} onContextMenu={e => openMenu(e, [
+        <div key={p.id} className={s.cardWrap} style={{ '--i': pi } as React.CSSProperties}>
+        <CardPlay ids={p.tracks} />
+        <button type="button" className={s.card} onClick={() => ui.set({ detail: { kind: 'playlist', key: p.id } })} onContextMenu={e => openMenu(e, [
           { label: tx('s.play'), icon: 'play', run: () => playIds(p.tracks, 0) },
           { label: tx('s.rename'), icon: 'lyrics', run: async () => { const n = await askText(tx('s.rename'), tx('s.plName'), p.name); if (n) Lib!.playlist('rename', p.id, n); } },
           '-', { label: tx('s.delete'), icon: 'trash', danger: true, run: () => Lib!.playlist('delete', p.id) }])}>
           <Mosaic keys={p.tracks.map(id => idx.byId.get(id)?.cover || null)} />
           <b>{p.name}</b><small>{tx('s.tracks', { n: p.tracks.length })}</small>
-        </button>
+        </button></div>
       ))}
     </div>
   );
 }
 
+/** The round play button a card shows over its cover on hover: the card's songs, from the first. */
+function CardPlay({ ids }: { ids: string[] }) {
+  return <button type="button" className={s.cardPlay} aria-label={tx('s.playAll')} title={tx('s.playAll')} disabled={!ids.length} onClick={() => playIds(ids, 0)}><Icon n="play" size={18} /></button>;
+}
 /* ---------- albums, artists, genres ---------- */
 function CardGrid({ items, kind }: { items: Idx['albums']; kind: 'album' | 'artist' | 'genre' }) {
   if (!items.length) return <Empty title={tx('s.empty.results')} icon="search" />;
   return (
     <div className={s.cards + ' stagger'} data-kind={kind}>
       {items.map((g, gi) => (
-        <button key={g.key || '-'} type="button" className={s.card} style={{ '--i': gi } as React.CSSProperties} onClick={() => ui.set({ detail: { kind, key: g.key } })}
+        <div key={g.key || '-'} className={s.cardWrap} style={{ '--i': gi } as React.CSSProperties}>
+        <CardPlay ids={g.tracks.map(t => t.id)} />
+        <button type="button" className={s.card} onClick={() => ui.set({ detail: { kind, key: g.key } })}
           onContextMenu={e => openMenu(e, [{ label: tx('s.play'), icon: 'play', run: () => playIds(g.tracks.map(t => t.id), 0) }])}>
           {kind === 'genre' ? <Mosaic keys={g.tracks.map(t => t.cover)} /> : <Cover k={g.cover} round={kind === 'artist'} />}
           <b>{g.name || tx(kind === 'album' ? 's.unknownAlbum' : kind === 'artist' ? 's.unknownArtist' : 's.unknownGenre')}</b>
           <small>{kind === 'album' ? [g.artist, g.year].filter(Boolean).join(' · ') : tx('s.tracks', { n: g.tracks.length })}</small>
-        </button>
+        </button></div>
       ))}
     </div>
   );
@@ -184,12 +198,12 @@ function Detail({ idx, search }: { idx: Idx; search: string }) {
   const shown = tracks.filter(t => match(search, t.title, t.artist, t.album)), dur = tracks.reduce((a, t) => a + (t.duration || 0), 0);
   return (
     <div className={s.detail}>
-      <div><Button kind="ghost" size="sm" icon="chevronLeft" onClick={() => ui.set({ detail: null })}>{tx('s.back')}</Button></div>
+      <div className={s.back}><Button kind="ghost" size="sm" icon="chevronLeft" onClick={() => ui.set({ detail: null })}>{tx('s.back')}</Button></div>
       <header className={s.detailHead}>
         {mosaic ? <Mosaic keys={mosaic} /> : <Cover k={cover} full round={round} />}
         <div>
-          <span className={s.kicker}>{tx(({ album: 's.albums', artist: 's.artists', genre: 's.genres', playlist: 's.playlists' } as const)[detail.kind])}</span>
-          <h1>{title}</h1>
+          <span className="kicker">{tx(({ album: 's.albums', artist: 's.artists', genre: 's.genres', playlist: 's.playlists' } as const)[detail.kind])}</span>
+          <h1 className="display">{title}</h1>
           <p>{[sub, tx('s.tracks', { n: tracks.length }), fmtTime(dur)].filter(Boolean).join(' · ')}</p>
           <div className={s.ops}>
             <PlayButtons ids={tracks.map(t => t.id)} album={detail.kind === 'album'} />

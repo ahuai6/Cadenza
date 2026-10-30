@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import { Lib, type Track, type MetaFound, type CoverFound } from '../bridge';
 import { ui, lib, useStore, fmtTime, toast } from '../state';
-import { Button, IconButton, Seg, Cover, Badge } from '../ui/kit';
+import { Button, IconButton, Seg, Cover, Badge, usePresence } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { player, playIds, bindMv, setMvOffset } from '../playback/player';
 import { ExportPanel, exportBusy } from './panes';
@@ -35,13 +35,15 @@ export async function exportTrack(t: Track, list?: Track[]) {
 }
 
 export function ModalHost() {
-  const m = useStore(ui, x => x.modal);
+  const m = useStore(ui, x => x.modal), last = useRef(m); if (m) last.current = m;
+  const { shown, closing } = usePresence(!!m), cur = m || last.current;
   useEffect(() => { if (!m && resolver) { const r = resolver; resolver = null; r(null); } }, [m]);
-  if (!m) return null;
-  const Body = ({ text: TextModal, playlist: PlaylistModal, meta: MetaModal, mv: MvModal, mvOffset: MvOffsetModal, export: ExportModal, np: NpModal, confirm: ConfirmModal } as Record<string, (p: { m: any }) => React.ReactElement | null>)[m.kind];
+  if (!shown || !cur) return null;
+  const Body = ({ text: TextModal, playlist: PlaylistModal, meta: MetaModal, mv: MvModal, mvOffset: MvOffsetModal, export: ExportModal, np: NpModal, confirm: ConfirmModal } as Record<string, (p: { m: any }) => React.ReactElement | null>)[cur.kind];
   return (
-    <div className={s.scrim + ' ' + (ui.get().layer !== 'none' ? 'on-picture' : '')} onPointerDown={e => { if (e.target === e.currentTarget && !exportBusy) close(null); }}>
-      <div data-test="modal" className={s.modal} role="dialog" aria-modal="true" data-kind={m.kind}><Body m={m} /></div>
+    // (closing: the dialog and its scrim fade out quickly, nothing taking clicks meanwhile)
+    <div className={s.scrim + ' ' + (ui.get().layer !== 'none' ? 'on-picture' : '')} data-closing={closing || undefined} onPointerDown={e => { if (e.target === e.currentTarget && !exportBusy) close(null); }}>
+      <div data-test="modal" className={s.modal} role="dialog" aria-modal="true" data-kind={cur.kind}><Body m={cur} /></div>
     </div>
   );
 }

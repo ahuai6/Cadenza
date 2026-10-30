@@ -97,14 +97,17 @@ export function PlayerCard() {
   useLayoutEffect(() => { refs.card = card.current; refs.mini = mini.current; return () => { refs.card = null; refs.mini = null; }; });
   if (!t) return null;
   return (
-    <div className={s.card + ' glass'} ref={card} data-test="card">
+    <div className={s.card} ref={card} data-test="card">
       <button type="button" className={s.id} title={tx('s.expand')} onClick={openNp}>
         <span ref={mini} className={s.mini}><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} className={s.mini} /></Swap></span>
         <Swap k={t.id} dir={dir}><span className={s.text}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span></Swap>
       </button>
-      <Transport />
-      <Progress />
+      <div className={s.center}>
+        <Transport />
+        <Progress />
+      </div>
       <div className={s.end}>
+        <Volume />
         <QueueButton />
         <Heart id={t.id} />
         <IconButton n="chevronUp" label={tx('s.expand')} onClick={openNp} />
@@ -127,6 +130,7 @@ export function QueuePanel() {
 }
 function QueueBody({ box }: { box: React.MutableRefObject<HTMLElement | null> }) {
   const p = useStore(player), idx = useIndex(), [pos, setPos] = useState<React.CSSProperties | null>(null);
+  const pict = useStore(ui, x => x.layer !== 'none');   // (over the picture: the dark glass of the play page)
   const items = useMemo(() => p.queue.map(id => ({ id, t: idx.byId.get(id) })).filter(x => x.t), [p.queue, idx]);
   const { shown, down, listProps } = useReorder(items, list => reorderQueue(list.map(x => x.id)), { scroller: '[data-qlist]', ignore: '[data-x]' });
   // above the button that opened it, aligned to its right edge (below it when there is no room above)
@@ -137,7 +141,7 @@ function QueueBody({ box }: { box: React.MutableRefObject<HTMLElement | null> })
   useEffect(() => { const el = box.current?.querySelector('[data-cur="true"]'); if (el) el.scrollIntoView({ block: 'center' }); }, []);
   const cur = shown.findIndex(x => x.id === p.id), rest = Math.max(0, shown.length - 1 - cur);
   return (
-    <section data-test="queue" className={s.queue + ' glass'} ref={el => { box.current = el; }} style={pos || { visibility: 'hidden' }} aria-label={tx('s.queue')}>
+    <section data-test="queue" className={s.queue + ' glass' + (pict ? ' on-picture' : '')} ref={el => { box.current = el; }} style={pos || { visibility: 'hidden' }} aria-label={tx('s.queue')}>
       <header className={s.qhead}>
         <div><b>{tx('s.queue')}</b><small>{tx('s.queue.count', { n: items.length, rest })}</small></div>
         <button type="button" className="muted" disabled={items.length < 2} onClick={() => clearQueue()} style={{ fontSize: 12.5, fontWeight: 600 }}>{tx('s.queue.clear')}</button>
