@@ -8,6 +8,7 @@ import { Button, Seg, Toggle, Note, Slider } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { neuralStatus } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
+import { askConfirm } from './Modals';
 import s from './Settings.module.css';
 
 const SCALES: ('auto' | number)[] = ['auto', 1, 0.85, 0.7, 0.55], FPS = [0, 120, 60, 30];
@@ -62,8 +63,23 @@ export function SettingsView() {
         <Field label={tx('s.set.fps')}><Seg size="sm" fit value={+st.fps} onChange={v => set({ fps: v })} options={FPS.map(v => [v, v ? `${v} fps` : tx('s.set.fps.none')])} /></Field>
         <Toggle label={tx('s.set.prerender')} help={tx('s.set.prerenderHelp')} on={st.prerender !== false} set={v => set({ prerender: v })} />
       </Group>
+      <DataGroup />
       <Group title={tx('s.set.about')}><Note>{tx('s.set.aboutText', { v: st.version || '' })}</Note></Group>
     </div>
+  );
+}
+// the library's stored data: caches (rhythm analyses, thumbnails, loudness) cleared, every song analysed again, or
+// everything reset (the app starts afresh)
+function DataGroup() {
+  const ask = (k: string, danger = false) => askConfirm(tx(`s.set.data.${k}`), tx(`s.set.data.${k}Ask`), tx(`s.set.data.${k}Yes`), danger);
+  return (
+    <Group title={tx('s.set.data')} help={tx('s.set.dataHelp')}>
+      <div className={s.btns}>
+        <Button size="sm" icon="refresh" onClick={async () => { if (await ask('reanalyze')) { await Lib!.reanalyze('all'); Lib!.rescan(); } }}>{tx('s.set.data.reanalyze')}</Button>
+        <Button size="sm" onClick={async () => { if (await ask('caches')) { await Lib!.clearCaches(); Lib!.rescan(); } }}>{tx('s.set.data.caches')}</Button>
+        <Button size="sm" kind="danger" onClick={async () => { if (await ask('reset', true)) Lib!.resetAll(); }}>{tx('s.set.data.reset')}</Button>
+      </div>
+    </Group>
   );
 }
 // the rhythm engine: the neural one (on the GPU, where it can run) or the built-in analysis; what runs it, or why not

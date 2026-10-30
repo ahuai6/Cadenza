@@ -10,7 +10,7 @@ export { exportVideo, openFrameSource, estimate, exportSize, blobSink, type Expo
 /* ---- what the interface may use from the layers under the engine ----
    The app imports only from here (and from core, theme and i18n): a rebuilt interface needs nothing else, and
    tests/unit/arch.test.ts keeps it so. */
-export { analyzeInBackground, loudnessInBackground, RHYTHM_VERSION, isCurrent, balanceDb, rhythmEngine, neuralDrums, neuralStatus, type RhythmAnalysis, type RhythmEngine } from '../rhythm';
+export { analyzeInBackground, loudnessInBackground, RHYTHM_VERSION, isCurrent, checkAnalysis, balanceDb, rhythmEngine, neuralDrums, neuralStatus, type RhythmAnalysis, type RhythmEngine } from '../rhythm';
 export { parse as parseLyrics } from '../lyrics/parse';
 export { autoSpacing, spacingKey, type Spacing } from '../lyrics/spacing';
 export { loadSegmenter } from '../text/segment';

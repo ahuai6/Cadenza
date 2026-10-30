@@ -84,6 +84,33 @@ async function fileId(p, size) {
   finally { await fh.close(); }
   return h.digest('hex').slice(0, 20);
 }
+/* The audio's own key: a hash of the sound alone, not of the file. Tags live at the head (ID3v2, FLAC metadata blocks,
+   an MP4's boxes before its media) and at the tail (ID3v1, APE) — editing them changes the file, not the sound — so the
+   key reads only the audio payload: its length, and 64 KB at its start, middle and end. A song whose tags were edited,
+   or that was renamed or moved, keeps its key, and with it its analysis, its plays and everything bound to it. */
+async function audioKey(p, size) {
+  const fh = await fsp.open(p, 'r');
+  try {
+    const rd = async (pos, n) => { const b = Buffer.alloc(Math.max(0, Math.min(n, size - pos))); if (b.length) await fh.read(b, 0, b.length, pos); return b; };
+    let a = 0, b = size; const head = await rd(0, 64);
+    if (head.toString('latin1', 0, 3) === 'ID3') { a = 10 + ((head[6] & 0x7f) << 21 | (head[7] & 0x7f) << 14 | (head[8] & 0x7f) << 7 | (head[9] & 0x7f)) + (head[5] & 0x10 ? 10 : 0); }
+    if (head.toString('latin1', 0, 4) === 'fLaC') { a = 4; for (let k = 0; k < 64 && a < size; k++) { const h = await rd(a, 4); const last = h[0] & 0x80, len = h.readUIntBE(1, 3); a += 4 + len; if (last) break; } }
+    else if (head.toString('latin1', 4, 8) === 'ftyp') { let q = 0; for (let k = 0; k < 64 && q + 8 <= size; k++) { const h = await rd(q, 16); let len = h.readUInt32BE(0); const ty = h.toString('latin1', 4, 8); let hd = 8;
+        if (len === 1) { len = Number(h.readBigUInt64BE(8)); hd = 16; } else if (len === 0) len = size - q;
+        if (ty === 'mdat') { a = q + hd; b = q + len; break; } if (len < 8) break; q += len; } }
+    else if (head.toString('latin1', 0, 4) === 'RIFF') { let q = 12; for (let k = 0; k < 64 && q + 8 <= size; k++) { const h = await rd(q, 8), len = h.readUInt32LE(4), ty = h.toString('latin1', 0, 4); if (ty === 'data') { a = q + 8; b = Math.min(size, q + 8 + len); break; } q += 8 + len + (len & 1); } }
+    // (the tail: an ID3v1 tag, an APE tag before it)
+    if (b === size && size > 128) { const t = await rd(size - 128, 128); if (t.toString('latin1', 0, 3) === 'TAG') b -= 128;
+      const ap = await rd(Math.max(0, b - 32), 32); if (ap.toString('latin1', 0, 8) === 'APETAGEX') b -= ap.readUInt32LE(12) + (ap.readUInt32LE(20) & 0x80000000 ? 32 : 0); }
+    // (an MPEG stream's first frame may be its Xing/LAME info frame — rewritten by tools that only touch tags — so the
+    // sound is read from a little after it)
+    { const f = await rd(a, 4); if (f[0] === 0xff && (f[1] & 0xe0) === 0xe0 && b - a > 65536 * 3 + 8192) a += 4096; }
+    if (!(b > a)) { a = 0; b = size; }
+    const n = Math.min(65536, b - a), h = crypto.createHash('sha1'); h.update('audio:' + (b - a));
+    for (const at of [a, a + Math.floor((b - a - n) / 2), b - n]) h.update(await rd(at, n));
+    return h.digest('hex').slice(0, 20);
+  } finally { await fh.close(); }
+}
 const sidecar = p => { const b = p.slice(0, -path.extname(p).length); for (const e of ['.lrc', '.LRC', '.Lrc']) if (fs.existsSync(b + e)) return b + e; return null; };
 
 /* ---------- covers: kept once per image, with a small copy for grids ---------- */
@@ -125,13 +152,19 @@ async function scan() {
     const queue = files.slice(), work = async () => { for (let p; (p = queue.shift());) {
       try { const st = await fsp.stat(p), old = byPath.get(p);
         if (old && old.size === st.size && old.mtime === st.mtimeMs) { old.lrc = !!sidecar(p);
+          if (!old.ak && !old.protected) old.ak = await audioKey(p, st.size).catch(() => undefined);   // (a song from before audio keys: its key, once)
           if (!old.protected && old.tv !== TAGS_V) { const tg = await readTags(p).catch(() => null); if (tg) { delete tg.cover; Object.assign(old, tg); } } }
         else {
-          const id = await fileId(p, st.size), x = path.extname(p).toLowerCase(), prev = db.tracks[id];
-          const base = { id, path: p, size: st.size, mtime: st.mtimeMs, added: prev?.added || Date.now(), plays: prev?.plays || 0, last: prev?.last || 0, lrc: !!sidecar(p), failed: false };
+          // which song this is: the one at this path, or (moved, renamed) one gone from its path, whose sound is the same —
+          // then it keeps its id; tags written into the file change the file, never the sound
+          const ak = await audioKey(p, st.size).catch(() => null), same = (t) => t && ak && t.ak === ak;
+          const moved = ak && !same(old) ? Object.values(db.tracks).find(t => t.ak === ak && t.path !== p && !seen.has(t.path)) : null;
+          const id = same(old) ? old.id : moved ? moved.id : await fileId(p, st.size), x = path.extname(p).toLowerCase(), prev = db.tracks[id];
+          const base = { id, ak, path: p, size: st.size, mtime: st.mtimeMs, added: prev?.added || Date.now(), plays: prev?.plays || 0, last: prev?.last || 0, lrc: !!sidecar(p), failed: false };
           if (PROTECTED.has(x)) db.tracks[id] = { ...base, title: path.parse(p).name, protected: true };
           else { const tg = await readTags(p).catch(() => ({})); const coverKey = await storeCover(tg.cover).catch(() => null); delete tg.cover;
-            db.tracks[id] = { ...prev, ...base, ...tg, coverKey, protected: false, analyzed: prev?.analyzed && prev.size === st.size ? prev.analyzed : 0 }; }
+            // (the analysis goes with the sound: kept while the audio key is the same, whatever happened to the tags)
+            db.tracks[id] = { ...prev, ...base, ...tg, coverKey, protected: false, analyzed: prev?.analyzed && (prev.ak ? prev.ak === ak : prev.size === st.size) ? prev.analyzed : 0, ...(prev && prev.ak && prev.ak !== ak ? { loudness: undefined } : {}) }; }
           if (old && old.id !== id) delete db.tracks[old.id];
         } } catch (e) { /* unreadable file: skipped this time */ }
       done++; if (done % 8 === 0 || done === files.length) send('lib:progress', { phase: 'scan', done, total: files.length }); } };
@@ -151,6 +184,14 @@ function watchAll() {
 }
 
 /* ---------- the rhythm cache: RhythmAnalysis JSON per song, compressed ---------- */
+/** Analyse these songs again: their cached analyses dropped, each first in the queue. */
+async function reanalyze(ids) {
+  for (const id of ids) { const t = db.tracks[id]; if (!t || t.protected) continue;
+    t.analyzed = 0; t.ok = 0; t.failed = false; delete t.failWhy; await fsp.rm(anFile(id), { force: true }).catch(() => {}); }
+  priority = [...ids.filter(id => db.tracks[id]), ...priority.filter(id => !ids.includes(id))];
+  save(); changed(); analysisProgress(); send('lib:wake'); return true;
+}
+async function clearDir(d) { try { for (const f of await fsp.readdir(d)) await fsp.rm(path.join(d, f), { force: true, recursive: true }); } catch (e) { /* not there */ } }
 const anFile = id => path.join(P.analysis(), id.replace(/[^a-f0-9]/g, '') + '.json.gz');
 async function saveAnalysis(id, a) {
   const t = db.tracks[id]; if (!t || !a || typeof a.version !== 'number' || !Array.isArray(a.beats)) return false;
@@ -403,7 +444,15 @@ function register(ipcMain, getWin) {
   ipcMain.handle('lib:analysis', (_e, id, version) => getAnalysis(id, version));
   ipcMain.handle('lib:saveAnalysis', (_e, id, a) => saveAnalysis(id, a));
   ipcMain.handle('lib:saveLoudness', (_e, id, l) => saveLoudness(id, l));
-  ipcMain.handle('lib:analysisFailed', (_e, id) => { const t = db.tracks[id]; if (t) { t.failed = true; save(); analysisProgress(); } });
+  ipcMain.handle('lib:analysisFailed', (_e, id, why) => { const t = db.tracks[id]; if (t) { t.failed = true; t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined; save(); analysisProgress(); } });
+  // the cache's own upkeep: songs analysed again, a sound analysis remembered as checked, the caches cleared, everything reset
+  ipcMain.handle('lib:reanalyze', (_e, ids) => reanalyze(ids === 'all' ? Object.keys(db.tracks) : (Array.isArray(ids) ? ids : [])));
+  ipcMain.handle('lib:verified', (_e, id, version) => { const t = db.tracks[id]; if (t && t.analyzed === version) { t.ok = version; save(); } });
+  ipcMain.handle('lib:unverified', (_e, version) => Object.values(db.tracks).filter(t => !t.protected && t.analyzed === version && t.ok !== version).map(t => t.id));
+  ipcMain.handle('lib:clearCaches', async () => { await clearDir(P.analysis()); await clearDir(P.thumbs());
+    for (const t of Object.values(db.tracks)) { t.analyzed = 0; t.ok = 0; t.failed = false; delete t.failWhy; delete t.loudness; delete t.loudFailed; }
+    save(); changed(); analysisProgress(); send('lib:wake'); return true; });
+  ipcMain.handle('lib:resetAll', () => { app.relaunch({ args: [...process.argv.slice(1).filter(a => a !== '--reset-data'), '--reset-data'] }); app.exit(0); });
   ipcMain.handle('lib:nextAnalysis', (_e, version) => nextJob(version));
   ipcMain.handle('lib:prioritize', (_e, ids) => { priority = [].concat(ids, priority).slice(0, 50); send('lib:wake'); });
   ipcMain.handle('lib:song', async (_e, id) => { const s = await getSong(id); if (s && s.mv) s.mv = { name: s.mv.name, offset: s.mv.offset || 0 }; return s; });

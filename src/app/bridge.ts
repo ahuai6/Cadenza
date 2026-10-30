@@ -41,7 +41,12 @@ export interface DesktopApi {
 export interface LibApi {
   get(): Promise<LibView>; addFolder(): Promise<LibView>; removeFolder(d: string): Promise<LibView>; rescan(): Promise<boolean>;
   favorite(id: string, on: boolean): Promise<boolean>; playlist(op: string, a?: unknown, b?: unknown): Promise<unknown>; played(id: string): Promise<void>;
-  analysis(id: string, version?: number): Promise<unknown>; saveAnalysis(id: string, a: unknown): Promise<boolean>; saveLoudness(id: string, l: { lufs: number; peak: number } | null): Promise<boolean>; analysisFailed(id: string): Promise<void>;
+  analysis(id: string, version?: number): Promise<unknown>; saveAnalysis(id: string, a: unknown): Promise<boolean>; saveLoudness(id: string, l: { lufs: number; peak: number } | null): Promise<boolean>; analysisFailed(id: string, why?: string): Promise<void>;
+  /** analyse these songs again (their cached analysis dropped), first in the queue */ reanalyze(ids: string[] | 'all'): Promise<boolean>;
+  /** a cached analysis found sound: not checked again until a new version */ verified(id: string, version: number): Promise<void>;
+  /** the songs whose cached analysis of this version has not been checked yet */ unverified(version: number): Promise<string[]>;
+  /** the caches (rhythm, loudness, thumbnails) cleared; every song is analysed again */ clearCaches(): Promise<boolean>;
+  /** everything Cadenza keeps — library, songs' data, caches, settings — removed, and the app restarted */ resetAll(): Promise<void>;
   nextAnalysis(version: number): Promise<{ id: string; only?: 'loudness' } | null>; prioritize(ids: string[]): Promise<void>;
   song(id: string): Promise<SongData | null>; setSong(id: string, d: SongData): Promise<boolean>;
   lyrics(id: string): Promise<{ source: 'lrc' | 'embedded'; text: string } | null>; writeLyrics(id: string, t: string): Promise<boolean>; importLyricsFile(): Promise<string | null>;

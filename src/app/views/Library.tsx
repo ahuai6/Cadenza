@@ -95,6 +95,7 @@ export function trackMenu(e: React.MouseEvent, t: Track, list: Track[], extra?: 
     !t.protected && { label: tx('s.toWorkshop'), icon: 'workshop', run: () => sendToWorkshop(t) },
     !t.protected && { label: tx('s.exportMp4'), icon: 'film', run: () => exportTrack(t, list) },
     { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
+    !t.protected && { label: tx('s.reanalyze'), icon: 'refresh', run: () => { Lib!.reanalyze([t.id]); toast(tx('s.reanalyzed', { name: t.title })); } },
     !t.protected && { label: tx(t.instrumental ? 's.instr.off' : 's.instr.on'), icon: 'note', run: () => setInstrumental(t.id, !t.instrumental) },
   ]);
 }

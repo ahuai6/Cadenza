@@ -20,6 +20,8 @@ export const askText = (title: string, label: string, value: string) => open<str
 export const pickPlaylist = (ids: string[]) => open<string>({ kind: 'playlist', ids });
 export const editMeta = (t: Track) => open<boolean>({ kind: 'meta', id: t.id });
 export const askMv = () => open<boolean>({ kind: 'mv' });
+/** A yes or no to something that cannot be undone (`danger`: the yes button is red). */
+export const askConfirm = (title: string, text: string, yes: string, danger = false) => open<boolean>({ kind: 'confirm', title, text, yes, danger });
 export const askMvOffset = () => open<boolean>({ kind: 'mvOffset' });
 /** The play page's own settings: its lyrics (edit, search online, timing) and how they are shown. */
 export const npSettings = (tab: 'lyrics' | 'view' = 'lyrics') => open<boolean>({ kind: 'np', tab });
@@ -36,7 +38,7 @@ export function ModalHost() {
   const m = useStore(ui, x => x.modal);
   useEffect(() => { if (!m && resolver) { const r = resolver; resolver = null; r(null); } }, [m]);
   if (!m) return null;
-  const Body = ({ text: TextModal, playlist: PlaylistModal, meta: MetaModal, mv: MvModal, mvOffset: MvOffsetModal, export: ExportModal, np: NpModal } as Record<string, (p: { m: any }) => React.ReactElement | null>)[m.kind];
+  const Body = ({ text: TextModal, playlist: PlaylistModal, meta: MetaModal, mv: MvModal, mvOffset: MvOffsetModal, export: ExportModal, np: NpModal, confirm: ConfirmModal } as Record<string, (p: { m: any }) => React.ReactElement | null>)[m.kind];
   return (
     <div className={s.scrim + ' ' + (ui.get().layer !== 'none' ? 'on-picture' : '')} onPointerDown={e => { if (e.target === e.currentTarget && !exportBusy) close(null); }}>
       <div data-test="modal" className={s.modal} role="dialog" aria-modal="true" data-kind={m.kind}><Body m={m} /></div>
@@ -62,6 +64,15 @@ function NpModal({ m }: { m: { tab: string } }) {
 }
 const Head = ({ title }: { title: string }) => <header className={s.head}><h2>{title}</h2><IconButton n="close" size="sm" label={tx('s.close')} onClick={() => close(null)} /></header>;
 
+function ConfirmModal({ m }: { m: { title: string; text: string; yes: string; danger: boolean } }) {
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <Head title={m.title} />
+      <p className={s.help}>{m.text}</p>
+      <footer className={s.foot}><Button kind="ghost" onClick={() => close(false)}>{tx('s.cancel')}</Button><Button kind={m.danger ? 'danger' : 'primary'} autoFocus onClick={() => close(true)}>{m.yes}</Button></footer>
+    </div>
+  );
+}
 function TextModal({ m }: { m: { title: string; label: string; value: string } }) {
   const [v, setV] = useState(m.value || ''), ref = useRef<HTMLInputElement>(null);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);

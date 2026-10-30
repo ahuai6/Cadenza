@@ -46,6 +46,8 @@ function prepare(id: string, route: 'std' | 'hifi') {
     // the Hi-Fi output reads the file itself: the page decodes only to analyse a song the cache does not have yet
     if (route === 'hifi') return { buffer: null, analysis: analysis || await analyzeNow(id, null, true).catch(() => null) };
     const buffer = await decodeFile(id);
+    // (a cached reading made for audio of another length — the file replaced under the same name — is not this song's)
+    if (analysis && !isCurrent(analysis, buffer.duration)) analysis = null;
     return { buffer, analysis: analysis || await analyzeNow(id, buffer, true).catch(() => null) };
   })();
   cache.set(key, p); p.catch(() => cache.delete(key));

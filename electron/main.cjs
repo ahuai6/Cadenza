@@ -14,6 +14,8 @@ app.commandLine.appendSwitch('enable-features', 'PlatformHEVCEncoderSupport');  
 // slow UDP every request after the first then fails or hangs
 app.commandLine.appendSwitch('disable-quic');
 if (process.env.CADENZA_USER_DATA) app.setPath('userData', process.env.CADENZA_USER_DATA);   // tests run against a clean profile
+// everything reset (Settings → data): the profile is removed here, as the app starts again, before anything opens it
+if (process.argv.includes('--reset-data')) { try { fs.rmSync(app.getPath('userData'), { recursive: true, force: true }); } catch (e) { /* in use: kept */ } }
 protocol.registerSchemesAsPrivileged([library.scheme]);
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
