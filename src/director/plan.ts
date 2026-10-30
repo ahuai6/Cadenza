@@ -5,13 +5,14 @@ import type { Style } from '../theme/style';
 import type { Measurer } from '../text/metrics';
 import type { ScenePlan } from './types';
 import { REF_H } from './types';
-import { layout, assignSections, dropShortFrames } from './layout';
+import { layout, assignSections, dropShortFrames, PAGE_LINES } from './layout';
 import { planCamera } from './camera';
 import { planCues } from './cues';
 import { planTitles, type SongInfo } from './titles';
 import { planEntries } from './entry';
 import { rnd } from '../core/rng';
-import { basePose } from './camera';
+import { basePose, cutJumps } from './camera';
+import { fitFrames } from './fit';
 import { project, NO_FX } from './project';
 import type { PLine, CameraPlan } from './types';
 
@@ -36,6 +37,9 @@ export function plan(inp: PlanInput): ScenePlan {
   assignSections(lay.lines, passages); dropShortFrames(lay.lines);
   // a line fades out before its passage's transition; a word is over by then too
   for (const P of lay.lines) if (isFinite(P.secEnd)) { P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd - 0.4) }; }
+  // every lyric frame wholly in the picture while it is up, the word being sung with it (fit.ts) — before the clears,
+  // which judge what the camera sees on the path as it finally is
+  fitFrames(camera, lay.words, W, H); cutJumps(camera);
   applySweeps(lay.lines, lay.sweeps, camera, W, H);
   const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle, inp.doc.marks || []);
   const drawOrder = [...lay.words].sort((a, b) => a.order - b.order);
@@ -45,7 +49,7 @@ export function plan(inp: PlanInput): ScenePlan {
   pickEmphasis(lay.lines);
   return out;
 }
-/** A clear without a blur: at a sweep, every earlier line of the page the camera does not see is taken away there and
+/** Clears without a blur: at a sweep, every earlier line of the page the camera does not see is taken away there and
  *  then (unseen, so nothing visibly vanishes); a line still in view stays until the camera has left it. */
 function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam: CameraPlan, W: number, H: number) {
   const seen = (P: PLine, t: number) => { const b = basePose(cam, t), c = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
@@ -59,6 +63,18 @@ function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam:
       if (tv >= until) continue;
       P.secEnd = tv; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, tv) };
     }
+  }
+  // the page's cap, whatever the camera does: as a line starts, at most PAGE_LINES lines of its page are up (it among
+  // them); the oldest beyond that go — at once where the camera does not see them, else fading out over half a second
+  for (let i = 0; i < lines.length; i++) {
+    const B = lines[i]; if (!B.words.length) continue; const t = B.words[0].show;
+    const up = lines.slice(0, i).filter(P => P.sec === B.sec && P.words.length && P.secEnd - P.secIn > t + 1e-3);
+    let extra = up.length + 1 - PAGE_LINES;
+    for (const P of up) { if (extra <= 0) break;
+      if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue;                    // (still being sung: it stays)
+      const fade = seen(P, t) ? 0.5 : 0.01;
+      // (it starts to go now; one already ending sooner keeps its end, fading from now to it)
+      P.secEnd = Math.min(P.secEnd, t + fade); P.secIn = Math.max(0.01, P.secEnd - t); P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) }; extra--; }
   }
 }
 /** A few characters of a line picked by chance (no rule: neither the longest nor the loudest), one line in every three

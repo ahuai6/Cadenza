@@ -420,3 +420,34 @@ describe('where a new line goes', () => {
       expect(n, cut).toBeGreaterThanOrEqual(3); expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThan(0.7); }
   });
 });
+
+/* A lyric frame is wholly in the picture while it is up — whatever the camera style, the aspect, rows or columns, long
+   lines (fit.ts); and a page never keeps more than PAGE_LINES lines up at once (plan.ts), one more only while it fades. */
+describe('framing and the page', async () => {
+  const { PAGE_LINES } = await import('../../src/director/layout');
+  const line = (t: number, s: string) => { const m = Math.floor(t / 60), x = (t % 60).toFixed(2).padStart(5, '0'); return `[0${m}:${x}]${s}`; };
+  const WORDS = ['看見遠方的光', '我們一起走 到天亮', 'hold me close tonight', '夜色', '風吹過山丘與海洋之間', '慢慢地醒來吧', 'we are young'];
+  const SONGS = [LRC, ...[0, 1, 2].map(k => Array.from({ length: 30 }, (_, i) => line(2 + i * (2.4 + k * 0.4), WORDS[(i * (k + 1) + k) % 7])).join('\n')),
+    Array.from({ length: 40 }, (_, i) => line(2 + i * 2.2, `這是第${i + 1}句歌詞`)).join('\n')];
+  const build = (src: string, cut: typeof styles[number], aspect: number) => {
+    const map = RhythmMap.grid(112, 0.3, 160), p = parse(src), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6, doc = buildLyrics(p, map, musicEnd);
+    const st = normalizeStyle({ ...presetStyle('cover'), preset: 'custom', cut, fx: { ...presetStyle('cover').fx, frame: true } });
+    return plan({ doc, map, style: st, measure: approxMeasurer(), aspect, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+  };
+  it.each(styles)('every frame stays in the picture while it is up (%s; 16:9, 1:1, 9:16)', cut => {
+    const bad: string[] = [];
+    for (const src of SONGS) for (const aspect of [16 / 9, 1, 9 / 16]) {
+      const P = build(src, cut, aspect), sig = new Signals(P.map), frames = [...new Set(P.words.map(S => S.frame).filter(Boolean))] as NonNullable<ScenePlan['words'][0]['frame']>[];
+      for (let t = 1; t < P.musicEnd; t += 0.1) { if (transK(P.passages, t) > 0.02) continue; const f = cameraAt(P, sig, t, 1);
+        for (const F of frames) { const L = F.words[0].line; if (t < F.ts + 0.85 || t > Math.min(L.L.end - 0.8, F.until ?? Infinity, L.secEnd - L.secIn)) continue;
+          for (const S of F.words) for (const [x, y] of corners({ x: S.x, y: S.y, lw: S.lw + F.pad * 2, lh: S.lh + F.pad * 2, tilt: S.tilt })) { const q = project(x, y, S.d, f.cam, f.fx, P.W, P.H);
+            const out = Math.max(Math.abs(q.sx) - P.W / 2, Math.abs(q.sy) - P.H / 2); if (out > 3) bad.push(`${aspect.toFixed(2)} ${t.toFixed(1)} ${F.words.map(w => w.w.text).join('')} +${out.toFixed(0)}`); } } }
+    }
+    expect(bad.slice(0, 5)).toEqual([]);
+  });
+  it.each(styles)('a page keeps at most PAGE_LINES lines up (%s)', cut => {
+    for (const src of SONGS) { const P = build(src, cut, 16 / 9); let most = 0;
+      for (let t = 1; t < P.musicEnd; t += 0.1) { const up = P.lines.filter(L => L.words.length && L.words[0].show <= t && t < L.secEnd - L.secIn - 0.02).length; most = Math.max(most, up); }
+      expect(most).toBeLessThanOrEqual(PAGE_LINES); }
+  });
+});

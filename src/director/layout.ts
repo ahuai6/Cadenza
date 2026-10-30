@@ -19,6 +19,8 @@ import { lyricType } from './lyrictypes';
 export const TIN_MIX = ['blur', 'drift', 'rise', 'track'];
 export const FRAME_NEED = 1.3;
 export interface LayoutInput { doc: LyricDoc; map: RhythmMap; style: Style; measure: Measurer; W: number; H: number; musicEnd: number }
+/** The most lines a page keeps up at once (the one being sung among them). */
+export const PAGE_LINES = 4;
 export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passage[]; dmin: number; /** clears without a blur (plan.ts applySweeps) */ sweeps: { t: number; line: number }[] }
 
 export const tsz = (st: Style) => clamp(st.m.tsize ?? 1, 0.5, 2.5);
@@ -204,8 +206,10 @@ export function layout(inp: LayoutInput): LayoutResult {
         if (k === 0) lineStart = P2; lastTurn = S.w.t;
       } else {
         const d0 = dirv(th), d: [number, number] = [d0[0] * rd, d0[1] * rd], nrm = dirv(th + 90), lr = rnd(i * 71.3 + 5);
+        // (a row after a column carries on from the pen — beside the column, level with its top — never under the
+        // column's foot nor folded back to where it began: both are a long way off, a column being tall)
         let backMax = -Infinity, run = 0;
-        if (k === 0 && !first && prevLine && flow < 0 && !Lp.rtl && !mode && prevSeg && !Lp.vert) {
+        if (k === 0 && !first && prevLine && flow < 0 && !Lp.rtl && !mode && prevSeg && !Lp.vert && !prevLine.vert) {
           const zz = Math.min(zOf(prevSeg), zOf(S)); run = (P[0] - lineStart[0]) * d[0] + (P[1] - lineStart[1]) * d[1];
           backMax = FOLD * 0.9 * W / zz - (run - prevSeg.lw - w); }
         let cc: [number, number] | null = null;
@@ -219,14 +223,14 @@ export function layout(inp: LayoutInput): LayoutResult {
           const upw = Math.abs(side[0] - side[1]) < gap ? rnd(i * 4.1 + 2) < 0.5 : side[0] < side[1], ext = upw ? side[0] : side[1];
           const off = (ext + gap * 2.2 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [lineStart[0] + nrm[0] * off - d[0] * back, lineStart[1] + nrm[1] * off - d[1] * back];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0; Lp.back = true; align = { X: penult(prevLine!, P), d };
-        } else if (k === 0 && !first && prevLine && !mode && lr >= P_BELOW && lr < P_BELOW + P_ABOVE && !Lp.vert) {
+        } else if (k === 0 && !first && prevLine && !mode && lr >= P_BELOW && lr < P_BELOW + P_ABOVE && !Lp.vert && !prevLine.vert) {
           // above the line before (or below), ending over its second-to-last character: the singing carries on from where
           // it was instead of jumping back to where the line before began
           const upw = lr < P_BELOW + P_ABOVE * 0.75, back = alignBack(Lp, prevLine, P, d); align = { X: penult(prevLine, P), d };
           let ext = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) { const v = (p[0] - lineStart[0]) * nrm[0] + (p[1] - lineStart[1]) * nrm[1]; ext = Math.max(ext, upw ? -v : v); }
           const off = (ext + gap * 2.5 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [P[0] + nrm[0] * off - d[0] * back, P[1] + nrm[1] * off - d[1] * back];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
-        } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < P_BELOW)) && !(Lp.vert && prevLine.vert)) {
+        } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < P_BELOW)) && !prevLine.vert) {
           const bk = alignBack(Lp, prevLine, P, d); align = { X: penult(prevLine, P), d }; const ref: [number, number] = [P[0] - d[0] * bk, P[1] - d[1] * bk];
           let below = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) below = Math.max(below, (p[0] - ref[0]) * nrm[0] + (p[1] - ref[1]) * nrm[1]);
           const s0: [number, number] = [ref[0] + nrm[0] * (below + gap * 2.5 + h / 2), ref[1] + nrm[1] * (below + gap * 2.5 + h / 2)];
@@ -296,12 +300,13 @@ export function layout(inp: LayoutInput): LayoutResult {
     return !bad;
   };
   // (close up, a page holds fewer lines: more of the song is crossed by quick blur transitions)
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = 5, sweeps: { t: number; line: number }[] = []; let onPage = 0;
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = PAGE_LINES + 1, sweeps: { t: number; line: number }[] = []; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
-    // ten lines on the page at most: from two lines before that, a line with room for a quick clear clears the picture;
-    // from the tenth on, even a short breath (a quarter second: the blur peaks just after the last word ends) is taken,
-    // so a song sung without pauses still clears (the words stay few enough to draw lightly, the page never crowds)
+    // a crowding page: from a couple of lines before CROWD, a line with room for a quick clear clears the picture; from
+    // CROWD on, even a short breath is taken, so a song sung without pauses still clears — and where there is no time
+    // even for that, the lines out of sight are taken away unseen. (Whatever these choose, plan.ts holds the page to
+    // PAGE_LINES lines up at once.)
     if (i > 0 && !startsAt.has(i) && canClear && onPage >= CROWD - 2) { const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
       const nx = Lp.words[0].show;
       // (a crowded page takes even a short breath: the line before sung out, then a quick blur in and out)
@@ -345,9 +350,13 @@ export function vertRuns(ls: LyricDoc['lines']): Set<number> {
   // characters down a column, in at most five words)
   const ok = (L: LyricDoc['lines'][number]) => { if (!L || !L.words.length || L.words.length > 5 || fastLine(L) || !L.words.every(w => w.cjk && !w.latin)) return false;
     const n = L.words.reduce((a, w) => a + w.units.length, 0); return n >= 2 && n <= 10; };
+  // (the count of lines since the last run goes on over the whole song — a transition or a new page does not restart
+  // it — and the chance of a run grows with it: a quarter at six lines on, certain by about fourteen, so every song
+  // with lines that can stand as columns gets them)
   const out = new Set<number>(); let last = -9;
   for (let i = 1; i < ls.length; i++) {
-    if (i - last < 6 || !ok(ls[i]) || rnd(ls[i].i * 37 + 5.3) >= 0.26) continue;
+    const since = i - last, chance = clamp(0.26 + (since - 6) * 0.1, 0, 1);
+    if (since < 6 || !ok(ls[i]) || !ok(ls[i + 1]) || rnd(ls[i].i * 37 + 5.3) >= chance) continue;
     const want = 2 + Math.floor(rnd(ls[i].i * 11.3 + 2) * 3); let j = i; while (j < ls.length && j - i < want && ok(ls[j])) j++;
     if (j - i < 2) continue;
     for (let k = i; k < j; k++) out.add(k);

@@ -299,8 +299,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   if (!smooth) plan.arrivals = stops.filter(s => !s.over && !s.cut && s.t > 0.3).map(s => ({ t: s.arrive, ang: rnd(s.t * 7.13) * 6.283, sg: rnd(s.t * 3.3) < 0.5 ? -1 : 1, k: (0.5 + 0.7 * intensity(s.t)) * (s.words[0].k === 0 ? 1 : 0.6) }));
   plan.path = smoothPath(plan, inp.dur, cut, sp, stops.find(s => s.over) ? moves[moves.length - 1].s : Infinity);
   // each cut's jump as the smoothed path really makes it (the backdrop's camera takes exactly this out, so it never jumps)
-  { const Pp = plan.path; for (const k of plan.cuts) { const f = Math.min(Pp.n - 1, Math.max(1, Math.ceil(k.t * Pp.rate - 1e-9)));
-    k.dx = Pp.x[f] - Pp.x[f - 1]; k.dy = Pp.y[f] - Pp.y[f - 1]; k.dz = Pp.lz[f] - Pp.lz[f - 1]; k.dr = Pp.r[f] - Pp.r[f - 1]; } }
+  cutJumps(plan);
   return { camera: plan, extraPassages: extraPass };
 }
 
@@ -417,4 +416,11 @@ export function rawPose(c: CameraPlan, t: number): Pose & { tx: number; ty: numb
   }
   for (const [a, b, dx, dy, en] of c.drifts) { if (t <= a) continue; const e = (en ? EASES[en] : minJerk)(clamp((t - a) / Math.max(1e-3, b - a))); x += dx * e; y += dy * e; }
   return { x, y, z: Math.exp(lz), r, d, tx: 0, ty: 0 };
+}
+/** Each cut's jump as the smoothed path really makes it (the backdrop's camera takes exactly this out, so it never
+ *  jumps); read again whenever the path is changed after planning (fit.ts). */
+export function cutJumps(plan: CameraPlan) {
+  const Pp = plan.path; if (!Pp) return;
+  for (const k of plan.cuts) { const f = Math.min(Pp.n - 1, Math.max(1, Math.ceil(k.t * Pp.rate - 1e-9)));
+    k.dx = Pp.x[f] - Pp.x[f - 1]; k.dy = Pp.y[f] - Pp.y[f - 1]; k.dz = Pp.lz[f] - Pp.lz[f - 1]; k.dr = Pp.r[f] - Pp.r[f - 1]; }
 }
