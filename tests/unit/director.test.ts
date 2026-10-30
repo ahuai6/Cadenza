@@ -423,12 +423,14 @@ describe('where a new line goes', () => {
    lines (fit.ts); and a page never keeps more than PAGE_LINES lines up at once (plan.ts), one more only while it fades. */
 describe('framing and the page', async () => {
   const { PAGE_LINES } = await import('../../src/director/layout');
+  // (the lyrics as the app has them: broken into words by the segmenter)
+  const { loadSegmenter } = await import('../../src/text/segment'), { respace } = await import('../../src/lyrics/spacing'); await loadSegmenter();
   const line = (t: number, s: string) => { const m = Math.floor(t / 60), x = (t % 60).toFixed(2).padStart(5, '0'); return `[0${m}:${x}]${s}`; };
   const WORDS = ['看見遠方的光', '我們一起走 到天亮', 'hold me close tonight', '夜色', '風吹過山丘與海洋之間', '慢慢地醒來吧', 'we are young'];
   const SONGS = [LRC, ...[0, 1, 2].map(k => Array.from({ length: 30 }, (_, i) => line(2 + i * (2.4 + k * 0.4), WORDS[(i * (k + 1) + k) % 7])).join('\n')),
     Array.from({ length: 40 }, (_, i) => line(2 + i * 2.2, `這是第${i + 1}句歌詞`)).join('\n')];
   const build = (src: string, cut: typeof styles[number], aspect: number) => {
-    const map = RhythmMap.grid(112, 0.3, 160), p = parse(src), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6, doc = buildLyrics(p, map, musicEnd);
+    const map = RhythmMap.grid(112, 0.3, 160), p = respace(parse(src)), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6, doc = buildLyrics(p, map, musicEnd);
     const st = normalizeStyle({ ...presetStyle('cover'), preset: 'custom', cut, fx: { ...presetStyle('cover').fx, frame: true } });
     return plan({ doc, map, style: st, measure: approxMeasurer(), aspect, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
   };

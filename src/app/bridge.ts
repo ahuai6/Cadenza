@@ -15,7 +15,7 @@ export interface Track {
 export interface Playlist { id: string; name: string; created: number; tracks: string[] }
 export interface LibView { folders: string[]; tracks: Track[]; favorites: string[]; playlists: Playlist[] }
 /** What is bound to one song: its lyric style, lyric timing, the lock, its MV. */
-export interface SongData { style?: unknown; lshift?: number; locked?: boolean; mv?: { name: string; offset: number } | null; mvOn?: boolean; v?: number; unbind?: boolean }
+export interface SongData { /** the listener's word spacing, line by line (lyrics/spacing.ts) */ spacing?: Record<string, string>; style?: unknown; lshift?: number; locked?: boolean; mv?: { name: string; offset: number } | null; mvOn?: boolean; v?: number; unbind?: boolean }
 export interface LyricsFound { id: number; title: string; artist: string; album: string; duration: number; synced: string; plain: string; instrumental: boolean }
 export interface MetaFound { mbid: string; title: string; artist: string; album: string; year: string | null; duration: number | null; genre: string[] }
 export interface CoverFound { src: 'itunes' | 'caa'; title: string; artist: string; year: string | null; thumb: string; full: string }

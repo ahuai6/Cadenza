@@ -12,6 +12,8 @@ export { exportVideo, openFrameSource, estimate, exportSize, blobSink, type Expo
    tests/unit/arch.test.ts keeps it so. */
 export { analyzeInBackground, loudnessInBackground, RHYTHM_VERSION, isCurrent, balanceDb, rhythmEngine, neuralDrums, neuralStatus, type RhythmAnalysis, type RhythmEngine } from '../rhythm';
 export { parse as parseLyrics } from '../lyrics/parse';
+export { autoSpacing, spacingKey, type Spacing } from '../lyrics/spacing';
+export { loadSegmenter } from '../text/segment';
 export type { Line as LyricLine } from '../lyrics/model';
 export type { SongInfo } from '../director/titles';
 export { LYRIC_TYPES } from '../director/lyrictypes';

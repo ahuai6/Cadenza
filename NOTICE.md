@@ -16,7 +16,20 @@ Cadenza 以 **GNU Affero General Public License v3.0**（AGPL-3.0-only）發佈�
 
   這些部分對應 Folia 的 `beatThis.ts`、`beatAccents.ts`、`drumStem.ts`、`drumHits.ts`、`stemRange.ts`。演算法與參數維持原樣，只改成 Cadenza 的模組結構與統一接口。
 
+另外，`src/text/segment/` 中的歌詞分詞器（icu-folia）以及產生分詞資料的 `scripts/segmentData.mjs`，移植自 Folia 的 `src/utils/lyrics/icuFolia/` 和 `dev/icuFolia/icuFoliaDataPlugin.mjs`，演算法維持原樣：
+- 用瀏覽器內建的 ICU 斷詞；
+- 中文改用 jieba（詞典加 HMM），並把助詞接回前一個詞；
+- 日文改用 BudouX 切成文節。
+
 每個移植檔案的開頭都註明了來源檔案。
+
+## 分詞資料與函式庫
+
+| 項目 | 用途 | 授權 | 上游 |
+|---|---|---|---|
+| `data/jieba/`（`dict.txt`、`prob_*.py`） | 中文詞典與 HMM 表，打包時轉成分詞資料 | MIT（見 `data/jieba/LICENSE`） | https://github.com/fxsjy/jieba |
+| BudouX | 日文文節切分 | Apache-2.0 | https://github.com/google/budoux |
+| opencc-js | 只在建置時用來產生繁轉簡字表 | Apache-2.0 | https://github.com/nk2028/opencc-js |
 
 ## 模型權重（不在 git 中，打包時下載並以 SHA-256 校驗）
 

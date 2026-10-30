@@ -9,7 +9,7 @@ import { ui, useStore, trackOf, toast, openMenu } from '../state';
 import { Button, IconButton, Seg, Row, Slider, Note, Badge, Section } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
-import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setMvOn, unbindMv } from '../playback/player';
+import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setMvOn, unbindMv, spacedLines, saveSpacing } from '../playback/player';
 import { refs, back } from '../layers';
 import { Progress, Transport, QueueButton } from './Player';
 import { NpLyrics } from './NowPlaying';
@@ -129,6 +129,23 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
     </aside>
   );
 }
+/** The song's word breaks: its lines as they are spaced now, editable, back to the segmenter's in one go. */
+function SpacingEditor() {
+  const doc = useStore(player, x => x.session?.doc), [text, setText] = useState(() => spacedLines().join('\n')), [msg, setMsg] = useState('');
+  useEffect(() => { setText(spacedLines().join('\n')); }, [doc]);       // (a new song or new lyrics, not every repaint)
+  return (
+    <div style={{ display: 'grid', gap: 8, padding: '0 0 14px' }}>
+      <b style={{ fontSize: 13 }}>{tx('s.lyr.spacing')}</b>
+      <Note>{tx('s.lyr.spacingHelp')}</Note>
+      <textarea className={s.lyricsTa} spellCheck={false} value={text} onChange={e => setText(e.target.value)} />
+      <Row>
+        <Button kind="primary" size="sm" onClick={async () => { await saveSpacing(text.split('\n')); setMsg(tx('s.lyr.spacingSaved')); }}>{tx('s.lyr.spacingSave')}</Button>
+        <Button size="sm" onClick={async () => { await saveSpacing(null); setText(spacedLines().join('\n')); setMsg(tx('s.lyr.spacingRestored')); }}>{tx('s.lyr.spacingReset')}</Button>
+      </Row>
+      {msg && <Note>{msg}</Note>}
+    </div>
+  );
+}
 export function LyricsTab() {
   const p = useStore(player), t = trackOf(p.shownId), session = p.session!;
   const [text, setText] = useState(() => (p.hasLyrics ? session.spec.lyrics : '') || ''), [msg, setMsg] = useState('');
@@ -150,6 +167,7 @@ export function LyricsTab() {
         {msg && <Note>{msg}</Note>}
         <Slider label={tx('s.lyr.offset')} min={-1500} max={1500} step={10} value={session.spec.lshift || 0} format={v => `${v > 0 ? '+' : ''}${Math.round(v)}`} onChange={v => editSong(x => x.setTiming({ lshift: v }))} />
       </div>
+      {p.hasLyrics && <SpacingEditor />}
       <div style={{ display: 'grid', gap: 8 }}>
         <b style={{ fontSize: 13 }}>{tx('s.lyr.online')}</b>
         <form className={s.q} onSubmit={e => { e.preventDefault(); search(); }}>

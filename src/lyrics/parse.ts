@@ -10,7 +10,7 @@
 //   [offset:+ms], [ti:], [ar:], [al:], [au:]
 // None of the markers (spaces, '#', the brackets) is ever part of the words shown.
 
-export interface RawUnit { t: number; c: string; sp: boolean }
+export interface RawUnit { t: number; c: string; sp: boolean; /** when it stops sounding, where a stamp with nothing after it (or only a space) says so */ e?: number }
 /** A harmony sung with a word (the part in brackets after it), with its own timing when the line has it. */
 export interface RawHarm { text: string; units?: RawUnit[] }
 export interface RawWord { text: string; units?: RawUnit[]; harm?: RawHarm; /** a chorus comes in on this word: 1 strongest .. 3 lighter */ mark?: number }
@@ -92,7 +92,11 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
         if (sp) flush();
       }
       close = null;
-    } else { if (cur && /\s/.test(c)) flush(); close = tt; }
+    } else {
+      // a stamp with nothing to sing after it (or only a space, as in `stop <00:21.180> <00:22.260>feeling`): where the
+      // unit before it stops — it is sustained until then, and the time to the next one is a breath, not a word
+      const prev = cur && cur.units?.length ? cur.units : words[words.length - 1]?.units; if (prev?.length) { const u = prev[prev.length - 1]; if (tt > u.t) u.e = tt; }
+      if (cur && /\s/.test(c)) flush(); close = tt; }
   }
   flush();
   for (const w of words) if (w.harm) w.harm.text = w.harm.units!.map(u => u.c + (u.sp ? ' ' : '')).join('').trim();

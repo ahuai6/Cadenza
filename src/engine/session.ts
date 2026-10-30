@@ -3,6 +3,8 @@
    engine can render two at once (a song change crossfades them). Edits go through the session; it replans what they
    affect, in one place. */
 import { parse, parseRange } from '../lyrics/parse';
+import { respace, type Spacing } from '../lyrics/spacing';
+import { loadSegmenter, segmenterReady } from '../text/segment';
 import { buildLyrics, type LyricDoc } from '../lyrics/model';
 import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis } from '../rhythm';
 import { plan as makePlan, ASPECTS, type ScenePlan } from '../director';
@@ -25,6 +27,8 @@ export interface SessionSpec {
   audio?: AudioLike | null;
   analysis?: RhythmAnalysis | null;
   range?: string; lshift?: number; bpm?: number; endLen?: number;
+  /** the listener's own word spacing, line by line (lyrics/spacing.ts); the segmenter's everywhere else */
+  spacing?: Spacing;
   fade?: boolean;
   /** the frame's aspect, whatever the stored style says ('fill': the view's own, as the player shows it) */
   aspect?: string;
@@ -80,6 +84,9 @@ export class Session {
     const parsedLen = isFinite(fileEnd) ? fileEnd - r.a : Infinity;
     let parsed = parse(sp.lyrics || '', r.a, parsedLen); this.hasLyrics = parsed.lines.length > 0;
     if (!this.hasLyrics) parsed = parse(titleCard(sp.song), 0);
+    // the words: where the segmenter (or the listener) breaks each line — its dictionary waited for a moment the first
+    // time (it loads once, in the background); without it the lines break by the browser's own word breaker
+    if (this.hasLyrics) { if (!segmenterReady()) await Promise.race([loadSegmenter(), new Promise(r => setTimeout(r, 2500))]); parsed = respace(parsed, sp.spacing); }
     // song time 0 is the range start; the lyric shift moves the music under the lyrics (it is in audioStart), so the
     // layout, the beats, the audio and the video stay in agreement
     const text = parsed.lines.map(L => L.text).join('');
@@ -128,6 +135,8 @@ export class Session {
   coverPalette() { if (!this.cover) return; Object.assign(this.style, (this.style.bgStyle === 'vinyl' ? paletteVinyl : paletteFromImage)(this.cover)); this.colors(); }
   setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= 2; else this.dirty |= 1; }
   setLyrics(src: string) { this.spec.lyrics = src; this.dirty |= 2; }
+  /** The listener's word spacing (lyrics/spacing.ts), or none to go back to the segmenter's. */
+  setSpacing(sp: Spacing | undefined) { this.spec.spacing = sp; this.dirty |= 2; }
   setTiming(p: { lshift?: number; range?: string; endLen?: number; bpm?: number }) { Object.assign(this.spec, p); this.dirty |= 2; }
   async setCover(url: string, repaint: boolean) {
     this.cover = await loadImage(url); this.coverKey = url; this.spec.coverUrl = url;

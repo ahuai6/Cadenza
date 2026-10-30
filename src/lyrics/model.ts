@@ -74,7 +74,8 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
     // when each word is over
     L.words.forEach((W, k) => {
       const nx = k + 1 < L.words.length ? L.words[k + 1].t : Infinity;
-      if (W.timed) W.end = Math.max(...W.units.map(u => u.t!)) + 0.25;
+      // (timed: its last unit's own end where the lyrics give one, else a quarter second after it starts)
+      if (W.timed) { const ru = R.words[k].units!, lu = ru[ru.length - 1]; W.end = lu.e != null ? Math.max(lu.e, Math.max(...W.units.map(u => u.t!)) + 0.08) : Math.max(...W.units.map(u => u.t!)) + 0.25; }
       else W.end = Math.min(nx, W.t + syllableTime(syllables(W.text), bpm) + 0.35, L.end);
       W.end = Math.max(W.end, W.t + 0.12);
       // a word timed only as a whole: its characters spread over its singing, so it is still sung (and followed) one

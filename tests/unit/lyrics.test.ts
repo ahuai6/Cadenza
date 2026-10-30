@@ -60,3 +60,13 @@ describe('lyrics', () => {
   });
 });
 
+
+describe('word stamps with nothing after them', () => {
+  it('a stamp followed only by a space ends the word before it (it is sustained to there, then a breath)', () => {
+    const p = parse('[00:20.00]<00:20.560>stop <00:21.180> <00:22.260>feeling<00:22.800>\n[00:25.00]next');
+    const d = buildLyrics(p, RhythmMap.grid(120, 0, 60), 40), [a, b] = d.lines[0].words;
+    expect(d.lines[0].words.length).toBe(2);
+    expect(a.text).toBe('stop'); expect(a.end).toBeCloseTo(21.18, 2);
+    expect(b.text).toBe('feeling'); expect(b.end).toBeCloseTo(22.8, 2);
+  });
+});

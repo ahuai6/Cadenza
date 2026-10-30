@@ -77,20 +77,19 @@ function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam:
       P.secEnd = Math.min(P.secEnd, t + fade); P.secIn = Math.max(0.01, P.secEnd - t); P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) }; extra--; }
   }
 }
-/** A few characters of a line picked by chance (no rule: neither the longest nor the loudest), one line in every three
- *  or four — a lit word now and then, never a pattern, never a whole line: a short word of a spaced line whole (a
- *  Latin word is always whole), else two or three characters inside it. Seeded by the song, so a preview, a replay and
- *  an export pick the same. */
+/** A lit word now and then: one line in every three or four, one of its words — a word as the segmenter (or the
+ *  listener) broke the line (lyrics/spacing.ts), so it is always a whole word, never a few characters cut out of one —
+ *  picked by chance among its content words (two characters or more where there are any, never punctuation alone), and
+ *  never a line's only word (the emphasis is a word in a line, not the line). Seeded by the song, so a preview, a replay
+ *  and an export pick the same. */
 function pickEmphasis(lines: ScenePlan['lines']) {
   let next = 1 + Math.floor(rnd(lines.length * 1.7) * 3);
   lines.forEach((P, i) => {
     if (i < next) return;
-    const ws = P.words.filter(S => /[\p{L}\p{N}]/u.test(S.w.text)); if (!ws.length) { next = i + 1; return; }
-    const S = ws[Math.floor(rnd(i * 5.17 + 0.3) * ws.length)], n = S.units.length;
-    if (S.w.latin || (P.words.length > 1 && n <= 4)) S.emph = [0, n];
-    else { const ok = S.units.map(u => /[\p{L}\p{N}]/u.test(u.c)), len = Math.min(n, 2 + (rnd(i * 3.3 + 7) < 0.5 ? 1 : 0)), starts: number[] = [];
-      for (let a = 0; a + len <= n; a++) if (ok.slice(a, a + len).every(Boolean)) starts.push(a);
-      if (starts.length) { const a = starts[Math.floor(rnd(i * 8.1 + 2) * starts.length)]; S.emph = [a, a + len]; } }
+    const content = P.words.filter(S => /[\p{L}\p{N}]/u.test(S.w.text));
+    if (content.length < 2) { next = i + 1; return; }
+    const long = content.filter(S => S.w.latin || S.units.length >= 2), pool = long.length ? long : content;
+    const S = pool[Math.floor(rnd(i * 5.17 + 0.3) * pool.length)]; S.emph = [0, S.units.length];
     next = i + 3 + (rnd(i * 2.9 + 1) < 0.5 ? 1 : 0);
   });
 }

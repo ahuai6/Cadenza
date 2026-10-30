@@ -8,7 +8,7 @@
 // (card, now playing, effect lyrics) switches together, however fast the user skips (each request supersedes the last).
 import { createStore } from '../../core/emitter';
 import { Session, type AudioLike } from '../../engine';
-import { RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, type RhythmAnalysis } from '../../engine';
+import { RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, autoSpacing, spacingKey, type RhythmAnalysis, type Spacing } from '../../engine';
 import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
 import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge';
@@ -88,7 +88,7 @@ async function openSong(id: string, wantRoute: 'std' | 'hifi', ok: () => boolean
   // an instrumental: its own line in place of lyrics, and the record theme unless the song already has a look of its own.
   // In album play: no fade at the end (the audio is the album's own), only the small title, the first song's look
   const s = await Session.open({ key: id, lyrics: instr ? instrumentalLyrics() : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '', album: !!album },
-    coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, fade: !album, aspect: '16:9', look: album?.look || undefined }, sessionEnv());
+    coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, spacing: song?.spacing, fade: !album, aspect: '16:9', look: album?.look || undefined }, sessionEnv());
   return { s, route, song, lyr };
 }
 /** Album play: the next song opened ahead, so the film runs straight on into it (standard output only: the Hi-Fi output
@@ -269,6 +269,16 @@ export async function useLyrics(text: string) {
   await Lib.writeLyrics(p.shownId, text);
   player.set({ hasLyrics: s.hasLyrics, lyrics: { source: 'lrc', text }, rev: p.rev + 1 });
   return s.hasLyrics;
+}
+/** The shown song's lines as its words are spaced now (one per line). */
+export const spacedLines = () => (player.get().session?.doc?.lines || []).filter(L => L.words.length).map(L => L.words.map(w => w.text).join(' '));
+/** Keep the listener's spacing of the shown song's lines (only where it differs from the segmenter's), or none: every
+ *  line back to the segmenter's at once. */
+export async function saveSpacing(edited: string[] | null) {
+  const p = player.get(), s = p.session; if (!s) return;
+  let sp: Spacing | undefined;
+  if (edited) { const o: Spacing = {}; for (const e of edited) { const t = e.trim().replace(/\s+/g, ' '); if (t && t !== autoSpacing(t)) o[spacingKey(t)] = t; } if (Object.keys(o).length) sp = o; }
+  s.setSpacing(sp); await s.flush(); engine.invalidate(); saveSong({ spacing: sp }); player.set({ rev: p.rev + 1 });
 }
 export const hasTimedLines = (text: string) => parse(text, 0).lines.length > 0 && /\[\d+:\d+/.test(text);
 /** Untimed lyrics (plain text): lines spread evenly between the first beat and the end of the music. */
