@@ -59,7 +59,7 @@ describe.each(styles)('director (%s)', cut => {
     }
   });
   it('follows the singing along the words, never backwards, a little behind it', () => {
-    const stops = P.camera.stops.filter(s => !s.over && !s.words.some(w => w.frame) && s.fax);
+    const stops = P.camera.stops.filter(s => !s.over && !s.whole && !s.words.some(w => w.frame) && s.fax);   // (a line heading back is framed whole: below)
     // the character being sung sits just right of the middle on arrival (the camera follows the voice, never ahead)…
     // (hovering, the words are framed whole instead)
     const lead = stops.filter(s => { const U = singing(s.words[0], s.words[0].w.t, true), cx = (U[0][0] + U[2][0]) / 2, cy = (U[0][1] + U[2][1]) / 2, c = rawPose(P.camera, s.arrive + 1e-3);
@@ -74,6 +74,25 @@ describe.each(styles)('director (%s)', cut => {
       expect(p.t + p.out).toBeLessThanOrEqual(first.show + 0.001);
       const pos = P.map.beatAt(p.t); expect(Math.min(pos.phase, 1 - pos.phase, Math.abs(pos.phase - 0.5))).toBeLessThan(0.02);
     }
+  });
+});
+
+describe.each(styles)('directions (%s)', cut => {
+  const P = make(cut);
+  // where each passage's lines go: their centres from the first to the last, along the reading direction
+  const secs = [...new Set(P.lines.map(L => L.sec))].map(sec => P.lines.filter(L => L.sec === sec && L.words.length));
+  it('the lines go both ways: rightward, and — after transitions — leftward, in more than one passage', () => {
+    let right = 0; const leftSecs = new Set<number>();
+    for (const ls of secs) for (let k = 1; k < ls.length; k++) { if (ls[k].west && ls[k].ax < ls[k - 1].ax) leftSecs.add(ls[k].sec); else if (ls[k].ax > ls[k - 1].ax) right++; }
+    expect(right).toBeGreaterThan(3); expect(leftSecs.size).toBeGreaterThanOrEqual(2);
+  });
+  it('a line heading leftward is framed whole: one stop, never followed character by character', () => {
+    const west = P.lines.filter(L => L.west && !L.vert && !L.scene && L.words.length && !L.words.some(S => S.vert || S.roll || S.frame));
+    expect(west.length).toBeGreaterThan(0);
+    for (const L of west) { const st = P.camera.stops.filter(s => s.words[0].line === L && !s.over);
+      if (cut === 'hover') continue;
+      expect(st.length).toBe(1); expect(st[0].whole).toBe(true);
+      expect(P.camera.drifts.some(d => d[0] >= st[0].arrive - 1e-6 && d[1] <= st[0].leave + 1e-6 && Math.hypot(d[2], d[3]) > 1)).toBe(false); }
   });
 });
 
@@ -421,18 +440,24 @@ describe('lyric types', () => {
 });
 
 describe('where a new line goes', () => {
-  it('a line that starts back to the left sits above or below the line before, its last character over that line\'s second-to-last', () => {
+  it('a line that starts back to the left sits above or below the line before: carrying on over its second-to-last character, or heading back leftward', () => {
     for (const cut of ['glide', 'punch', 'close'] as const) {
-      const P = make(cut, LRC, { frame: false }); let n = 0, ok = 0;
+      const P = make(cut, LRC, { frame: false }); let n = 0, ok = 0, nb = 0, okb = 0;
       const unitsAt = (L: typeof P.lines[0]) => L.words.flatMap(S => S.units.map(u => { const c = Math.cos(S.tilt * Math.PI / 180), sn = Math.sin(S.tilt * Math.PI / 180); return [S.x + c * u.ox - sn * u.oy, S.y + sn * u.ox + c * u.oy, u.w] as const; }));
       for (let i = 1; i < P.lines.length; i++) { const A = P.lines[i - 1], B = P.lines[i]; if (A.sec !== B.sec || A.vert || B.vert || !A.words.length || !B.words.length) continue;
         const d = [Math.cos(A.words[A.words.length - 1].ang * Math.PI / 180), Math.sin(A.words[A.words.length - 1].ang * Math.PI / 180)], ua = unitsAt(A), ub = unitsAt(B);
         if (Math.abs(B.words[0].ang - A.words[A.words.length - 1].ang) > 1 || B.words.some(S => S.roll || Math.abs(S.ang - B.words[0].ang) > 1)) continue;
         const along = (p: readonly number[]) => p[0] * d[0] + p[1] * d[1], endA = along(ua[ua.length - 1]), startB = along(ub[0]);
         if (startB >= endA - 1) continue;                                   // (one that runs on to the right)
+        // (one laid heading back goes leftward instead: tested below)
+        if (B.back) { nb++; const nrm = [-d[1], d[0]], across = (p: readonly number[]) => p[0] * nrm[0] + p[1] * nrm[1];
+          if (along(ub[0]) < along(ua[0]) && along([B.ax, B.ay]) < along([A.ax, A.ay]) && Math.abs(across([B.ax, B.ay]) - across([A.ax, A.ay])) > (A.bh + B.bh) * 0.4) okb++; continue; }
         n++; const pen = ua[Math.max(0, ua.length - 2)], last = ub[ub.length - 1];
         if (Math.abs(along(last) - along(pen)) < Math.max(pen[2], last[2]) * 0.75) ok++; }
-      expect(n, cut).toBeGreaterThanOrEqual(3); expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThan(0.7); }
+      expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThan(0.7);
+      // a line laid heading back: a row above or below, starting before the line before began, its middle left of that one's
+      // (most of them: one nudged clear of an earlier word may sit a little off its row)
+      expect(nb, cut).toBeGreaterThanOrEqual(2); expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75); }
   });
 });
 

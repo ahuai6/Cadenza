@@ -79,6 +79,10 @@ export function layout(inp: LayoutInput): LayoutResult {
   // how close each camera style holds a word: what the layout's limits (how far apart words may sit, in frames) are measured in
   const close = st.cut === 'close';
   const zOf = (S: PWord) => close ? closeZoom(S, H, W, T) : wordZoom(S, med.get(S.line)!, W, H, T);
+  /** Can a line be framed whole without its words shrinking much (to no less than about half their usual size)? A line
+   *  heading back is framed whole (camera.ts), so only such a line is laid heading back — a longer one goes on onward. */
+  const fitsWhole = (Lp: PLine) => { if (!Lp.words.length) return false; const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6;
+    return W * 0.78 / Lw >= 0.55 * Math.min(...Lp.words.map(zOf)); };
 
   /* ---- passages at pauses ---- */
   const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off', st.bgStyle === 'video');
@@ -169,18 +173,22 @@ export function layout(inp: LayoutInput): LayoutResult {
   let secN = 0;
   const newPassage = () => { secN++;
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const Q of placed) for (const p of corners(Q)) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
-    const up = rnd(secN * 7.3 + 1) < 0.4, sx = x0 - BASE * (1 + rnd(secN * 3.1) * 3);
+    // (every transition turns the way the lines go — rightward, then leftward, … — and every second one whether the new
+    // passage opens above or below what came before: over four passages the lyrics come from every side, in turn)
+    const up = ((secN + 1) >> 1) % 2 === 1, sx = x0 - BASE * (1 + rnd(secN * 3.1) * 3);
     S0.P = [sx, up ? y0 - BASE * (3 + rnd(secN * 2.2) * 1.5) : y1 + BASE * (2 + rnd(secN * 2.2) * 1.5)]; S0.lineStart = [...S0.P] as [number, number];
-    S0.th = [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = 1; S0.flowFrom = null; S0.backN = 0; };
+    S0.th = [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = secN % 2 ? -1 : 1; S0.flowFrom = null; S0.backN = 0; };
 
   const placeLine = (Lp: PLine, i: number, mode: string | null): boolean => {
     let { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN } = S0, bad = false;
-    Lp.back = false; let align: { X: [number, number]; d: [number, number] } | null = null;
+    Lp.back = false; Lp.west = false; const westStart = flow < 0 && secFirst; let align: { X: [number, number]; d: [number, number] } | null = null;
     Lp.words.forEach((S, k) => {
       const w = S.lw, h = S.lh, first = (i === 0 && k === 0) || (secFirst && k === 0);
       const tilt0 = rnd(i * 5 + k * 9.1) < 0.3 ? (rnd(i * 3 + k) - 0.5) * 12 : 0;
       let turn = 0; const rd = Lp.rtl ? -1 : 1; S.roll = 0;
-      if (!first && !Lp.rtl && mode !== 'dash' && TURN > 0 && TA > 0 && S.s > 0.55 && !S.vert && S.w.t - lastTurn >= map.beatLen(S.w.t)) {
+      // (heading back, a line starts by folding back, never by turning: the turn would take the place of the fold)
+      const folds = k === 0 && flow < 0 && !!prevLine && !mode && !Lp.vert && !prevLine.vert && fitsWhole(Lp);
+      if (!first && !folds && !Lp.rtl && mode !== 'dash' && TURN > 0 && TA > 0 && S.s > 0.55 && !S.vert && S.w.t - lastTurn >= map.beatLen(S.w.t)) {
         const acc = clamp(0.5 + map.accentAt(S.w.t) * 0.5, 0.5, 1.5);
         const p = TURN * (k === 0 ? 0.9 : 0.45) * acc * (0.6 + 0.8 * dens(S.w.t) / mxd) * (S.w.latin ? 0.7 : 1);
         if (rnd(i * 53 + k * 7.7 + 11) < p) {
@@ -209,12 +217,15 @@ export function layout(inp: LayoutInput): LayoutResult {
         // (a row after a column carries on from the pen — beside the column, level with its top — never under the
         // column's foot nor folded back to where it began: both are a long way off, a column being tall)
         let backMax = -Infinity, run = 0;
-        if (k === 0 && !first && prevLine && flow < 0 && !Lp.rtl && !mode && prevSeg && !Lp.vert && !prevLine.vert) {
+        if (folds && !first && !Lp.rtl && prevSeg) {
           const zz = Math.min(zOf(prevSeg), zOf(S)); run = (P[0] - lineStart[0]) * d[0] + (P[1] - lineStart[1]) * d[1];
           backMax = FOLD * 0.9 * W / zz - (run - prevSeg.lw - w); }
         let cc: [number, number] | null = null;
-        if (backMax > -0.5 * run) {
-          const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, back = alignBack(Lp, prevLine!, P, d) - run;   // (from the line before's start)
+        // (the camera frames a line heading back whole: how far back it may start is set by the line, not by a follow's reach)
+        if (backMax > -Infinity) {
+          // heading back: the new line starts a row above or below and well behind where the line before began, so the
+          // lines go leftward one after another (framed whole by the camera, never followed along: camera.ts)
+          const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, back = Lw * (0.55 + 0.35 * rnd(i * 2.9)) + gap * 3;   // (from the line before's start)
           const a0 = -back - gap * 2, a1 = -back + Lw + gap * 2, side = [0, 0];
           for (const Q of [...placed, ...prevLine!.words]) { const cs = corners(Q, padOf(Q)); let u0 = 1e9, u1 = -1e9;
             for (const p of cs) { const u = (p[0] - lineStart[0]) * d[0] + (p[1] - lineStart[1]) * d[1]; u0 = Math.min(u0, u); u1 = Math.max(u1, u); }
@@ -222,7 +233,7 @@ export function layout(inp: LayoutInput): LayoutResult {
             for (const p of cs) { const v = (p[0] - lineStart[0]) * nrm[0] + (p[1] - lineStart[1]) * nrm[1]; side[0] = Math.max(side[0], -v); side[1] = Math.max(side[1], v); } }
           const upw = Math.abs(side[0] - side[1]) < gap ? rnd(i * 4.1 + 2) < 0.5 : side[0] < side[1], ext = upw ? side[0] : side[1];
           const off = (ext + gap * 2.2 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [lineStart[0] + nrm[0] * off - d[0] * back, lineStart[1] + nrm[1] * off - d[1] * back];
-          cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0; Lp.back = true; align = { X: penult(prevLine!, P), d };
+          cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0; Lp.back = true;
         } else if (k === 0 && !first && prevLine && !mode && lr >= P_BELOW && lr < P_BELOW + P_ABOVE && !Lp.vert && !prevLine.vert) {
           // above the line before (or below), ending over its second-to-last character: the singing carries on from where
           // it was instead of jumping back to where the line before began
@@ -274,7 +285,10 @@ export function layout(inp: LayoutInput): LayoutResult {
           S.x = ox + ux; S.y = oy + uy; if (!hits(S)) { P = [P[0] + ux, P[1] + uy]; done = true; break; } }
         if (!done) { S.x = ox; S.y = oy; bad = true; } }
       if (prevSeg && !first) {
-        if (k === 0) { if (!inView(prevSeg, S) && blankOf(prevSeg, S) > (Lp.back ? FOLD : alongMotion(prevSeg, S) ? SPAN : SPAN * BACK_REACH)) bad = true; }
+        // (a line heading back is framed whole: the camera goes from the middle of the line before, framed whole, to its
+        // middle — half a line on from the one before's start, a frame or so at that framing — never from the last word
+        // sung to its first, so no follow's reach applies; a move too long is crossed by a transition, as any is)
+        if (k === 0) { if (!Lp.back && !inView(prevSeg, S) && blankOf(prevSeg, S) > (alongMotion(prevSeg, S) ? SPAN : SPAN * BACK_REACH)) bad = true; }
         else if (blankOf(prevSeg, S) > SPAN) bad = true;
       }
       placed.push(S); prevSeg = S;
@@ -293,6 +307,11 @@ export function layout(inp: LayoutInput): LayoutResult {
     const fa = Lp.words[0]?.ang ?? th, B = boxIn(Lp.words, fa);
     Lp.ax = B.x; Lp.ay = B.y; Lp.bw = B.w; Lp.bh = B.h; Lp.prot = fa;
     { const d0 = dirv(fa), pos = B.x * d0[0] + B.y * d0[1];
+      // framed whole (camera.ts): a line laid heading back, the first of a passage that heads back, and any line that
+      // stands clearly left of the one before — the camera then goes leftward from line to line, never right along a
+      // line and back
+      // (leftward on the screen, whichever way the path has turned)
+      Lp.west = !Lp.rtl && fitsWhole(Lp) && (Lp.back || westStart || (!!prevLine && B.x - prevLine.ax < -Math.max(BASE * T, B.w * 0.2)));
       if (flowFrom == null) flowFrom = pos; else if ((pos - flowFrom) * flow >= FLIP || (flow < 0 && Lp.back && ++backN >= 3)) { flow = -flow; flowFrom = pos; backN = 0; } }
     Lp.d = Lp.words.reduce((a, S) => a + S.d, 0) / Math.max(1, Lp.words.length);
     prevLine = Lp;
