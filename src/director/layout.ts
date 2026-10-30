@@ -210,11 +210,17 @@ export function layout(inp: LayoutInput): LayoutResult {
       // then turned so its characters' tops face away from that centre (never towards it, never upside down)
       let orb: [number, number] | null = null, orbR = 0, orbOut = false;
       if (k === 0 && orbitTry != null && prevLine && !first && !Lp.vert && !prevLine.vert && !Lp.rtl) {
-        // the angle round the line before: anywhere while it is near the circle's centre; once it has wandered out, back
-        // inward (within a half turn either side of the way to the centre) — so the lines circle, never set off one way
-        const O = orbO ?? [prevLine.ax, prevLine.ay], Rc = ORBIT_RANGE * W / (orbZ || zOf(S)), off = [prevLine.ax - O[0], prevLine.ay - O[1]], away = Math.hypot(off[0], off[1]);
-        const home = Math.atan2(-off[1], -off[0]) / D2R, q = orbitTry, steer = away > Rc * 0.35;
-        const a = q >= ORBIT_TRIES ? rnd(i * 31.7 + 9) * 360 + q * 137.5 : steer ? home + (rnd(i * 23.1 + 4) - 0.5) * 120 + [0, 45, -45, 90, -90, 20, -20, 65, -65, 110][q % 10] : rnd(i * 23.1 + 4) * 360 + q * 137.5, radial = ((a + 90 + 540) % 360) - 180;
+        // the angle round the line before: always toward the side of the circle's centre the lines are not on — right
+        // when they sit left of it, left when right, turn and turn about while near it — so from the first line on they
+        // go left as often as right (and up as often as down once they stray), never off one way for a while and then back
+        const O = orbO ?? [prevLine.ax, prevLine.ay], Rc = ORBIT_RANGE * W / (orbZ || zOf(S)), off = [prevLine.ax - O[0], prevLine.ay - O[1]], q = orbitTry;
+        let a = rnd(i * 23.1 + 4) * 360 + q * 137.5;
+        if (q < ORBIT_TRIES) {
+          const sx = off[0] > Rc * 0.1 ? -1 : off[0] < -Rc * 0.1 ? 1 : i % 2 ? 1 : -1;
+          if (Math.sign(Math.cos(a * D2R)) !== sx) a = 180 - a;
+          if (Math.abs(off[1]) > Rc * 0.3 && Math.sign(Math.sin(a * D2R)) === Math.sign(off[1])) a = -a;
+        }
+        const radial = ((a + 90 + 540) % 360) - 180;
         const turnIt = q < ORBIT_TRIES && rnd(i * 5.9 + orbitTry * 1.7) < 0.35 && Math.abs(radial) <= 100;   // (never turned when set round the circle's centre instead: its tops would face away from the wrong centre)
         th = turnIt ? radial : [0, -6, 5, -3][Math.floor(rnd(i * 2.7) * 4)] * TK * 0.6;
         const Lw = Lp.words.reduce((t, Q) => t + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, hh = Math.max(...Lp.words.map(Q => Q.lh));
@@ -323,7 +329,10 @@ export function layout(inp: LayoutInput): LayoutResult {
       }
       if (secFirst && k === 0) secFirst = false;
       S.x = c[0]; S.y = c[1]; S.ang = th; S.tilt = th + (S.roll ? 0 : tilt0 * TK * 0.35);
-      if (hits(S)) { const d = dirv(th), n = dirv(th + 90), ox = S.x, oy = S.y; let done = false;
+      // (round a centre a clash is never nudged away — that would carry the line off its place round the line before, and
+      // its turn with it: another angle is tried instead)
+      if (ORBIT && orbitTry != null && hits(S)) bad = true;
+      else if (hits(S)) { const d = dirv(th), n = dirv(th + 90), ox = S.x, oy = S.y; let done = false;
         for (let s2 = 1; s2 <= 12 && !done; s2++) for (const [ux, uy] of [[d[0] * w * 0.3 * s2, d[1] * w * 0.3 * s2], [n[0] * h * 0.45 * s2, n[1] * h * 0.45 * s2], [(d[0] + n[0]) * w * 0.22 * s2, (d[1] + n[1]) * w * 0.22 * s2]]) {
           S.x = ox + ux; S.y = oy + uy; if (!hits(S)) { P = [P[0] + ux, P[1] + uy]; done = true; break; } }
         if (!done) { S.x = ox; S.y = oy; bad = true; } }

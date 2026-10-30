@@ -49,6 +49,26 @@ describe('lyric types', () => {
         // (each step from a line to the next as often leftward as rightward: no way the lines keep going)
         expect(right / (right + left), cut).toBeGreaterThan(0.3); expect(right / (right + left), cut).toBeLessThan(0.7); }
     });
+    it('left and right in turn from the first line on (not a run one way, then a run back)', () => {
+      for (const cut of ['glide', 'punch']) { const Q = cut === 'glide' ? P : make('orbit', cut);
+        let runs = 0, steps = 0;
+        for (let k = 2; k < Q.lines.length; k++) { const A = Q.lines[k - 2], B = Q.lines[k - 1], C = Q.lines[k]; if (A.sec !== C.sec) continue;
+          steps++; if (Math.sign(B.ax - A.ax) === Math.sign(C.ax - B.ax)) runs++; }
+        // (two steps the same way in a row now and then — a line nudged clear of another — but mostly turn and turn about)
+        expect(runs / steps, cut).toBeLessThan(0.45); }
+    });
+    it('a line once sung is gone as soon as the camera no longer sees it', async () => {
+      const { basePose } = await import('../../src/director/camera'), { project, NO_FX } = await import('../../src/director/project'), { wordState } = await import('../../src/director/words');
+      const c = { enter: 0.35, tempo: 1, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false };
+      let n = 0;
+      for (let t = 1; t < P.musicEnd; t += 0.2) { const b = basePose(P.camera, t), cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
+        for (const L of P.lines) { if (!L.words.length || t < Math.max(L.words[L.words.length - 1].end, Math.min(L.L.sung, L.L.end)) + 0.5) continue;
+          // (hidden within a moment of leaving the picture)
+          if (!L.words.some(S => (wordState(S, t + 0.06, 0, false, c)?.o ?? 0) > 0.02)) continue;
+          const inView = L.words.some(S => { const p = project(S.x, S.y, S.d, cam, NO_FX, P.W, P.H), h = Math.hypot(S.lw, S.lh) * 0.5 * p.k; return Math.abs(p.sx) - h < P.W * 0.56 && Math.abs(p.sy) - h < P.H * 0.56; });
+          n++; expect(inView, `line ${L.i} at ${t.toFixed(1)}`).toBe(true); } }
+      expect(n).toBeGreaterThan(20);
+    });
     it('a turned line has its characters\' tops away from the line before (never towards it, never upside down)', () => {
       let n = 0;
       for (let k = 1; k < P.lines.length; k++) { const A = P.lines[k - 1], B = P.lines[k], a = B.prot;

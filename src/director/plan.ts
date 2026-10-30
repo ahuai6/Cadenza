@@ -7,6 +7,7 @@ import type { ScenePlan } from './types';
 import { REF_H } from './types';
 import { layout, assignSections, dropShortFrames, PAGE_LINES } from './layout';
 import { planCamera } from './camera';
+import { lyricType } from './lyrictypes';
 import { planCues } from './cues';
 import { planTitles, type SongInfo } from './titles';
 import { planEntries } from './entry';
@@ -42,6 +43,8 @@ export function plan(inp: PlanInput): ScenePlan {
   // which judge what the camera sees on the path as it finally is
   fitFrames(camera, lay.words, W, H); cutJumps(camera);
   applySweeps(lay.lines, lay.sweeps, camera, W, H);
+  if (lyricType(style.ltype).orbit) sweepUnseen(lay.lines, camera, W, H);
+  applyCurtains(lay.lines, inp.doc.curtains || []);
   const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle, inp.doc.marks || []);
   const drawOrder = [...lay.words].sort((a, b) => a.order - b.order);
   const out: ScenePlan = { doc, map, style, W, H, dur: inp.musicEnd + inp.endLen, endLen: inp.endLen, musicEnd: inp.musicEnd,
@@ -50,11 +53,36 @@ export function plan(inp: PlanInput): ScenePlan {
   pickEmphasis(lay.lines);
   return out;
 }
+/** Round a centre (the 圓心 type) the lines stay close together and the camera keeps coming back past them: a line
+ *  once sung is taken away the moment the camera no longer sees it, so the picture never fills up with old lines as it
+ *  swings round (on top of the page's cap, which still holds). */
+function sweepUnseen(lines: PLine[], cam: CameraPlan, W: number, H: number) {
+  for (const P of lines) {
+    if (!P.words.length) continue;
+    const from = Math.max(P.words[P.words.length - 1].end, Math.min(P.L.sung, P.L.end)) + 0.3, until = Math.min(P.secEnd, from + 60);
+    for (let t = from; t < until; t += 0.05) if (!seenBy(cam, P, t, W, H)) { P.secEnd = t; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, t + 0.15) }; break; }
+  }
+}
+/** A curtain the lyrics ask for ('@N') clears the scene as it comes down: every line begun before it — its words and
+ *  its captions — is gone at that moment (under the curtain, closed at once), so it opens onto the lines from there on
+ *  only. The line it is written on (and any after) stays. */
+function applyCurtains(lines: PLine[], curtains: { t: number }[]) {
+  for (const c of curtains) for (const P of lines) {
+    if (!P.words.length || P.L.t >= c.t - 0.05 || P.secEnd <= c.t) continue;
+    // (the words at once; the captions, which fade out over a quarter second from a little before their end, end just
+    // after it — under the curtain either way)
+    P.secEnd = c.t; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, c.t + 0.15) };
+  }
+}
 /** Clears without a blur: at a sweep, every earlier line of the page the camera does not see is taken away there and
  *  then (unseen, so nothing visibly vanishes); a line still in view stays until the camera has left it. */
+/** Does the camera see any of the line at t (on its planned path, a margin round the frame)? */
+function seenBy(cam: CameraPlan, P: PLine, t: number, W: number, H: number) {
+  const b = basePose(cam, t), c = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
+  return P.words.some(S => { const p = project(S.x, S.y, S.d, c, NO_FX, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k; return Math.abs(p.sx) - half < W * 0.56 && Math.abs(p.sy) - half < H * 0.56; });
+}
 function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam: CameraPlan, W: number, H: number) {
-  const seen = (P: PLine, t: number) => { const b = basePose(cam, t), c = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
-    return P.words.some(S => { const p = project(S.x, S.y, S.d, c, NO_FX, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k; return Math.abs(p.sx) - half < W * 0.56 && Math.abs(p.sy) - half < H * 0.56; }); };
+  const seen = (P: PLine, t: number) => seenBy(cam, P, t, W, H);
   for (const sw of sweeps) {
     const B = lines[sw.line]; if (!B) continue;
     for (let j = 0; j < sw.line; j++) { const P = lines[j]; if (P.sec !== B.sec || !P.words.length || P.secEnd <= sw.t) continue;
