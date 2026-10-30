@@ -38,6 +38,17 @@ describe('lyric types', () => {
         if (Math.abs(dy) > Math.abs(dx) * 0.6) (dy < 0 ? up++ : down++); else side++; }
       expect(up).toBeGreaterThan(3); expect(down).toBeGreaterThan(3); expect(side).toBeGreaterThan(3);
     });
+    it('stays within one circle: every line of a passage near its first, and the passages wander no one way', () => {
+      for (const cut of ['glide', 'punch', 'waltz', 'close']) { const Q = cut === 'glide' ? P : make('orbit', cut);
+        const zs = Q.camera.stops.map(x => x.z).sort((a, b) => a - b), frame = Q.W / zs[zs.length >> 1];
+        const secs = new Map<number, typeof Q.lines>(); for (const L of Q.lines) if (L.words.length) { if (!secs.has(L.sec)) secs.set(L.sec, []); secs.get(L.sec)!.push(L); }
+        let right = 0, left = 0;
+        for (const ls of secs.values()) { const O = ls[0];
+          for (const L of ls) expect(Math.hypot(L.ax - O.ax, L.ay - O.ay), `${cut} line ${L.i}`).toBeLessThan(frame * 2.3);   // (about a frame each way round the centre: close up, the frame is smaller than the words' own reach)
+          for (let k = 1; k < ls.length; k++) (ls[k].ax > ls[k - 1].ax ? right++ : left++); }
+        // (each step from a line to the next as often leftward as rightward: no way the lines keep going)
+        expect(right / (right + left), cut).toBeGreaterThan(0.3); expect(right / (right + left), cut).toBeLessThan(0.7); }
+    });
     it('a turned line has its characters\' tops away from the line before (never towards it, never upside down)', () => {
       let n = 0;
       for (let k = 1; k < P.lines.length; k++) { const A = P.lines[k - 1], B = P.lines[k], a = B.prot;

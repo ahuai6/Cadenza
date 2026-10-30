@@ -50,7 +50,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   const waltz = st.cut === 'waltz' || st.cut === 'hover', smooth = st.cut !== 'punch', LT = lyricType(st.ltype), LD = LT.depth ?? 1, ORBIT = !!LT.orbit;
 
   /* ---- words, measured ---- */
-  const lines: PLine[] = [], words: PWord[] = [], vruns = st.cut === 'center' ? new Set<number>() : vertRuns(doc.lines);
+  const lines: PLine[] = [], words: PWord[] = [], vruns = st.cut === 'center' || ORBIT ? new Set<number>() : vertRuns(doc.lines);   // (round a centre: no columns — they would run off out of the circle)
   for (const L of doc.lines) {
     const P: PLine = { L, i: L.i, words: [], sec: 0, secEnd: Infinity, secIn: 0.4, ax: 0, ay: 0, bw: 0, bh: 0, prot: 0, d: 0, back: false, rtl: L.rtl, vert: vruns.has(L.i) };
     let prev: { group: number; s0: number; tin: string; show: number } | null = null;
@@ -138,7 +138,11 @@ export function layout(inp: LayoutInput): LayoutResult {
       const [a0, a1] = proj(a, [nx, ny]), [b0, b1] = proj(b, [nx, ny]); if (Math.min(a1, b1) - Math.max(a0, b0) <= -pad0) return false; }
     return true;
   };
-  const hits = (S: PWord) => placed.some(Q => Q.frame && Q.frame === S.frame ? false : clash(S, Q));
+  // (round a centre, the lines stay within one circle: what they must keep clear of is only what is still up beside them
+  // — the lines of the same passage still on the page — or the circle would fill up with lines long gone)
+  const secOf = new Map<PLine, number>();
+  const near = (S: PWord, Q: PWord) => !ORBIT || (secOf.get(Q.line) === secOf.get(S.line) && Q.line.i > S.line.i - PAGE_LINES);
+  const hits = (S: PWord) => placed.some(Q => Q.frame && Q.frame === S.frame ? false : near(S, Q) && clash(S, Q));
   const FLOW: [string, number][] = waltz ? [['right', .34], ['below', .26], ['stair', .26], ['rise', .14]] : smooth ? [['right', .38], ['below', .30], ['stair', .28], ['rise', .04]] : [['right', .40], ['below', .28], ['stair', .20], ['rise', .12]];
   const placeNext = (S: PWord, Q: PWord, w: number, h: number, d: [number, number], n: [number, number], i: number, k: number): [number, number] | null => {
     let r = rnd(i * 61.7 + k * 4.3 + 3), mode = 'right'; for (const [m, wt] of FLOW) { if (r < wt) { mode = m; break; } r -= wt; }
@@ -149,7 +153,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     return null;
   };
   // the empty space between two neighbours, in frames at the wider framing of the two
-  const ORBIT_REACH = 1.0, SPAN = ({ punch: 0.6, waltz: 0.55, glide: 0.55, close: 0.4, hover: 0.5 } as Record<string, number>)[st.cut] ?? 0.55, BACK_REACH = 0.7, FOLD = 0.9;
+  const ORBIT_REACH = 1.0, ORBIT_RANGE = 1.0, ORBIT_TRIES = 10, SPAN = ({ punch: 0.6, waltz: 0.55, glide: 0.55, close: 0.4, hover: 0.5 } as Record<string, number>)[st.cut] ?? 0.55, BACK_REACH = 0.7, FOLD = 0.9;
   // where a new line goes, by style: below the line before, above it, or on to the right (the rest); close up it mostly
   // runs on (a short way, seen travelling), hovering it spreads round the middle
   const [PB0, PA0] = ({ punch: [0.3, 0.25], waltz: [0.3, 0.3], glide: [0.3, 0.25], close: [0.2, 0.15], hover: [0.35, 0.3] } as Record<string, number[]>)[st.cut] ?? [0.34, 0.26];
@@ -179,19 +183,23 @@ export function layout(inp: LayoutInput): LayoutResult {
   const save = (): St => ({ ...S0, P: [...S0.P] as [number, number], lineStart: [...S0.lineStart] as [number, number], n: placed.length });
   const restore = (v: St) => { placed.length = v.n!; S0 = { ...v, P: [...v.P] as [number, number], lineStart: [...v.lineStart] as [number, number] }; };
   let secN = 0;
+  /** the 圓心 type: the centre of the passage's circle (its first line), which the lines go round and never far from */
+  let orbO: [number, number] | null = null, orbZ = 0;   // (and the circle's size: about a frame at its first line's closeness)
   const newPassage = () => { secN++;
     let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const Q of placed) for (const p of corners(Q)) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
     // (every transition turns the way the lines go — rightward, then leftward, … — and every second one whether the new
     // passage opens above or below what came before: over four passages the lyrics come from every side, in turn)
     const up = ((secN + 1) >> 1) % 2 === 1, sx = x0 - BASE * (1 + rnd(secN * 3.1) * 3);
     S0.P = [sx, up ? y0 - BASE * (3 + rnd(secN * 2.2) * 1.5) : y1 + BASE * (2 + rnd(secN * 2.2) * 1.5)]; S0.lineStart = [...S0.P] as [number, number];
-    S0.th = [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = secN % 2 ? -1 : 1; S0.flowFrom = null; S0.backN = 0; };
+    // (round a centre: a new passage opens on the same centre — the passage before is gone under the transition)
+    if (ORBIT) { S0.P = [-BASE * 3 * T, 0]; S0.lineStart = [...S0.P] as [number, number]; }
+    S0.th = ORBIT ? 0 : [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = secN % 2 ? -1 : 1; S0.flowFrom = null; S0.backN = 0; };
 
   /** (the 圓心 type: which try at a line's angle round the line before this placement is, or null for the ordinary ones) */
   let orbitTry: number | null = null;
   const placeLine = (Lp: PLine, i: number, mode: string | null): boolean => {
     let { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN } = S0, bad = false;
-    Lp.back = false; Lp.west = false; const westStart = flow < 0 && secFirst; let align: { X: [number, number]; d: [number, number] } | null = null;
+    Lp.back = false; Lp.west = false; secOf.set(Lp, secN); const westStart = flow < 0 && secFirst, opens = secFirst || i === 0; let align: { X: [number, number]; d: [number, number] } | null = null;
     Lp.words.forEach((S, k) => {
       const w = S.lw, h = S.lh, first = (i === 0 && k === 0) || (secFirst && k === 0);
       const tilt0 = rnd(i * 5 + k * 9.1) < 0.3 ? (rnd(i * 3 + k) - 0.5) * 12 : 0;
@@ -200,16 +208,24 @@ export function layout(inp: LayoutInput): LayoutResult {
       const folds = !ORBIT && k === 0 && flow < 0 && !!prevLine && !mode && !Lp.vert && !prevLine.vert && fitsWhole(Lp);
       // round a centre (the 圓心 type): the line goes round the line before, at an angle of its own — upright, or now and
       // then turned so its characters' tops face away from that centre (never towards it, never upside down)
-      let orb: [number, number] | null = null, orbR = 0;
+      let orb: [number, number] | null = null, orbR = 0, orbOut = false;
       if (k === 0 && orbitTry != null && prevLine && !first && !Lp.vert && !prevLine.vert && !Lp.rtl) {
-        const a = rnd(i * 23.1 + 4) * 360 + orbitTry * 137.5, radial = ((a + 90 + 540) % 360) - 180;
-        const turnIt = rnd(i * 5.9 + orbitTry * 1.7) < 0.35 && Math.abs(radial) <= 100;
+        // the angle round the line before: anywhere while it is near the circle's centre; once it has wandered out, back
+        // inward (within a half turn either side of the way to the centre) — so the lines circle, never set off one way
+        const O = orbO ?? [prevLine.ax, prevLine.ay], Rc = ORBIT_RANGE * W / (orbZ || zOf(S)), off = [prevLine.ax - O[0], prevLine.ay - O[1]], away = Math.hypot(off[0], off[1]);
+        const home = Math.atan2(-off[1], -off[0]) / D2R, q = orbitTry, steer = away > Rc * 0.35;
+        const a = q >= ORBIT_TRIES ? rnd(i * 31.7 + 9) * 360 + q * 137.5 : steer ? home + (rnd(i * 23.1 + 4) - 0.5) * 120 + [0, 45, -45, 90, -90, 20, -20, 65, -65, 110][q % 10] : rnd(i * 23.1 + 4) * 360 + q * 137.5, radial = ((a + 90 + 540) % 360) - 180;
+        const turnIt = q < ORBIT_TRIES && rnd(i * 5.9 + orbitTry * 1.7) < 0.35 && Math.abs(radial) <= 100;   // (never turned when set round the circle's centre instead: its tops would face away from the wrong centre)
         th = turnIt ? radial : [0, -6, 5, -3][Math.floor(rnd(i * 2.7) * 4)] * TK * 0.6;
         const Lw = Lp.words.reduce((t, Q) => t + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6, hh = Math.max(...Lp.words.map(Q => Q.lh));
         const ext = (bw: number, bh: number, ang: number) => Math.abs(bw / 2 * Math.cos((a - ang) * D2R)) + Math.abs(bh / 2 * Math.sin((a - ang) * D2R));
         const R = ext(prevLine.bw, prevLine.bh, prevLine.prot) + ext(Lw, hh, th) + gap * 3, u = dirv(a), d1 = dirv(th);
-        const N: [number, number] = [prevLine.ax + u[0] * R, prevLine.ay + u[1] * R];
-        lineStart = [N[0] - d1[0] * Lw / 2, N[1] - d1[1] * Lw / 2]; orb = lineStart; orbR = R; if (turnIt) lastTurn = S.w.t;
+        // (the later tries, when none round the line before fits: round the circle's centre itself, further out each time)
+        const byO = q >= ORBIT_TRIES, rO = Rc * (0.3 + 0.1 * (q - ORBIT_TRIES));
+        const N: [number, number] = byO ? [O[0] + u[0] * rO, O[1] + u[1] * rO] : [prevLine.ax + u[0] * R, prevLine.ay + u[1] * R];
+        lineStart = [N[0] - d1[0] * Lw / 2, N[1] - d1[1] * Lw / 2]; orb = lineStart; orbR = byO ? 0 : R; if (turnIt) lastTurn = S.w.t;
+        // (never outside the circle)
+        orbOut = !byO && Math.hypot(N[0] - O[0], N[1] - O[1]) > Rc;
       }
       // (a line of this type not placed round the one before — no angle fitted — stands upright: it is never left turned
       // by the line before's angle, which would face its tops anywhere)
@@ -318,7 +334,7 @@ export function layout(inp: LayoutInput): LayoutResult {
         // (round a centre: the camera goes from the line before — the centre — out to this one's middle, so that distance
         // is what must be within reach, about a frame — measured to its middle, not its first word, or only the lines
         // to the right of the centre would ever fit)
-        if (k === 0) { if (orb) { if (orbR * zOf(S) / W > ORBIT_REACH) bad = true; }
+        if (k === 0) { if (orb) { if (orbR * zOf(S) / W > ORBIT_REACH || orbOut) bad = true; }
           else if (!Lp.back && !inView(prevSeg, S) && blankOf(prevSeg, S) > (alongMotion(prevSeg, S) ? SPAN : SPAN * BACK_REACH)) bad = true; }
         else if (blankOf(prevSeg, S) > SPAN) bad = true;
       }
@@ -344,6 +360,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       // stands clearly left of the one before — the camera then goes leftward from line to line, never right along a
       // line and back
       // (leftward on the screen, whichever way the path has turned)
+      if (ORBIT && opens) { orbO = [B.x, B.y]; orbZ = zOf(Lp.words[0]); }
       Lp.west = !Lp.rtl && fitsWhole(Lp) && (Lp.back || westStart || (!!prevLine && B.x - prevLine.ax < -Math.max(BASE * T, B.w * 0.2)));
       if (flowFrom == null) flowFrom = pos; else if ((pos - flowFrom) * flow >= FLIP || (flow < 0 && Lp.back && ++backN >= 3)) { flow = -flow; flowFrom = pos; backN = 0; } }
     Lp.d = Lp.words.reduce((a, S) => a + S.d, 0) / Math.max(1, Lp.words.length);
@@ -375,7 +392,10 @@ export function layout(inp: LayoutInput): LayoutResult {
     Lp.scene = scenes[i];
     if (scenes[i] === 'dash' && i > 0 && !startsAt.has(i)) { if (placeLine(Lp, i, 'dash')) return; restore(before); Lp.scene = null; }
     // (round the line before: a few angles, the first that fits — else the ordinary placements)
-    if (ORBIT && i > 0 && !startsAt.has(i)) for (let q = 0; q < 10; q++) { orbitTry = q; const ok = placeLine(Lp, i, null); orbitTry = null; if (ok) return; restore(before); }
+    if (ORBIT && i > 0 && !startsAt.has(i)) {
+      for (let q = 0; q < ORBIT_TRIES + 6; q++) { orbitTry = q; const ok = placeLine(Lp, i, null); orbitTry = null; if (ok) return; restore(before); }
+      // (none fits at all: close round the centre all the same — never sent off onward to the right)
+      orbitTry = ORBIT_TRIES; placeLine(Lp, i, null); orbitTry = null; return; }
     if (placeLine(Lp, i, null) || i === 0 || startsAt.has(i)) return;
     restore(before); if (placeLine(Lp, i, 'right')) return;
     restore(before); if (placeLine(Lp, i, 'below')) return;
