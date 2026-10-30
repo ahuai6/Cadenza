@@ -101,6 +101,8 @@ export function describe(h: HifiState) {
   const khz = (r: number) => (r / 1000).toFixed(r % 1000 ? 1 : 0);
   const src = `${(t.src.codec || '').toUpperCase()} ${t.src.bits ? `${t.src.bits}/` : ''}${khz(t.src.rate)}`;
   const out = d || t.out, exclusive = !!out.exclusive, resample = out.rate !== t.src.rate;
-  const bitperfect = exclusive && !resample && !!t.src.bits && t.src.bits <= out.bits && t.src.ch <= 2 && settings.get().fixedVolume !== false;
+  const bitperfect = exclusive && !resample && !!t.src.bits && t.src.bits <= out.bits && t.src.ch <= 2 && settings.get().fixedVolume !== false
+    // (the balance on the samples, the device having no hardware volume of its own: not bit-perfect then)
+    && !(settings.get().volBalance !== false && h.hw?.supported === false);
   return { src, out: `${khz(out.rate)} kHz / ${out.bits} bit`, exclusive, resample, bitperfect };
 }

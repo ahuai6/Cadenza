@@ -15,9 +15,9 @@ describe('loudness (BS.1770)', () => {
     expect(Math.abs(gated.lufs - mid.lufs)).toBeLessThan(0.2);          // the silent half does not drag it down
   });
   it('the balance gain: towards the target, a boost never past the headroom, a cut always', () => {
-    expect(balanceDb({ lufs: -8, peak: 1 })).toBeCloseTo(-6, 5);           // a loud master comes down 6 dB
-    expect(balanceDb({ lufs: -20, peak: 10 ** (-3 / 20) })).toBeCloseTo(2, 5);   // a quiet one: up, but only 3 dB − 1 of headroom
-    expect(balanceDb({ lufs: -20, peak: 1 })).toBe(0);                     // no headroom: no boost
+    expect(balanceDb({ lufs: -8, peak: 1 })).toBeCloseTo(-10, 5);          // a loud master comes down 10 dB, to -18
+    expect(balanceDb({ lufs: -22, peak: 10 ** (-3 / 20) })).toBeCloseTo(2, 5);   // a quiet one: up, but only 3 dB − 1 of headroom
+    expect(balanceDb({ lufs: -22, peak: 1 })).toBe(0);                     // no headroom: no boost
     expect(balanceDb(null)).toBe(0); expect(balanceDb({ lufs: -70, peak: 0 })).toBe(0);
   });
 });

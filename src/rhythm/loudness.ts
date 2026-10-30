@@ -37,8 +37,10 @@ export function loudness(channels: Float32Array[], fs: number): Loudness {
   return { lufs: L(kept.reduce((a, z) => a + z, 0) / Math.max(1, kept.length)), peak };
 }
 /** The volume balance's gain for a song, in dB: towards `target` LUFS, but never past its own headroom (a boost keeps
- *  1 dB under full scale, so nothing ever clips and nothing needs a limiter), within ±12 dB. */
-export function balanceDb(l: Loudness | null | undefined, target = -14): number {
+ *  1 dB under full scale, so nothing ever clips and nothing needs a limiter), within ±12 dB. The target sits low (−18,
+ *  under most masters): nearly every song is brought down to it, few need a boost their peaks would not allow — so the
+ *  songs really come out alike, not the quiet, dynamic ones left quieter than the rest. */
+export function balanceDb(l: Loudness | null | undefined, target = -18): number {
   if (!l || !isFinite(l.lufs) || l.lufs <= -69) return 0;
   const head = -20 * Math.log10(Math.max(1e-6, l.peak)) - 1;
   return Math.max(-12, Math.min(12, target - l.lufs, Math.max(0, head)));

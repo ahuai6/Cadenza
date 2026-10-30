@@ -1,6 +1,8 @@
 /* Triggered effects, chosen ahead from the rhythm SDK. Flash, impact and shattering glass share one rule: the effect's
    slider is its sensitivity (how strong an accent must be to set it off, through RhythmMap.select), and how hard it
-   lands comes from how densely accents fire around it, so a busy chorus hits harder than an isolated accent. */
+   lands comes from how densely accents fire around it, so a busy chorus hits harder than an isolated accent. There is no
+   rate limit anywhere: every accent the sensitivity takes fires, however close to the last (Settings warns of flashing
+   light for photosensitive listeners). Only one hit is never taken twice by the same effect. */
 import { clamp } from '../core/math';
 import { rnd } from '../core/rng';
 import type { RhythmMap } from '../rhythm/map';
@@ -45,34 +47,34 @@ export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: nu
   // one — and above all on the hit that opens a section that comes in louder (into a chorus, a drop)
   // every trigger takes the entries its own sensitivity reaches (the trigger knob moves all three together)
   const entries = markedEntries(map, marks, inSong), reach = (s: number, leadOnly = false) => entries.filter(x => x.k >= entryFloor(s) && (!leadOnly || x.lead)).map(x => x.e);
-  const withEntries = <T extends { t: number }>(sel: T[], es: T[], gap: number) => { const out = [...es]; for (const e of sel) if (!out.some(x => Math.abs(x.t - e.t) < gap)) out.push(e); return out.sort((a, b) => a.t - b.t); };
-  // flashes: at most one a bar in the loudest parts, one every two bars elsewhere (closer together when more sensitive)
+  const ONE = 0.06;    // (two readings closer than this are one hit)
+  const withEntries = <T extends { t: number }>(sel: T[], es: T[], gap = ONE) => { const out = [...es]; for (const e of sel) if (!out.some(x => Math.abs(x.t - e.t) < gap)) out.push(e); return out.sort((a, b) => a.t - b.t); };
+  // flashes: the strong on-beat accents
   const fs = clamp(M.flash ?? 1, 0, 2);
-  const flash0 = fs > 0.02 ? withEntries(map.select({ sensitivity: fs, gapBeats: (_e, lv) => (lv > 0.85 ? map.meter * 0.99 : map.meter * 1.99) / Math.max(0.5, fs) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2), reach(fs), map.meter * map.beatLen(1)) : [];
-  // glass: only the strongest on-beat accents (section entries first, else drops or loud sections), never two within ~20 beats
-  const gs = clamp(M.glassf ?? 1, 0, 2), gapG = Math.max(9, 20 * map.beatLen(1)) / Math.max(0.4, gs), glass0 = st.fx.glass && gs > 0.02
-    ? withEntries(map.select({ sensitivity: gs * 0.5, gapBeats: () => Math.max(9 / map.beatLen(1), 20) / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && map.level(e.t) >= 0.65), reach(gs, true).filter(e => map.level(e.t) >= 0.45), gapG)
-      .filter((e, i, a) => i === 0 || e.t - a[i - 1].t >= gapG * 0.6) : [];
+  const flash0 = fs > 0.02 ? withEntries(map.select({ sensitivity: fs }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2), reach(fs)) : [];
+  // glass: only the strongest on-beat accents (section entries first, else drops or loud sections)
+  const gs = clamp(M.glassf ?? 1, 0, 2), glass0 = st.fx.glass && gs > 0.02
+    ? withEntries(map.select({ sensitivity: gs * 0.5 }).filter(e => inSong(e.t) && onBeat(e) && map.level(e.t) >= 0.65), reach(gs, true).filter(e => map.level(e.t) >= 0.45)) : [];
   // impacts: past the impact threshold, plus every pane; while idle the camera answers weaker accents too
   const is = clamp(M.impact ?? 1, 0, 2); let imp: number[] = [];
   if (is > 0.02) {
-    imp = map.select({ sensitivity: is, gapBeats: 1 }).map(e => e.t).concat(glass0.map(e => e.t), reach(is).map(e => e.t));
-    for (const I of idle) for (const e of map.select({ sensitivity: Math.min(2, is * 1.8 + 0.3), gapBeats: 1, t0: I.a, t1: I.b })) imp.push(e.t);
+    imp = map.select({ sensitivity: is }).map(e => e.t).concat(glass0.map(e => e.t), reach(is).map(e => e.t));
+    for (const I of idle) for (const e of map.select({ sensitivity: Math.min(2, is * 1.8 + 0.3), t0: I.a, t1: I.b })) imp.push(e.t);
     imp.sort((a, b) => a - b);
-    imp = imp.filter((t, i) => t >= 0.5 && (i === 0 || t - imp[i - 1] >= map.beatLen(t) * 0.95));
+    imp = imp.filter((t, i) => t >= 0.5 && (i === 0 || t - imp[i - 1] >= ONE));
   }
-  // colour split and glitch: the same kind of accent as the glass (strong, on the beat), on the same sensitivity, at
-  // most one every eight beats or so each, never on the same ordinary hit as each other or as the glass. A chorus the
+  // colour split and glitch: the same kind of accent as the glass (strong, on the beat), on the same sensitivity, never on
+  // the same ordinary hit as each other or as the glass (both on: they share the hits, about half each). A chorus the
   // lyrics mark (#1, #2, #3) brings every one of them that is on, on its opening hit — together with the glass — and
   // the hits after it as its strength reaches
-  const strike = (on: boolean, salt: number, taken: number[]) => { if (!on || gs <= 0.02) return [] as RhythmEvent[];
-    const gap = Math.max(4, 8 * map.beatLen(1)) / Math.max(0.4, gs), leads = new Set(entries.filter(x => x.lead && x.k >= entryFloor(gs) * 0.8).map(x => x.e));
-    const sel = withEntries(map.select({ sensitivity: Math.min(2, gs * 0.8), gapBeats: () => 8 / Math.max(0.4, gs) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2 && map.level(e.t) >= 0.45), [...leads, ...reach(gs)], gap);
+  const strike = (on: boolean, half: boolean, taken: number[]) => { if (!on || gs <= 0.02) return [] as RhythmEvent[];
+    const leads = new Set(entries.filter(x => x.lead && x.k >= entryFloor(gs) * 0.8).map(x => x.e));
+    const sel = withEntries(map.select({ sensitivity: Math.min(2, gs * 0.8) }).filter(e => inSong(e.t) && onBeat(e) && e.tier >= 2 && map.level(e.t) >= 0.45), [...leads, ...reach(gs)]);
     const out: RhythmEvent[] = []; for (const e of sel) { const lead = leads.has(e);
-      if (!lead && (taken.some(x => Math.abs(x - e.t) < 0.05) || (out.length && e.t - out[out.length - 1].t < gap * 0.6) || rnd(e.t * 3.1 + salt) < 0.15)) continue;
+      if (!lead && (taken.some(x => Math.abs(x - e.t) < ONE) || (half && rnd(e.t * 3.1) < 0.5))) continue;
       out.push(e); }
     return out; };
-  const chroma0 = strike(!!st.fx.chroma, 1.7, glass0.map(e => e.t)), glitch0 = strike(!!st.fx.glitch, 5.3, [...glass0, ...chroma0].map(e => e.t));
+  const chroma0 = strike(!!st.fx.chroma, !!st.fx.glitch, glass0.map(e => e.t)), glitch0 = strike(!!st.fx.glitch, false, [...glass0, ...chroma0].map(e => e.t));
   const all = [...flash0.map(e => e.t), ...imp, ...glass0.map(e => e.t)];
   const flash = density(flash0.map(e => ({ t: e.t })), flash0.map(e => e.t), bar).map(e => ({ t: e.t, k: e.k }));
   const impacts = density(imp.map(t => ({ t })), imp, bar).map(e => ({ t: e.t, k: e.k, ang: rnd(e.t * 5.9) * 6.283, sg: rnd(e.t * 3.7) < 0.5 ? -1 : 1 }));

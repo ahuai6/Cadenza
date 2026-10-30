@@ -125,7 +125,8 @@ export class RhythmMap {
 
   /** Events for triggered effects (flash, impact, glass…). The sensitivity moves the threshold through this song's own
    *  ranking of accents, never their strength: at 1 the strong tier in passages that are really playing; below 1 the
-   *  strongest of those; above 1, medium accents of the louder passages join. Spacing keeps them musical. */
+   *  strongest of those; above 1, medium accents of the louder passages join. No rate limit: every accent that passes
+   *  fires (only one hit read twice, within 60 ms, is taken once), unless the caller asks for a spacing (gapBeats). */
   select(o: SelectOptions): RhythmEvent[] {
     const s = clamp(o.sensitivity, 0, 2); if (s <= 0.02) return [];
     const t0 = o.t0 ?? -Infinity, t1 = o.t1 ?? Infinity;
@@ -138,11 +139,11 @@ export class RhythmMap {
       const k = s - 1;
       cand = cand.filter(e => (e.tier === 2 && lv(e) >= 0.3 * (1 - k)) || (e.tier === 1 && !e.off && lv(e) >= 0.6 - 0.2 * k && e.s >= 1.1 - 0.4 * k));
     }
-    // spacing: the strongest first (drops and phrase-start accents before ordinary ones)
+    // (the strongest first, so of a double reading the stronger stays)
     cand.sort((a, b) => b.s - a.s);
     const out: RhythmEvent[] = [];
     for (const e of cand) {
-      const g = typeof o.gapBeats === 'function' ? o.gapBeats(e, lv(e)) : o.gapBeats ?? 2, gap = g * this.beatLen(e.t);
+      const g = typeof o.gapBeats === 'function' ? o.gapBeats(e, lv(e)) : o.gapBeats ?? 0, gap = Math.max(0.06, g * this.beatLen(e.t));
       if (out.every(x => Math.abs(x.t - e.t) >= gap)) out.push(e);
     }
     return out.sort((a, b) => a.t - b.t);

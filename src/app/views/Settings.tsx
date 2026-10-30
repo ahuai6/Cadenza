@@ -54,6 +54,7 @@ export function SettingsView() {
       <AudioGroup st={st} />
       <RhythmGroup st={st} />
       <Group title={tx('s.set.mv')} help={tx('s.set.mvHelp')}>
+        <Note><Icon n="alert" size={14} /> {tx('s.set.photosens')}</Note>
         <MvLook />
       </Group>
       <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
@@ -77,7 +78,7 @@ function DataGroup() {
       <div className={s.btns}>
         <Button size="sm" icon="refresh" onClick={async () => { if (await ask('reanalyze')) { await Lib!.reanalyze('all'); Lib!.rescan(); } }}>{tx('s.set.data.reanalyze')}</Button>
         <Button size="sm" onClick={async () => { if (await ask('caches')) { await Lib!.clearCaches(); Lib!.rescan(); } }}>{tx('s.set.data.caches')}</Button>
-        <Button size="sm" kind="danger" onClick={async () => { if (await ask('reset', true)) Lib!.resetAll(); }}>{tx('s.set.data.reset')}</Button>
+        <Button size="sm" kind="danger" icon="trash" onClick={async () => { if (await ask('reset', true)) Lib!.resetAll(); }}>{tx('s.set.data.reset')}</Button>
       </div>
     </Group>
   );

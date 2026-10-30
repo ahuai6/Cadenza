@@ -15,7 +15,7 @@ import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
 import { engine, sessionEnv } from './stage';
 import { analyzeNow } from './analysis';
-import { hifiOn, output, load as hifiLoad, preload as hifiPreload, refresh as hifiRefresh, release as hifiRelease, onTrouble, hwGain } from './hifi';
+import { hifiOn, output, load as hifiLoad, preload as hifiPreload, refresh as hifiRefresh, release as hifiRelease, onTrouble, hwGain, hifi } from './hifi';
 
 export type Mode = 'loop' | 'shuffle' | 'one' | 'stop';
 export const MODES: Mode[] = ['loop', 'shuffle', 'one', 'stop'];
@@ -159,19 +159,25 @@ lib.subscribe((L, prev) => {
   if (was.title !== t.title || was.artist !== t.artist) { s.setSong({ title: t.title, artist: t.artist || '' }); engine.invalidate(); }
   if (was.cover !== t.cover) s.setCover(coverUrl(t.cover, true), false).then(() => engine.invalidate());
   if (!!was.instrumental !== !!t.instrumental) { loadAt(p.index, p.playing, engine.time); return; }
-  if (was.loudness?.lufs !== t.loudness?.lufs) applyBalance();        // its loudness measured just now   // marked (or unmarked) as an instrumental: the song again, as one
+  // (its loudness measured just now: taken at once only near the start — later, a jump in the middle of the song would be
+  // heard; it applies from the song's next play)
+  if (was.loudness?.lufs !== t.loudness?.lufs && engine.time < 2) applyBalance();
   player.set({ rev: p.rev + 1 });
 });
 
 /** The volume balance for the song now playing: a steady gain towards a like loudness. Through the standard output, or
  *  the Hi-Fi output with its own volume, it is a plain gain on the samples; with a fixed (bit-perfect) volume the samples
- *  are left untouched and the balance goes to the device's own hardware volume, when it has one. */
+ *  are left untouched and the balance goes to the device's own hardware volume — and on a device without one, to the
+ *  samples after all (the balance is on: the songs are evened out, the output is then not bit-perfect). */
 export function applyBalance() {
   const p = player.get(), t = p.shownId ? trackOf(p.shownId) : null, st = settings.get();
   const db = st.volBalance !== false && t ? balanceDb(t.loudness) : 0, fixed = p.route === 'hifi' && st.fixedVolume !== false;
-  engine.setBalance(fixed ? 1 : 10 ** (db / 20));
-  if (p.route === 'hifi') hwGain(fixed ? db : 0);
+  const hw = fixed && hifi.get().hw?.supported !== false;
+  engine.setBalance(hw ? 1 : 10 ** (db / 20));
+  if (p.route === 'hifi') hwGain(hw ? db : 0);
 }
+// (the device answers whether it has a hardware volume: the balance goes where it can)
+hifi.subscribe((h, prev) => { if (h.hw?.supported !== prev.hw?.supported && player.get().route === 'hifi') applyBalance(); });
 /** What an instrumental shows instead of lyrics: one line, a moment in, for a few bars. */
 export const instrumentalLyrics = () => `[00:01.50]${tx('s.instr.text')}\n[00:10.00]`;
 /** Mark a song as an instrumental, or no longer. */

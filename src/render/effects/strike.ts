@@ -44,7 +44,7 @@ register({ id: 'chroma', label: 'fx.chroma', layer: 'screen', kind: 'effect', z:
    in some), a few torn pieces of the picture round them, small blocks of the theme's colour on the words; it stutters
    in steps (a new pattern every 1/30 s), a few bursts within the hit. Never the whole screen in stripes. ---------- */
 register({ id: 'glitch', label: 'fx.glitch', layer: 'screen', kind: 'effect', z: 41, params: [COLOR], draw(g, f, a) {
-  const ev = f.plan.cues.glitch.find(e => f.t >= e.t && f.t - e.t < 0.5); if (!ev) return;
+  const ev = f.plan.cues.glitch.findLast(e => f.t >= e.t && f.t - e.t < 0.5); if (!ev) return;
   const dt = f.t - ev.t, q = Math.floor(dt * 30), live = q < 3 || rnd(ev.seed + q * 1.7) < 0.7 - dt; if (!live) return;
   const k = ev.k * f.view.effect * f.cam.calm * (1 - dt / 0.5); if (k < 0.02) return;
   const cv = snapshot(g), W = cv.width, H = cv.height, px = f.px, theme = a.params.color === 'theme', R = (s: number) => rnd(ev.seed * 3.1 + q * 13.7 + s);
