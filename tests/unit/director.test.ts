@@ -336,11 +336,34 @@ describe('vertical lines', () => {
     expect(n).toBeGreaterThan(0);
     expect(moved / n, `${moved} of ${n} columns`).toBeGreaterThan(0.6);
   });
+  it.each(['glide', 'waltz', 'punch'] as const)('a line of columns after one sits beside it (top level with its fourth character) or below it (%s)', cut => {
+    const P = make(cut, src, { frame: false }); let n = 0, ok = 0;
+    for (let i = 1; i < P.lines.length; i++) { const A = P.lines[i - 1], B = P.lines[i]; if (!A.vert || !B.vert || A.sec !== B.sec) continue; n++;
+      const d = [Math.cos(A.words[0].ang * Math.PI / 180), Math.sin(A.words[0].ang * Math.PI / 180)], nr = [-d[1], d[0]], at = (x: number, y: number) => [x * d[0] + y * d[1], x * nr[0] + y * nr[1]];
+      const ext = (L: typeof A) => { let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9; for (const S of L.words) for (const [x, y] of corners(S)) { const [u, v] = at(x, y); a0 = Math.min(a0, u); a1 = Math.max(a1, u); b0 = Math.min(b0, v); b1 = Math.max(b1, v); } return { a0, a1, b0, b1 }; };
+      const ea = ext(A), eb = ext(B), us = A.words.flatMap(S => S.units.map(u => ({ y: at(S.x + u.ox * Math.cos(S.tilt * Math.PI / 180) - u.oy * Math.sin(S.tilt * Math.PI / 180), S.y + u.ox * Math.sin(S.tilt * Math.PI / 180) + u.oy * Math.cos(S.tilt * Math.PI / 180))[1], h: u.h })));
+      const u4 = us[Math.min(3, us.length - 1)], top4 = u4.y - u4.h / 2, beside = eb.a0 >= ea.a1 - 1 || eb.a1 <= ea.a0 + 1, below = eb.b0 >= ea.b1 - 1;
+      if ((beside && Math.abs(eb.b0 - top4) < u4.h * 0.2) || below) ok++; }
+    expect(n).toBeGreaterThan(5); expect(ok / n, `${ok} of ${n}`).toBeGreaterThan(0.7);
+  });
   it('the centred stage keeps every line level', () => {
     const p = parse(src), map = RhythmMap.grid(112, 0.3, 160), musicEnd = 140, doc = buildLyrics(p, map, musicEnd);
     const st = normalizeStyle({ ...presetStyle('cover'), preset: 'custom', cut: 'center' });
     const P = plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
     expect(P.words.some(S => S.vert)).toBe(false);
+  });
+});
+
+describe('emphasis and lyric frames', () => {
+  it('lights a few characters now and then — never a whole unspaced line', () => {
+    const P = make('glide'); const em = P.words.filter(S => S.emph);
+    expect(em.length).toBeGreaterThanOrEqual(Math.floor(P.lines.length / 5)); expect(em.length).toBeLessThanOrEqual(Math.ceil(P.lines.length / 2.5));
+    for (const S of em) { const [a, b] = S.emph!; expect(b - a).toBeGreaterThan(0); if (!S.w.latin) expect(b - a).toBeLessThanOrEqual(4); if (S.line.words.length === 1 && !S.w.latin && S.units.length > 3) expect(b - a).toBeLessThan(S.units.length); }
+  });
+  it.each(['punch', 'glide', 'waltz', 'hover'] as const)('a lyric frame is in view whole while it is drawn — the camera pulls back over it (%s)', cut => {
+    const P = make(cut), sig = new Signals(P.map), Fs = new Set(P.words.map(S => S.frame).filter(Boolean));
+    for (const F of Fs) { const fe = Math.min(F!.words[0].line.L.end - 0.8, F!.until ?? Infinity); if (F!.ts + 0.9 > fe) continue; const t = F!.ts + 0.9, cam = cameraAt(P, sig, t, 0).cam;
+      for (const S of F!.words) for (const [x, y] of corners(S, F!.pad * 0.5)) { const q = project(x, y, S.d, cam, NO_FX, P.W, P.H); expect(Math.max(Math.abs(q.sx) / (P.W / 2), Math.abs(q.sy) / (P.H / 2)), `${S.w.text} at ${t.toFixed(1)}`).toBeLessThan(1.1); } }
   });
 });
 

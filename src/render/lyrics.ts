@@ -42,7 +42,7 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
 export function lyricBake(f: Pick<RenderFrame, 'plan' | 'style' | 'pal'>) {
   const st = f.style, fc = fontStack(st.font, f.plan.doc.lines.map(L => L.text).join('').slice(0, 400)), pal = f.pal;
   const chars = [...new Set(f.plan.words.flatMap(S => S.units.map(u => u.c)))];
-  const emChars = [...new Set(f.plan.words.filter(S => S.emph).flatMap(S => S.units.map(u => u.c)))];
+  const emChars = [...new Set(f.plan.words.filter(S => S.emph).flatMap(S => S.units.slice(S.emph![0], S.emph![1]).map(u => u.c)))];
   return { font: `${fc.w} ${EM}px ${fc.stack}`, cols: [shadowOf(pal), glowOf(st, pal), rgba(pal.flash, 1)], grad: inkGrad(pal.text, pal), chars, edge: rgba(mix(pal.bg, pal.text, 0.25), 1), ink: rgba(pal.text, 1),
     emph: { grad: emphGrad(pal), chars: emChars } };
 }
@@ -116,8 +116,9 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       const eK = trail ? 0 : clamp(1 - bpx / 6) * clamp(Gpx / 14 - 0.5) * view;
       if (eK > 0.02) { const step = Math.min(1.1, Gpx * 0.011), nE = Gpx > 40 ? 3 : 2; g.fillStyle = edgeC;
         for (let e = nE; e >= 1; e--) { const [lx, ly] = toLocal(ex * step * e, ey * step * e); g.globalAlpha = A * up.ua * 0.55 * eK * (1 - (e - 1) / (nE + 1)); sharpGlyph(g, u.c, Gpx, null, lx, ly); } }
-      if (S.emph && !trail && pal.dark && !lite) { g.save(); g.fillStyle = eGlow; g.globalAlpha = A * up.ua * 0.22 * (1 - up.uq * 0.6); blurGlyph(g, u.c, Math.max(3, Gpx * 0.09), Gpx); g.restore(); }
-      g.fillStyle = S.emph ? eC : inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : S.emph ? eG : inkG, trail ? null : S.emph ? eGrad : grad);   // (blurred, the same light: no change on focusing)
+      const em = !!S.emph && ui >= S.emph[0] && ui < S.emph[1];
+      if (em && !trail && pal.dark && !lite) { g.save(); g.fillStyle = eGlow; g.globalAlpha = A * up.ua * 0.22 * (1 - up.uq * 0.6); blurGlyph(g, u.c, Math.max(3, Gpx * 0.09), Gpx); g.restore(); }
+      g.fillStyle = em ? eC : inkC; drawFocus(g, u.c, bpx, Gpx, A * up.ua, trail ? null : em ? eG : inkG, trail ? null : em ? eGrad : grad);   // (blurred, the same light: no change on focusing)
       g.restore();
     }
     if (S.harm && !trail) drawHarmony(g, S, f.t, A, fc, inkC, shadowC, c.future);

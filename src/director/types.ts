@@ -21,8 +21,9 @@ export interface PWord {
   /** a harmony sung with this word: drawn small at its lower right (its size measured unscaled; never part of the word's
    *  footprint, so the layout, the camera and the drawing order never change for it) */
   harm?: { text: string; t: number; w0: number; h0: number } | null;
-  /** drawn in the accent of the flash, lit a little: a word picked by chance, about one in every three or four lines */
-  emph?: boolean;
+  /** drawn in the accent of the flash, lit a little: a few characters of a line picked by chance, about one line in
+   *  three or four — the units [from, to) of this word */
+  emph?: [number, number];
   /** a lyric frame around this word (and up to two before it) */
   frame: FrameRef | null;
   /** appearing nudged inside the frame (world offset), gliding to its own place between t0 and t1 (entry.ts) */
@@ -51,7 +52,7 @@ export interface PLine {
   /** set as columns (one of a run of vertical lines, see layout.ts) */ vert?: boolean;
   back: boolean; rtl: boolean;
 }
-export interface FrameRef { words: PWord[]; ts: number; corner: boolean; pad: number }
+export interface FrameRef { words: PWord[]; ts: number; corner: boolean; pad: number; /** fades from here (the camera left it, too far to hold it in view) */ until?: number }
 
 /** A full-frame blur transition: the blur rises over [t-inn, t], the camera cuts at t, clears over [t, t+out]. */
 export interface Passage { t: number; inn: number; out: number; line: number; quick: boolean; reason: 'gap' | 'layout' | 'distance' | 'crowd' }

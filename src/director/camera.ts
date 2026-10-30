@@ -166,6 +166,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   const glideE = cut === 'glide' || close ? 'cruise' : 'glide';
   const lastSung = (A: Stop) => { const U = A.ubox || []; return U.length ? U[U.length - 1].t : A.t; };
   /* ---- timing ---- */
+  // (each lyric frame and the stop that frames it)
+  const frameStop = new Map<NonNullable<PWord['frame']>, number>(); stops.forEach((s, k) => s.words.forEach(w => { if (w.frame && w.frame.words[w.frame.words.length - 1] === w) frameStop.set(w.frame, k); }));
   const lead = clamp(M.lead ?? 0.15, 0, 1.2), moves: Move[] = [], drifts: CameraPlan['drifts'] = [];
   const restSlow = (rest: number) => clamp((rest - 1) / 2);
   const intensity = (t: number) => clamp(0.35 + 0.65 * map.level(t));
@@ -226,6 +228,15 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
           // the hard cut lands on the word: the last moment of the word before (its sustain) may leave the frame first
         }
       }
+      // a lyric frame still drawn when the camera comes here (the words after it are sung while it shows): this framing
+      // holds it too — the camera pulls back and moves over it and the words, holding still — or, were that too far,
+      // the frame fades as the camera leaves it, never left cut off at the edge
+      for (const [F, fi] of frameStop) { if (fi >= i) continue; const fEnd = Math.min(F.until ?? Infinity, F.words[0].line.L.end - 0.8) + 0.8; if (arrive >= fEnd || F.ts > arrive + 2) continue;
+        const fb = F.words.map(S => ({ x: S.x, y: S.y, lw: S.lw + F.pad * 2, lh: S.lh + F.pad * 2, tilt: S.tilt })), all = [...fb, ...(B.ubox || [])];
+        if (fits(all, B, W, H)) continue;
+        const both = fitPose(all, B.box.tilt, B.r, W, H, T);
+        if (both.z >= B.z * 0.3 && fits(all, { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)) { B.z = Math.min(B.z, both.z); B.x = both.x; B.y = both.y; B.follow = []; B.drift = 0; B.head = B.ubox || []; }
+        else F.until = Math.min(F.until ?? Infinity, s); }
       // A's follow along its characters (finished by the time the camera leaves), then its hold drift until it does
       const fEnd = follow(A, s);
       // (the drift on begins once the last character is sung, never while the words are still waiting to be sung)

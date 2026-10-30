@@ -61,14 +61,20 @@ function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam:
     }
   }
 }
-/** A word picked by chance (no rule: neither the longest nor the loudest), one line in every three or four — a lit
- *  word now and then, never a pattern. Seeded by the song, so a preview, a replay and an export pick the same. */
+/** A few characters of a line picked by chance (no rule: neither the longest nor the loudest), one line in every three
+ *  or four — a lit word now and then, never a pattern, never a whole line: a short word of a spaced line whole (a
+ *  Latin word is always whole), else two or three characters inside it. Seeded by the song, so a preview, a replay and
+ *  an export pick the same. */
 function pickEmphasis(lines: ScenePlan['lines']) {
   let next = 1 + Math.floor(rnd(lines.length * 1.7) * 3);
   lines.forEach((P, i) => {
     if (i < next) return;
     const ws = P.words.filter(S => /[\p{L}\p{N}]/u.test(S.w.text)); if (!ws.length) { next = i + 1; return; }
-    ws[Math.floor(rnd(i * 5.17 + 0.3) * ws.length)].emph = true;
+    const S = ws[Math.floor(rnd(i * 5.17 + 0.3) * ws.length)], n = S.units.length;
+    if (S.w.latin || (P.words.length > 1 && n <= 4)) S.emph = [0, n];
+    else { const ok = S.units.map(u => /[\p{L}\p{N}]/u.test(u.c)), len = Math.min(n, 2 + (rnd(i * 3.3 + 7) < 0.5 ? 1 : 0)), starts: number[] = [];
+      for (let a = 0; a + len <= n; a++) if (ok.slice(a, a + len).every(Boolean)) starts.push(a);
+      if (starts.length) { const a = starts[Math.floor(rnd(i * 8.1 + 2) * starts.length)]; S.emph = [a, a + len]; } }
     next = i + 3 + (rnd(i * 2.9 + 1) < 0.5 ? 1 : 0);
   });
 }

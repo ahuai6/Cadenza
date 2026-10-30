@@ -232,6 +232,21 @@ export function layout(inp: LayoutInput): LayoutResult {
           let below = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) below = Math.max(below, (p[0] - ref[0]) * nrm[0] + (p[1] - ref[1]) * nrm[1]);
           const s0: [number, number] = [ref[0] + nrm[0] * (below + gap * 2.5 + h / 2), ref[1] + nrm[1] * (below + gap * 2.5 + h / 2)];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
+        } else if (k === 0 && !first && prevLine && prevLine.vert && Lp.vert && mode !== 'dash') {
+          // a line of columns after a line of columns: beside it — to its right or to its left, its top character level
+          // with the line before's fourth — or below it, where the camera's own bounds keep it in reach (a retry asks
+          // for 'right' or 'below' outright)
+          const at = (p: [number, number]) => [p[0] * d[0] + p[1] * d[1], p[0] * nrm[0] + p[1] * nrm[1]];
+          let a0 = 1e9, a1 = -1e9, b1 = -1e9; for (const Q of prevLine.words) for (const p of corners(Q)) { const [x, y] = at(p); a0 = Math.min(a0, x); a1 = Math.max(a1, x); b1 = Math.max(b1, y); }
+          const us: { x: number; y: number; h: number }[] = []; for (const Q of prevLine.words) { const c = Math.cos(Q.tilt * D2R), sn = Math.sin(Q.tilt * D2R); for (const u of Q.units) us.push({ x: Q.x + c * u.ox - sn * u.oy, y: Q.y + sn * u.ox + c * u.oy, h: u.h }); }
+          const u4 = us[Math.min(3, us.length - 1)], top4 = at([u4.x, u4.y])[1] - u4.h / 2;
+          const Wb = Lp.words.reduce((t, Q) => t + Q.lw, 0) + gap * (Lp.words.length - 1), r0 = rnd(i * 13.7 + 2);
+          const side = mode === 'right' ? 0 : mode === 'below' ? 2 : r0 < 0.4 ? 0 : r0 < 0.7 ? 1 : 2;
+          const x0 = side === 0 ? a1 + gap * 2.2 : side === 1 ? a0 - gap * 2.2 - Wb : a0, top = side === 2 ? b1 + gap * 2.5 : top4;
+          const toW = (x: number, y: number): [number, number] => [d[0] * x + nrm[0] * y, d[1] * x + nrm[1] * y];
+          cc = toW(x0 + w / 2, top + h / 2);
+          // (the pen after it, on the line the line's other columns hang from: their tops level with this one's)
+          P = toW(x0 + w, top + prevH / 2); lineStart = toW(x0, top + prevH / 2); colN = 0;
         } else if (k > 0 && !S.vert && prevSeg && !prevSeg.vert && mode !== 'right' && mode !== 'dash' && (cc = placeNext(S, prevSeg, w, h, d, nrm, i, k))) {
           P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2];
         } else {

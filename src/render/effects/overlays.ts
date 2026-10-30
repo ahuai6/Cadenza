@@ -381,7 +381,7 @@ register({ id: 'frame', label: 'fx.frame', layer: 'world-back', kind: 'effect', 
     const wa = Math.atan2(boxes.reduce((s, b) => s + Math.sin(b.tilt * D2R), 0), boxes.reduce((s, b) => s + Math.cos(b.tilt * D2R), 0)) / D2R, la = L.prot + vv[0].p.rot;
     const fa = la + angDiff(wa, la) * 0.8, B = boxIn(boxes, fa), cs = Math.min(...boxes.map(b => Math.min(b.lw, b.lh)));
     const padd = cs * 0.15 + Math.max(B.w, B.h) * 0.03, w = B.w + padd * 2, h = B.h + padd * 2, per = 2 * (w + h);
-    const dt = t - F.ts, p = eOut(clamp(dt / 0.85)), tEnd = L.L.end - 0.8, q = 1 - eIO(clamp((t - tEnd) / 0.8)), vis1 = p * q; if (vis1 <= 0.002) continue;
+    const dt = t - F.ts, p = eOut(clamp(dt / 0.85)), tEnd = Math.min(L.L.end - 0.8, F.until ?? Infinity), q = 1 - eIO(clamp((t - tEnd) / 0.8)), vis1 = p * q; if (vis1 <= 0.002) continue;
     const fl = Math.sin(t * 0.9 + L.i) * 0.5, s1 = 1 + 0.012 * Math.sin(t * 1.3 + L.i * 2);
     g.save(); g.translate(f.W / 2 + B.x + Math.sin(t * 0.7 + L.i) * padd * 0.08, f.H / 2 + B.y + Math.cos(t * 0.6 + L.i) * padd * 0.08); g.rotate((fa + fl) * D2R); g.scale(s1, s1);
     g.strokeStyle = rgba(ink, 1); g.fillStyle = rgba(ink, 1); g.globalAlpha = o * 0.7; g.lineWidth = 1.6; g.lineJoin = 'miter'; g.lineCap = 'butt';
