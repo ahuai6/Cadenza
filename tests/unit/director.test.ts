@@ -243,7 +243,19 @@ describe('chorus entries (the lyrics mark them: #1 strongest, #2, #3 lighter)', 
     for (let s = 0; s < 2; s += 0.1) expect(n(s + 0.1)).toBeGreaterThanOrEqual(n(s));
     const lo = make('glide', src, { trigger: 0.3 }), hiP = make('glide', src, { trigger: 1.6 });
     expect(lo.style.m.flash).toBeLessThan(P.style.m.flash); expect(hiP.style.m.impact).toBeGreaterThan(P.style.m.impact);
-  });  it('a marked chorus brings the colour split and the glitch on its opening hit, with the glass', () => {
+  });
+  it('in word-timed lyrics a mark fires on its own syllable — off the beat, mid-line, inside a merged word — not on a beat near it', () => {
+    // (the line's syllables stamped; #1 written before 'た' at 21.93 — between beats — and the segmenter makes one word of 'あなた')
+    const kar = '[00:20.00]<00:20.00>ずっと<00:20.80>そばに<00:21.40>あな<00:21.93>#1た<00:22.40>と<00:23.00>\n[00:30.00]<00:30.00>おわり<00:31.00>';
+    const Q = make('glide', kar), m = Q.doc.marks[0];
+    expect(m.t).toBeCloseTo(21.93, 2); expect(m.exact).toBe(true);
+    const lead = markedEntries(Q.map, Q.doc.marks, () => true).find(x => x.lead)!; expect(lead.e.t).toBeCloseTo(21.93, 2);
+    const base = presetStyle('cover'), st = normalizeStyle({ ...base, preset: 'custom', fx: { ...base.fx, chroma: true } });
+    const R = plan({ doc: Q.doc, map: Q.map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd: Q.musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+    expect(R.cues.flash.some(q => Math.abs(q.t - 21.93) < 0.01), 'the flash on the syllable').toBe(true);
+    expect(R.cues.chroma.some(q => Math.abs(q.t - 21.93) < 0.01), 'the colour split on the syllable').toBe(true);
+  });
+  it('a marked chorus brings the colour split and the glitch on its opening hit, with the glass', () => {
     const map = P.map, p2 = parse(src), musicEnd = P.musicEnd, doc = buildLyrics(p2, map, musicEnd), base = presetStyle('cover');
     const st = normalizeStyle({ ...base, preset: 'custom', fx: { ...base.fx, glass: true, chroma: true, glitch: true } });
     const Q = plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });

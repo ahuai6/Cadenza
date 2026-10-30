@@ -24,6 +24,7 @@ export interface Word {
   harm?: { text: string; units: Unit[]; t: number } | null;
   /** a chorus comes in on this word: 1 strongest, 2 ordinary, 3 lighter */
   mark?: number;
+  /** when the mark was sung (its own syllable, which may be inside the word): the chorus comes in then */ markT?: number;
   /** framing group: consecutive words closer than FUSE share one */
   group: number;
   /** the pause after this word when it ends its line (0 otherwise) */
@@ -38,7 +39,8 @@ export interface Line {
   text: string; subs: string[]; words: Word[];
   kar: boolean; rtl: boolean;
 }
-export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number; /** where choruses come in (the lyrics' own marks): time, level 1..3 */ marks: { t: number; level: number }[] }
+export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number; /** where choruses come in (the lyrics' own marks): time, level 1..3, and whether that time is a stamp (exact) */ marks: Mark[] }
+export interface Mark { t: number; level: number; exact?: boolean }
 
 /** Words starting closer than this (s) are one gesture for the camera and the entrance. */
 export const FUSE = 0.12;
@@ -68,7 +70,7 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
       const hu = rw.harm ? (rw.harm.units?.length ? rw.harm.units.map(u => ({ c: u.c, t: Math.max(u.t, L.t) })) : unitsOf(rw.harm.text).map(c => ({ c, t: null as number | null }))) : null;
       return { id: words.length + k, line: i, k, text: w, units, t: tu ? tu[0].t! : L.t, end: 0, timed: !!tu,
         latin: isLatin(w), cjk: RE_CJK.test(w) && !RE_COMPLEX.test(w), complex: RE_COMPLEX.test(w), group: 0, rest: 0,
-        harm: rw.harm && hu ? { text: rw.harm.text, units: hu, t: hu[0]?.t ?? NaN } : null, ...(rw.mark ? { mark: rw.mark } : {}) };
+        harm: rw.harm && hu ? { text: rw.harm.text, units: hu, t: hu[0]?.t ?? NaN } : null, ...(rw.mark ? { mark: rw.mark, ...((rw.markT ?? rw.units?.[0]?.t) != null ? { markT: (rw.markT ?? rw.units![0].t)! } : {}) } : {}) };
     });
     if (!timed) paceWords(L, map);
     // when each word is over
@@ -95,7 +97,9 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
     words.push(...L.words);
   });
   // the choruses: the words marked, and the stamps that carry only a mark
-  const marks = [...words.filter(W => W.mark).map(W => ({ t: W.t, level: W.mark! })), ...(p.marks || [])].sort((a, b) => a.t - b.t);
+  // (exact: on a stamp of its own — a syllable's, or a stamp with only the mark — so the chorus comes in right there; a
+  // word timed only by its line's spread has a guessed time, which the cues bring onto the beat)
+  const marks = [...words.filter(W => W.mark).map(W => ({ t: W.markT ?? W.t, level: W.mark!, exact: W.markT != null })), ...(p.marks || []).map(m => ({ ...m, exact: true }))].sort((a, b) => a.t - b.t);
   return { lines, words, meta: p.meta, groups: gid + 1, marks };
 }
 

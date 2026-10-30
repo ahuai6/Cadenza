@@ -13,7 +13,8 @@
 export interface RawUnit { t: number; c: string; sp: boolean; /** when it stops sounding, where a stamp with nothing after it (or only a space) says so */ e?: number }
 /** A harmony sung with a word (the part in brackets after it), with its own timing when the line has it. */
 export interface RawHarm { text: string; units?: RawUnit[] }
-export interface RawWord { text: string; units?: RawUnit[]; harm?: RawHarm; /** a chorus comes in on this word: 1 strongest .. 3 lighter */ mark?: number }
+export interface RawWord { text: string; units?: RawUnit[]; harm?: RawHarm; /** a chorus comes in on this word: 1 strongest .. 3 lighter */ mark?: number;
+  /** where the mark was written (timed lines: its syllable's stamp) — kept when the words are regrouped */ markT?: number }
 export interface RawLine {
   t: number; text: string; subs: string[];
   /** the line's words (broken at spaces only), each with its harmony and chorus mark, if any */

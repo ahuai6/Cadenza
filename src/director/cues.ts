@@ -23,12 +23,17 @@ export const entryFloor = (s: number) => clamp(1.05 - 0.6 * s, 0, 1);
 /** The strength of each of the lyrics' chorus marks: #1 the strongest, #2 ordinary, #3 lighter. */
 export const MARK_K = [0, 1, 0.75, 0.52];
 /** Where choruses come in, as the lyrics mark them (#1, #2, #3 — the choice is the person's, not a guess at the music):
- *  each on the strongest accent on the beat near its mark, followed by the strongest on-beat hits of the two bars after
- *  it, a little weaker each. */
-export function markedEntries(map: RhythmMap, marks: { t: number; level: number }[], inSong: (t: number) => boolean): Entry[] {
+ *  each exactly when its marked syllable is sung (a beat accent near it only gives its strength — it is never moved onto
+ *  one, so a mark lands with the lyrics wherever it is written), followed by the strongest on-beat hits of the two bars
+ *  after it, a little weaker each. */
+export function markedEntries(map: RhythmMap, marks: { t: number; level: number; exact?: boolean }[], inSong: (t: number) => boolean): Entry[] {
   const out: Entry[] = [], bar = (t: number) => map.meter * map.beatLen(t);
   for (const m of marks) { if (!inSong(m.t)) continue;
-    const bl = map.beatLen(m.t), e = map.eventNear(m.t, bl * 0.6, 1) || map.eventNear(m.t, bl * 0.6, 0); if (!e || out.some(x => Math.abs(x.e.t - e.t) < bl * 0.5)) continue;
+    // (a mark on a stamp — a syllable's — comes in exactly then, an accent near it giving only its strength; a mark on a
+    // word whose time is guessed from its line is brought onto the strongest accent near it)
+    const bl = map.beatLen(m.t), near = map.eventNear(m.t, bl * 0.6, 1) || map.eventNear(m.t, bl * 0.6, 0);
+    const e: RhythmEvent | null = m.exact ? (near ? { ...near, t: m.t } : { t: m.t, s: 1.6, tier: 2, band: 'broad', pos: Math.round(map.beatAt(m.t).inBar), off: false }) : near;
+    if (!e || out.some(x => Math.abs(x.e.t - e.t) < (m.exact ? 0.06 : bl * 0.5))) continue;
     out.push({ e, k: MARK_K[Math.min(3, Math.max(1, m.level))], lead: true }); }
   out.sort((a, b) => a.e.t - b.e.t);
   const leads = out.slice();
@@ -41,7 +46,7 @@ export function markedEntries(map: RhythmMap, marks: { t: number; level: number 
   }
   return out.sort((a, b) => a.e.t - b.e.t);
 }
-export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number }[], marks: { t: number; level: number }[] = []): Cues {
+export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number }[], marks: { t: number; level: number; exact?: boolean }[] = []): Cues {
   const M = st.m, bar = map.meter * map.beatLen(musicEnd / 2), inSong = (t: number) => t >= 0.5 && t <= musicEnd - 0.5;
   // flash, invert and glass land on the beat's own accents — a strong hit on a beat (a downbeat first), never a syncopated
   // one — and above all on the hit that opens a section that comes in louder (into a chorus, a drop)

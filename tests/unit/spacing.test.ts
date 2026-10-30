@@ -36,3 +36,14 @@ describe('spacing', () => {
     expect(q.lines[0].words.map(w => w.text)).toEqual(['我們看過的', '故事']);   // (看 and 們 share a unit: no break between them)
   });
 });
+
+describe('a chorus mark inside a regrouped word', () => {
+  it('keeps its own syllable\'s time when the segmenter joins it to the syllables before', async () => {
+    const { buildLyrics } = await import('../../src/lyrics/model'), { RhythmMap } = await import('../../src/rhythm/map');
+    const p = respace(parse('[00:20.00]<00:20.00>ずっと<00:20.80>そばに<00:21.40>あな<00:21.93>#1た<00:22.40>と<00:23.00>'));
+    const W = p.lines[0].words.find(w => w.mark)!;
+    expect(W.text.length).toBeGreaterThan(1);               // (joined: the mark's word begins before its syllable)
+    const d = buildLyrics(p, RhythmMap.grid(112, 0.3, 160), 30);
+    expect(d.marks[0].t).toBeCloseTo(21.93, 2); expect(d.marks[0].exact).toBe(true);
+  });
+});
