@@ -218,7 +218,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
   await win.getByRole('menuitem', { name: /匯出 MP4/  }).click(); await W(2000); await shot('export-dialog');
   const exOpen = await C(() => window.__cadenza.ui.get().modal && window.__cadenza.ui.get().modal.kind);
-  await win.locator('[data-test=modal] [role=combobox]').first().click(); await W(300);
+  await win.locator('[data-test=modal]').getByRole('combobox', { name: '解析度' }).click(); await W(300);
   await win.getByRole('option', { name: /720/ }).first().click(); await W(200);
   await win.locator('[data-test=modal]').getByRole('button', { name: '開始匯出' }).click();
   await win.waitForFunction(() => /完成/.test(document.querySelector('[data-test=modal] [role=status]')?.textContent || ''), null, { timeout: 180000 }).catch(() => {});
