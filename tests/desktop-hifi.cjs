@@ -98,9 +98,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     await win.waitForFunction(() => window.__cadenza.player.get().route === 'hifi' && window.__cadenza.engine.isPlaying, null, { timeout: 15000 }).catch(() => {}); await W(800);
     const q = await C(() => ({ route: window.__cadenza.player.get().route, ext: !!window.__cadenza.engine.clock.external, t: window.__cadenza.engine.time, set: window.__cadenza.settings.get().audioOut }));
     ok('sidebar switch: to Hi-Fi in one click, the setting kept, the song carrying on', q.route === 'hifi' && q.ext && q.set === 'hifi' && q.t > t1 && q.t - t1 < 4, JSON.stringify(q)); }
-  // the volume balance with the fixed volume: the samples untouched, the device's hardware volume asked (the test DAC has none)
-  { const hw = await C(() => ({ hw: window.__cadenza.hifi?.get?.().hw ?? null, bal: window.__cadenza.engine.balance, ev: window.__ev.filter(e => e.ev === 'hwvol').pop() || null }));
-    ok('volume balance on Hi-Fi with a fixed volume: no gain on the samples, the hardware volume asked instead', hw.bal === 1 && !!hw.ev && hw.ev.supported === false, JSON.stringify(hw)); }
+  // the volume balance with the fixed volume: the device's hardware volume asked first; the test DAC has none, so the
+  // balance goes to the samples after all (the songs are evened out) and the badge no longer says bit-perfect
+  { await W(600); const hw = await C(() => ({ hw: window.__cadenza.hifi?.get?.().hw ?? null, bal: window.__cadenza.engine.balance, ev: window.__ev.filter(e => e.ev === 'hwvol').pop() || null,
+      badge: document.querySelector('[data-k]')?.getAttribute('data-k') ?? null }));
+    ok('volume balance on Hi-Fi with a fixed volume: the hardware volume asked; a device without one balances on the samples, not bit-perfect then',
+      !!hw.ev && hw.ev.supported === false && hw.bal !== 1 && hw.badge !== 'bp', JSON.stringify(hw)); }
   ok('no page errors', !errs.length, errs.slice(0, 5).join(' | '));
   await app.close();
   const files = fs.readdirSync(DUMP).sort();

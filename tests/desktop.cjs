@@ -147,7 +147,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     ok('song panel: the background tab holds the MV settings (no empty section)', await sp.getByText('MV 畫面').count() > 0 && await sp.getByRole('slider').count() >= 3, JSON.stringify(heads)); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click(); await W(300); await shot('fx-panel-lyrics');
   const ime = {};
-  await win.locator('[data-test=song-panel] textarea').click(); await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ㄋ' })));
+  await win.locator('[data-test=song-panel] textarea').first().click(); await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ㄋ' })));
   await win.mouse.move(300, 450); await W(1000); ime.composing = await C(() => document.querySelector('[data-test=song-panel]').dataset.open);
   await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '你' })));
   await W(1000); ime.typing = await C(() => document.querySelector('[data-test=song-panel]').dataset.open);
@@ -277,6 +277,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     ok('playlist: a dragged row lands in its new place', order[2] === ids['晨光'] && order[0] === ids['Night Drive'], JSON.stringify(order.map(x => Object.keys(ids).find(k => ids[k] === x))));
     await C(pid => window.cadenzaLib.playlist('delete', pid), pid); await C(() => window.__cadenza.ui.set({ detail: null })); await W(300); }
 
+  /* ---------- a song analysed again from its menu: its analysis dropped, then made anew (and checked) ---------- */
+  { await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
+    await win.getByRole('menuitem', { name: '重新掃描' }).click(); await W(400);
+    const an = () => C(() => window.cadenzaLib.get().then(v => v.tracks.find(t => t.title === '晨光').analyzed));
+    const dropped = await an(); let back = 0; for (let i = 0; i < 60 && !(back > 0); i++) { await W(1000); back = await an(); }
+    ok('rescan: a song analysed again from its menu (dropped, then analysed anew)', back > 0, JSON.stringify({ dropped, back })); }
   /* ---------- poster wall, settings, light theme ---------- */
   await win.getByRole('button', { name: '海報牆' }).click(); await W(900); await shot('wall');
   await win.getByRole('button', { name: '設定' }).click(); await W(600); await shot('settings');
@@ -287,6 +293,13 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
         status: /使用 .+ 分析|無法使用神經網路/.test(txt), beat: await head('beat_this-wgsl.bin'), demucs: await head('htdemucs-wgsl.bin'), other: await head('..%2Fpackage.json') }; });
     await W(300); probing = false; const has = require('fs').existsSync(path.join(ROOT, 'models', 'beat_this-wgsl.bin'));
     ok('rhythm engine: the setting and its status line, the models served (and nothing else)', r.seg && r.status && (!has || (r.beat === 200 && r.demucs === 200)) && r.other === 404, JSON.stringify({ ...r, has })); }
+  // the data group: each action asks first (cancelled here: nothing is cleared); the photosensitivity warning is shown
+  { await win.getByRole('button', { name: '清除所有快取' }).click(); await W(400); await shot('settings-confirm');
+    const dlg = await C(() => { const m = document.querySelector('[data-test=modal][data-kind=confirm]'); return m ? m.innerText : null; });
+    await win.locator('[data-test=modal]').getByRole('button', { name: '取消' }).click(); await W(400);
+    const after = await C(() => window.cadenzaLib.get().then(v => ({ modal: !!document.querySelector('[data-test=modal]'), an: v.tracks.filter(t => t.analyzed > 0).length })));
+    const warn = await C(() => document.body.innerText.includes('光敏性癲癇提醒'));
+    ok('settings: clearing the caches asks first, and cancelling keeps them; the photosensitivity warning is shown', !!dlg && dlg.includes('清除') && !after.modal && after.an > 0 && warn, JSON.stringify({ dlg: dlg && dlg.slice(0, 40), ...after, warn })); }
   await win.getByRole('radio', { name: '淺色' }).click(); await W(600); await shot('settings-light');
   await win.getByRole('button', { name: '音樂庫' }).click(); await W(600); await shot('library-light');
   await win.locator('[data-test=card]').getByTitle('展開').first().click(); await layerIs('np'); await W(300); await shot('np-light');
