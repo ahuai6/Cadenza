@@ -29,6 +29,8 @@ export interface Settings {
   mvDark: number; mvBlur: number; mvDesat: number; mvFit: boolean;
   /** which engine finds the beats ('auto': the neural one where it can run), and whether it separates the drums */
   rhythmEngine?: 'auto' | 'neural' | 'dsp'; rhythmDrums?: boolean;
+  /** an unanalysed song: played at once on a reading of its opening, the full one taking over (stream), or after it (full) */
+  rhythmStream?: 'stream' | 'full';
   /** the picture-quality mode (render/gfx.ts): as designed, optimised (cheap stand-ins for blurs and glass), or lite */
   gfx?: 'default' | 'optimized' | 'lite';
 }

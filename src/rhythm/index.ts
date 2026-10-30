@@ -61,3 +61,4 @@ export function loudnessInBackground(buf: { numberOfChannels: number; sampleRate
 /** A cached analysis is usable only if it was made by this version of the analysis and is sound (validate.ts). */
 export const isCurrent = (a: unknown, duration?: number): a is RhythmAnalysis => checkAnalysis(a, duration) == null;
 export { checkAnalysis } from './validate';
+export { analyzeHead, extendHead, HEAD_SECONDS } from './stream';

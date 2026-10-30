@@ -8,13 +8,13 @@
 // (card, now playing, effect lyrics) switches together, however fast the user skips (each request supersedes the last).
 import { createStore } from '../../core/emitter';
 import { Session, type AudioLike } from '../../engine';
-import { ensureFont, RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, autoSpacing, spacingKey, type RhythmAnalysis, type Spacing } from '../../engine';
+import { ensureFont, analyzeHead, RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, autoSpacing, spacingKey, type RhythmAnalysis, type Spacing } from '../../engine';
 import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
 import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge';
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
 import { engine, sessionEnv } from './stage';
-import { analyzeNow } from './analysis';
+import { analyzeNow, decodeForAnalysis } from './analysis';
 import { hifiOn, output, load as hifiLoad, preload as hifiPreload, refresh as hifiRefresh, release as hifiRelease, onTrouble, hwGain, hifi, stop as hifiStop } from './hifi';
 
 export type Mode = 'loop' | 'shuffle' | 'one' | 'stop';
@@ -37,22 +37,49 @@ export const player = createStore({
 /* ---------- decoding, with the next song prepared ahead ---------- */
 let decoder: OfflineAudioContext | null = null;
 const decodeFile = async (id: string) => { const r = await fetch(mediaUrl(id)); if (!r.ok) throw new Error('read'); return (decoder ||= new OfflineAudioContext(2, 1, 48000)).decodeAudioData(await r.arrayBuffer()); };
-const cache = new Map<string, Promise<{ buffer: AudioBuffer | null; analysis: RhythmAnalysis | null }>>();
+type Prep = { buffer: AudioBuffer | null; analysis: RhythmAnalysis | null; /** streaming: the whole reading, still coming (the analysis is the opening's) */ later?: Promise<RhythmAnalysis | null> };
+const cache = new Map<string, Promise<Prep>>();
+/** A song's audio and rhythm. One the cache has no reading of yet: streamed (the setting's default) — it plays at once
+ *  on a reading of its opening (a third of a second of work), the whole reading following in the background and taken
+ *  by the session while the song plays (Session.stage, put in place under the next blur: engine.ts trySwap); or
+ *  analysed whole before it plays. Only a whole reading is ever kept (analysis.ts saves it). */
 function prepare(id: string, route: 'std' | 'hifi') {
   const key = route + ':' + id, hit = cache.get(key); if (hit) return hit;
-  const p = (async () => {
+  const p = (async (): Promise<Prep> => {
     let analysis = await Lib!.analysis(id, RHYTHM_VERSION).catch(() => null) as RhythmAnalysis | null;
     if (!isCurrent(analysis)) analysis = null;
     // the Hi-Fi output reads the file itself: the page decodes only to analyse a song the cache does not have yet
-    if (route === 'hifi') return { buffer: null, analysis: analysis || await analyzeNow(id, null, true).catch(() => null) };
-    const buffer = await decodeFile(id);
+    const buffer = route === 'hifi' ? null : await decodeFile(id);
     // (a cached reading made for audio of another length — the file replaced under the same name — is not this song's)
-    if (analysis && !isCurrent(analysis, buffer.duration)) analysis = null;
-    return { buffer, analysis: analysis || await analyzeNow(id, buffer, true).catch(() => null) };
+    if (analysis && buffer && !isCurrent(analysis, buffer.duration)) analysis = null;
+    if (analysis) return { buffer, analysis };
+    if (settings.get().rhythmStream === 'full') return { buffer, analysis: await analyzeNow(id, buffer, true).catch(() => null) };
+    const pcm = buffer || await decodeForAnalysis(id).catch(() => null);
+    if (!pcm) return { buffer, analysis: await analyzeNow(id, null, true).catch(() => null) };
+    // (not in a hurry now: the whole reading has the time a background analysis has — the neural engine's drums too)
+    const later = analyzeNow(id, pcm, false).catch(() => null);
+    const head = await analyzeHead(pcm).catch(() => null);
+    later.then(a => { if (a && cache.get(key) === p) cache.set(key, Promise.resolve({ buffer, analysis: a })); });
+    return head ? { buffer, analysis: head, later } : { buffer, analysis: await later };
   })();
   cache.set(key, p); p.catch(() => cache.delete(key));
   while (cache.size > 4) cache.delete(cache.keys().next().value!);
   return p;
+}
+/** Streaming: the whole reading each session is still waiting for. */
+const coming = new WeakMap<Session, Promise<RhythmAnalysis | null>>();
+/** Where the shown song's rhythm stands: its whole reading from the start, its opening's (the whole one coming), or the
+ *  whole one taken over while it played. */
+export function rhythmState(): 'whole' | 'partial' | 'streamed' | null {
+  const s = player.get().session; if (!s) return null;
+  return s.analysis?.partial || s.staged ? 'partial' : coming.has(s) ? 'streamed' : 'whole';
+}
+/** A song to be analysed again: what was prepared of it goes too (its next play reads the new analysis). */
+export function forgetPrepared(id: string) { cache.delete('std:' + id); cache.delete('hifi:' + id); }
+/** The shown song's whole rhythm reading, in place (an export waits for it: a video is made on the whole reading). */
+export async function wholeRhythm() {
+  const s = player.get().session, p = s && coming.get(s); if (!s || !p) return;
+  if ((await p) && s.staged && s.takeStaged()) engine.invalidate();
 }
 /** What the engine holds for audio the native player plays: its length and layout, and a way to decode it after all
  *  (only an export with sound needs the samples). */
@@ -91,6 +118,8 @@ async function openSong(id: string, wantRoute: 'std' | 'hifi', ok: () => boolean
   // In album play: no fade at the end (the audio is the album's own), only the small title, the first song's look
   const s = await Session.open({ key: id, lyrics: instr ? instrumentalLyrics() : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '', album: !!album },
     coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, spacing: song?.spacing, fade: !album, aspect: fxAspect(), look: album?.look || undefined }, sessionEnv());
+  // (streaming: the whole reading, made ready aside the moment it arrives — the engine puts it in place)
+  if (prep.later) coming.set(s, prep.later.then(a => { if (a && s.analysis?.partial) s.stage(a); return a; }));
   // the play page's own lyric face, its glyphs for these lyrics in before the page shows them (never a late swap)
   { const f = ui.get().npLyr.font; if (f && f !== 'ui' && s.hasLyrics) await Promise.race([ensureFont(f, s.doc.lines.map(L => L.text).join('')), new Promise(r => setTimeout(r, 1500))]); }
   return { s, route, song, lyr };
@@ -346,5 +375,6 @@ export async function unbindMv() {
 /** For the workshop: a song's audio, analysis, lyrics, cover and bound style. */
 export async function songForWorkshop(t: Track) {
   const [prep, song, lyr] = await Promise.all([prepare(t.id, 'std'), Lib!.song(t.id).catch(() => null), Lib!.lyrics(t.id).catch(() => null)]);
-  return { buffer: prep.buffer, analysis: prep.analysis, song, lyrics: t.instrumental ? instrumentalLyrics() : lyr?.text || '', name: t.file };
+  // (the workshop works on the whole reading)
+  return { buffer: prep.buffer, analysis: (prep.later && await prep.later) || prep.analysis, song, lyrics: t.instrumental ? instrumentalLyrics() : lyr?.text || '', name: t.file };
 }

@@ -29,6 +29,8 @@ export interface EngineEvents extends Record<string, unknown> { tick: Tick; chan
 export interface RenderSettings { scale: 'auto' | number; fps: number; prerender: boolean }
 
 const CARRY = 3.2;          // seconds the song before stays on in album play
+const SWAP_FADE = 0.9;      // seconds a newer rhythm's picture takes over from the one before (with no blur to hide it)
+const SWAP_UNDER = 0.4;     // … and at a blur's peak (the picture before, nearly all blur, dissolves into the new one)
 const RM = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export class Engine extends Emitter<EngineEvents> {
@@ -187,6 +189,7 @@ export class Engine extends Emitter<EngineEvents> {
     if (this.view === 'ambient') this.dirty = true;        // the ambient field is alive even while paused
     const cap = this.render.fps > 0 ? 1000 / this.render.fps : 0, due = !cap || now - this.lastDraw >= cap - 1.5;
     if (vis && this.dirty && due) { this.dirty = false; this.lastDraw = now; try { this.draw(s); } catch (e) { console.warn(e); } }
+    if (s.staged) this.trySwap(s);
     if (!s.needsFlush && (!this.bake || this.bake.plan !== s.plan)) this.startBake(s);
     const f = this.playing ? this.frameRs(s) : null;
     this.emit('tick', { t: this.t, dur: s.dur, musicEnd: s.musicEnd, playing: this.playing, rs: f, session: s });
@@ -218,10 +221,33 @@ export class Engine extends Emitter<EngineEvents> {
     drawFrame(tg, f, { sig: s.sig, captions: true, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
     if (target) ssDown(target, this.canvas, N);
     if (this.carry) { const el = (performance.now() - this.carry.at) / 1000; if (el >= CARRY || this.carry.s.needsFlush) this.carry = null; else this.drawCarry(this.carry, el); }
+    // (a newer rhythm put in place without a blur to hide it: the picture as it was fades out over the new one)
+    if (this.swapFade) { const u = (performance.now() - this.swapFade.at) / 1000 / this.swapFade.len; if (u >= 1) this.swapFade = null; else this.drawSwapFade(this.swapFade.s, u); }
     if (this.fadeOut) { const u = clamp((performance.now() - this.fadeOut.t0) / 900);
       if (u >= 1) this.fadeOut = null; else { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = (1 - u) ** 1.5; g.filter = `blur(${(u * 18 * this.dpr).toFixed(1)}px)`; g.drawImage(this.fadeOut.cv, 0, 0, cw, ch); g.filter = 'none'; g.restore(); } }
   }
   /** The song before, over the new one: its whole picture for the first second (dissolving), then its words alone. */
+  private swapFade: { s: Session; at: number; len: number } | null = null;
+  private drawSwapFade(before: Session, u: number) {
+    const f = this.frameAt(this.t, {}, before); if (!f) return; const g = this.g, cw = this.canvas.width, ch = this.canvas.height; f.px = ch / before.plan.H;
+    if (!this.carryCv || this.carryCv.width !== cw || this.carryCv.height !== ch) this.carryCv = makeCanvas(cw, ch) as HTMLCanvasElement;
+    const cg = this.carryCv.getContext('2d')!; cg.setTransform(1, 0, 0, 1, 0, 0); cg.globalAlpha = 1; cg.clearRect(0, 0, cw, ch); drawFrame(cg, f, { sig: before.sig });
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = (1 - sstep(u)); g.drawImage(this.carryCv, 0, 0); g.restore(); this.dirty = true;
+  }
+  /** Put a session's staged rhythm in place at the moment it shows least: at once where the effect lyrics are not on
+   *  screen; playing, at the peak of a blur transition coming within a few seconds (the picture before, all blur by then,
+   *  dissolving quickly into the new one); else now, the picture before fading out over the new one. */
+  private trySwap(s: Session) {
+    if (!s.staged || s.needsFlush) return;
+    const t = this.t, live = this.view === 'effect' && this.playing;
+    if (live) { const P = s.plan.passages.find(P => P.t >= t - 0.03);
+      if (P && P.t - t < 8) { if (Math.abs(t - P.t) > 0.04) return; this.swapNow(s, SWAP_UNDER); return; } }
+    this.swapNow(s, this.view === 'effect' ? SWAP_FADE : 0);
+  }
+  private swapNow(s: Session, len: number) {
+    const before = s.takeStaged(); if (!before) return;
+    this.swapFade = len > 0 ? { s: before, at: performance.now(), len } : null; this.dirty = true; this.emit('change', undefined);
+  }
   private drawCarry(c: { s: Session; t0: number }, el: number) {
     const f = this.frameAt(c.t0 + el, {}, c.s); if (!f) return; const g = this.g, cw = this.canvas.width, ch = this.canvas.height, u = clamp(el / 1.0);
     f.px = ch / c.s.plan.H;

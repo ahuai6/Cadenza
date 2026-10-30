@@ -97,6 +97,8 @@ function RhythmGroup({ st }: { st: Settings }) {
       {auto && ns && <Note>{ns.ok ? tx('s.set.engine.on', { d: ns.device || 'GPU' }) : tx(eng === 'neural' ? 's.set.engine.offForced' : 's.set.engine.off', { r: ns.reason || '' })}</Note>}
       {eng === 'neural' && <Note>{tx('s.set.engine.neuralHelp')}</Note>}
       <Note>{tx('s.set.engine.note')}</Note>
+      <Field label={tx('s.set.stream')}><Seg size="sm" fit value={st.rhythmStream === 'full' ? 'full' : 'stream'} onChange={v => setSettings({ rhythmStream: v })} options={[['stream', tx('s.set.stream.on')], ['full', tx('s.set.stream.off')]]} /></Field>
+      <Note>{tx('s.set.stream.note')}</Note>
     </Group>
   );
 }

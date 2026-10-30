@@ -6,7 +6,7 @@ import { D, Lib } from '../bridge';
 import { ui, lib, settings, type Page } from '../state';
 import * as playerApi from '../playback/player';
 import { toggle, seekBy, resumeLast } from '../playback/player';
-import { startAnalysis } from '../playback/analysis';
+import { startAnalysis, pauseAnalysis } from '../playback/analysis';
 import { applyEngineConfig } from '../engineConfig';
 import * as layers from '../layers';
 import { back } from '../layers';
@@ -46,4 +46,4 @@ export function bindKeys(): () => void {
 export function go(page: Page) { const u = ui.get(); if (u.page === page && !u.detail) return; ui.set({ page, detail: null, layer: 'none', queue: false }); }
 
 // read by the desktop tests
-Object.assign((window as any).__cadenza, { ui, lib, settings, setSettings, player: playerApi.player, api: playerApi, layers, workshop, wsEngine });
+Object.assign((window as any).__cadenza, { ui, lib, settings, setSettings, player: playerApi.player, api: playerApi, layers, workshop, wsEngine, pauseAnalysis });

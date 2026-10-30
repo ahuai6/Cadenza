@@ -96,8 +96,26 @@ export class Session {
     this.dur = this.musicEnd + this.endLen;
     this.map = this.analysis ? new RhythmMap(this.analysis, this.audioStart) : RhythmMap.grid(Math.max(40, Math.min(240, sp.bpm || 120)), 0, this.dur + 2);
     this.sig = new Signals(this.map);
-    this.doc = buildLyrics(parsed, this.map, this.musicEnd);
+    this.parsed = parsed; this.doc = buildLyrics(parsed, this.map, this.musicEnd);
     this.replan();
+  }
+  private parsed: ReturnType<typeof parse> | null = null;
+  /** A newer reading of the song's rhythm, arriving while it plays (streaming: the song started on a quick reading of
+   *  its opening): everything that follows from it — map, signals, lyric timing, plan — is made aside now, and put in
+   *  place at once by takeStaged when the engine finds the moment (under a blur, or with a crossfade). */
+  staged: { analysis: RhythmAnalysis; map: RhythmMap; sig: Signals; doc: LyricDoc; plan: ScenePlan } | null = null;
+  stage(a: RhythmAnalysis): boolean {
+    if (!this.parsed || !isCurrent(a)) return false;
+    const keep = { analysis: this.analysis, map: this.map, sig: this.sig, doc: this.doc, plan: this.plan, version: this.version, dirty: this.dirty };
+    this.analysis = a; this.map = new RhythmMap(a, this.audioStart); this.sig = new Signals(this.map); this.doc = buildLyrics(this.parsed, this.map, this.musicEnd); this.replan();
+    this.staged = { analysis: this.analysis, map: this.map, sig: this.sig, doc: this.doc, plan: this.plan };
+    Object.assign(this, keep); return true;
+  }
+  /** Put the staged reading in place; returns the session as it was (for the picture to fade from), or null. */
+  takeStaged(): Session | null {
+    const st = this.staged; if (!st) return null; this.staged = null;
+    const before = Object.assign(Object.create(Object.getPrototypeOf(this)), this) as Session;
+    Object.assign(this, st); this.version++; return before;
   }
   replan() {
     const fc = fontStack(this.style.font, this.doc.lines.map(L => L.text).join('').slice(0, 400), this.env.lang);
@@ -111,7 +129,11 @@ export class Session {
   }
   colors() { this.pal = paletteOf(this.style); this.ambient = this.cover ? ambientFromImage(this.cover) : ambientFromName(this.spec.song.title); }
   /** Rebuild whatever edits asked for (called by the engine once per frame at most). */
-  async flush() { if (this.dirty & 2) await this.build(); else if (this.dirty & 1) this.replan(); }
+  async flush() {
+    // (an edit while a newer rhythm waits: it is taken now, under the edit's own rebuild)
+    if (this.dirty && this.staged) { this.analysis = this.staged.analysis; this.staged = null; this.dirty |= 2; }
+    if (this.dirty & 2) await this.build(); else if (this.dirty & 1) this.replan();
+  }
   get needsFlush() { return this.dirty !== 0; }
 
   /* ---- edits ---- */
@@ -145,7 +167,7 @@ export class Session {
       Object.assign(this.style, (rec ? paletteVinyl : paletteFromImage)(this.cover)); }
     this.colors(); this.dirty |= repaint ? 1 : 0;
   }
-  setAudio(buf: AudioLike | null, analysis: RhythmAnalysis | null) { this.spec.audio = buf; this.analysis = analysis && isCurrent(analysis) ? analysis : null; this.dirty |= 2; }
+  setAudio(buf: AudioLike | null, analysis: RhythmAnalysis | null) { this.spec.audio = buf; this.staged = null; this.analysis = analysis && isCurrent(analysis) ? analysis : null; this.dirty |= 2; }
   /** The aspect changed (a fill-the-window view resized): the camera and layout depend on it. */
   aspectChanged() { if (this.style.aspect === 'fill') this.dirty |= 1; }
 }

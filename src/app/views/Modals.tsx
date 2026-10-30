@@ -6,7 +6,7 @@ import { Lib, type Track, type MetaFound, type CoverFound } from '../bridge';
 import { ui, lib, useStore, fmtTime, toast, keep } from '../state';
 import { Button, IconButton, Seg, Cover, Badge, usePresence } from '../ui/kit';
 import { engine } from '../playback/stage';
-import { player, playIds, bindMv, setMvOffset, fxAspect, FX_ASPECTS, setFxAspect } from '../playback/player';
+import { player, playIds, bindMv, setMvOffset, fxAspect, FX_ASPECTS, setFxAspect, wholeRhythm } from '../playback/player';
 import { ExportPanel, exportBusy } from './panes';
 import { LyricsTab } from './Effect';
 import { Row, Slider, Check } from '../ui/kit';
@@ -214,7 +214,7 @@ function ExportModal() {
       <Head title={tx('s.exportMp4')} />
       <div className={s.intro}><Cover k={t?.cover} /><div><b>{t?.title}</b><small>{t?.artist}</small></div></div>
       <p className={s.help}>{tx('s.exportHelp')}</p>
-      <ExportPanel engine={engine} s={session} before={() => engine.pause()} aspect={{ value: fxAspect(), options: FX_ASPECTS, set: setFxAspect }} />
+      <ExportPanel engine={engine} s={session} before={async () => { engine.pause(); await wholeRhythm(); }} aspect={{ value: fxAspect(), options: FX_ASPECTS, set: setFxAspect }} />
     </>
   );
 }

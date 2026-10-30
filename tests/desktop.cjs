@@ -192,8 +192,11 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   ok('now playing: Esc closes into the card', await layerIs('none')); await W(300);
 
   /* ---------- lyrics typed for a song are written to its .lrc; the next song follows at the end ---------- */
+  // (the .lrc target: the setting's other choice — the default, into the tags, is tested below)
+  await C(() => window.__cadenza.setSettings({ lyricsTarget: 'lrc' }));
   await C(async id => window.__cadenza.api.playIds([id], 0), ids['無詞的歌']); await W(1500);
   await C(() => window.__cadenza.api.useLyrics('[00:01.00]新的第一行\n[00:05.00]第二行')); await W(500);
+  await C(() => window.__cadenza.setSettings({ lyricsTarget: 'tag' }));
   const lrcPath = path.join(CACHE, 'lib', 'A', '02 無詞的歌.lrc'), lrc = fs.existsSync(lrcPath) ? fs.readFileSync(lrcPath, 'utf8') : '';
   ok('lyrics: saved to the .lrc beside the audio file and shown at once', lrc.includes('新的第一行') && await C(() => window.__cadenza.player.get().session.doc.lines.length === 2), lrc.slice(0, 30).replace(/\s+/g, ' '));
   try { fs.rmSync(lrcPath); } catch (e) { /* gone */ }
@@ -285,6 +288,14 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const an = () => C(() => window.cadenzaLib.get().then(v => v.tracks.find(t => t.title === '晨光').analyzed));
     const dropped = await an(); let back = 0; for (let i = 0; i < 60 && !(back > 0); i++) { await W(1000); back = await an(); }
     ok('rescan: a song analysed again from its menu (dropped, then analysed anew)', back > 0, JSON.stringify({ dropped, back })); }
+  /* ---------- streaming: a song not analysed yet plays at once on its opening's reading, the whole one taking over ---------- */
+  { await C(() => window.__cadenza.pauseAnalysis(true));
+    await C(id => { window.__cadenza.api.forgetPrepared(id); return window.cadenzaLib.reanalyze([id]); }, ids['Night Drive']);
+    const t0 = Date.now(); await C(id => window.__cadenza.api.playIds([id], 0), ids['Night Drive']); const wait = Date.now() - t0;
+    let st = null; for (let i = 0; i < 60 && st !== 'streamed'; i++) { await W(500); st = await C(() => window.__cadenza.api.rhythmState()); }
+    const r = await C(id => Promise.all([window.cadenzaLib.analysis(id, 3), window.__cadenza.player.get()]).then(([a, p]) => ({ saved: !!a && !a.partial, partial: !!p.session.analysis.partial, playing: p.playing })), ids['Night Drive']);
+    await C(() => window.__cadenza.pauseAnalysis(false));
+    ok('streaming: an unanalysed song plays at once, the whole reading put in place while it plays (and only that one kept)', st === 'streamed' && r.saved && !r.partial && r.playing, JSON.stringify({ st, wait, ...r })); }
   /* ---------- edited lyrics written into the song's own tags (the file let go of and taken up again) ---------- */
   { await C(id => window.__cadenza.api.playIds([id], 0), ids['無詞的歌']); await W(2500);
     const before = await C(id => window.cadenzaLib.get().then(v => v.tracks.find(t => t.id === id).analyzed), ids['無詞的歌']);

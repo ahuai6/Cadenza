@@ -174,7 +174,7 @@ const EXPORT = {
 export let exportBusy = false;
 const defaults = { res: '1080', fps: '30', quality: 'q1', codec: 'auto', captions: true, audio: true };
 /** aspect: the frame shape, chosen here too (a library song's: the app's own setting; the workshop sets it in its look) */
-export function ExportPanel({ engine, s: ss, before, aspect }: { engine: Engine; s: Session; before?: () => void; aspect?: { value: string; options: string[]; set: (v: string) => void } }) {
+export function ExportPanel({ engine, s: ss, before, aspect }: { engine: Engine; s: Session; before?: () => void | Promise<void>; aspect?: { value: string; options: string[]; set: (v: string) => void } }) {
   const [o, setO] = useState(() => ({ ...defaults, ...remember('export', {}) }));
   const [busy, setBusy] = useState(false), [msg, setMsg] = useState(''), [saved, setSaved] = useState<{ path?: string; blob?: Blob; name?: string } | null>(null);
   const bar = useRef<HTMLDivElement>(null), live = useRef<HTMLSpanElement>(null), sig = useRef({ cancelled: false });
@@ -182,7 +182,7 @@ export function ExportPanel({ engine, s: ss, before, aspect }: { engine: Engine;
   const est = estimate(ss, { res: +o.res, fps: +o.fps, quality: o.quality }, engine.viewAspect());
   const start = async () => {
     if (busy) { sig.current.cancelled = true; return; }
-    setMsg(''); setSaved(null); before?.();
+    setMsg(''); setSaved(null); await before?.();
     const name = `${(ss.spec.song.title || 'cadenza').trim().replace(/[\\/:*?"<>|\s]+/g, '-').slice(0, 60) || 'cadenza'}-${est.w}x${est.h}.mp4`;
     let path: string | null = null; if (desktop) { path = await pickSavePath(name, 'mp4'); if (!path) return; }
     sig.current = { cancelled: false }; setBusy(true); exportBusy = true; pauseAnalysis(true);

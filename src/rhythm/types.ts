@@ -70,6 +70,8 @@ export interface RhythmAnalysis {
   /** the neural engine's drum stem: separated ('drums'), separated and found drumless, or not run ('skipped': the
    *  song was needed at once; a full pass follows in the background) */
   stems?: 'drums' | 'drumless' | 'skipped';
+  /** a quick reading of the opening carried on over the song (streaming, stream.ts): never kept, replaced as the whole reading arrives */
+  partial?: boolean;
   /** the index in `beats` of every downbeat, when the bars were found one by one (they may differ in length); absent:
    *  a bar every `meter` beats from `downbeat` */
   bars?: number[];
