@@ -7,7 +7,7 @@ import { RhythmMap } from '../../src/rhythm/map';
 import { Signals } from '../../src/rhythm/signals';
 import { presetStyle, normalizeStyle } from '../../src/theme/style';
 import { approxMeasurer } from '../../src/text/metrics';
-import { plan, cameraAt, carryCam, basePose, project, corners, NO_FX, transK, wordState, type ScenePlan } from '../../src/director';
+import { plan, cameraAt, basePose, project, corners, NO_FX, transK, wordState, type ScenePlan } from '../../src/director';
 import { rawPose } from '../../src/director/camera';
 import { markedEntries, entryFloor, MARK_K } from '../../src/director/cues';
 
@@ -268,11 +268,14 @@ describe('roller', () => {
         const i = P.camera.stops.indexOf(st), nx = P.camera.stops[i + 1]; if (nx && !nx.cut) expect(st.arrive).toBeLessThanOrEqual(nx.t);
       }
     });
-    it(`a word that appears before its roll is over rides with the camera, upright and in frame (${cut})`, () => {
-      for (const S of rolls) { if (!S.carry) continue;
-        for (let t = S.carry.t0; t < S.carry.t1; t += 0.04) { const f = cameraAt(P, sig, t, 0), c = carryCam(P, S, t, f.cam), q = project(S.x, S.y, S.d, c, NO_FX, P.W, P.H);
-          expect(Math.abs(q.sx), `${S.w.text} at ${t.toFixed(2)}`).toBeLessThan(P.W / 2); expect(Math.abs(q.sy)).toBeLessThan(P.H / 2);
-          expect(Math.abs(((q.rot + S.tilt) % 360 + 540) % 360 - 180), 'upright on screen').toBeLessThan(25); } }
+    it(`a word that appears before its roll lands is already in its place, turned round, and the camera rolls to it (${cut})`, () => {
+      const up = (S: typeof rolls[0], t: number) => { const f = cameraAt(P, sig, t, 0), q = project(S.x, S.y, S.d, f.cam, NO_FX, P.W, P.H); return { q, off: Math.abs(((q.rot + S.tilt) % 360 + 540) % 360 - 180) }; };
+      for (const S of rolls) { const st = P.camera.stops.find(x => x.words[0] === S)!; if (!(st.arrive > S.show + 0.05)) continue;
+        // (from the moment it shows, the camera turns toward it: the word never turns further away than it appeared, but
+        // for the roll's own spring swinging a little past upright and back)
+        const first = up(S, S.show).off; for (let t = S.show; t <= st.arrive; t += 0.03) expect(up(S, t).off, `${S.w.text} at ${t.toFixed(2)}`).toBeLessThanOrEqual(first + 22);
+        const end = up(S, st.arrive); expect(end.off, 'upright once the roll has landed').toBeLessThan(25);
+        expect(Math.abs(end.q.sx)).toBeLessThan(P.W / 2); expect(Math.abs(end.q.sy)).toBeLessThan(P.H / 2); }
     });
   }
   it('pace, energy and turns reach the roll (its length, its spring, its swing)', () => {

@@ -16,7 +16,8 @@ import { fitFrames } from './fit';
 import { project, NO_FX } from './project';
 import type { PLine, CameraPlan } from './types';
 
-export const ASPECTS: Record<string, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
+/** The frame shapes a picture can have (the scene is planned for the shape: it changes size, it is never cropped). */
+export const ASPECTS: Record<string, number> = { '16:9': 16 / 9, '16:10': 16 / 10, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 export interface PlanInput {
   doc: LyricDoc; map: RhythmMap; style: Style; measure: Measurer;
   /** the frame's aspect ratio (width / height) */

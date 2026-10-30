@@ -100,7 +100,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   // the queue from the now-playing page: modes on one line, rows lined up with the header
   await win.locator('[data-test=np] [aria-label="播放佇列"]').click(); await W(600); await shot('np-queue');
   const qp = await C(() => { const q = document.querySelector('[data-test=queue]'); if (!q) return null; const seg = q.querySelector('[role=radiogroup]'), rows = [...q.querySelectorAll('[role=listitem]')], head = q.querySelector('header b');
-    return { segH: Math.round(seg.getBoundingClientRect().height), modes: seg.children.length, rows: rows.length, coverX: rows.map(r => Math.round(r.children[1].getBoundingClientRect().left)), headX: Math.round(head.getBoundingClientRect().left), segX: Math.round(seg.getBoundingClientRect().left),
+    return { segH: Math.round(seg.getBoundingClientRect().height), modes: seg.querySelectorAll('button').length, rows: rows.length, coverX: rows.map(r => Math.round(r.children[1].getBoundingClientRect().left)), headX: Math.round(head.getBoundingClientRect().left), segX: Math.round(seg.getBoundingClientRect().left),
       wraps: [...seg.querySelectorAll('button')].some(b => b.scrollHeight > b.clientHeight + 1) }; });
   ok('queue: the four modes on one line, rows lined up with the header', qp && qp.modes === 4 && qp.segH <= 36 && !qp.wraps && qp.rows >= 1 && qp.coverX.every(x => x === qp.coverX[0]) && Math.abs(qp.headX - qp.segX) <= 2, JSON.stringify(qp));
   await win.keyboard.press('Escape'); await W(400);
@@ -186,7 +186,8 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const veilLeft = await C(() => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60'); return v ? { shown: v.style.display !== 'none', f: v.style.backdropFilter } : null; });
   ok('transitions: blurs interrupted again and again leave no veil once settled', veilLeft && !veilLeft.shown, JSON.stringify(veilLeft));
   const npEdge = await C(() => { const st = document.querySelector('[data-test=stage]').getBoundingClientRect(), pg = document.querySelector('main[data-scroll]').getBoundingClientRect(); return { dx: Math.round(st.left - pg.left), dy: Math.round(st.top - pg.top) }; });
-  ok('now playing: the page sits one pixel inside the main area, its edge the area\'s own', npEdge.dx === 1 && npEdge.dy === 1, JSON.stringify(npEdge));
+  // (the page area's own edge is the hairline beside the sidebar: the play page starts just inside it, flush with the top)
+  ok('now playing: the page covers the main area exactly, inside its edge line', npEdge.dx === 1 && npEdge.dy === 0, JSON.stringify(npEdge));
   await win.keyboard.press('Escape');
   ok('now playing: Esc closes into the card', await layerIs('none')); await W(300);
 
@@ -217,7 +218,8 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
   await win.getByRole('menuitem', { name: /匯出 MP4/  }).click(); await W(2000); await shot('export-dialog');
   const exOpen = await C(() => window.__cadenza.ui.get().modal && window.__cadenza.ui.get().modal.kind);
-  await win.locator('[data-test=modal] select').first().selectOption('720');
+  await win.locator('[data-test=modal] [role=combobox]').first().click(); await W(300);
+  await win.getByRole('option', { name: /720/ }).first().click(); await W(200);
   await win.locator('[data-test=modal]').getByRole('button', { name: '開始匯出' }).click();
   await win.waitForFunction(() => /完成/.test(document.querySelector('[data-test=modal] [role=status]')?.textContent || ''), null, { timeout: 180000 }).catch(() => {});
   const exMsg = await C(() => document.querySelector('[data-test=modal] [role=status]')?.textContent || '');

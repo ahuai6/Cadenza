@@ -7,10 +7,11 @@ import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
 import { PRESETS, KNOBS, presetStyle, type Style } from '../../theme/style';
-import { FONTS, effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
+import { effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
-import { Button, Section, Row, Select, Slider, Check, TextField, Note } from '../ui/kit';
+import { Button, Section, Row, Select, Slider, Check, TextField, Note, kit } from '../ui/kit';
+import { FontPicker } from '../ui/fonts';
 import { useThemes, saveTheme, deleteTheme } from '../themes';
 import { pauseAnalysis } from '../playback/analysis';
 import s from './panes.module.css';
@@ -83,7 +84,7 @@ export function TextPane({ s: ss, edit }: PaneProps) {
   const st = ss.style, custom = st.preset === 'custom', KN = Object.fromEntries(KNOBS.map(([k, , mn, mx, sp]) => [k, { mn, mx, sp }]));
   return (
     <Section title={tx('font')} note={custom ? tx('font.help') : undefined}>
-      {custom && <Select label={tx('font')} value={st.font} options={Object.keys(FONTS).map(k => [k, tx('fontn.' + k)])} onChange={v => edit(x => x.setStyle('font', v))} />}
+      {custom && <div className={kit.field}><label>{tx('font')}</label><FontPicker label={tx('font')} value={st.font} onChange={v => edit(x => x.setStyle('font', v))} /></div>}
       <Slider label={tx('k.size')} min={KN.size.mn} max={KN.size.mx} step={KN.size.sp} value={st.k.size} format={fmtK} onChange={v => edit(x => x.setKnob('size', v))} />
       {custom && <Row><Button kind="ghost" size="sm" onClick={() => edit(x => { x.setStyle('font', presetStyle(x.style.from).font); x.setKnob('size', 1); })}>{tx('reset.font')}</Button></Row>}
     </Section>
@@ -172,7 +173,8 @@ const EXPORT = {
 /** an export is running (dialogs around it stay open) */
 export let exportBusy = false;
 const defaults = { res: '1080', fps: '30', quality: 'q1', codec: 'auto', captions: true, audio: true };
-export function ExportPanel({ engine, s: ss, before }: { engine: Engine; s: Session; before?: () => void }) {
+/** aspect: the frame shape, chosen here too (a library song's: the app's own setting; the workshop sets it in its look) */
+export function ExportPanel({ engine, s: ss, before, aspect }: { engine: Engine; s: Session; before?: () => void; aspect?: { value: string; options: string[]; set: (v: string) => void } }) {
   const [o, setO] = useState(() => ({ ...defaults, ...remember('export', {}) }));
   const [busy, setBusy] = useState(false), [msg, setMsg] = useState(''), [saved, setSaved] = useState<{ path?: string; blob?: Blob; name?: string } | null>(null);
   const bar = useRef<HTMLDivElement>(null), live = useRef<HTMLSpanElement>(null), sig = useRef({ cancelled: false });
@@ -199,6 +201,7 @@ export function ExportPanel({ engine, s: ss, before }: { engine: Engine; s: Sess
     <div className={s.export}>
       <Note>{tx('x.info', { w: est.w, h: est.h, dur: est.dur.toFixed(1), aud: tx(est.audio ? 'x.info.aud' : 'x.info.noaud') })} {tx('x.size', { mbps: est.mbps.toFixed(0), mb: est.mb })}</Note>
       <fieldset disabled={busy} className={s.set}>
+        {aspect && <Select label={tx('aspect')} value={aspect.value} options={aspect.options.map(a => [a, a])} onChange={aspect.set} />}
         <Row><Select label={tx('x.res')} value={o.res} options={EXPORT.res} onChange={v => set('res', v)} /><Select label={tx('x.fps')} value={o.fps} options={EXPORT.fps} onChange={v => set('fps', v)} /></Row>
         <Row><Select label={tx('x.q')} value={o.quality} options={EXPORT.quality.map((v, i) => [v, tx('x.q.' + (i + 1))])} onChange={v => set('quality', v)} />
           <Select label={tx('x.codec')} value={o.codec} options={[['auto', tx('x.codec.auto')], ['hevc', 'H.265 / HEVC'], ['avc', 'H.264 / AVC']]} onChange={v => set('codec', v)} /></Row>

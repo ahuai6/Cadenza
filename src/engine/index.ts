@@ -17,6 +17,7 @@ export { loadSegmenter } from '../text/segment';
 export type { Line as LyricLine } from '../lyrics/model';
 export type { SongInfo } from '../director/titles';
 export { LYRIC_TYPES } from '../director/lyrictypes';
-export { FONTS } from '../text/fonts';
+export { ASPECTS } from '../director';
+export { FONTS, FONT_KINDS, fontStack, ensureFont, type Face, type FontKind } from '../text/fonts';
 export { effects, type Param as EffectParam } from '../render/effects/registry';
 export type { GfxMode } from '../render/gfx';

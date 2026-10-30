@@ -30,9 +30,6 @@ export interface PWord {
   entry?: { dx: number; dy: number; t0: number; t1: number } | null;
   /** the roller (scenes.ts): turned half round onto the drum's next row, the camera rolling that way (−1 left, +1 right); 0 none */
   roll?: number;
-  /** carried by the camera between t0 and t1 (a roll that cannot finish before the word appears): held where the camera
-   *  will show it at t1, while the world turns behind it */
-  carry?: { t0: number; t1: number } | null;
   /** draw order: fixed at plan time (back to front), never view-dependent */
   order: number;
   /** when it appears (a little before it is sung), when it is over */

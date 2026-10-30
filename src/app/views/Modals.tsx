@@ -3,14 +3,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import { Lib, type Track, type MetaFound, type CoverFound } from '../bridge';
-import { ui, lib, useStore, fmtTime, toast } from '../state';
+import { ui, lib, useStore, fmtTime, toast, keep } from '../state';
 import { Button, IconButton, Seg, Cover, Badge, usePresence } from '../ui/kit';
 import { engine } from '../playback/stage';
-import { player, playIds, bindMv, setMvOffset } from '../playback/player';
+import { player, playIds, bindMv, setMvOffset, fxAspect, FX_ASPECTS, setFxAspect } from '../playback/player';
 import { ExportPanel, exportBusy } from './panes';
 import { LyricsTab } from './Effect';
 import { Row, Slider, Check } from '../ui/kit';
+import { FontPicker } from '../ui/fonts';
+import { ensureFont } from '../../engine';
 import s from './Modals.module.css';
+const NP_FONT_EXTRA = (): [string, string][] => [['ui', tx('np.font.ui')]];
 
 let resolver: ((v: unknown) => void) | null = null;
 function open<T>(modal: { kind: string; [k: string]: unknown }): Promise<T | null> { resolver?.(null); return new Promise(res => { resolver = res as (v: unknown) => void; ui.set({ modal }); }); }
@@ -48,7 +51,7 @@ export function ModalHost() {
   );
 }
 function NpModal({ m }: { m: { tab: string } }) {
-  const [tab, setTab] = useState(m.tab), o = useStore(ui, x => x.npLyr), set = (k: Partial<typeof o>) => ui.set({ npLyr: { ...o, ...k } });
+  const [tab, setTab] = useState(m.tab), o = useStore(ui, x => x.npLyr), set = (k: Partial<typeof o>) => { const v = { ...o, ...k }; ui.set({ npLyr: v }); keep('npLyr', v); };   // (kept: the page reads them again next time)
   const session = useStore(player, x => x.session);
   return (
     <>
@@ -56,10 +59,12 @@ function NpModal({ m }: { m: { tab: string } }) {
       <Seg fit size="sm" value={tab} onChange={setTab} options={[['lyrics', tx('np.lyrics')], ['view', tx('np.view')]]} />
       {tab === 'lyrics' && session && <div className={s.npBody}><LyricsTab /></div>}
       {tab === 'view' && <div style={{ display: 'grid', gap: 12 }}>
+        <div className={s.field}><span>{tx('np.font')}</span><FontPicker label={tx('np.font')} value={o.font || 'ui'} extra={NP_FONT_EXTRA()}
+          onChange={async v => { const ss = player.get().session; if (v !== 'ui' && ss) await ensureFont(v, ss.doc.lines.map(L => L.text).join('')); set({ font: v }); }} /></div>
         <Slider label={tx('np.size')} min={0.75} max={1.4} step={0.05} value={o.size} format={v => Math.round(v * 100) + '%'} onChange={v => set({ size: v })} />
         <Check label={tx('np.blur')} checked={o.blur} onChange={v => set({ blur: v })} />
         <Check label={tx('np.subs')} checked={o.subs} onChange={v => set({ subs: v })} />
-        <Row><Button kind="ghost" size="sm" onClick={() => set({ size: 1, blur: true, subs: true })}>{tx('reset.all')}</Button></Row>
+        <Row><Button kind="ghost" size="sm" onClick={() => set({ size: 1, blur: true, subs: true, font: 'ui' })}>{tx('reset.all')}</Button></Row>
       </div>}
     </>
   );
@@ -209,7 +214,7 @@ function ExportModal() {
       <Head title={tx('s.exportMp4')} />
       <div className={s.intro}><Cover k={t?.cover} /><div><b>{t?.title}</b><small>{t?.artist}</small></div></div>
       <p className={s.help}>{tx('s.exportHelp')}</p>
-      <ExportPanel engine={engine} s={session} before={() => engine.pause()} />
+      <ExportPanel engine={engine} s={session} before={() => engine.pause()} aspect={{ value: fxAspect(), options: FX_ASPECTS, set: setFxAspect }} />
     </>
   );
 }

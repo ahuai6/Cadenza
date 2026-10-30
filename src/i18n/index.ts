@@ -18,6 +18,8 @@ export function tx(key: string, vars?: Record<string, string | number>): string 
   if (vars) s = s.replace(/\{(\w+)\}/g, (m, n) => (vars[n] != null ? String(vars[n]) : m));
   return s;
 }
+/** Every word of the interface in a language (what its font must have ready). */
+export const words = (l: Lang) => Object.values(DICT[l] || {}).join('');
 export const has = (key: string) => key in DICT.en || key in DICT['zh-Hant'];
 export function add(words: Record<string, string[]>) {
   for (const [k, arr] of Object.entries(words)) ORDER.forEach((l, i) => { if (arr[i] != null) DICT[l][k] = arr[i]; });

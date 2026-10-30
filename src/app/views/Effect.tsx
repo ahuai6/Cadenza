@@ -5,11 +5,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import { D, Lib } from '../bridge';
-import { ui, useStore, trackOf, toast, openMenu } from '../state';
-import { Button, IconButton, Seg, Row, Slider, Note, Badge, Section } from '../ui/kit';
+import { ui, settings, useStore, trackOf, toast, openMenu } from '../state';
+import { Button, IconButton, Seg, Row, Slider, Note, Badge, Section, Dropdown } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
-import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setMvOn, unbindMv, spacedLines, saveSpacing } from '../playback/player';
+import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setMvOn, unbindMv, spacedLines, saveSpacing, fxAspect, FX_ASPECTS, setFxAspect } from '../playback/player';
 import { refs, back } from '../layers';
 import { Progress, Transport, QueueButton } from './Player';
 import { NpLyrics } from './NowPlaying';
@@ -52,6 +52,7 @@ export function EffectView() {
         <div className={s.tools}>
           <IconButton n="quote" label={tx('s.lyricList')} pressed={list} onClick={() => setList(v => !v)} disabled={!hasLyrics} />
           <QueueButton />
+          <AspectPick />
           <MvButton />
           <IconButton n="sliders" label={tx('s.panel.song')} pressed={panel} onClick={() => setPanel(v => !v)} />
           <IconButton n={full ? 'unfull' : 'full'} label={tx(full ? 's.unfullscreen' : 's.fullscreen')} onClick={() => D?.win('full')} />
@@ -62,6 +63,11 @@ export function EffectView() {
   );
 }
 
+/** The frame's shape, right in the bar: the scene is planned again for it (it changes size; nothing is cropped). */
+function AspectPick() {
+  useStore(settings, x => x.fxAspect);
+  return <Dropdown className={s.aspect} label={tx('aspect')} value={fxAspect()} options={FX_ASPECTS.map(a => [a, a])} onChange={setFxAspect} />;
+}
 function MvButton() {
   const mv = useStore(player, x => x.mv);
   const click = () => { if (!mv.bound) askMv(); else if (!mv.ready) toast(tx('s.mvLoading')); else setMvOn(!mv.on); };
@@ -123,7 +129,7 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
         {tab === 'text' && <TextPane {...props} />}
         {tab === 'motion' && <MotionPane {...props} />}
         {tab === 'fx' && <EffectsPane {...props} />}
-        {tab === 'export' && <ExportPanel engine={engine} s={session} before={() => engine.pause()} />}
+        {tab === 'export' && <ExportPanel engine={engine} s={session} before={() => engine.pause()} aspect={{ value: fxAspect(), options: FX_ASPECTS, set: setFxAspect }} />}
         {locked && <div className={s.lockCover} onDoubleClick={() => saveSong({ locked: false })}><Icon n="lock" size={22} /><span>{tx('s.locked')}</span></div>}
       </div>
     </aside>

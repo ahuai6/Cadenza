@@ -8,7 +8,7 @@
 // (card, now playing, effect lyrics) switches together, however fast the user skips (each request supersedes the last).
 import { createStore } from '../../core/emitter';
 import { Session, type AudioLike } from '../../engine';
-import { RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, autoSpacing, spacingKey, type RhythmAnalysis, type Spacing } from '../../engine';
+import { ensureFont, RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, autoSpacing, spacingKey, type RhythmAnalysis, type Spacing } from '../../engine';
 import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
 import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge';
@@ -90,7 +90,9 @@ async function openSong(id: string, wantRoute: 'std' | 'hifi', ok: () => boolean
   // an instrumental: its own line in place of lyrics, and the record theme unless the song already has a look of its own.
   // In album play: no fade at the end (the audio is the album's own), only the small title, the first song's look
   const s = await Session.open({ key: id, lyrics: instr ? instrumentalLyrics() : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '', album: !!album },
-    coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, spacing: song?.spacing, fade: !album, aspect: '16:9', look: album?.look || undefined }, sessionEnv());
+    coverUrl: coverUrl(t.cover, true), audio: prep.buffer || standIn(id, hr, t), analysis: prep.analysis, lshift: song?.lshift || 0, spacing: song?.spacing, fade: !album, aspect: fxAspect(), look: album?.look || undefined }, sessionEnv());
+  // the play page's own lyric face, its glyphs for these lyrics in before the page shows them (never a late swap)
+  { const f = ui.get().npLyr.font; if (f && f !== 'ui' && s.hasLyrics) await Promise.race([ensureFont(f, s.doc.lines.map(L => L.text).join('')), new Promise(r => setTimeout(r, 1500))]); }
   return { s, route, song, lyr };
 }
 /** Album play: the next song opened ahead, so the film runs straight on into it (standard output only: the Hi-Fi output
@@ -169,6 +171,15 @@ lib.subscribe((L, prev) => {
  *  the Hi-Fi output with its own volume, it is a plain gain on the samples; with a fixed (bit-perfect) volume the samples
  *  are left untouched and the balance goes to the device's own hardware volume — and on a device without one, to the
  *  samples after all (the balance is on: the songs are evened out, the output is then not bit-perfect). */
+/** The effect lyrics' frame shapes: the scene is planned for the shape (changed in size, never cropped), in the window,
+ *  full screen and in an export alike. */
+export const FX_ASPECTS = ['16:9', '16:10', '9:16', '1:1'];
+export const fxAspect = () => { const a = settings.get().fxAspect; return a && FX_ASPECTS.includes(a) ? a : '16:9'; };
+/** Change the shape: kept for every song, and the song shown is planned again for it at once. */
+export function setFxAspect(a: string) {
+  if (!FX_ASPECTS.includes(a)) return; settings.set({ fxAspect: a }); D?.setSettings({ fxAspect: a });
+  const s = player.get().session; if (s) { s.spec.aspect = a; s.setStyle('aspect', a); engine.invalidate(); player.set({ rev: player.get().rev + 1 }); }
+}
 export function applyBalance() {
   const p = player.get(), t = p.shownId ? trackOf(p.shownId) : null, st = settings.get();
   const db = st.volBalance !== false && t ? balanceDb(t.loudness) : 0, fixed = p.route === 'hifi' && st.fixedVolume !== false;

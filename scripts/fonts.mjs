@@ -18,6 +18,16 @@ const FAMILIES = [
   ['Noto Sans Devanagari', '@fontsource-variable/noto-sans-devanagari'], ['Noto Serif Devanagari', '@fontsource-variable/noto-serif-devanagari'],
   ['Source Serif 4', '@fontsource-variable/source-serif-4'],
   ['Zen Maru Gothic', '@fontsource/zen-maru-gothic', ['500', '700']], ['Dela Gothic One', '@fontsource/dela-gothic-one', ['400']], ['DotGothic16', '@fontsource/dotgothic16', ['400']],
+  // (2.0: the lyric and interface faces by style — all SIL OFL 1.1, so carried in the app; see src/text/fonts.ts)
+  ['Chiron Sung HK', '@fontsource-variable/chiron-sung-hk'], ['Chiron GoRound TC', '@fontsource-variable/chiron-goround-tc'],
+  ['Cactus Classical Serif', '@fontsource/cactus-classical-serif', ['400']], ['Huninn', '@fontsource/huninn', ['400']],
+  ['Chocolate Classical Sans', '@fontsource/chocolate-classical-sans', ['400']], ['LXGW WenKai TC', '@fontsource/lxgw-wenkai-tc', ['700']],
+  ['Iansui', '@fontsource/iansui', ['400']], ['Klee One', '@fontsource/klee-one', ['600']], ['Long Cang', '@fontsource/long-cang', ['400']],
+  ['Ma Shan Zheng', '@fontsource/ma-shan-zheng', ['400']], ['Zhi Mang Xing', '@fontsource/zhi-mang-xing', ['400']], ['Yuji Syuku', '@fontsource/yuji-syuku', ['400']],
+  ['ZCOOL KuaiLe', '@fontsource/zcool-kuaile', ['400']], ['ZCOOL XiaoWei', '@fontsource/zcool-xiaowei', ['400']], ['Zen Antique', '@fontsource/zen-antique', ['400']],
+  ['Kaisei Decol', '@fontsource/kaisei-decol', ['700']], ['Monoton', '@fontsource/monoton', ['400']], ['Caveat', '@fontsource-variable/caveat'],
+  ['Fraunces', '@fontsource-variable/fraunces'], ['Playfair Display', '@fontsource-variable/playfair-display'], ['Instrument Serif', '@fontsource/instrument-serif', ['400']],
+  ['Bebas Neue', '@fontsource/bebas-neue', ['400']], ['Space Grotesk', '@fontsource-variable/space-grotesk'], ['Syne', '@fontsource-variable/syne'],
 ];
 export const slug = f => f.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });

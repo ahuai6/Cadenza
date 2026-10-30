@@ -11,7 +11,7 @@ import { clamp, sstep, lerp, D2R } from '../core/math';
 import { eIO } from '../core/ease';
 import { impulse } from '../core/spring';
 import type { Signals, RhythmSample } from '../rhythm/signals';
-import type { ScenePlan, PWord } from './types';
+import type { ScenePlan } from './types';
 import { basePose } from './camera';
 import type { Cam, Fx } from './project';
 import { transK } from './passages';
@@ -119,11 +119,3 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
 }
 export const lerpCam = (a: Cam, b: Cam, k: number): Cam => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)), r: lerp(a.r, b.r, k), d: lerp(a.d, b.d, k), yaw: lerp(a.yaw, b.yaw, k), pitch: lerp(a.pitch, b.pitch, k) });
 
-/** The camera a carried word is seen through at t (the roller: a word that appears before its roll is over rides with the
- *  camera): the camera at t moved by what the planned path still has to do before t1, so the word holds where the camera
- *  will show it when the roll lands, while the world turns behind it; it is the camera itself again at t1. */
-export function carryCam(plan: ScenePlan, S: PWord, t: number, cam: Cam): Cam {
-  const C = S.carry; if (!C || t < C.t0 || t >= C.t1) return cam;
-  const a = basePose(plan.camera, t), b = basePose(plan.camera, C.t1);
-  return { ...cam, x: cam.x + b.x - a.x, y: cam.y + b.y - a.y, z: cam.z * b.z / a.z, r: cam.r + b.r - a.r, d: cam.d + b.d - a.d };
-}

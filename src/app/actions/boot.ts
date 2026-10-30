@@ -1,7 +1,7 @@
 // Starting the interface, whatever it looks like: the settings (and the engine configured from them), the language,
 // the library and its live updates, the last song (paused), the background analysis; the keys; moving between pages.
 // And the hooks the desktop tests read (window.__cadenza): a new interface keeps them by keeping this module.
-import { detectLang, setLang as setI18n, LANGS, type Lang } from '../../i18n';
+import { detectLang, setLang as setI18n, LANGS, words, type Lang } from '../../i18n';
 import { D, Lib } from '../bridge';
 import { ui, lib, settings, type Page } from '../state';
 import * as playerApi from '../playback/player';
@@ -20,7 +20,7 @@ export function boot(ready: () => void): () => void {
   const d = D, l = Lib;
   (async () => {
     const st = await d.settings(); settings.set(st);
-    const lg = (st.lang && LANGS.some(([k]) => k === st.lang) ? st.lang : detectLang()) as Lang; applyUiFont(lg); setI18n(lg);
+    const lg = (st.lang && LANGS.some(([k]) => k === st.lang) ? st.lang : detectLang()) as Lang; await applyUiFont(lg, st.uiFont || 'default', words(lg)); setI18n(lg);
     applyEngineConfig(st);
     lib.set({ ...(await l.get()), loaded: true }); ready();
     resumeLast().catch(() => {});   // (the last song, paused: the play page is ready before it is opened)

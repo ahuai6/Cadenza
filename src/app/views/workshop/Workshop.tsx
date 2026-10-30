@@ -7,7 +7,7 @@ import type { Session } from '../../../engine';
 import { desktop, offerFile, pickSavePath, D, type Track } from '../../bridge';
 import { ui, useStore, toast } from '../../state';
 import { Icon } from '../../ui/icons';
-import { Button, IconButton, Seg, Section, Row, Check, TextField, Note, Slider } from '../../ui/kit';
+import { Button, IconButton, Seg, Section, Row, Check, TextField, Note, Slider, Dropdown } from '../../ui/kit';
 import { yieldAudio, songForWorkshop } from '../../playback/player';
 import { storedStyle } from '../../../theme/style';
 import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, EndPane, ExportPanel } from '../panes';
@@ -76,8 +76,7 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
           {tab === 'end' && <EndPane {...props} />}
         </>}</div>
         {web && <footer className={s.pfoot}><label htmlFor="lang">{tx('lang')}</label>
-          <select id="lang" value={currentLang()} onChange={e => import('../../uifont').then(m => { m.applyUiFont(e.target.value); import('../../../i18n').then(i => i.setLang(e.target.value as Lang)); try { localStorage.setItem('cz-lang', e.target.value); } catch { /* private */ } })}>
-            {LANGS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select></footer>}
+          <Dropdown id="lang" label={tx('lang')} value={currentLang()} options={LANGS.map(([v, n]) => [v, n])} onChange={v => import('../../uifont').then(m => { m.applyUiFont(v); import('../../../i18n').then(i => i.setLang(v as Lang)); try { localStorage.setItem('cz-lang', v); } catch { /* private */ } })} /></footer>}
       </aside>
       <nav className={s.bar} aria-label={tx('transport')}>
         <IconButton n={engine.isPlaying ? 'pause' : 'play'} solid size="lg" iconSize={20} label={tx(engine.isPlaying ? 'pause' : 'play')} onClick={() => engine.toggle()} />

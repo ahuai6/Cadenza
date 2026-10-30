@@ -41,12 +41,21 @@ export function Shell() {
   // start (the settings, the library, the last song, the analysis) and the keys: actions/boot.ts
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(bindKeys, []);
+  // full screen over the picture: the window's buttons (leaving full screen) show only while the pointer moves, as the
+  // play page's and the effect view's own controls do
+  const full = useStore(ui, x => x.win.full), [idle, setIdle] = useState(false);
+  useEffect(() => {
+    if (!full || layer === 'none') { setIdle(false); return; }
+    let tm = 0; const wake = () => { setIdle(false); clearTimeout(tm); tm = window.setTimeout(() => setIdle(true), 2600); };
+    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const; evs.forEach(e => addEventListener(e, wake, { passive: true })); wake();
+    return () => { clearTimeout(tm); evs.forEach(e => removeEventListener(e, wake)); };
+  }, [full, layer]);
 
   if (!ready) return <div className={s.boot} />;
   const top = modal ? 'modal' : menu ? 'menu' : layer;
   return (
     // a language change rebuilds the interface (every label is read again)
-    <div key={lng} className={s.shell} data-page={page} data-layer={layer} data-top={top}>
+    <div key={lng} className={s.shell} data-page={page} data-layer={layer} data-top={top} data-idle={idle || undefined}>
       <TitleBar />
       <div className={s.body}>
         <Sidebar />

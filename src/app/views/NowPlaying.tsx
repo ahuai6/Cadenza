@@ -10,7 +10,7 @@ import { Drive } from '../motion';
 import { engine } from '../playback/stage';
 import { player } from '../playback/player';
 import { refs, openFx, back } from '../layers';
-import type { LyricLine as Line } from '../../engine';
+import { fontStack, type LyricLine as Line } from '../../engine';
 import { QualityTag } from '../ui/quality';
 import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, QueueButton } from './Player';
 import { pickPlaylist, editMeta, npSettings } from './Modals';
@@ -118,6 +118,8 @@ const byUnit = (w: Line['words'][number]) => !w.latin && w.units.length > 1;
 interface LS { el: HTMLElement; y: number; v: number; ty: number; at: number; next: number }
 export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
   const box = useRef<HTMLDivElement>(null), lineEls = useRef<(HTMLElement | null)[]>([]), view = useStore(ui, x => x.npLyr);
+  // the lyric face chosen for this page (or the interface's own)
+  const faceStyle = useMemo(() => { if (!view.font || view.font === 'ui') return {}; const f = fontStack(view.font, lines.map(L => L.text).join('').slice(0, 200)); return { fontFamily: f.stack, fontWeight: f.w }; }, [view.font, lines]);
   const st = useRef({ tops: [] as number[], ls: [] as (LS | null)[], cur: -2, manual: 0, raf: 0, last: 0, mTm: 0 });
   // when each line becomes the current one: as it starts — or, as Apple Music does, half a beat early when the line
   // before is sung well before it (a breath of a beat or more): the page is already there when the voice comes in
@@ -187,7 +189,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   const wheel = (e: React.WheelEvent) => { const S = st.current; S.manual -= e.deltaY; clearTimeout(S.mTm); aim(S.cur, false, false); if (box.current) box.current.dataset.manual = 'true';
     S.mTm = window.setTimeout(() => { S.manual = 0; aim(S.cur, false, false); if (box.current) box.current.dataset.manual = 'false'; }, 2600); };
   return (
-    <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel} data-blur={view.blur} data-subs={view.subs} style={{ '--np-fs': view.size } as React.CSSProperties}>
+    <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel} data-blur={view.blur} data-subs={view.subs} style={{ ['--np-fs' as string]: view.size, ...faceStyle } as React.CSSProperties}>
       {lines.map((L, i) => (
         <button key={i} type="button" data-test="line" className={s.line} ref={el => { lineEls.current[i] = el; }} onClick={() => { st.current.manual = 0; engine.seek(Math.max(0, L.t - 0.05)); if (!engine.isPlaying) engine.play(); }}>
           {L.words.length ? L.words.map((w, k) => <Fragment key={k}>{byUnit(w) ? <span data-w data-u-w className={s.wu}>{w.units.map((u, i) => <span key={i} data-u className={s.w}>{u.c}</span>)}</span> : <span data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}

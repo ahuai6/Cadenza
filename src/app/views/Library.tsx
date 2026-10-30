@@ -22,7 +22,7 @@ export function LibraryView() {
   if (loaded && !folders.length && !tracks.length) return <EmptyLibrary />;
   return (
     <div className={s.libWrap}>
-      <Turn k={detail ? detail.kind + ':' + detail.key : 'list'}>{detail ? <Detail idx={idx} search={search} /> : (
+      <Turn k={detail ? detail.kind + ':' + detail.key : 'list'}>{detail ? <Detail detail={detail} idx={idx} search={search} /> : (
         <>
           <header className={s.head}>
             <span className="kicker">{tx('s.library')}</span>
@@ -185,8 +185,9 @@ function CardGrid({ items, kind }: { items: Idx['albums']; kind: 'album' | 'arti
     </div>
   );
 }
-function Detail({ idx, search }: { idx: Idx; search: string }) {
-  const detail = useStore(ui, x => x.detail)!, pls = useStore(lib, x => x.playlists);
+// (the detail it shows is handed to it: while it leaves, after the store has moved on, it still shows its own)
+function Detail({ detail, idx, search }: { detail: NonNullable<ReturnType<typeof ui.get>['detail']>; idx: Idx; search: string }) {
+  const pls = useStore(lib, x => x.playlists);
   let title = '', sub = '', cover: string | null = null, round = false, tracks: Track[] = [], extra: ((t: Track) => MenuItem) | undefined, numbered = false, mosaic: (string | null)[] | null = null;
   if (detail.kind === 'playlist') { const p = pls.find(x => x.id === detail.key); if (!p) return null;
     title = p.name; tracks = p.tracks.map(id => idx.byId.get(id)).filter((t): t is Track => !!t); mosaic = tracks.map(t => t.cover);

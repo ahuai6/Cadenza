@@ -14,7 +14,7 @@ export interface Sink { write(data: Uint8Array, pos: number): void | Promise<voi
 export interface ExportOptions { res?: number; fps?: number; quality?: string; codec?: 'auto' | 'avc' | 'hevc'; captions?: boolean; audio?: boolean; sink?: Sink; onProgress?: (phase: string, i: number, n: number) => void; signal?: { cancelled: boolean } }
 export interface ExportResult { ok: boolean; reason?: string; e?: string; w?: number; h?: number; codec?: string; mbps?: number; audio?: string; size?: number; sec?: number; result?: unknown; name?: string }
 
-const ASPECTS: Record<string, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
+import { ASPECTS } from '../director';
 export function exportSize(aspect: string, res: number, viewAspect: number): [number, number] {
   const p = +res || 1080, a = ASPECTS[aspect] || (aspect === 'fill' ? 16 / 9 : viewAspect) || 16 / 9; let w: number, h: number;   // a picture that fills the window exports as 16:9
   if (a >= 1) { h = p; w = Math.round(p * a); } else { w = p; h = Math.round(p / a); } return [w + (w % 2), h + (h % 2)];

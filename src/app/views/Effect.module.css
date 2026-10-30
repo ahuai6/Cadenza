@@ -41,3 +41,4 @@
 .resH small { color: var(--fg-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pre { margin: 0 11px 10px; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.5; color: var(--fg-2); white-space: pre-wrap; user-select: text; }
 .q { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+.aspect { width: 92px; height: 32px; font-variant-numeric: tabular-nums; font-size: 13px; }

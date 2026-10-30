@@ -9,7 +9,9 @@
 //               between two renderings of the same thing, so nothing can flicker, change colour or jump.
 import { Drive, part, rectOf, restRect, type Box } from './motion';
 import { engine } from './playback/stage';
-import { ui } from './state';
+import { ui, settings } from './state';
+import { ASPECTS } from '../engine';
+import { fxAspect } from './playback/player';
 
 export const refs = {
   stage: null as HTMLElement | null, np: null as HTMLElement | null, npAmb: null as HTMLElement | null, npCover: null as HTMLElement | null, npParts: [] as (HTMLElement | null)[],
@@ -150,8 +152,10 @@ async function blurSwap(swap: () => void, my: number) {
   document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode; if (my !== tok) return false;
   return tween(0, 460, easeOut, my);
 }
-const toFx = () => { document.documentElement.dataset.fxmode = 'true'; if (refs.stage) refs.stage.style.clipPath = ''; engine.setAspectBox(16 / 9, hex(deepTone())); engine.setView('effect', {}, { instant: true }); syncFx(); };
-const toNp = () => { document.documentElement.dataset.fxmode = 'false'; engine.setAspectBox({ cover: 16 / 9 }); engine.setView('ambient', {}, { instant: true }); syncFx(); applyNp(np.x); };
+/** The effect lyrics' frame shape (Settings: 16:9, 16:10, 9:16, 1:1), as a ratio. */
+const fxRatio = () => ASPECTS[fxAspect()] || 16 / 9;
+const toFx = () => { document.documentElement.dataset.fxmode = 'true'; if (refs.stage) refs.stage.style.clipPath = ''; engine.setAspectBox(fxRatio(), hex(deepTone())); engine.setView('effect', {}, { instant: true }); syncFx(); };
+const toNp = () => { document.documentElement.dataset.fxmode = 'false'; engine.setAspectBox({ cover: fxRatio() }); engine.setView('ambient', {}, { instant: true }); syncFx(); applyNp(np.x); };
 // the page and the effect controls follow the view (the page hides under the effect lyrics; their controls show)
 function syncFx() {
   const h = engine.view === 'effect' ? 1 : 0, el = refs.np, s = String(h);
@@ -159,6 +163,8 @@ function syncFx() {
   if (refs.fxUi) refs.fxUi.style.setProperty('--h', s);
 }
 engine.setAspectBox({ cover: 16 / 9 });
+// (the shape changed while the effect lyrics are up: the picture's box takes it at once)
+settings.subscribe((x, y) => { if (x.fxAspect !== y.fxAspect) engine.setAspectBox(engine.view === 'effect' ? fxRatio() : { cover: fxRatio() }, hex(deepTone())); });
 engine.on('frame', () => { const el = refs.np; if (el && el.dataset.fx !== String(engine.view === 'effect')) syncFx(); });
 
 /* ---------- the requests ---------- */

@@ -7,7 +7,6 @@ import { mix, rgba } from '../core/color';
 import { rnd } from '../core/rng';
 import { project, onScreen, type Projected } from '../director/project';
 import { entryK } from '../director/entry';
-import { carryCam } from '../director/evaluate';
 import { wordState, unitPose, wordPlacement, TIN_SPEC, type WordCtx, type WordState } from '../director/words';
 import type { PWord } from '../director/types';
 import { fontStack } from '../text/fonts';
@@ -30,7 +29,7 @@ export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
   for (const S of f.plan.drawOrder) {
     if (f.t < S.show && ov <= 0) continue;
     const ws = wordState(S, f.t, ov, card, c); if (!ws) continue;
-    const ek = entryK(S, f.t), p = project(S.x + (ek ? S.entry!.dx * ek : 0), S.y + (ek ? S.entry!.dy * ek : 0), S.d, S.carry ? carryCam(f.plan, S, f.t, cam) : cam, fx, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + 60;
+    const ek = entryK(S, f.t), p = project(S.x + (ek ? S.entry!.dx * ek : 0), S.y + (ek ? S.entry!.dy * ek : 0), S.d, cam, fx, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + 60;
     if (CULL && !onScreen(p, half, W, H)) continue;
     const fog = clamp(1 - (S.d - dmin) / (1300 * 4), 0.55, 1), wa = f.wordAlpha ? f.wordAlpha(S.line.i, S.k) : 1;
     out.push({ S, ws, p, o: ws.o * fog * wa, glyphPx: EM * S.s * ws.sc * p.k });

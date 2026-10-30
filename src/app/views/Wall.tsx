@@ -9,7 +9,7 @@ import { coverUrl, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, keep } from '../state';
 import { player, playIds } from '../playback/player';
 import { Icon } from '../ui/icons';
-import { Button, Seg, Empty } from '../ui/kit';
+import { Button, Seg, Empty, Dropdown } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
 import { hashStr } from '../../core/rng';
 import s from './Wall.module.css';
@@ -29,12 +29,10 @@ export function PosterWall() {
   return (
     <div className={s.wall}>
       <header className={s.head}>
-        <h1>{tx('s.wall')}</h1>
-        <label className={s.sel}><span>{tx('s.wall.source')}</span>
-          <select value={source} onChange={e => { ui.set({ wallSource: e.target.value }); keep('wallSource', e.target.value); }}>
-            <option value="all">{tx('s.wall.all')}</option><option value="fav">{tx('s.favorites')}</option>
-            {playlists.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select></label>
+        <div className={s.title}><span className="kicker">{tx('s.library')}</span><h1 className="display">{tx('s.wall')}</h1></div>
+        <label className={s.sel}><span className="kicker">{tx('s.wall.source')}</span>
+          <Dropdown label={tx('s.wall.source')} value={source} onChange={v => { ui.set({ wallSource: v }); keep('wallSource', v); }}
+            options={[['all', tx('s.wall.all')], ['fav', tx('s.favorites')], ...playlists.map(p => [p.id, p.name] as [string, string])]} /></label>
         <Seg role="tablist" fit size="sm" value={layout} label={tx('s.wall.layout')} onChange={v => { ui.set({ wallLayout: v }); keep('wallLayout', v); }} options={LAYOUTS.map(([k, l, ic]) => [k, tx(l), ic])} />
         <span className={s.help}>{tx('s.wall.help')}</span>
       </header>

@@ -1,6 +1,7 @@
 // The app's own settings: appearance, music folders, start at login and the tray, audio output, preview performance.
 import { useEffect, useState, type ReactNode } from 'react';
-import { tx, LANGS, currentLang, type Lang } from '../../i18n';
+import { tx, LANGS, currentLang, words, type Lang } from '../../i18n';
+import { UI_FONTS, applyUiFont } from '../uifont';
 import { D, Lib, type Settings } from '../bridge';
 import { settings, lib, useStore } from '../state';
 import { Icon } from '../ui/icons';
@@ -32,6 +33,8 @@ export function SettingsView() {
       <header className={s.head}><span className="kicker">Cadenza</span><h1 className="display">{tx('s.settings')}</h1></header>
       <Group title={tx('s.set.look')}>
         <Field label={tx('s.set.theme')}><Seg size="sm" fit value={st.theme} onChange={v => set({ theme: v })} options={[['system', tx('s.set.system')], ['light', tx('s.set.light')], ['dark', tx('s.set.dark')]]} /></Field>
+        <Field label={tx('s.set.uiFont')}><Dropdown label={tx('s.set.uiFont')} value={st.uiFont || 'default'} options={Object.keys(UI_FONTS).map(k => [k, tx('s.set.uiFont.' + k)])}
+          onChange={async v => { await applyUiFont(currentLang(), v, words(currentLang())); set({ uiFont: v }); }} /></Field>
         <Field label={tx('s.set.lang')}><Dropdown label={tx('s.set.lang')} value={currentLang()} onChange={v => setLang(v as Lang)} options={LANGS.map(([v, n]) => [v, n])} /></Field>
       </Group>
       <Group title={tx('s.set.folders')} help={tx('s.set.watchHelp')}>

@@ -2,14 +2,56 @@
 // desktop app carries every face (window.CADENZA_FONTS points at its folder of stylesheets) and never goes online for
 // fonts; the web page asks Google Fonts for exactly the families and weights it needs.
 
-export interface Face { family: string; w: number; q: string; serif: boolean; fbw?: number }
+/** A typeface for lyrics. `cjk`: the family is Noto, in the cut for the lyrics' own script (Traditional, Simplified,
+ *  Japanese, Korean). `kind`: the style group the pickers list it under. `only`: the script its own glyphs are made for
+ *  (others fall back to Noto). */
+export interface Face { family: string; w: number; q: string; serif: boolean; fbw?: number; cjk?: boolean; kind: FontKind; only?: 'tc' | 'sc' | 'jp' | 'latin' }
+export type FontKind = 'sans' | 'thin' | 'serif' | 'round' | 'hand' | 'brush' | 'art' | 'display';
+export const FONT_KINDS: FontKind[] = ['sans', 'thin', 'serif', 'round', 'hand', 'brush', 'art', 'display'];
+const g = (fam: string, w: number | string) => fam.replace(/ /g, '+') + (w ? ':wght@' + w : '');
 export const FONTS: Record<string, Face> = {
-  notosans: { family: 'Noto Sans TC', w: 900, q: 'Noto+Sans+TC:wght@900', serif: false },
-  serif: { family: 'Noto Serif TC', w: 900, q: 'Noto+Serif+TC:wght@900', serif: true },
-  tiempos: { family: 'Source Serif 4', w: 700, q: 'Source+Serif+4:opsz,wght@8..60,700', serif: true, fbw: 700 },
-  dela: { family: 'Dela Gothic One', w: 400, q: 'Dela+Gothic+One', serif: false },
-  maru: { family: 'Zen Maru Gothic', w: 700, q: 'Zen+Maru+Gothic:wght@700', serif: false, fbw: 700 },
-  dot: { family: 'DotGothic16', w: 400, q: 'DotGothic16', serif: false },
+  // the plain cuts, every script, from hairline to black
+  notosans: { family: 'Noto Sans TC', w: 900, q: g('Noto Sans TC', 900), serif: false, cjk: true, kind: 'sans' },
+  sansmed: { family: 'Noto Sans TC', w: 600, q: g('Noto Sans TC', 600), serif: false, cjk: true, kind: 'sans', fbw: 600 },
+  sanslight: { family: 'Noto Sans TC', w: 300, q: g('Noto Sans TC', 300), serif: false, cjk: true, kind: 'thin', fbw: 300 },
+  sansthin: { family: 'Noto Sans TC', w: 150, q: g('Noto Sans TC', 100), serif: false, cjk: true, kind: 'thin', fbw: 150 },
+  serif: { family: 'Noto Serif TC', w: 900, q: g('Noto Serif TC', 900), serif: true, cjk: true, kind: 'serif' },
+  seriflight: { family: 'Noto Serif TC', w: 300, q: g('Noto Serif TC', 300), serif: true, cjk: true, kind: 'thin', fbw: 300 },
+  sunghk: { family: 'Chiron Sung HK', w: 700, q: g('Chiron Sung HK', 700), serif: true, kind: 'serif', fbw: 700, only: 'tc' },
+  sungthin: { family: 'Chiron Sung HK', w: 250, q: g('Chiron Sung HK', 250), serif: true, kind: 'thin', fbw: 300, only: 'tc' },
+  cactus: { family: 'Cactus Classical Serif', w: 400, q: g('Cactus Classical Serif', 0), serif: true, kind: 'serif', fbw: 500, only: 'tc' },
+  tiempos: { family: 'Source Serif 4', w: 700, q: 'Source+Serif+4:opsz,wght@8..60,700', serif: true, fbw: 700, kind: 'serif', only: 'latin' },
+  // rounded
+  maru: { family: 'Zen Maru Gothic', w: 700, q: g('Zen Maru Gothic', 700), serif: false, fbw: 700, kind: 'round', only: 'jp' },
+  goround: { family: 'Chiron GoRound TC', w: 800, q: g('Chiron GoRound TC', 800), serif: false, fbw: 800, kind: 'round', only: 'tc' },
+  goroundlight: { family: 'Chiron GoRound TC', w: 300, q: g('Chiron GoRound TC', 300), serif: false, fbw: 300, kind: 'thin', only: 'tc' },
+  huninn: { family: 'Huninn', w: 400, q: g('Huninn', 0), serif: false, fbw: 600, kind: 'round', only: 'tc' },
+  chocolate: { family: 'Chocolate Classical Sans', w: 400, q: g('Chocolate Classical Sans', 0), serif: false, fbw: 500, kind: 'sans', only: 'tc' },
+  // written by hand: kai, pencil, felt pen
+  wenkai: { family: 'LXGW WenKai TC', w: 700, q: g('LXGW WenKai TC', 700), serif: true, fbw: 700, kind: 'hand', only: 'tc' },
+  iansui: { family: 'Iansui', w: 400, q: g('Iansui', 0), serif: true, fbw: 500, kind: 'hand', only: 'tc' },
+  klee: { family: 'Klee One', w: 600, q: g('Klee One', 600), serif: true, fbw: 600, kind: 'hand', only: 'jp' },
+  longcang: { family: 'Long Cang', w: 400, q: g('Long Cang', 0), serif: true, fbw: 500, kind: 'hand', only: 'sc' },
+  caveat: { family: 'Caveat', w: 700, q: g('Caveat', 700), serif: false, fbw: 600, kind: 'hand', only: 'latin' },
+  // brush
+  mashan: { family: 'Ma Shan Zheng', w: 400, q: g('Ma Shan Zheng', 0), serif: true, fbw: 700, kind: 'brush', only: 'sc' },
+  zhimang: { family: 'Zhi Mang Xing', w: 400, q: g('Zhi Mang Xing', 0), serif: true, fbw: 600, kind: 'brush', only: 'sc' },
+  syuku: { family: 'Yuji Syuku', w: 400, q: g('Yuji Syuku', 0), serif: true, fbw: 600, kind: 'brush', only: 'jp' },
+  // artistic and stylised
+  dela: { family: 'Dela Gothic One', w: 400, q: g('Dela Gothic One', 0), serif: false, kind: 'art', only: 'jp' },
+  dot: { family: 'DotGothic16', w: 400, q: g('DotGothic16', 0), serif: false, kind: 'art', only: 'jp' },
+  kuaile: { family: 'ZCOOL KuaiLe', w: 400, q: g('ZCOOL KuaiLe', 0), serif: false, fbw: 700, kind: 'art', only: 'sc' },
+  xiaowei: { family: 'ZCOOL XiaoWei', w: 400, q: g('ZCOOL XiaoWei', 0), serif: true, fbw: 600, kind: 'art', only: 'sc' },
+  antique: { family: 'Zen Antique', w: 400, q: g('Zen Antique', 0), serif: true, fbw: 700, kind: 'art', only: 'jp' },
+  decol: { family: 'Kaisei Decol', w: 700, q: g('Kaisei Decol', 700), serif: true, fbw: 700, kind: 'art', only: 'jp' },
+  monoton: { family: 'Monoton', w: 400, q: g('Monoton', 0), serif: false, fbw: 300, kind: 'art', only: 'latin' },
+  // Latin display faces (other scripts in Noto)
+  fraunces: { family: 'Fraunces', w: 300, q: 'Fraunces:opsz,wght@9..144,300', serif: true, fbw: 300, kind: 'display', only: 'latin' },
+  playfair: { family: 'Playfair Display', w: 800, q: g('Playfair Display', 800), serif: true, fbw: 800, kind: 'display', only: 'latin' },
+  instrument: { family: 'Instrument Serif', w: 400, q: g('Instrument Serif', 0), serif: true, fbw: 400, kind: 'display', only: 'latin' },
+  bebas: { family: 'Bebas Neue', w: 400, q: g('Bebas Neue', 0), serif: false, fbw: 800, kind: 'display', only: 'latin' },
+  grotesk: { family: 'Space Grotesk', w: 700, q: g('Space Grotesk', 700), serif: false, fbw: 700, kind: 'display', only: 'latin' },
+  syne: { family: 'Syne', w: 800, q: g('Syne', 800), serif: false, fbw: 800, kind: 'display', only: 'latin' },
 };
 export const SCRIPTS = [
   { id: 'han', re: /[㐀-鿿豈-﫿＀-￯]/, sans: ['Noto Sans TC', 'Noto Sans SC'], serif: ['Noto Serif TC', 'Noto Serif SC'] },
@@ -34,9 +76,9 @@ export function cjkRegion(sample: string, uiLang = 'zh-Hant'): 'TC' | 'SC' | 'JP
   return ({ 'zh-Hans': 'SC', ja: 'JP', ko: 'KR' } as Record<string, 'SC' | 'JP' | 'KR'>)[uiLang] || 'TC';
 }
 export function faceOf(key: string, sample = '', uiLang?: string): Face {
-  const f = FONTS[key] || FONTS.notosans; if (key !== 'notosans' && key !== 'serif') return f;
-  const fam = (key === 'serif' ? 'Noto Serif ' : 'Noto Sans ') + cjkRegion(sample, uiLang);
-  return { ...f, family: fam, q: fam.replace(/ /g, '+') + ':wght@900' };
+  const f = FONTS[key] || FONTS.notosans; if (!f.cjk) return f;
+  const fam = (f.serif ? 'Noto Serif ' : 'Noto Sans ') + cjkRegion(sample, uiLang);
+  return { ...f, family: fam, q: g(fam, f.w) };
 }
 export function fallbackFamilies(serif: boolean, sample = '', uiLang?: string): string[] {
   const r = cjkRegion(sample, uiLang), pref = [r, ...(['TC', 'SC', 'JP', 'KR'] as const).filter(x => x !== r)];
@@ -69,7 +111,8 @@ export async function ensureFont(key: string, text: string, uiLang?: string): Pr
   const f = faceOf(key, text, uiLang), fw = f.fbw || f.w, need = SCRIPTS.filter(S => S.re.test(text + 'A'));
   const jobs = [loadCss('face:' + f.family, f.q)];
   for (const S of need) for (const fam of [...S.sans, ...(f.serif ? S.serif : [])]) {
-    const wts = FAMILY_WEIGHTS[fam] || (S.sans.includes(fam) ? `500;${fw >= 900 ? 900 : 700}` : `${fw >= 900 ? 900 : 700}`);
+    const fbq = fw >= 900 ? 900 : fw >= 600 ? 700 : fw >= 450 ? 500 : 300;
+    const wts = FAMILY_WEIGHTS[fam] || (S.sans.includes(fam) ? `${Math.min(500, fbq)};${fbq}` : `${fbq}`);
     jobs.push(loadCss(fam + wts, fam.replace(/ /g, '+') + ':wght@' + wts));
   }
   await Promise.all(jobs);

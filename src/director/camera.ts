@@ -253,11 +253,10 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       }
     }
     // the roller: half a turn takes its time (the pace knob). It sets off once the words before are sung (earlier only if
-    // that lets it land before the new word appears); a word that appears before the roll is over rides with the camera
-    // until it lands (only the first: the one the roll brings)
+    // that lets it land before the new word appears). A word that appears before the roll is over is simply there, at its
+    // own place on the drum — still upside down to the camera — and the roll turns the camera round to it
     const roll = B.roll && !B.cut ? B.roll : 0;
-    if (roll) { const D = rollDur(M.speed); s = Math.max(A.arrive + 0.05, Math.min(s, Math.max(B.words[0].show - D, A.sungEnd - 0.12))); arrive = s + D;
-      const W0 = B.words[0]; W0.carry = arrive > W0.show + 0.05 ? { t0: W0.show, t1: arrive } : null; }
+    if (roll) { const D = rollDur(M.speed); s = Math.max(A.arrive + 0.05, Math.min(s, Math.max(B.words[0].show - D, A.sungEnd - 0.12))); arrive = s + D; }
     B.arrive = arrive;
     const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy);
     let bow: [number, number] = [0, 0], bend = 0;

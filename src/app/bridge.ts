@@ -20,6 +20,8 @@ export interface LyricsFound { id: number; title: string; artist: string; album:
 export interface MetaFound { mbid: string; title: string; artist: string; album: string; year: string | null; duration: number | null; genre: string[] }
 export interface CoverFound { src: 'itunes' | 'caa'; title: string; artist: string; year: string | null; thumb: string; full: string }
 export interface Settings {
+  /** the interface's typeface (uifont.ts) */ uiFont?: string;
+  /** the effect lyrics' frame shape, in the window, full screen and in exports: 16:9, 16:10, 9:16, 1:1 */ fxAspect?: string;
   theme: 'system' | 'light' | 'dark'; scanOnLaunch: boolean; openAtLogin: boolean; closeToTray: boolean; lang: string; scale: 'auto' | number; fps: number; prerender: boolean;
   audioOut: 'standard' | 'hifi'; audioMode: 'exclusive' | 'shared'; audioDevice: string; fixedVolume: boolean; /** the volume balance: every song at a like loudness */ volBalance?: boolean; platform?: string; version?: string;
   /** the song's own video (MV mode): shade, soft focus, desaturation, and whether it is kept upright to crop it least */
