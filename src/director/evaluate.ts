@@ -16,7 +16,7 @@ import { basePose } from './camera';
 import type { Cam, Fx } from './project';
 import { transK } from './passages';
 
-export interface CamFrame { /** a long pause's rest (see restK) */ rest: number; /** 1 free to move, 0 held still under a transition's blur (holdAt) */ hold: number; cam: Cam; fx: Fx; /** the backdrop's camera: the same, but without the cuts */ cont: Cam; split: number; idle: number; trans: number; ov: number; calm: number; rs: RhythmSample;
+export interface CamFrame { /** a long pause's rest (see restK) */ rest: number; /** how much of the frame's own motion plays: 1, more under a transition's blur (holdAt) */ hold: number; cam: Cam; fx: Fx; /** the backdrop's camera: the same, but without the cuts */ cont: Cam; split: number; idle: number; trans: number; ov: number; calm: number; rs: RhythmSample;
   /** the handheld float, as a screen offset (px): the backdrop moves against it a little (parallax) */ hand: [number, number] }
 
 export function idleK(plan: ScenePlan, t: number) {
@@ -36,27 +36,28 @@ export function restK(plan: ScenePlan, t: number): number {
   }
   return 0;
 }
-/** How free the frame's own motion is at t: 0 held still while a transition's blur is up, 1 free. Easing to a stop just
- *  before the blur starts (still before it is a few per cent up), and kept held on its way out until the blur is all but gone (the last
- *  sixth-or-so of its fall, a few per cent of blur left); only then does the motion come back, easing in over half a
- *  second — never while the picture is still visibly soft, never with a jolt. */
-export function holdAt(plan: ScenePlan, t: number): number {
-  let held = 0;
-  for (const p of plan.passages) { const x = t - p.t; if (x < -p.inn - 0.3 || x > p.out + 0.6) continue;
-    // (on the way in: easing to a stop over the moment before the blur starts, still by the time it is a few per cent up)
-    if (x < 0) held = Math.max(held, sstep(clamp((x + p.inn + 0.3) / (0.3 + 0.12 * p.inn))));
-    else held = Math.max(held, 1 - sstep(clamp((x - 0.85 * p.out) / 0.5))); }
-  return 1 - held;
+/** How much of the frame's own motion plays at t: all of it always — the beat's sway, the heavy beats' shake, the float —
+ *  and more of it while a transition's blur is up (up to BLUR_BOOST more at its peak), so a beat still reads through the
+ *  softened picture instead of vanishing into it. (The motion used to be held still under the blur; the twitch at its
+ *  end was the new passage's settle, not the motion — see the ease-in after a cut below.) */
+const BLUR_BOOST = 0.6;
+export function holdAt(plan: ScenePlan, t: number): number { return 1 + BLUR_BOOST * transK(plan.passages, t); }
+/** The new passage's settle after a cut, as a zoom factor (1 at rest): a touch wide at the cut, back to rest a little
+ *  after the blur clears, slowing all the way (a quartic ease out: fastest under the blur). */
+export function settleAt(plan: ScenePlan, t: number): number {
+  let z = 1;
+  for (const k of plan.camera.cuts) { const dt = t - k.t; if (dt < 0) continue; const q = plan.passages.find(x => Math.abs(x.t - k.t) < 1e-3), len = (q ? q.out : 0.3) + 0.55;
+    if (dt < len) z *= Math.exp(-0.12 * (1 - dt / len) ** 4); }
+  return z;
 }
 export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): CamFrame {
   const c = plan.camera, b = basePose(c, t), M = plan.style.m, W = plan.W;
-  // while a transition's blur is up the frame holds still — all of its own motion, the beat's and the heavy beats'
-  // alike: a shake under the blur reads as a twitch, not a beat (see holdAt)
+  // the frame's own motion plays through a transition's blur, a little stronger under it (see holdAt)
   const trans = transK(plan.passages, t), hold = holdAt(plan, t);
   const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t, idleK(plan, t)), calm = 1 - clamp((t - plan.musicEnd) / 0.3), still = 1 - rs.still;
   const cam: Cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
   // handheld float
-  const A = c.dyn.float * motion * (0.25 + 0.75 * hold), hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
+  const A = c.dyn.float * motion, hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
   // screen-space offsets (px) of the float and the idle drift: applied to the camera and the backdrop's camera alike, each
   // at its own closeness, so the backdrop's never jumps where the camera cuts
   let ox = hx, oy = hy, oz = 1;
@@ -68,11 +69,12 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
     ox += (Math.sin(t * 0.21 + 0.3) + 0.5 * Math.sin(t * 0.47 + 1.7)) * W * 0.09 * k; oy += (Math.cos(t * 0.17 + 1.1) + 0.5 * Math.sin(t * 0.39 + 0.4)) * W * 0.06 * k;
     oz = Math.exp((-0.1 + 0.05 * Math.sin(t * 0.29)) * k); cam.r += Math.sin(t * 0.13 + 0.9) * 3.2 * k; }
   cam.x += ox / b.z; cam.y += oy / b.z; cam.z *= oz;
-  // opening push-in, and after a cut the new passage eases in from a touch wide
+  // opening push-in, and after a cut the new passage settles in from a touch wide: most of it under the blur (fastest
+  // at the cut, while the picture is soft), slowing to rest a little after the blur has cleared — never still speeding
+  // up as the picture sharpens (an ease-in-out here peaked half a second after the blur, which read as a lurch)
   if (t < 1.2) cam.z *= Math.exp(-0.35 * (1 - eIO(clamp(t / 1.2))));
-  let easeIn = 1; for (const k of c.cuts) { const dt = t - k.t; if (dt >= 0 && dt < 1.1) easeIn *= Math.exp(-0.22 * (1 - eIO(dt / 1.1))); }
-  cam.z *= easeIn;
-  // the frame's own motion: cone spring, impacts, beat sway, build lean-in (all held under a transition's blur, above)
+  cam.z *= settleAt(plan, t);
+  // the frame's own motion: cone spring, impacts, beat sway, build lean-in (stronger under a transition's blur, above)
   const fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still * hold;
   const gv = M.groove ?? 1;                                     // the beat-and-melody motion (its own knob)
   fx.z *= 1 + c.dyn.cone * rs.cone * mo * gv;
@@ -84,10 +86,9 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   const lobe = (u: number, tau: number) => (u <= 0 ? 0 : (u / tau) * Math.exp(1 - u / tau));    // one swing out and back to rest, no crossing
   // waltz: elegant disorder — every accented arrival pushes the frame once in roll, distance and position, over a
   // never-repeating sway; the path stays smooth while the frame breathes and staggers
-  // (a kick, a nudge or an impact that came under a blur stays out: it would come back mid-swing as the blur clears)
   if (c.kicks && mo > 0) {
     let kr = 0, kz = 0, kx = 0, ky = 0;
-    for (const q of c.kicks) { const dt = t - q.t; if (dt < 0) break; if (dt > 2.2 || holdAt(plan, q.t) < 0.98) continue;
+    for (const q of c.kicks) { const dt = t - q.t; if (dt < 0) break; if (dt > 2.2) continue;
       const u = dt / tempo, on = 1 - Math.exp(-u * 22), k1 = lobe(u, 0.16), k2 = on * Math.exp(-u * 4.5);
       kr += q.sg * q.a * 7 * k1; kz += q.a * 0.045 * k2; kx += q.px * q.a * W * 0.012 * k1; ky += q.py * q.a * W * 0.012 * k1; }
     const s2 = (c.dyn.sway ?? 0) * mo, sh = M.shake;
@@ -97,14 +98,14 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
     fx.z *= 1 + kz * M.punch * mo;
   }
   // punch: an arrival nudges the frame once in one direction and lets it settle back — firm, never rattling
-  if (c.arrivals && mo > 0) for (const q of c.arrivals) { const dt = t - q.t; if (dt < 0) break; if (dt > 0.6 || holdAt(plan, q.t) < 0.98) continue;
+  if (c.arrivals && mo > 0) for (const q of c.arrivals) { const dt = t - q.t; if (dt < 0) break; if (dt > 0.6) continue;
     const lb = lobe(dt, 0.05) * q.k, amp = (6 + 16 * rs.level) * lb * M.shake * (W / 1280);
     fx.x += Math.cos(q.ang) * amp * mo; fx.y += Math.sin(q.ang) * amp * mo; fx.r += q.sg * lb * 1.6 * M.shake * mo; }
   fx.z *= 1 + 0.05 * rs.build * motion * calm * hold;
   let split = 0;
   const IK = (M.impk ?? 0.8) * mo;
   if (IK > 0.001) for (const e of plan.cues.impacts) {
-    const dt = t - e.t; if (dt < 0) break; if (dt > 0.9 || holdAt(plan, e.t) < 0.98) continue;
+    const dt = t - e.t; if (dt < 0) break; if (dt > 0.9) continue;
     const k = IK * (0.5 + 0.6 * e.k), v = impulse(dt, 2 * Math.PI * 3.2, 0.5);
     fx.z *= 1 + k * 0.06 * v; fx.x += Math.cos(e.ang) * k * W * 0.008 * v; fx.y += Math.sin(e.ang) * k * W * 0.008 * v; fx.r += e.sg * k * 0.9 * v;
     split = Math.max(split, k * Math.max(0, v));

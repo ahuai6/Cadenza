@@ -37,12 +37,14 @@ export function planEntries(plan: ScenePlan) {
       if (b.y1 > ly && !(vy < -inn)) sy = Math.min(sy, ly - b.y1); else if (b.y0 < -ly && !(vy > inn)) sy = Math.max(sy, -ly - b.y0);
     }
     if (big || (Math.abs(sx) < 1 && Math.abs(sy) < 1)) continue;
-    // when its own place is in view (or close enough that the glide ends with the camera's arrival)
-    let t1 = t0 + 0.9;
-    for (let t = t0 + 0.3; t < t0 + 1.6; t += 1 / 20) { const q = bounds(S, viewAt(plan, sig, t), W, H); if ((sx === 0 || (q.x1 <= lx + 2 && q.x0 >= -lx - 2)) && (sy === 0 || (q.y1 <= ly + 2 && q.y0 >= -ly - 2))) { t1 = t; break; } }
+    // when its own place is in view (or close enough that the glide ends with the camera's arrival) — looked for over
+    // the word's whole time up; if the camera never brings its place in, the word keeps its nudge (it never glides back
+    // out over the edge it was brought in from)
+    let t1 = Infinity; const until = Math.min(S.line.secEnd, S.line.L.end + 1);
+    for (let t = t0 + 0.3; t < until; t += 1 / 20) { const q = bounds(S, viewAt(plan, sig, t), W, H); if ((sx === 0 || (q.x1 <= lx + 2 && q.x0 >= -lx - 2)) && (sy === 0 || (q.y1 <= ly + 2 && q.y0 >= -ly - 2))) { t1 = t; break; } }
     // the screen shift as a world offset at that moment (undo the camera's zoom, depth scale and roll)
     const k = p0.k || 1, r = (v0.cam.r - v0.fx.r) * D2R, c = Math.cos(r), s = Math.sin(r);
-    S.entry = { dx: (sx * c - sy * s) / k, dy: (sx * s + sy * c) / k, t0, t1: Math.max(t0 + 0.3, t1) };
+    S.entry = { dx: (sx * c - sy * s) / k, dy: (sx * s + sy * c) / k, t0, t1: Math.max(t0 + 0.3, t1) };   // (t1 Infinity: held)
   }
 }
 /** How much of a word's entry nudge still applies at t (1 as it appears, easing to 0 as its own place comes into view). */
