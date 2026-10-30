@@ -35,9 +35,13 @@ const CHECKS = {
   async perf(p) {
     const r = await p.evaluate(async () => { const out = {}; for (const th of ['liquid', 'gothic', 'cover']) { const ses = await H.open({ theme: th, coverUrl: 'cover.jpg' });
       const f0 = H.engine.frameAt(1); const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720; const g = cv.getContext('2d'); const ts = [];
-      for (let i = 0; i < 90; i++) { const t = 2 + i / 30, f = H.engine.frameAt(t, { px: 1 }); const a = performance.now(); H.drawFrame(g, f, { sig: ses.sig }); ts.push(performance.now() - a); await new Promise(r => setTimeout(r, 0)); }
+      // (each frame finished — one pixel read back — so the raster is paid for in every theme alike: without it only the
+      // recording is timed, except in frames where an effect copies the canvas (the glass shards), which then pay for all)
+      for (let i = 0; i < 90; i++) { const t = 2 + i / 30, f = H.engine.frameAt(t, { px: 1 }); const a = performance.now(); H.drawFrame(g, f, { sig: ses.sig }); g.getImageData(0, 0, 1, 1); ts.push(performance.now() - a); await new Promise(r => setTimeout(r, 0)); }
       ts.sort((a, b) => a - b); out[th] = { med: +ts[45].toFixed(1), p95: +ts[85].toFixed(1) }; } return out; });
-    ok('perf: frames draw well inside a frame budget (software canvas, 1280×720)', Object.values(r).every(x => x.med < 40), JSON.stringify(r));
+    // (headless Chromium rasterises in software, several times slower than a GPU canvas: the bound is 1.5.1's own cost here
+    // — about 80–95 ms a finished frame — with room for noise; a regression past it fails)
+    ok('perf: a finished frame costs no more than 1.5.1 did (software canvas, 1280×720)', Object.values(r).every(x => x.med < 115), JSON.stringify(r));
   },
   async glass(p) {
     // the shatter's own cost: the same moments drawn with the glass and, as a separate run, without it (gothic theme,

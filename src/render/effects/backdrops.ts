@@ -14,32 +14,46 @@ import { gfx } from '../gfx';
 const C2 = (c: HTMLCanvasElement | OffscreenCanvas) => (c as HTMLCanvasElement).getContext('2d')!;
 const lowSize = (cv: HTMLCanvasElement, W0: number, H0: number, base: number) => { const lw = base, lh = Math.max(8, Math.round(base * H0 / W0)); if (cv.width !== lw || cv.height !== lh) { cv.width = lw; cv.height = lh; } return [lw, lh]; };
 
-/* ---------- liquid: large regions of colour keep pressing into one another; computed on a small grid ---------- */
+/* ---------- liquid: large regions of colour keep pressing into one another; computed on a small grid ----------
+   One field for two themes: the liquid theme's own (its palette), and the cover theme's (the cover's colours, with the
+   regions squeezed out from under the cover by the low end — the subwoofer spring of the rhythm signals — and flowing
+   back as it rebounds). */
 const LIQ = Array.from({ length: 7 }, (_, i) => ({ cx: 0.5 + (rnd(i * 2.7) - 0.5) * 0.7, cy: 0.5 + (rnd(i * 3.9) - 0.5) * 0.6, ax: 0.22 + rnd(i * 4.4) * 0.2, ay: 0.18 + rnd(i * 5.8) * 0.16,
   fx: 0.05 + rnd(i * 6.1) * 0.05, fy: 0.04 + rnd(i * 7.3) * 0.05, px: rnd(i * 8.8) * 6.28, py: rnd(i * 9.1) * 6.28, r: 0.26 + rnd(i * 1.3) * 0.14, k: i % 4 }));
-const lq = makeCanvas(64, 36) as HTMLCanvasElement, lqx = C2(lq); let LQI: ImageData | null = null, LQKEY = '';
-function renderLiquid(f: RenderFrame, Ev: number, ox: number, oy: number) {
+export interface LiquidOpts { /** four colours, already toned for the backdrop */ cols: RGB[]; /** squeezed out from (x, y) (frame px) by k: >0 out, <0 back */ push?: { x: number; y: number; k: number } }
+interface LiquidCache { cv: HTMLCanvasElement; g: CanvasRenderingContext2D; img: ImageData | null; key: string }
+/** A field's own canvas (each theme keeps its own, so neither recomputes the other's). */
+export const liquidCache = (): LiquidCache => { const cv = makeCanvas(64, 36) as HTMLCanvasElement; return { cv, g: C2(cv) as CanvasRenderingContext2D, img: null, key: '' }; };
+const LQ_THEME = liquidCache();
+export function renderLiquid(f: RenderFrame, Ev: number, ox: number, oy: number, o: LiquidOpts, C: LiquidCache = LQ_THEME) {
   const w = f.W, h = f.H, W0 = w + 2 * Ev, H0 = h + 2 * Ev, gw = Math.max(48, Math.min(200, Math.round(W0 / 7))), gh = Math.max(27, Math.round(gw * H0 / W0));
   // (the flow on the drifting things' clock: it hangs on a heavy beat with the rest of the scene)
-  const P = f.P, sp = 0.6 + 0.5 * (f.style.m.speed ?? 1), t = accentClock(f.plan.map, f.t), key = [t, w, h, Ev, ox, oy, P, sp, f.style.bg, f.style.bg2, f.style.accent, f.style.flash].join('|');
-  if (key === LQKEY && lq.width === gw && lq.height === gh) return lq;
-  LQKEY = key; if (lq.width !== gw || lq.height !== gh) { lq.width = gw; lq.height = gh; LQI = null; }
-  if (!LQI) LQI = lqx.createImageData(gw, gh);
-  const D = LQI.data, m = Math.max(w, h), n = LIQ.length, B0 = f.pal.bg, tone = f.pal.dark ? 0.42 : 0.3;
-  const cols = [f.pal.accent, f.pal.flash, f.pal.bg2, mix(f.pal.accent, f.pal.bg2, 0.5)].map(c => mix(B0, c, tone));
+  const P = f.P, sp = 0.6 + 0.5 * (f.style.m.speed ?? 1), t = accentClock(f.plan.map, f.t), pu = o.push;
+  const key = [t, w, h, Ev, ox, oy, P, sp, o.cols.map(c => c.map(Math.round).join()).join(), pu ? `${pu.x.toFixed(1)},${pu.y.toFixed(1)},${pu.k.toFixed(3)}` : ''].join('|');
+  const lq = C.cv, lqx = C.g;
+  if (key === C.key && lq.width === gw && lq.height === gh) return lq;
+  C.key = key; if (lq.width !== gw || lq.height !== gh) { lq.width = gw; lq.height = gh; C.img = null; }
+  if (!C.img) C.img = lqx.createImageData(gw, gh);
+  const D = C.img.data, m = Math.max(w, h), n = LIQ.length, cols = o.cols;
   const bx = new Float64Array(n), by = new Float64Array(n), br = new Float64Array(n), be = new Float64Array(n), cR = new Float64Array(n), cG = new Float64Array(n), cB = new Float64Array(n);
-  LIQ.forEach((b, i) => { bx[i] = w * (b.cx + b.ax * Math.sin(t * b.fx * sp * 2.2 + b.px)) + ox * 0.2; by[i] = h * (b.cy + b.ay * Math.sin(t * b.fy * sp * 2.2 + b.py)) + oy * 0.2;
-    const r = m * b.r * (1 + P * 0.02 * (i % 2 ? 1 : -1)); br[i] = r * r; be[i] = r * r * 0.02; const c = cols[b.k]; cR[i] = c[0]; cG[i] = c[1]; cB[i] = c[2]; });
+  LIQ.forEach((b, i) => { let x = w * (b.cx + b.ax * Math.sin(t * b.fx * sp * 2.2 + b.px)) + ox * 0.2, y = h * (b.cy + b.ay * Math.sin(t * b.fy * sp * 2.2 + b.py)) + oy * 0.2;
+    let r = m * b.r * (1 + P * 0.02 * (i % 2 ? 1 : -1));
+    // (squeezed: each region pushed away from the source, the nearer the further, and the near ones swollen by it)
+    if (pu) { const dx = x - pu.x, dy = y - pu.y, d = Math.max(1, Math.hypot(dx, dy)), near = Math.max(0, 1 - d / m);
+      x += (dx / d) * pu.k * m * 0.12 * near; y += (dy / d) * pu.k * m * 0.12 * near; r *= 1 + pu.k * 0.15 * near * near; }
+    bx[i] = x; by[i] = y; br[i] = r * r; be[i] = r * r * 0.02; const c = cols[b.k % cols.length]; cR[i] = c[0]; cG[i] = c[1]; cB[i] = c[2]; });
   const sx = W0 / gw, sy = H0 / gh;
-  for (let j = 0, o = 0; j < gh; j++) { const y = -Ev + (j + 0.5) * sy;
-    for (let i = 0; i < gw; i++, o += 4) { const x = -Ev + (i + 0.5) * sx; let cr = 0, cg = 0, cb = 0, cw = 0, w1 = 0, w2 = 0;
+  for (let j = 0, q0 = 0; j < gh; j++) { const y = -Ev + (j + 0.5) * sy;
+    for (let i = 0; i < gw; i++, q0 += 4) { const x = -Ev + (i + 0.5) * sx; let cr = 0, cg = 0, cb = 0, cw = 0, w1 = 0, w2 = 0;
       for (let q = 0; q < n; q++) { const dx = x - bx[q], dy = y - by[q], fq = br[q] / (dx * dx + dy * dy + be[q]), wt = fq * fq * fq; cr += cR[q] * wt; cg += cG[q] * wt; cb += cB[q] * wt; cw += wt; if (wt > w1) { w2 = w1; w1 = wt; } else if (wt > w2) w2 = wt; }
       const r2 = 2 * w2 / (w1 + w2), seam = r2 ** 4, sh = (1 + 0.06 * seam) / cw;
-      D[o] = Math.min(255, cr * sh); D[o + 1] = Math.min(255, cg * sh); D[o + 2] = Math.min(255, cb * sh); D[o + 3] = 255; } }
-  lqx.putImageData(LQI, 0, 0); return lq;
+      D[q0] = Math.min(255, cr * sh); D[q0 + 1] = Math.min(255, cg * sh); D[q0 + 2] = Math.min(255, cb * sh); D[q0 + 3] = 255; } }
+  lqx.putImageData(C.img, 0, 0); return lq;
 }
+/** The liquid theme's colours: its accent, flash and second background, toned down into its background. */
+const themeCols = (f: RenderFrame) => { const B0 = f.pal.bg, tone = f.pal.dark ? 0.42 : 0.3; return [f.pal.accent, f.pal.flash, f.pal.bg2, mix(f.pal.accent, f.pal.bg2, 0.5)].map(c => mix(B0, c, tone)); };
 register({ id: 'liquid', label: 'bg.liquid', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
-  const low = renderLiquid(f, a.bd.Ev, a.bd.ox, a.bd.oy); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high'; g.drawImage(low, -a.bd.Ev, -a.bd.Ev, f.W + 2 * a.bd.Ev, f.H + 2 * a.bd.Ev); } });
+  const low = renderLiquid(f, a.bd.Ev, a.bd.ox, a.bd.oy, { cols: themeCols(f) }); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high'; g.drawImage(low, -a.bd.Ev, -a.bd.Ev, f.W + 2 * a.bd.Ev, f.H + 2 * a.bd.Ev); } });
 
 /* ---------- bokeh: soft out-of-focus discs drifting through haze ---------- */
 const bk = makeCanvas(200, 120) as HTMLCanvasElement, bkx = C2(bk);

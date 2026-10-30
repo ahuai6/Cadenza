@@ -106,7 +106,8 @@ export interface CameraPlan {
 export interface Cues {
   flash: { t: number; k: number }[];
   impacts: { t: number; k: number; ang: number; sg: number }[];
-  glass: { t: number; seed: number; x: number; y: number; size: number; k: number }[];
+  /** (life: how long the pane is up, s — 2.2, or less when the next one strikes soon after: it gives way to it) */
+  glass: { t: number; seed: number; x: number; y: number; size: number; k: number; life: number }[];
   /** colour split and glitch: struck like the glass, a little more often (each only when its effect is on) */
   chroma: { t: number; k: number }[];
   glitch: { t: number; k: number; seed: number }[];

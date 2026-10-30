@@ -78,7 +78,10 @@ export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: nu
   const all = [...flash0.map(e => e.t), ...imp, ...glass0.map(e => e.t)];
   const flash = density(flash0.map(e => ({ t: e.t })), flash0.map(e => e.t), bar).map(e => ({ t: e.t, k: e.k }));
   const impacts = density(imp.map(t => ({ t })), imp, bar).map(e => ({ t: e.t, k: e.k, ang: rnd(e.t * 5.9) * 6.283, sg: rnd(e.t * 3.7) < 0.5 ? -1 : 1 }));
-  const glass = density(glass0.map(e => ({ t: e.t })), all, bar).map(e => ({ t: e.t, seed: e.t * 31.7 + 3, x: 0.2 + rnd(e.t * 5.1) * 0.6, y: 0.2 + rnd(e.t * 9.3) * 0.55, size: (0.7 + rnd(e.t * 2.9) * 0.5) * (0.85 + 0.3 * e.k), k: 0.75 + 0.25 * e.k }));
+  const glass = density(glass0.map(e => ({ t: e.t })), all, bar).map(e => ({ t: e.t, seed: e.t * 31.7 + 3, x: 0.2 + rnd(e.t * 5.1) * 0.6, y: 0.2 + rnd(e.t * 9.3) * 0.55, size: (0.7 + rnd(e.t * 2.9) * 0.5) * (0.85 + 0.3 * e.k), k: 0.75 + 0.25 * e.k, life: 2.2 }));
+  // (a pane gives way to the next: it fades out within half a second of the next blow, so however often they strike, about
+  // two are up at once — every accent shatters, the cost of a frame stays bounded)
+  glass.forEach((q, i) => { const nx = glass[i + 1]; if (nx) q.life = clamp(nx.t - q.t + 0.45, 0.6, 2.2); });
   // glyph contours: a passage opens with one; a long passage changes it at most every few lines and seconds
   const glyphSlots: Cues['glyphSlots'] = [];
   if (st.fx.glyph) { let li = -9, lt = -1e9, side = 0; const gf = clamp(M.glyphf ?? 1, 0.2, 3), every = Math.max(1, Math.round(2 / gf)), minT = 6 / gf;
