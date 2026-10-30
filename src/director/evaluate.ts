@@ -23,6 +23,19 @@ export function idleK(plan: ScenePlan, t: number) {
   for (const I of plan.camera.idle) if (t > I.a && t < I.b) return Math.min(sstep((t - I.a) / 1.6), sstep((I.b - t) / 0.7));
   return 0;
 }
+/** How hard the music drives at t: 0 resting .. 1 at full drive — the song-relative level, felt over a couple of seconds
+ *  (so one quiet beat does not count). A stretch without words is a rest only when the music rests too: an outro or an
+ *  instrumental at full drive keeps the picture shaking on the beat, it does not float. */
+export function driveAt(plan: ScenePlan, t: number): number {
+  let v = 0; for (const d of [-1.2, -0.6, 0, 0.6, 1.2]) v += plan.map.level(t + d);
+  return sstep(clamp((v / 5 - 0.45) / 0.35));
+}
+/** A stretch without words (0..1): from half a second after the words stop — not only once the camera has gone idle —
+ *  until just before the next. */
+export function wordlessK(plan: ScenePlan, t: number) {
+  for (const I of plan.camera.idle) { const a = I.g + 0.5; if (t > a && t < I.b) return Math.min(sstep((t - a) / 1.5), sstep((I.b - t) / 0.7)); }
+  return 0;
+}
 /** How far a long pause has let the picture rest (0..1): it eases in slowly over the idle stretch (as slowly as the camera
  *  moves: the speed setting), and goes back at once under the blur of the passage that ends it — or, without one,
  *  just before the next words. A video backdrop rests upright, centred and unshaded. */
@@ -55,6 +68,8 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   // the frame's own motion plays through a transition's blur, a little stronger under it (see holdAt)
   const trans = transK(plan.passages, t), hold = holdAt(plan, t);
   const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t, idleK(plan, t)), calm = 1 - clamp((t - plan.musicEnd) / 0.3), still = 1 - rs.still;
+  // (the music's drive: a driving stretch without words floats less and shakes more — see driveAt)
+  const drive = driveAt(plan, t), wk = centre ? 0 : wordlessK(plan, t);
   const cam: Cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
   // handheld float
   const A = c.dyn.float * motion, hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
@@ -65,7 +80,7 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   cam.yaw = Math.sin(t * 0.21 + 0.4) * 2.2 * A; cam.pitch = Math.cos(t * 0.17 + 1.1) * 2.6 * A;
   cam.yaw = clamp(cam.yaw, -4, 4); cam.pitch = clamp(cam.pitch, -4, 4);
   // idle drift
-  if (ik > 0.001) { const k = ik * motion;
+  if (ik > 0.001) { const k = ik * motion * (1 - 0.65 * drive);
     ox += (Math.sin(t * 0.21 + 0.3) + 0.5 * Math.sin(t * 0.47 + 1.7)) * W * 0.09 * k; oy += (Math.cos(t * 0.17 + 1.1) + 0.5 * Math.sin(t * 0.39 + 0.4)) * W * 0.06 * k;
     oz = Math.exp((-0.1 + 0.05 * Math.sin(t * 0.29)) * k); cam.r += Math.sin(t * 0.13 + 0.9) * 3.2 * k; }
   cam.x += ox / b.z; cam.y += oy / b.z; cam.z *= oz;
@@ -76,7 +91,9 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   cam.z *= settleAt(plan, t);
   // the frame's own motion: cone spring, impacts, beat sway, build lean-in (stronger under a transition's blur, above)
   const fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still * hold;
-  const gv = M.groove ?? 1;                                     // the beat-and-melody motion (its own knob)
+  // the beat-and-melody motion (its own knob); with no words to follow and the music driving, the beat shakes the frame
+  // harder — it is what the picture has left to answer (the words' own arrivals are gone)
+  const gv = (M.groove ?? 1) * (1 + 0.9 * wk * drive);
   fx.z *= 1 + c.dyn.cone * rs.cone * mo * gv;
   fx.r += c.dyn.coneRoll * rs.coneRoll * mo * gv;
   // the beat sway: a slow roll on the half bar and the lyric plane rocking in depth (a slight shear) over the bar
@@ -115,7 +132,7 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   // the backdrop's camera skips the cuts (they are hidden by the blur; the backdrop must not turn or jump with them)
   const cont = { ...cam, x: b.x, y: b.y, z: b.z }; for (const k of c.cuts) if (t >= k.t) { cont.x -= k.dx; cont.y -= k.dy; cont.r -= k.dr; cont.z /= Math.exp(k.dz); }
   cont.x += ox / cont.z; cont.y += oy / cont.z; cont.z *= oz;
-  return { rest: restK(plan, t), cam, fx, cont, split, idle: ik, trans, hold, ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
+  return { rest: restK(plan, t) * (1 - drive), cam, fx, cont, split, idle: ik, trans, hold, ov: clamp((t - plan.musicEnd) / 0.7), calm, rs, hand: [hx, hy] };
 }
 export const lerpCam = (a: Cam, b: Cam, k: number): Cam => ({ x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)), r: lerp(a.r, b.r, k), d: lerp(a.d, b.d, k), yaw: lerp(a.yaw, b.yaw, k), pitch: lerp(a.pitch, b.pitch, k) });
 

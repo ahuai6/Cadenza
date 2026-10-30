@@ -90,7 +90,8 @@ export interface CameraPlan {
   /** cut times (passages), with the jump the base path makes there (the backdrop's camera skips these) */
   cuts: { t: number; dx: number; dy: number; dz: number; dr: number }[];
   /** idle stretches (long instrumentals) */
-  idle: { a: number; b: number }[];
+  /** long stretches without words: idle from a (after a wait) to b; g, where the words stopped */
+  idle: { a: number; b: number; g: number }[];
   dyn: { cone: number; coneRoll: number; float: number; sway: number };
   /** waltz: each accented arrival pushes the frame once (roll, distance, position), critically damped */
   kicks?: { t: number; a: number; sg: number; px: number; py: number }[];

@@ -347,8 +347,8 @@ function fits(ws: UBox[], s: Stop, W: number, H: number): boolean {
  *  words; after the last words it stays idle through the ending (the ending card comes over it, the camera never comes
  *  back first). Lines with nothing to sing in them ("♪～", "……", "(間奏)") are no words to wait for. */
 function idleWindows(lines: PLine[], musicEnd: number) {
-  const out: { a: number; b: number }[] = [], WAIT = 5, sung = lines.filter(P => P.words.length && !onlyMarks(P.L.text));
-  const add = (g0: number, g1: number, isOut: boolean) => { if (g1 - g0 >= WAIT + 1.4) out.push({ a: g0 + WAIT, b: isOut ? Infinity : g1 - 0.6 }); };
+  const out: { a: number; b: number; g: number }[] = [], WAIT = 5, sung = lines.filter(P => P.words.length && !onlyMarks(P.L.text));
+  const add = (g0: number, g1: number, isOut: boolean) => { if (g1 - g0 >= WAIT + 1.4) out.push({ a: g0 + WAIT, b: isOut ? Infinity : g1 - 0.6, g: g0 }); };
   const endOf = (P: PLine) => Math.min(P.L.sung, P.L.end, P.secEnd);
   if (sung.length) { add(0, sung[0].L.t, false); for (let i = 1; i < sung.length; i++) add(endOf(sung[i - 1]), sung[i].L.t, false); add(endOf(sung[sung.length - 1]), musicEnd, true); }
   return out;

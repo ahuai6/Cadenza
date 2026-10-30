@@ -4,7 +4,6 @@ import { eSine } from '../../core/ease';
 import { rnd } from '../../core/rng';
 import { mix, rgba } from '../../core/color';
 import { register } from './registry';
-import { accentClock } from '../../rhythm/accentclock';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { project, NO_FX } from '../../director/project';
@@ -84,16 +83,17 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z:
       // where the words are not (a large shape filling the empty part of the picture, most of a frame high), floating
       // there on its own, as a pane of glass adrift in water would: it travels slowly across its place over its whole
       // time (each its own way), bobs and sways on a few slow waves that never line up, breathes, and turns a little in
-      // depth (narrowing as it turns); it lies a good way behind the words, so the camera's moves slide it a little
-      // against them (part of the backdrop's own parallax) — never pinned to the frame
-      const tt = accentClock(f.plan.map, f.t);   // (its drift, sway and breath hang on a heavy beat like the other floating things)
+      // depth (narrowing as it turns). It is bound to nothing: not the camera (no parallax: the frame's moves, turns,
+      // shakes and cuts leave it where it is on screen), not the beat — its drift, sway and breath run on the song's own
+      // time alone
+      const tt = f.t;
       const at = glyphSpot(sl, f), ph = P.i * 1.37, life = Math.max(2, sl.end + 1.8 - (sl.t - 0.2)), u = clamp((t - sl.t + 0.2) / life) - 0.5, da = rnd(P.i * 5.3) * 6.283;
       const br = 1 + 0.03 * Math.sin(tt * 0.47 + ph) + 0.015 * Math.sin(tt * 0.83 + ph * 1.9), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br;
       const ly = glyphPane(ch, fc.w, fc.stack); if (!ly) continue;
       const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + u * 7 * (rnd(P.i * 1.1) < 0.5 ? -1 : 1) + Math.sin(tt * 0.37 + ph) * 3.5 + Math.sin(tt * 0.71 + ph * 2.1) * 1.3) * D2R;
       const yaw = 1 - 0.07 * (0.5 + 0.5 * Math.sin(tt * 0.29 + ph * 1.3)), pitch = 1 - 0.035 * (0.5 + 0.5 * Math.sin(tt * 0.41 + ph * 0.7));
-      const cx = f.W / 2 + at.x + Math.cos(da) * u * 0.09 * f.W + (Math.sin(tt * 0.43 + ph) * 0.02 + Math.sin(tt * 0.79 + ph * 1.7) * 0.008) * f.W + a.bd.ox * 0.5,
-        cy = f.H / 2 + at.y + Math.sin(da) * u * 0.07 * f.H + (Math.sin(tt * 0.53 + ph * 0.8) * 0.026 + Math.sin(tt * 0.97 + ph * 2.3) * 0.01) * f.H + a.bd.oy * 0.5, w = size * ly.S, half = w * 0.72;
+      const cx = f.W / 2 + at.x + Math.cos(da) * u * 0.09 * f.W + (Math.sin(tt * 0.43 + ph) * 0.02 + Math.sin(tt * 0.79 + ph * 1.7) * 0.008) * f.W,
+        cy = f.H / 2 + at.y + Math.sin(da) * u * 0.07 * f.H + (Math.sin(tt * 0.53 + ph * 0.8) * 0.026 + Math.sin(tt * 0.97 + ph * 2.3) * 0.01) * f.H, w = size * ly.S, half = w * 0.72;
       // the picture under the pane, small, blurred, lifted, cut to the glyph
       // (worked small: a quarter of its size on screen, never over 160 px — it is blurred, so nothing is lost, and a large
       // pane up close no longer costs a large blur)

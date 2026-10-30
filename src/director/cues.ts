@@ -46,7 +46,7 @@ export function markedEntries(map: RhythmMap, marks: { t: number; level: number;
   }
   return out.sort((a, b) => a.e.t - b.e.t);
 }
-export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number }[], marks: { t: number; level: number; exact?: boolean }[] = []): Cues {
+export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: number, idle: { a: number; b: number; g: number }[], marks: { t: number; level: number; exact?: boolean }[] = []): Cues {
   const M = st.m, bar = map.meter * map.beatLen(musicEnd / 2), inSong = (t: number) => t >= 0.5 && t <= musicEnd - 0.5;
   // flash, invert and glass land on the beat's own accents — a strong hit on a beat (a downbeat first), never a syncopated
   // one — and above all on the hit that opens a section that comes in louder (into a chorus, a drop)
@@ -60,11 +60,13 @@ export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: nu
   // glass: only the strongest on-beat accents (section entries first, else drops or loud sections)
   const gs = clamp(M.glassf ?? 1, 0, 2), glass0 = st.fx.glass && gs > 0.02
     ? withEntries(map.select({ sensitivity: gs * 0.5 }).filter(e => inSong(e.t) && onBeat(e) && map.level(e.t) >= 0.65), reach(gs, true).filter(e => map.level(e.t) >= 0.45)) : [];
-  // impacts: past the impact threshold, plus every pane; while idle the camera answers weaker accents too
+  // impacts: past the impact threshold, plus every pane; with no words to follow (a long instrumental, the outro) the
+  // camera answers weaker accents too — from the moment the words stop, not only once the camera has gone idle (the
+  // wait before it used to be the quietest stretch of a driving outro)
   const is = clamp(M.impact ?? 1, 0, 2); let imp: number[] = [];
   if (is > 0.02) {
     imp = map.select({ sensitivity: is }).map(e => e.t).concat(glass0.map(e => e.t), reach(is).map(e => e.t));
-    for (const I of idle) for (const e of map.select({ sensitivity: Math.min(2, is * 1.8 + 0.3), t0: I.a, t1: I.b })) imp.push(e.t);
+    for (const I of idle) for (const e of map.select({ sensitivity: Math.min(2, is * 1.8 + 0.3), t0: I.g + 0.5, t1: I.b })) imp.push(e.t);
     imp.sort((a, b) => a - b);
     imp = imp.filter((t, i) => t >= 0.5 && (i === 0 || t - imp[i - 1] >= ONE));
   }
