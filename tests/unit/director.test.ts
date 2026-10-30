@@ -12,12 +12,12 @@ import { rawPose } from '../../src/director/camera';
 import { markedEntries, entryFloor, MARK_K } from '../../src/director/cues';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
-function make(cut: 'punch' | 'glide' | 'waltz' | 'close' | 'hover', src = LRC, opts: { frame?: boolean; trigger?: number } = {}) {
+function make(cut: 'punch' | 'glide' | 'waltz' | 'close' | 'hover', src = LRC, opts: { frame?: boolean; trigger?: number; aspect?: number } = {}) {
   const map = RhythmMap.grid(112, 0.3, 160);
   const p = parse(src), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6;
   const doc = buildLyrics(p, map, musicEnd);
   const base = presetStyle(cut === 'punch' ? 'liquid' : 'cover'), st = normalizeStyle({ ...base, preset: 'custom', cut, fx: { ...presetStyle('cover').fx, frame: opts.frame ?? true }, ...(opts.trigger ? { k: { ...base.k, trigger: opts.trigger } } : {}) });
-  return plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+  return plan({ doc, map, style: st, measure: approxMeasurer(), aspect: opts.aspect ?? 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
 }
 const styles = ['punch', 'glide', 'waltz', 'close', 'hover'] as const;
 /** The corners of the character of S being sung at t (the last one already reached; the first before any). */
@@ -29,8 +29,10 @@ function singing(S: ScenePlan['words'][0], t: number, first = false): [number, n
 }
 
 describe.each(styles)('director (%s)', cut => {
-  const P = make(cut), sig = new Signals(P.map);
-  it('keeps the character being sung inside the frame', () => {
+  const P = make(cut), P0 = P;
+  // (in every frame shape the picture can have: 16:9, 16:10, 1:1, 9:16)
+  it.each([16 / 9, 16 / 10, 1, 9 / 16])('keeps the character being sung inside the frame (aspect %f)', aspect => {
+    const P = aspect === 16 / 9 ? P0 : make(cut, LRC, { aspect }), sig = new Signals(P.map);
     let n = 0, bad = 0; const worst: string[] = [];
     for (let t = P.words[0].show; t < P.musicEnd; t += 0.05) {
       if (transK(P.passages, t) > 0.02) continue;

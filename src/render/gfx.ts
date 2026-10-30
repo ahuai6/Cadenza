@@ -37,6 +37,16 @@ function chain(src: CanvasImageSource, sw: number, sh: number, from: number, to:
   for (let i = out.length - 2; i >= 1; i--) { const lo = out[i + 1], hi = out[i], x = hi.c.getContext('2d')!; x.globalCompositeOperation = 'source-over'; x.globalAlpha = 0.5; x.drawImage(lo.c, 0, 0, lo.w, lo.h, 0, 0, hi.w, hi.h); x.globalAlpha = 1; }
   return out;
 }
+/** `src` shrunk by 2^n, a halving at a time (each step averages the one above: no aliasing, whatever the factor —
+ *  one big bilinear step samples a pixel here and there, and a moving picture shimmers through it). */
+const DOWN: HTMLCanvasElement[] = [];
+export function downsample(src: CanvasImageSource, sw: number, sh: number, n: number): { c: HTMLCanvasElement; w: number; h: number } {
+  let c: CanvasImageSource = src, w = sw, h = sh;
+  for (let i = 1; i <= n; i++) { const w2 = Math.max(2, Math.ceil(sw / 2 ** i)), h2 = Math.max(2, Math.ceil(sh / 2 ** i));
+    let d = DOWN[i]; if (!d) { d = makeCanvas(2, 2) as HTMLCanvasElement; DOWN[i] = d; } if (d.width !== w2 || d.height !== h2) { d.width = w2; d.height = h2; }
+    C(d).drawImage(c, 0, 0, w, h, 0, 0, w2, h2); c = d; w = w2; h = h2; }
+  return { c: c as HTMLCanvasElement, w, h };
+}
 const MIX = makeCanvas(2, 2) as HTMLCanvasElement;
 /** Draw `src` (sw × sh) into (dx, dy, dw, dh) of g blurred by about `r` pixels of the source, the cheap way: the two
  *  levels either side of the radius crossfaded at the smaller level's size (so the blur grows smoothly as r does, no

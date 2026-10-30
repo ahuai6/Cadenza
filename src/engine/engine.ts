@@ -191,14 +191,23 @@ export class Engine extends Emitter<EngineEvents> {
     const f = this.playing ? this.frameRs(s) : null;
     this.emit('tick', { t: this.t, dur: s.dur, musicEnd: s.musicEnd, playing: this.playing, rs: f, session: s });
     // adapt the resolution while playing (never below one CSS pixel), restore it when paused
-    if (vis && this.render.scale === 'auto') { const d = performance.now() - t0; this.ema = this.ema ? this.ema * 0.9 + d * 0.1 : d;
+    // (never in a blur transition, nor just before or after one: a change of resolution re-samples the whole picture and
+    // the blur's own working size with it, which read as a twitch as the blur cleared; the transition's own heavier frames
+    // are not counted either, so they cannot force a change just after it)
+    const inPass = s.plan.passages.some(P => this.t > P.t - P.inn - 0.5 && this.t < P.t + P.out + 0.5);
+    if (vis && this.render.scale === 'auto' && !inPass) { const d = performance.now() - t0; this.ema = this.ema ? this.ema * 0.9 + d * 0.1 : d;
       if (!this.playing && this.pscale < 1) { this.pscale = 1; this.applyScale(); this.dirty = true; }
       else if (this.playing && this.ema > 22 && this.pscale > 1 / this.baseDpr() + 1e-3) { this.pscale = Math.max(1 / this.baseDpr(), this.pscale - 0.25); this.applyScale(); this.ema = 0; }
       else if (this.playing && this.ema < 9 && this.pscale < 1) { if (++this.fast > 120) { this.pscale = Math.min(1, this.pscale + 0.25); this.applyScale(); this.ema = 0; this.fast = 0; } } else this.fast = 0; }
+    // before each blur transition, whatever the frame's spare time: the picture after the cut is drawn once ahead into a
+    // tiny canvas (its words' glyphs made then, not in the frame where the blur clears and they first show)
+    if (vis && this.view === 'effect' && this.playing) for (const P of s.plan.passages) { if (this.t < P.t - P.inn - 0.8 || this.t > P.t - P.inn || this.warmedPass.has(P)) continue;
+      this.warmedPass.add(P); try { this.lookAhead(s, P.t + 0.02); this.lookAhead(s, P.t + P.out); } catch { /* ignore */ } }
     // look ahead: draw ~0.6 s ahead into a tiny canvas when the frame had time to spare (fills the glyph caches)
     if (vis && this.view === 'effect' && this.render.prerender && this.playing && performance.now() - t0 < 9) { try { this.lookAhead(s, this.t + 0.6); } catch { /* ignore */ } }
     this.emit('frame', now);
   }
+  private warmedPass = new WeakSet<object>();
   private rsCache: { t: number; v: RhythmSample } | null = null;
   private frameRs(s: Session) { if (this.rsCache && this.rsCache.t === this.t) return this.rsCache.v; const v = s.sig.sample(this.t); this.rsCache = { t: this.t, v }; return v; }
   private draw(s: Session) {

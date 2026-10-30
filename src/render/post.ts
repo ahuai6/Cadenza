@@ -6,7 +6,7 @@ import { fontStack, captionStack } from '../text/fonts';
 import { isLatin } from '../text/script';
 import { makeCanvas } from './palette';
 import { filterSupported } from './glyphs';
-import { gfx, cheapBlurDraw } from './gfx';
+import { gfx, cheapBlurDraw, downsample } from './gfx';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
 
@@ -24,14 +24,20 @@ export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   if (mode === 'lite') { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = k * k * 0.55; g.fillStyle = hexOf(mix(f.pal.bg, tint, 0.3)); g.fillRect(0, 0, w, h); g.restore(); return; }
   if (mode === 'optimized') { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); cheapBlurDraw(g, cv, w, h, Math.max(1.6, r * 1.4), 0, 0, w, h, Math.min(1, k * 1.6) * 0.94);
     g.globalAlpha = k * k * 0.085; g.fillStyle = hexOf(tint); g.fillRect(0, 0, w, h); g.restore(); return; }
-  // one working scale for the whole transition (from its peak blur), so only the blur itself changes as it rises and
-  // clears — a scale stepping with the blur re-sampled the picture at every step, which read as grain and a twitch
-  const fct = filterSupported ? Math.max(2, R / 4) : 1, w1 = w / fct, h1 = h / fct, rb = r / fct, m = Math.min(30, Math.ceil(R / fct * 2.6) + 2);
-  const [TA, TB] = work(Math.ceil(w1) + 2 * m, Math.ceil(h1) + 2 * m), a = TA.getContext('2d')!, b = TB.getContext('2d')!;
-  // (plain bilinear copies down: the picture is blurred right after, and a high-quality resample of a full frame costs ~100×)
+  // one working scale for the whole transition (from its peak blur, a power of two), so only the blur itself changes as
+  // it rises and clears — a scale stepping with the blur re-sampled the picture at every step, which read as grain and a
+  // twitch. The picture reaches it by halvings (downsample: averaged, never aliased — one big bilinear step sampled a
+  // pixel here and there, and with the camera shaking those samples shimmered through the blur as it cleared)
+  const n = filterSupported ? Math.max(1, Math.round(Math.log2(Math.max(2, R / 4)))) : 0, fct = 2 ** n, small = downsample(cv, w, h, n);
+  const w1 = small.w, h1 = small.h, m = Math.min(30, Math.ceil(R / fct * 2.6) + 2);
+  // (never less blur than the working picture can show — under ~1.5 of its pixels it is the small picture itself that
+  // shows; the last of the clearing is carried by the layer's own fade instead)
+  const rb = Math.max(1.5, r / fct);
+  const [TA, TB] = work(w1 + 2 * m, h1 + 2 * m), a = TA.getContext('2d')!, b = TB.getContext('2d')!;
   a.imageSmoothingEnabled = b.imageSmoothingEnabled = true; a.imageSmoothingQuality = b.imageSmoothingQuality = 'low';
   a.setTransform(1, 0, 0, 1, 0, 0); a.globalAlpha = 1; a.filter = 'none'; a.clearRect(0, 0, TA.width, TA.height);
-  a.drawImage(cv, 0, 0, w, h, 0, 0, w1 + 2 * m, h1 + 2 * m); a.drawImage(cv, 0, 0, w, h, m, m, w1, h1);
+  // (its edges extended — the picture stretched under it — so the borders blur like the middle)
+  a.drawImage(small.c, 0, 0, w1, h1, 0, 0, w1 + 2 * m, h1 + 2 * m); a.drawImage(small.c, 0, 0, w1, h1, m, m, w1, h1);
   b.setTransform(1, 0, 0, 1, 0, 0); b.globalAlpha = 1; b.clearRect(0, 0, TB.width, TB.height);
   if (filterSupported) { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(TA, 0, 0); b.filter = 'none'; }
   else b.drawImage(TA, 0, 0);
@@ -39,7 +45,7 @@ export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   // of the song's own background colour at the peak (lifted a little, so it reads as frosting, not a darker pane) — a
   // loss of focus in the song's colour, never a curtain nor a plastic sheet
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high';
-  g.globalAlpha = Math.min(1, k * 1.6) * 0.94; g.drawImage(TB, m, m, w1, h1, 0, 0, w, h);
+  g.globalAlpha = Math.min(1, k * 1.6) * 0.94; g.drawImage(TB, m, m, w1, h1, 0, 0, w1 * fct, h1 * fct);
   g.globalAlpha = k * k * 0.085; g.fillStyle = hexOf(tint); g.fillRect(0, 0, w, h); g.restore();
 }
 
