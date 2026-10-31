@@ -61,12 +61,18 @@ export function Toggle({ label, help, on, set }: { label: string; help?: string;
 export function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return <label className={s.check}><input type="checkbox" checked={!!checked} onChange={e => onChange(e.target.checked)} /><i aria-hidden="true"><Icon n="check" size={13} /></i><span>{label}</span></label>;
 }
-export function Slider({ label, value, min, max, step, onChange, format }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; format?: (v: number) => string }) {
-  const id = useId(), v = value ?? min, p = ((v - min) / Math.max(1e-9, max - min)) * 100;
+/** A slider. onChange: at every step while it is dragged (what can follow it live); onCommit: once it is let go (a
+ *  release, a key's step) — what costs a rebuild goes there, so dragging never rebuilds at every step. While dragged it
+ *  shows its own value, whatever the caller has taken of it so far. */
+export function Slider({ label, value, min, max, step, onChange, onCommit, format }: { label: string; value: number; min: number; max: number; step: number; onChange?: (v: number) => void; onCommit?: (v: number) => void; format?: (v: number) => string }) {
+  const id = useId(), [draft, setDraft] = useState<number | null>(null), v = draft ?? value ?? min, p = ((v - min) / Math.max(1e-9, max - min)) * 100;
+  const el = useRef<HTMLInputElement>(null), commit = useRef(onCommit); commit.current = onCommit;
+  // (the input's own 'change': fired once the thumb is let go, or a key has stepped it — never during a drag)
+  useEffect(() => { const i = el.current; if (!i) return; const h = () => { commit.current?.(+i.value); setDraft(null); }; i.addEventListener('change', h); return () => i.removeEventListener('change', h); }, []);
   return (
     <div className={s.slider}>
       <label htmlFor={id} title={label}>{label}</label>
-      <input id={id} className={s.range} type="range" min={min} max={max} step={step} value={v} style={{ ['--p' as string]: `${p}%` }} onChange={e => onChange(+e.target.value)} />
+      <input id={id} ref={el} className={s.range} type="range" min={min} max={max} step={step} value={v} style={{ ['--p' as string]: `${p}%` }} onChange={e => { const x = +e.target.value; setDraft(x); onChange?.(x); }} />
       <output htmlFor={id}>{format ? format(v) : (+v).toFixed(2)}</output>
     </div>
   );

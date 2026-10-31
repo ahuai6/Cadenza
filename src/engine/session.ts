@@ -7,9 +7,9 @@ import { respace, type Spacing } from '../lyrics/spacing';
 import { loadSegmenter, segmenterReady } from '../text/segment';
 import { buildLyrics, type LyricDoc } from '../lyrics/model';
 import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis } from '../rhythm';
-import { plan as makePlan, ASPECTS, type ScenePlan } from '../director';
+import { plan as makePlan, planCuesFor, ASPECTS, type ScenePlan } from '../director';
 import type { SongInfo } from '../director/titles';
-import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, PROJECT_KEYS, KNOB_REBUILD, LOOK_KEYS, type Style } from '../theme/style';
+import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style } from '../theme/style';
 import { canvasMeasurer, EM } from '../text/metrics';
 import { fontStack, ensureFontSoon } from '../text/fonts';
 import { paletteOf, paletteFromImage, paletteVinyl, paletteForPreset, ambientFromImage, ambientFromName, type Palette, type Ambient } from '../render/palette';
@@ -38,6 +38,10 @@ export interface SessionSpec {
 export interface SessionEnv { lang: string; labels: { composer: string; lyricist: string; artist: string }; viewAspect: () => number; onAnalysis?: (a: RhythmAnalysis) => void }
 type Img = CanvasImageSource & { width: number; height: number };
 
+/** (the session's own rebuilds, beside the style's REPLAN and RECUE) */
+const BUILD = 2, RETIME = 8;
+/** effects the plan strikes on accents (their cues: director/cues.ts) */
+const CUED_FX = new Set(['glass', 'glyph', 'chroma', 'glitch']);
 const titleCard = (s: SongInfo) => `[00:00.00]${(s.title || '♪').replace(/[[\]<>#|]/g, ' ')}` + (s.artist ? `\n[00:00.00]${s.artist.replace(/[[\]<>#|]/g, ' ')}` : '');
 export function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise(res => { if (!url) return res(null); const im = new Image(); if (!/^data:/.test(url)) im.crossOrigin = 'anonymous'; im.decoding = 'async';
@@ -50,7 +54,11 @@ export class Session {
   map!: RhythmMap; sig!: Signals; doc!: LyricDoc; plan!: ScenePlan;
   hasLyrics = false; audioStart = 0; musicEnd = 0; dur = 0; endLen = 3.5;
   version = 0;                        // bumps on every replan (views re-read the plan)
-  private dirty = 0;                  // what needs rebuilding before the next frame
+  /** what needs rebuilding before the next frame: REPLAN, BUILD (from the lyrics down), RETIME (the timing only: the
+   *  lyric shift, the ending's length — the words as they were), RECUE (the effect cues only) */
+  private dirty = 0;
+  /** the rebuild under way, if one is (one at a time: edits made meanwhile are taken by the next round) */
+  private flushing: Promise<void> | null = null;
   constructor(spec: SessionSpec, private env: SessionEnv) { this.spec = { ...spec }; }
 
   static async open(spec: SessionSpec, env: SessionEnv): Promise<Session> {
@@ -79,7 +87,6 @@ export class Session {
   /** Everything from the lyrics down: timing, rhythm map, lyric model, plan. */
   async build() {
     const sp = this.spec, r = parseRange(sp.range), buf = sp.audio;
-    this.audioStart = r.a - (sp.lshift || 0) / 1000; this.endLen = sp.song.album ? 0.05 : Math.min(8, Math.max(2, sp.endLen ?? 3.5));
     const fileEnd = buf ? (r.b != null ? Math.min(r.b, buf.duration) : buf.duration) : Infinity;
     const parsedLen = isFinite(fileEnd) ? fileEnd - r.a : Infinity;
     let parsed = parse(sp.lyrics || '', r.a, parsedLen); this.hasLyrics = parsed.lines.length > 0;
@@ -90,13 +97,20 @@ export class Session {
     // song time 0 is the range start; the lyric shift moves the music under the lyrics (it is in audioStart), so the
     // layout, the beats, the audio and the video stay in agreement
     const text = parsed.lines.map(L => L.text).join('');
-    await ensureFontSoon(this.style.font, text + sp.song.title, this.env.lang, 1200, () => { this.fontsLate = true; this.dirty |= 1; });
-    const last = parsed.lines[parsed.lines.length - 1];
+    await ensureFontSoon(this.style.font, text + sp.song.title, this.env.lang, 1200, () => { this.fontsLate = true; this.dirty |= REPLAN; });
+    this.parsed = parsed; this.retime();
+  }
+  /** From the timing down (the lyric shift, the ending, the rhythm map, the lyric model, the plan) — the words read from
+   *  the lyrics as they were: what the timing sliders change, without reading and breaking the lyrics again. */
+  private retime() {
+    const sp = this.spec, r = parseRange(sp.range), buf = sp.audio, parsed = this.parsed!;
+    this.audioStart = r.a - (sp.lshift || 0) / 1000; this.endLen = sp.song.album ? 0.05 : Math.min(8, Math.max(2, sp.endLen ?? 3.5));
+    const fileEnd = buf ? (r.b != null ? Math.min(r.b, buf.duration) : buf.duration) : Infinity, last = parsed.lines[parsed.lines.length - 1];
     this.musicEnd = buf ? Math.max(1, fileEnd - this.audioStart) : (last ? (last.stop ?? last.t + 3) + 1.6 : 10);
     this.dur = this.musicEnd + this.endLen;
     this.map = this.analysis ? new RhythmMap(this.analysis, this.audioStart) : RhythmMap.grid(Math.max(40, Math.min(240, sp.bpm || 120)), 0, this.dur + 2);
     this.sig = new Signals(this.map);
-    this.parsed = parsed; this.doc = buildLyrics(parsed, this.map, this.musicEnd);
+    this.doc = buildLyrics(parsed, this.map, this.musicEnd);
     this.replan();
   }
   private parsed: ReturnType<typeof parse> | null = null;
@@ -125,16 +139,33 @@ export class Session {
     if (this.fontsLate) { clearGlyphCache(); this.fontsLate = false; }
     this.plan = makePlan({ doc: this.doc, map: this.map, style: this.style, measure: canvasMeasurer(`${fc.w} ${EM}px ${fc.stack}`), aspect,
       musicEnd: this.musicEnd, endLen: this.endLen, song: this.spec.song, labels: this.env.labels });
-    this.version++; this.dirty = 0;
+    this.version++;
   }
+  /** The effect cues alone, the rest of the plan as it is (a trigger's sensitivity, an effect struck on accents). */
+  private recue() { this.plan.cues = planCuesFor(this.plan); this.version++; }   // (the same plan: its glyphs need no baking again)
   colors() { this.pal = paletteOf(this.style); this.ambient = this.cover ? ambientFromImage(this.cover) : ambientFromName(this.spec.song.title); }
   /** Rebuild whatever edits asked for (called by the engine once per frame at most). */
-  async flush() {
-    // (an edit while a newer rhythm waits: it is taken now, under the edit's own rebuild)
-    if (this.dirty && this.staged) { this.analysis = this.staged.analysis; this.staged = null; this.dirty |= 2; }
-    if (this.dirty & 2) await this.build(); else if (this.dirty & 1) this.replan();
+  async flush(): Promise<void> {
+    // (one rebuild at a time: a rebuild waits for the segmenter and the face, and every frame asks for one meanwhile —
+    // they are all this one; what is edited while it runs is taken by its next round)
+    if (this.flushing) return this.flushing;
+    // (a round with nothing to wait for — a replan — runs to its end at once, before the promise is even kept: only one
+    // still running is kept as the one under way)
+    let done = false, run: Promise<void> | null = null;
+    run = (async () => {
+      try {
+        while (this.dirty) {
+          // (an edit while a newer rhythm waits: it is taken now, under the edit's own rebuild)
+          if (this.staged) { this.analysis = this.staged.analysis; this.staged = null; this.dirty |= BUILD; }
+          const d = this.dirty; this.dirty = 0;
+          if (d & BUILD) await this.build(); else if (d & RETIME) this.retime(); else if (d & REPLAN) this.replan(); else if (d & RECUE) this.recue();
+        }
+      } finally { done = true; if (this.flushing === run) this.flushing = null; }
+    })();
+    if (!done) this.flushing = run;
+    return run!;
   }
-  get needsFlush() { return this.dirty !== 0; }
+  get needsFlush() { return this.dirty !== 0 || !!this.flushing; }
 
   /* ---- edits ---- */
   get custom() { return isCustom(this.style); }
@@ -144,22 +175,29 @@ export class Session {
     if (st[k] === v) return true; st[k] = v; if (!PROJECT_KEYS.includes(k as string)) st.edited = true;
     if (['bg', 'bg2', 'text', 'accent', 'flash'].includes(k as string)) { this.colors(); return true; }
     if (['vidDark', 'solidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverSize', 'coverEdge', 'coverBlur', 'aa', 'quality'].includes(k as string)) return true;
-    if (k === 'font') { this.dirty |= 2; return true; }
+    if (k === 'font') { this.dirty |= BUILD; return true; }
     if (k === 'bgStyle') { st.coverEdge ??= 'album'; st.coverBlur ??= 0; st.coverSize ??= 0.6; }
-    this.dirty |= 1; return true;
+    this.dirty |= REPLAN; return true;
   }
-  setKnob(k: string, v: number) { if (!this.custom && k !== 'size') return false; this.style.k[k] = +v; if (k !== 'size') this.style.edited = true; this.style.m = knobbed(this.style.m0, this.style.k); if (KNOB_REBUILD[k]) this.dirty |= 1; return true; }
-  setEffect(id: string, on: boolean) { if (!this.custom) return false; this.style.fx[id] = !!on; this.style.edited = true; if (id === 'glass' || id === 'glyph' || id === 'frame') this.dirty |= 1; return true; }
+  /** A knob; `live`: only its look while it is dragged — what it changes in the plan is taken when it is let go (a
+   *  second call without live), so dragging never replans at every step. */
+  setKnob(k: string, v: number, live = false) { if (!this.custom && k !== 'size') return false; this.style.k[k] = +v; if (k !== 'size') this.style.edited = true; this.style.m = knobbed(this.style.m0, this.style.k);
+    if (!live) { const r = KNOB_REBUILD[k] ?? 0; if (r & REPLAN) this.dirty |= REPLAN; else if (r & RECUE) this.dirty |= RECUE; } return true; }
+  setEffect(id: string, on: boolean) { if (!this.custom) return false; this.style.fx[id] = !!on; this.style.edited = true;
+    // (what the plan holds for an effect: the frames are laid out with the words; the shattered glass, the glyph panes, the
+    // colour split and the glitch are cues struck on accents)
+    if (id === 'frame') this.dirty |= REPLAN; else if (CUED_FX.has(id)) this.dirty |= RECUE; return true; }
   setEffectParam(id: string, key: string, v: number | string | boolean) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; this.style.edited = true; return true; }
   makeCustom() { if (this.custom) return; this.style = { ...JSON.parse(JSON.stringify(this.style)), preset: 'custom', from: this.style.from || this.style.preset, id: null, name: '', edited: false }; this.style.m = knobbed(this.style.m0, this.style.k); }
-  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); this.style.edited = false; if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {}); this.colors(); this.dirty |= 2; }
-  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, aa: keep.aa, edited: false }); this.colors(); this.dirty |= 2; }
+  applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); this.style.edited = false; if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {}); this.colors(); this.dirty |= BUILD; }
+  applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, aa: keep.aa, edited: false }); this.colors(); this.dirty |= BUILD; }
   coverPalette() { if (!this.cover) return; Object.assign(this.style, (this.style.bgStyle === 'vinyl' ? paletteVinyl : paletteFromImage)(this.cover)); this.colors(); }
-  setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= 2; else this.dirty |= 1; }
-  setLyrics(src: string) { this.spec.lyrics = src; this.dirty |= 2; }
+  setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= BUILD; else this.dirty |= REPLAN; }
+  setLyrics(src: string) { this.spec.lyrics = src; this.dirty |= BUILD; }
   /** The listener's word spacing (lyrics/spacing.ts), or none to go back to the segmenter's. */
-  setSpacing(sp: Spacing | undefined) { this.spec.spacing = sp; this.dirty |= 2; }
-  setTiming(p: { lshift?: number; range?: string; endLen?: number; bpm?: number }) { Object.assign(this.spec, p); this.dirty |= 2; }
+  setSpacing(sp: Spacing | undefined) { this.spec.spacing = sp; this.dirty |= BUILD; }
+  /** The timing: the lyric shift and the ending's length retime what is there; a new range or tempo builds anew. */
+  setTiming(p: { lshift?: number; range?: string; endLen?: number; bpm?: number }) { Object.assign(this.spec, p); this.dirty |= p.range !== undefined || p.bpm !== undefined || !this.parsed ? BUILD : RETIME; }
   async setCover(url: string, repaint: boolean) {
     this.cover = await loadImage(url); this.coverKey = url; this.spec.coverUrl = url;
     // (the record theme keeps its own stage, in the new cover's colours; any other becomes the cover theme)
@@ -167,7 +205,7 @@ export class Session {
       Object.assign(this.style, (rec ? paletteVinyl : paletteFromImage)(this.cover)); }
     this.colors(); this.dirty |= repaint ? 1 : 0;
   }
-  setAudio(buf: AudioLike | null, analysis: RhythmAnalysis | null) { this.spec.audio = buf; this.staged = null; this.analysis = analysis && isCurrent(analysis) ? analysis : null; this.dirty |= 2; }
+  setAudio(buf: AudioLike | null, analysis: RhythmAnalysis | null) { this.spec.audio = buf; this.staged = null; this.analysis = analysis && isCurrent(analysis) ? analysis : null; this.dirty |= BUILD; }
   /** The aspect changed (a fill-the-window view resized): the camera and layout depend on it. */
-  aspectChanged() { if (this.style.aspect === 'fill') this.dirty |= 1; }
+  aspectChanged() { if (this.style.aspect === 'fill') this.dirty |= REPLAN; }
 }

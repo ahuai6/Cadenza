@@ -63,8 +63,13 @@ export const AA_MODES = ['off', 'ssaa', 'ssaa3'];
  *  effects or camera: what album play carries from the first song to the rest. */
 export const LOOK_KEYS = ['bg', 'bg2', 'text', 'accent', 'flash', 'font', 'bgStyle', 'coverEdge', 'coverBlur', 'coverSize', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'solidDark'] as const;
 export const PROJECT_KEYS = ['aspect', 'aa', 'vidDark', 'vidBlur', 'vidDesat', 'vidFit', 'coverEdge', 'coverBlur', 'coverSize'];
-/** What each knob rebuilds: 0 nothing, 1 the layout, 2 the camera path, 4 the effect cues. */
-export const KNOB_REBUILD: Record<string, number> = { jitter: 0, pace: 2, turns: 1, flip: 1, depth: 1, size: 1, glyph: 1, trigger: 4, energy: 4, groove: 0, float: 0, enter: 0, glow: 0, split: 0 };
+/** What a change asks of the plan: REPLAN the whole of it (the layout and the camera are planned together), RECUE the
+ *  effect cues only. */
+export const REPLAN = 1, RECUE = 4;
+/** What each knob rebuilds (0: nothing — it is read as the picture is drawn). As the plan reads them: the layout the
+ *  pace, turns, depth, size and entrance (how early a word shows); the camera the float (its handheld drift and sway)
+ *  and the energy (its punch and shake); the cues the triggers and the glyph panes' frequency. */
+export const KNOB_REBUILD: Record<string, number> = { jitter: 0, pace: REPLAN, turns: REPLAN, depth: REPLAN, size: REPLAN, enter: REPLAN, float: REPLAN, energy: REPLAN, glyph: RECUE, trigger: RECUE, groove: 0, glow: 0, split: 0 };
 
 const knobDefaults = () => Object.fromEntries(KNOBS.map(([k]) => [k, 1]));
 const up = (b: number, k: number, ref: number) => (k <= 1 ? b * k : b + (k - 1) * Math.max(b, ref));

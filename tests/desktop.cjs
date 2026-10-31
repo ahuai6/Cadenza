@@ -165,6 +165,27 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const baked = await C(() => [...document.querySelectorAll('[role=option] span')].filter(e => /^url\(/.test(getComputedStyle(e).webkitMaskImage) && getComputedStyle(e).fontSize === '0px').length);
     await shot('fx-fontpicker'); const after = await links(); await sp.getByRole('combobox', { name: '字體' }).click(); await W(300);
     ok('font picker: opens with every name a baked picture, loading no face', open > 30 && baked > 30 && after === before, JSON.stringify({ open, baked, before, after, took })); }
+  // a knob the plan reads: dragging it does not replan at every step — only once it is let go
+  { const sp = win.locator('[data-test=song-panel]'); await sp.getByRole('tab', { name: '動態' }).click(); await W(400);
+    const r = await C(async () => { const s = window.__cadenza.player.get().session, inp = [...document.querySelectorAll('[data-test=song-panel] input[type=range]')].find(i => i.labels?.[0]?.textContent === '運鏡速度');
+      if (!inp) return { found: false };
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set, v0 = s.version, k0 = s.style.k.pace, wait = ms => new Promise(r => setTimeout(r, ms));
+      for (let i = 1; i <= 10; i++) { set.call(inp, String(k0 + i * 0.02)); inp.dispatchEvent(new Event('input', { bubbles: true })); await wait(40); }
+      await wait(300); const during = s.version - v0, live = s.style.k.pace;
+      inp.dispatchEvent(new Event('change', { bubbles: true })); await wait(1500); const after = s.version - v0;
+      // (and back as it was, for what follows)
+      set.call(inp, String(k0)); inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true })); await wait(1200);
+      return { found: true, during, after, live: +live.toFixed(2), want: +(k0 + 0.2).toFixed(2) }; });
+    ok('knobs: dragging one the plan reads replans only once it is let go (its value follows the drag)', r.found && r.during === 0 && r.after >= 1 && r.live === r.want, JSON.stringify(r)); }
+  // a rebuild waits for the segmenter and the face; asked for again meanwhile (every frame does), it is still the one
+  { const r = await C(async () => { const s = window.__cadenza.player.get().session, v0 = s.version;
+      // (each rebuild ends in one replan: twenty asks while one waits make one rebuild, one replan)
+      s.setSpacing(s.spec.spacing); await Promise.all(Array.from({ length: 20 }, () => s.flush())); const builds = s.version - v0;
+      // the colour split, struck on accents: switched on, its cues are made at once (a replan of the cues alone)
+      const was = !!s.style.fx.chroma, v1 = s.version, cues0 = s.plan.cues; s.setEffect('chroma', !was); await s.flush();
+      const recued = s.version - v1, sameplan = s.plan.cues !== cues0; s.setEffect('chroma', was); await s.flush();
+      return { builds, recued, sameplan }; });
+    ok('rebuilds: one at a time however often asked for; switching the colour split remakes its cues at once', r.builds === 1 && r.recued === 1 && r.sameplan, JSON.stringify(r)); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click(); await W(300); await shot('fx-panel-lyrics');
   const ime = {};
   await win.locator('[data-test=song-panel] textarea').first().click(); await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ㄋ' })));

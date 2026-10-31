@@ -1,6 +1,6 @@
 // The director: plans a song ahead (layout, camera, transitions, cues, titles) and evaluates the plan at any time.
 export * from './types';
-export { plan, ASPECTS, type PlanInput } from './plan';
+export { plan, planCuesFor, ASPECTS, type PlanInput } from './plan';
 export { cameraAt, idleK, lerpCam, type CamFrame } from './evaluate';
 export { basePose } from './camera';
 export { project, onScreen, FOCAL, NO_FX, type Cam, type Fx, type Projected } from './project';

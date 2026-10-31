@@ -63,6 +63,9 @@ export function plan(inp: PlanInput): ScenePlan {
   pickEmphasis(lay.lines);
   return out;
 }
+/** A plan's effect cues made anew for its style as it is now (the rest of the plan as it was): what a trigger's
+ *  sensitivity, or an effect struck on accents, changes. */
+export function planCuesFor(P: ScenePlan): ScenePlan['cues'] { return planCues(P.map, P.style, P.lines, P.musicEnd, P.camera.idle, P.doc.marks || []); }
 /** Round a centre (the 圓心 type) the lines stay close together and the camera keeps coming back past them: a line
  *  once sung is taken away the moment the camera no longer sees it, so the picture never fills up with old lines as it
  *  swings round (on top of the page's cap, which still holds). */

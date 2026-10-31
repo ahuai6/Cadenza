@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
-import { PRESETS, KNOBS, presetStyle, type Style } from '../../theme/style';
+import { PRESETS, KNOBS, KNOB_REBUILD, presetStyle, type Style } from '../../theme/style';
 import { effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
@@ -87,7 +87,7 @@ export function TextPane({ s: ss, edit }: PaneProps) {
   return (
     <Section title={tx('font')} note={custom ? tx('font.help') : undefined}>
       {custom && <div className={kit.field}><label>{tx('font')}</label><FontPicker label={tx('font')} value={st.font} onChange={v => edit(x => x.setStyle('font', v))} /></div>}
-      <Slider label={tx('k.size')} min={KN.size.mn} max={KN.size.mx} step={KN.size.sp} value={st.k.size} format={fmtK} onChange={v => edit(x => x.setKnob('size', v))} />
+      <Slider label={tx('k.size')} min={KN.size.mn} max={KN.size.mx} step={KN.size.sp} value={st.k.size} format={fmtK} onCommit={v => edit(x => x.setKnob('size', v))} />
       {custom && <Row><Button kind="ghost" size="sm" onClick={() => edit(x => { x.setStyle('font', presetStyle(x.style.from).font); x.setKnob('size', 1); })}>{tx('reset.font')}</Button></Row>}
     </Section>
   );
@@ -120,7 +120,9 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
         </Section>
         {GROUPS.map(g => (
           <Section key={g} title={tx(g)} action={<Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>{tx('reset.group')}</Button>} note={g === 'grp.triggers' ? tx('help.triggers') : undefined}>
-            {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => <Slider key={k} label={tx('k.' + k)} min={mn} max={mx} step={sp} value={st.k[k]} format={fmtK} onChange={v => edit(x => x.setKnob(k, v))} />)}
+            {/* (a knob the plan reads: its look follows the drag, the plan is made once it is let go) */}
+            {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => <Slider key={k} label={tx('k.' + k)} min={mn} max={mx} step={sp} value={st.k[k]} format={fmtK}
+              onChange={v => edit(x => x.setKnob(k, v, true))} onCommit={KNOB_REBUILD[k] ? v => edit(x => x.setKnob(k, v)) : undefined} />)}
           </Section>
         ))}
       </fieldset>
@@ -161,7 +163,7 @@ export function EndPane({ s: ss, edit }: PaneProps) {
     <Section note={tx('end.help')}>
       <Check label={tx('end.on')} checked={G.on} onChange={v => edit(x => x.setSong({ on: v }))} />
       {SONG_FIELDS.map(k => <TextField key={k} label={tx('end.' + k)} value={(G as any)[k] || ''} onCommit={v => edit(x => x.setSong({ [k]: v }))} />)}
-      <Slider label={tx('end.len')} min={2} max={8} step={0.5} value={ss.endLen} format={v => (+v).toFixed(1) + ' s'} onChange={v => edit(x => x.setTiming({ endLen: v }))} />
+      <Slider label={tx('end.len')} min={2} max={8} step={0.5} value={ss.endLen} format={v => (+v).toFixed(1) + ' s'} onCommit={v => edit(x => x.setTiming({ endLen: v }))} />
     </Section>
   );
 }

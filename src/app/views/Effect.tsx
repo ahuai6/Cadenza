@@ -175,7 +175,7 @@ export function LyricsTab() {
           <Button size="sm" onClick={async () => { const x = await Lib!.importLyricsFile(); if (x) use(/\[\d+:\d+/.test(x) ? x : spreadPlain(x, end)); }}>{tx('s.lyr.import')}</Button>
         </Row>
         {msg && <Note>{msg}</Note>}
-        <Slider label={tx('s.lyr.offset')} min={-1500} max={1500} step={10} value={session.spec.lshift || 0} format={v => `${v > 0 ? '+' : ''}${Math.round(v)}`} onChange={v => editSong(x => x.setTiming({ lshift: v }))} />
+        <Slider label={tx('s.lyr.offset')} min={-1500} max={1500} step={10} value={session.spec.lshift || 0} format={v => `${v > 0 ? '+' : ''}${Math.round(v)}`} onCommit={v => editSong(x => x.setTiming({ lshift: v }))} />
       </div>
       {p.hasLyrics && <SpacingEditor />}
       <div style={{ display: 'grid', gap: 8 }}>
