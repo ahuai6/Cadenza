@@ -166,12 +166,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     await shot('fx-fontpicker'); const after = await links(); await sp.getByRole('combobox', { name: '字體' }).click(); await W(300);
     ok('font picker: opens with every name a baked picture, loading no face', open > 30 && baked > 30 && after === before, JSON.stringify({ open, baked, before, after, took })); }
   // a knob the plan reads: dragging it does not replan at every step — only once it is let go
-  { const sp = win.locator('[data-test=song-panel]'); await sp.getByRole('tab', { name: '動態' }).click(); await W(400);
-    const r = await C(async () => { const s = window.__cadenza.player.get().session, inp = [...document.querySelectorAll('[data-test=song-panel] input[type=range]')].find(i => i.labels?.[0]?.textContent === '運鏡速度');
+  { const sp = win.locator('[data-test=song-panel]'); await sp.getByRole('tab', { name: '風格' }).click(); await W(400);
+    const r = await C(async () => { const s = window.__cadenza.player.get().session, inp = [...document.querySelectorAll('[data-test=song-panel] input[type=range]')].find(i => i.labels?.[0]?.textContent === '速度');
       if (!inp) return { found: false };
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set, v0 = s.version, k0 = s.style.k.pace, wait = ms => new Promise(r => setTimeout(r, ms));
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set, v0 = s.version, k0 = s.style.k.speed ?? 1, wait = ms => new Promise(r => setTimeout(r, ms));
       for (let i = 1; i <= 10; i++) { set.call(inp, String(k0 + i * 0.02)); inp.dispatchEvent(new Event('input', { bubbles: true })); await wait(40); }
-      await wait(300); const during = s.version - v0, live = s.style.k.pace;
+      await wait(300); const during = s.version - v0, live = s.style.k.speed;
       inp.dispatchEvent(new Event('change', { bubbles: true })); await wait(1500); const after = s.version - v0;
       // (and back as it was, for what follows)
       set.call(inp, String(k0)); inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true })); await wait(1200);
@@ -203,10 +203,16 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     ok('lyrics editor: cue symbols typed at the cursor, by Alt + their key or their button', v.endsWith('#1#3') && keys === 5, JSON.stringify({ tail: v.slice(-12), keys }));
     await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace'); await win.keyboard.press('Backspace');
     await C(() => document.activeElement.blur()); }
-  await win.locator('[data-test=song-panel]').getByRole('tab', { name: '動態' }).click(); await W(300);
+  await win.locator('[data-test=song-panel]').getByRole('tab', { name: '風格' }).click(); await W(300);
   await C(() => window.__cadenza.api.editSong(s => s.setKnob('energy', 1.6))); await W(1000);
   const saved = await C(id => window.cadenzaLib.song(id).then(s => ({ k: s && s.style && s.style.k && s.style.k.energy, custom: s && s.style && s.style.preset })), ids['晨光']);
   ok('song panel: editing makes a custom theme bound to the song and saves it', saved.k === 1.6 && saved.custom === 'custom', JSON.stringify(saved));
+  { const r = await C(async () => { const s = window.__cadenza.player.get().session, look = { bg: s.style.bg, font: s.style.font, bgStyle: s.style.bgStyle }, was = s.style.motion || 'story';
+      const opts = [...document.querySelectorAll('[data-test=song-panel] [role=combobox]')].map(b => b.textContent);
+      window.__cadenza.api.editSong(x => x.applyMotion('float')); await s.flush(); const after = { cut: s.style.cut, ltype: s.style.ltype, bg: s.style.bg, font: s.style.font, bgStyle: s.style.bgStyle };
+      window.__cadenza.api.editSong(x => x.applyMotion(was)); await s.flush();
+      return { rec: s.recommended, opts: opts.slice(0, 2), same: after.bg === look.bg && after.font === look.font && after.bgStyle === look.bgStyle, after }; });
+    ok('style pane: a motion style is chosen apart from the look (the look stays), one recommended for the song', r.same && r.after.cut === 'hover' && r.after.ltype === 'orbit' && !!r.rec, JSON.stringify(r)); }
   await shot('fx-panel-motion');
   await win.mouse.move(700, 450); await W(1200);
 

@@ -92,7 +92,9 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen') => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id))).sort(byZ)) e.draw(g, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
   if (view > 0.001) {
     world('world-back');
-    const split = (cf.split * 10 + f.rs.pulse * 1.5 * f.I) * f.motion * M.split;
+    // (the afterimage: the effect's strength — 0.4 at 1, the liquid look's — times the older knob's, kept for styles that tuned it)
+    const afterK = st.fx.afterimage ? 0.4 * +(st.fxp?.afterimage?.amount ?? 1) * (st.k.split ?? 1) : 0;
+    const split = (cf.split * 10 + f.rs.pulse * 1.5 * f.I) * f.motion * afterK;
     const tk = clamp((mb - 0.3) / 2.5);
     if (tk > 0.02) { const len = mb * 1.6, d = Math.hypot(vx, vy) || 1, c = Math.cos(-cam.r * D2R), s = Math.sin(-cam.r * D2R), mdx = (vx * c - vy * s) / d, mdy = (vx * s + vy * c) / d;
       drawLyrics(g, f, f.vis, { ink: f.ink, split, trail: { k: 0.22 * tk, dx: mdx * len * 0.7, dy: mdy * len * 0.7 } }); }

@@ -1,7 +1,7 @@
 {
   "name": "cadenza",
   "productName": "Cadenza",
-  "version": "2.9.3",
+  "version": "2.10.0",
   "description": "Cadenza: a personal music library whose songs play with lyrics that move to the music, exportable as lyric videos",
   "private": true,
   "type": "module",
@@ -20,7 +20,8 @@
     "electron": "npm run build:app && electron .",
     "models": "node scripts/models.mjs",
     "test:neural": "node tests/neural.cjs",
-    "dist:win": "npm run build:app && npm run build:native && node scripts/models.mjs && electron-builder --win --x64"
+    "dist:win": "npm run build:app && npm run build:native && node scripts/models.mjs && electron-builder --win --x64",
+    "fonts:coverage": "node scripts/font-coverage.mjs"
   },
   "build": {
     "appId": "app.cadenza.desktop",

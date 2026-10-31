@@ -36,7 +36,7 @@ core ──► text ──► lyrics ──┐
 | `lyrics` | LRC/增強型 LRC 解析、斷詞（`spacing.ts`）、按唱法合詞（`phrasing.ts`）、歌詞模型、時間正規化（快速單位分群） | 不知道畫面，也不知道節奏引擎（只透過 `BeatGrid`） |
 | `text` | 文字系統（`script.ts`：字形叢集、CJK/RTL、斷詞）、字型登錄與載入、以 canvas 量字（不用 DOM） | |
 | `i18n` | 六種語言的介面文字 | |
-| `theme` | 主題預設、旋鈕、效果參數、樣式正規化（純資料） | |
+| `theme` | 外觀（五個預設的背景、配色、字體、特效）、動態風格（`MOTIONS`：鏡頭、歌詞類型、入場、退場與動態基準值）、微調旋鈕（`MACROS`，乘上 `KNOBS` 細項）、效果參數、樣式正規化（純資料）；外觀與風格分開套用（`withLook`、`withMotion`），見 `docs/STYLE-SYSTEM.md` | |
 | `director` | **導演（強前瞻）**：一首歌載入後一次規劃出不可變的 `ScenePlan`；`evaluate(plan, t)` 為純函式 | 不畫任何東西 |
 | `render` | 依 `SceneFrame` 繪製；效果外掛登錄表；字形快取；後製 | 不決定時間與位置 |
 | `engine` | `Engine` 類別：工作階段（Session）、時鐘、音訊輸出、視圖（環境/特效）、跨 DOM 的共享元素過渡、導出；`configure()`（全部設定的唯一入口）；`index.ts` 是給介面的公開 API | |

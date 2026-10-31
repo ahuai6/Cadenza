@@ -8,6 +8,10 @@ import { boxIn } from '../../director/layout';
 import { wordPlacement } from '../../director/words';
 
 /* ---------- lyric frames: an outline traced round part of a line, with corner ticks, following the words' depth ---------- */
+/** 文字殘影: the words' colour-split afterimage, drawn by the lyrics themselves (render/lyrics.ts, the split): here it is
+ *  a switch with its strength, in the lyrics' group of effects. */
+register({ id: 'afterimage', label: 'fx.afterimage', layer: 'world-back', kind: 'effect', z: 0,
+  params: [{ key: 'amount', label: 'p.amount', kind: 'range', min: 0.1, max: 2.5, step: 0.05, def: 1 }], draw() { /* drawn with the words */ } });
 register({ id: 'frame', label: 'fx.frame', layer: 'world-back', kind: 'effect', z: 2, draw(g, f) {
   // a frame encloses all its words, on screen or not (its shape must not depend on what the culling keeps)
   const vis = f.vis || [], byS = new Map(vis.map(v => [v.S, v])), t = f.t, ink = f.ink;

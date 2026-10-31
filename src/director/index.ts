@@ -7,3 +7,4 @@ export { project, onScreen, FOCAL, NO_FX, type Cam, type Fx, type Projected } fr
 export { wordState, unitPose, TIN_SPEC, type WordCtx, type WordState, type UnitPose } from './words';
 export { transK, timePassage } from './passages';
 export { corners, boxIn } from './layout';
+export { recommendMotion, songTraits } from './recommend';

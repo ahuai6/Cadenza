@@ -7,9 +7,9 @@ import { respace, type Spacing } from '../lyrics/spacing';
 import { loadSegmenter, segmenterReady } from '../text/segment';
 import { buildLyrics, type LyricDoc } from '../lyrics/model';
 import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis } from '../rhythm';
-import { plan as makePlan, planCuesFor, ASPECTS, type ScenePlan } from '../director';
+import { plan as makePlan, planCuesFor, recommendMotion, ASPECTS, type ScenePlan } from '../director';
 import type { SongInfo } from '../director/titles';
-import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style } from '../theme/style';
+import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, withLook, withMotion, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style } from '../theme/style';
 import { canvasMeasurer, EM } from '../text/metrics';
 import { fontStack, ensureFontSoon } from '../text/fonts';
 import { paletteOf, paletteFromImage, paletteVinyl, paletteForPreset, ambientFromImage, ambientFromName, type Palette, type Ambient } from '../render/palette';
@@ -110,7 +110,7 @@ export class Session {
     this.dur = this.musicEnd + this.endLen;
     this.map = this.analysis ? new RhythmMap(this.analysis, this.audioStart) : RhythmMap.grid(Math.max(40, Math.min(240, sp.bpm || 120)), 0, this.dur + 2);
     this.sig = new Signals(this.map);
-    this.doc = buildLyrics(parsed, this.map, this.musicEnd);
+    this.doc = buildLyrics(parsed, this.map, this.musicEnd); this.rec = null;
     this.replan();
   }
   private parsed: ReturnType<typeof parse> | null = null;
@@ -129,7 +129,7 @@ export class Session {
   takeStaged(): Session | null {
     const st = this.staged; if (!st) return null; this.staged = null;
     const before = Object.assign(Object.create(Object.getPrototypeOf(this)), this) as Session;
-    Object.assign(this, st); this.version++; return before;
+    Object.assign(this, st); this.rec = null; this.version++; return before;
   }
   replan() {
     const fc = fontStack(this.style.font, this.doc.lines.map(L => L.text).join('').slice(0, 400), this.env.lang);
@@ -187,9 +187,21 @@ export class Session {
     // (what the plan holds for an effect: the frames are laid out with the words; the shattered glass, the glyph panes, the
     // colour split and the glitch are cues struck on accents)
     if (id === 'frame') this.dirty |= REPLAN; else if (CUED_FX.has(id)) this.dirty |= RECUE; return true; }
-  setEffectParam(id: string, key: string, v: number | string | boolean) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; this.style.edited = true; return true; }
+  /** An effect's own setting; `live`: only its look while it is dragged (the glyph panes' frequency is a cue: taken
+   *  when let go). */
+  setEffectParam(id: string, key: string, v: number | string | boolean, live = false) { if (!this.custom) return false; (this.style.fxp ||= {})[id] = { ...(this.style.fxp?.[id] || {}), [key]: v }; this.style.edited = true;
+    if (!live && id === 'glyph' && key === 'freq') this.dirty |= RECUE; return true; }
   makeCustom() { if (this.custom) return; this.style = { ...JSON.parse(JSON.stringify(this.style)), preset: 'custom', from: this.style.from || this.style.preset, id: null, name: '', edited: false }; this.style.m = knobbed(this.style.m0, this.style.k); }
   applyPreset(id: string) { const keep = this.style; this.style = presetStyle(id, keep); this.style.edited = false; if (this.spec.aspect) this.style.aspect = this.spec.aspect; if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {}); this.colors(); this.dirty |= BUILD; }
+  /** A look (外觀: a preset's backdrop, colours — the cover's, for the cover look — typeface and effects), the motion
+   *  style and knobs kept. */
+  applyLook(id: string) { if (!this.custom) return false; this.style = withLook(this.style, id); this.style.edited = true;
+    if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {}); this.colors(); this.dirty |= BUILD; return true; }
+  /** A motion style (風格), the look and knobs kept. */
+  applyMotion(id: string) { if (!this.custom) return false; this.style = withMotion(this.style, id); this.style.edited = true; this.dirty |= REPLAN; return true; }
+  /** The motion style that fits this song best (director/recommend.ts), offered beside the others. */
+  get recommended(): string { return this.rec ??= recommendMotion({ doc: this.doc, map: this.map, analysis: this.analysis }); }
+  private rec: string | null = null;
   applyTheme(stored: unknown) { const keep = this.style; this.style = normalizeStyle({ ...(JSON.parse(JSON.stringify(stored)) as Style), preset: 'custom', aspect: this.spec.aspect || keep.aspect, aa: keep.aa, edited: false }); this.colors(); this.dirty |= BUILD; }
   coverPalette() { if (!this.cover) return; Object.assign(this.style, (this.style.bgStyle === 'vinyl' ? paletteVinyl : paletteFromImage)(this.cover)); this.colors(); }
   setSong(p: Partial<SongInfo>) { this.spec.song = { ...this.spec.song, ...p }; if (!this.hasLyrics) this.dirty |= BUILD; else this.dirty |= REPLAN; }

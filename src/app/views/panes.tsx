@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
-import { PRESETS, KNOBS, KNOB_REBUILD, presetStyle, type Style } from '../../theme/style';
+import { PRESETS, KNOBS, MACROS, MOTIONS, KNOB_REBUILD, motionOf, presetStyle, type Style } from '../../theme/style';
 import { effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
@@ -32,10 +32,12 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
   useEffect(() => { setName(st.name || ''); }, [st.id, st.name]);
   const isSaved = custom && !!st.id && saved.some(t => t.id === st.id);
   const presets = ctx === 'song' ? ['cover', 'vinyl', 'liquid', 'gothic'] : Object.keys(PRESETS);
-  const usePreset = (k: string) => edit(x => { x.applyPreset(k); if (ctx === 'song') x.makeCustom(); });
+  // a look keeps the motion style and the knobs (a custom theme); a locked preset in the workshop is taken whole
+  const usePreset = (k: string) => edit(x => { if (x.custom) x.applyLook(k); else x.applyPreset(k); });
+  const resetCover = () => edit(x => { x.applyPreset('cover'); if (ctx === 'song') x.makeCustom(); });
   const save = (asNew: boolean) => { const n = name.trim() || tx('th.untitled'), id = saveTheme(st, n, asNew); edit(x => { x.style.id = id; x.style.name = n; x.style.edited = false; }); toast(tx('th.saved', { name: n })); };
   return (
-    <Section title={tx('th.h')} note={!custom && ctx === 'workshop' ? tx('th.locked') : undefined}>
+    <Section title={tx('th.h')} note={!custom && ctx === 'workshop' ? tx('th.locked') : tx('th.help')}>
       <div className={s.presets}>
         {presets.map(k => <button key={k} type="button" className={s.preset} aria-pressed={(custom ? st.from === k && !st.id && !st.edited : st.preset === k)} onClick={() => usePreset(k)}><Swatch st={PRESETS[k]} /><span>{tx('preset.' + k)}</span></button>)}
         {saved.map(t => <button key={t.id} type="button" className={s.preset} aria-pressed={custom && st.id === t.id} onClick={() => edit(x => x.applyTheme({ ...(t.style as object), id: t.id, name: t.name }))}><Swatch st={t.style as Style} /><span>{t.name}</span></button>)}
@@ -50,7 +52,7 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
           {isSaved && <Button kind="ghost" size="sm" onClick={() => { const n = st.name || ''; deleteTheme(st.id!); edit(x => { x.style.id = null; x.style.name = ''; }); toast(tx('th.deleted', { name: n })); }}>{tx('th.del')}</Button>}
         </Row>
       </>}
-      {ctx === 'song' && <Row><Button kind="ghost" size="sm" onClick={() => { usePreset('cover'); toast(tx('s.resetCover')); }}>{tx('s.resetCover')}</Button></Row>}
+      {ctx === 'song' && <Row><Button kind="ghost" size="sm" onClick={() => { resetCover(); toast(tx('s.resetCover')); }}>{tx('s.resetCover')}</Button></Row>}
     </Section>
   );
 }
@@ -86,75 +88,100 @@ export function TextPane({ s: ss, edit }: PaneProps) {
   const st = ss.style, custom = st.preset === 'custom', KN = Object.fromEntries(KNOBS.map(([k, , mn, mx, sp]) => [k, { mn, mx, sp }]));
   return (
     <Section title={tx('font')} note={custom ? tx('font.help') : undefined}>
-      {custom && <div className={kit.field}><label>{tx('font')}</label><FontPicker label={tx('font')} value={st.font} onChange={v => edit(x => x.setStyle('font', v))} /></div>}
+      {custom && <div className={kit.field}><label>{tx('font')}</label><FontPicker label={tx('font')} value={st.font} text={ss.doc.lines.map(L => L.text).join('')} onChange={v => edit(x => x.setStyle('font', v))} /></div>}
       <Slider label={tx('k.size')} min={KN.size.mn} max={KN.size.mx} step={KN.size.sp} value={st.k.size} format={fmtK} onCommit={v => edit(x => x.setKnob('size', v))} />
       {custom && <Row><Button kind="ghost" size="sm" onClick={() => edit(x => { x.setStyle('font', presetStyle(x.style.from).font); x.setKnob('size', 1); })}>{tx('reset.font')}</Button></Row>}
     </Section>
   );
 }
 const GROUPS = [...new Set(KNOBS.map(k => k[1]))];
-/** The camera, the words' entrance, and a dozen knobs (1.00× is exactly the theme's tuning). */
+/** A knob's slider: its look follows the drag, what the plan reads of it is taken once it is let go. */
+const knob = (edit: Edit, k: string) => ({ onChange: (v: number) => edit(x => x.setKnob(k, v, true)), onCommit: KNOB_REBUILD[k] ? (v: number) => edit(x => x.setKnob(k, v)) : undefined });
+/** The motion style (風格) with the one that fits this song marked, five knobs to tune it, and everything in detail
+ *  under 進階 (the camera, lyric type, entrance, exit and the detailed knobs the five multiply). */
 export function MotionPane({ s: ss, edit }: PaneProps) {
-  const st = ss.style, custom = st.preset === 'custom', set = (k: string, v: unknown) => edit(x => x.setStyle(k, v));
+  const st = ss.style, custom = st.preset === 'custom', set = (k: string, v: unknown) => edit(x => x.setStyle(k, v)), [adv, setAdv] = useState(false);
+  const cur = motionOf(st), rec = ss.recommended, name = (id: string) => tx('mo.' + id);
   const resetGroup = (g: string) => edit(x => { for (const [k, gg] of KNOBS) if (gg === g && k !== 'size') x.setKnob(k, 1); });
-  const resetAll = () => edit(x => { const b = presetStyle(x.style.from); for (const k of ['cut', 'trans', 'flashMode', 'future', 'tin', 'tout', 'ltype']) x.setStyle(k, (b as any)[k] ?? (k === 'ltype' ? 'flow' : undefined)); for (const [k] of KNOBS) if (k !== 'size') x.setKnob(k, 1); });
+  const resetTune = () => edit(x => { for (const [k] of MACROS) x.setKnob(k, 1); });
+  // (all back to the motion style as it comes: its own settings, every knob at 1)
+  const resetAll = () => edit(x => { x.applyMotion(motionOf(x.style)); for (const [k] of [...KNOBS, ...MACROS]) if (k !== 'size') x.setKnob(k, 1); x.setStyle('trans', 'auto'); x.setStyle('future', 'dim'); });
   return (
     <>
       {!custom && <Note>{tx('th.locked')}</Note>}
       <fieldset disabled={!custom} className={s.set}>
-        <Section title={tx('cam.h')} note={tx('help.knobs')}>
-          <Select label={tx('cut')} value={st.cut} options={opts(CUTS, 'cut.')} onChange={v => set('cut', v)} />
-          <Row>
-            <Select label={tx('trans')} value={st.trans || 'auto'} options={opts(['auto', 'off'], 'trans.')} onChange={v => set('trans', v)} />
-            <Select label={tx('flash')} value={st.flashMode} options={opts(['color', 'invert'], 'flash.')} onChange={v => set('flashMode', v)} />
-          </Row>
-          <Row><Button size="sm" onClick={resetAll}>{tx('reset.all')}</Button></Row>
+        <Section title={tx('mo.h')} note={tx('mo.help')}>
+          <Select label={tx('mo.style')} value={cur} options={Object.keys(MOTIONS).map(id => [id, id === rec ? tx('mo.recTag', { name: name(id) }) : name(id)])} onChange={v => edit(x => x.applyMotion(v))} />
+          <Note>{tx('mo.' + cur + '.fit')}{cur !== rec ? ' ' + tx('mo.recNote', { name: name(rec) }) : ''}</Note>
         </Section>
-        <Section title={tx('grp.lyrics')} note={tx('future.help')}>
-          <Select label={tx('ltype')} value={st.ltype || 'flow'} options={opts(Object.keys(LYRIC_TYPES), 'lt.')} onChange={v => set('ltype', v)} />
-          <Select label={tx('future')} value={st.future} options={opts(['dim', 'hide'], 'future.')} onChange={v => set('future', v)} />
-          <Row>
-            <Select label={tx('tin')} value={st.tin || 'mix'} options={opts(TIN, 'tin.')} onChange={v => set('tin', v)} />
-            <Select label={tx('tout')} value={st.tout === 'drift' || st.tout === 'spread' ? st.tout : 'none'} options={opts(['none', 'drift', 'spread'], 'tout.')} onChange={v => set('tout', v)} />
-          </Row>
+        <Section title={tx('mo.tune')} note={tx('help.knobs')} action={<Button kind="ghost" size="sm" onClick={resetTune}>{tx('reset.group')}</Button>}>
+          {MACROS.map(([k, mn, mx, sp]) => <Slider key={k} label={tx('km.' + k)} min={mn} max={mx} step={sp} value={st.k[k] ?? 1} format={fmtK} {...knob(edit, k)} />)}
         </Section>
-        {GROUPS.map(g => (
-          <Section key={g} title={tx(g)} action={<Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>{tx('reset.group')}</Button>} note={g === 'grp.triggers' ? tx('help.triggers') : undefined}>
-            {/* (a knob the plan reads: its look follows the drag, the plan is made once it is let go) */}
-            {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => <Slider key={k} label={tx('k.' + k)} min={mn} max={mx} step={sp} value={st.k[k]} format={fmtK}
-              onChange={v => edit(x => x.setKnob(k, v, true))} onCommit={KNOB_REBUILD[k] ? v => edit(x => x.setKnob(k, v)) : undefined} />)}
-          </Section>
-        ))}
+        <Section title={tx('adv.h')} note={adv ? tx('adv.help') : undefined} action={<Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv(v => !v)}>{tx(adv ? 'adv.hide' : 'adv.show')}</Button>}>
+          {adv && <>
+            <Select label={tx('cut')} value={st.cut} options={opts(CUTS, 'cut.')} onChange={v => set('cut', v)} />
+            <Row>
+              <Select label={tx('trans')} value={st.trans || 'auto'} options={opts(['auto', 'off'], 'trans.')} onChange={v => set('trans', v)} />
+              <Select label={tx('flash')} value={st.flashMode} options={opts(['color', 'invert'], 'flash.')} onChange={v => set('flashMode', v)} />
+            </Row>
+            <Select label={tx('ltype')} value={st.ltype || 'flow'} options={opts(Object.keys(LYRIC_TYPES), 'lt.')} onChange={v => set('ltype', v)} />
+            <Select label={tx('future')} value={st.future} options={opts(['dim', 'hide'], 'future.')} onChange={v => set('future', v)} />
+            <Row>
+              <Select label={tx('tin')} value={st.tin || 'mix'} options={opts(TIN, 'tin.')} onChange={v => set('tin', v)} />
+              <Select label={tx('tout')} value={st.tout === 'drift' || st.tout === 'spread' ? st.tout : 'none'} options={opts(['none', 'drift', 'spread'], 'tout.')} onChange={v => set('tout', v)} />
+            </Row>
+            {GROUPS.map(g => (
+              <Section key={g} title={tx(g)} action={<Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>{tx('reset.group')}</Button>} note={g === 'grp.triggers' ? tx('help.triggers') : undefined}>
+                {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => <Slider key={k} label={tx('k.' + k)} min={mn} max={mx} step={sp} value={st.k[k]} format={fmtK} {...knob(edit, k)} />)}
+              </Section>
+            ))}
+            <Row><Button size="sm" onClick={resetAll}>{tx('reset.all')}</Button></Row>
+          </>}
+        </Section>
       </fieldset>
     </>
   );
 }
 // effects drawn as companions of a backdrop or of another effect (they follow it, not a switch of their own)
 const COMPANIONS = new Set(['gothic-chains', 'geo-front', 'glass-shards', 'feathers-fg', 'mv']);
+/** The effects in groups: the air of the picture, the screen's own texture, the lyrics' own, and the ones made for a
+ *  backdrop (they work on any; their group says which they were made for). Anything new lands in the last. */
+const FX_GROUPS: [string, string[]][] = [
+  ['fxg.ambience', ['motes', 'feathers', 'stars', 'rings', 'eq', 'grid']],
+  ['fxg.screen', ['grain', 'vignette', 'scan', 'chroma', 'glitch', 'invgeo']],
+  ['fxg.lyrics', ['frame', 'wordring', 'glyph', 'afterimage']],
+  ['fxg.gothic', ['glass']],
+  ['fxg.vinyl', ['doors', 'lines', 'wires', 'shards']],
+];
 export function EffectsPane({ s: ss, edit }: PaneProps) {
-  const st = ss.style, custom = st.preset === 'custom', list = effects('effect').filter(e => !COMPANIONS.has(e.id));
+  const st = ss.style, custom = st.preset === 'custom', list = effects('effect').filter(e => !COMPANIONS.has(e.id)), known = new Set(FX_GROUPS.flatMap(g => g[1]));
+  const groups: [string, typeof list][] = [...FX_GROUPS.map(([g, ids]) => [g, ids.map(id => list.find(e => e.id === id)).filter(Boolean)] as [string, typeof list]),
+    ['fxg.other', list.filter(e => !known.has(e.id))]];
   return (
     <>
       {!custom && <Note>{tx('th.locked')}</Note>}
       <fieldset disabled={!custom} className={s.set}>
-        <Section title={tx('fx.h')}>
-          <div className={s.fxList}>
-            {list.map(e => (
-              <div key={e.id} className={s.fx} data-on={!!st.fx[e.id]}>
-                <Check label={tx(e.label)} checked={!!st.fx[e.id]} onChange={v => edit(x => x.setEffect(e.id, v))} />
-                {st.fx[e.id] && (e.params || []).map(p => <ParamControl key={p.key} p={p} value={st.fxp?.[e.id]?.[p.key] ?? p.def} onChange={v => edit(x => x.setEffectParam(e.id, p.key, v))} />)}
-              </div>
-            ))}
-          </div>
-        </Section>
+        {groups.filter(([, es]) => es.length).map(([g, es]) => (
+          <Section key={g} title={tx(g)}>
+            <div className={s.fxList}>
+              {es.map(e => (
+                <div key={e.id} className={s.fx} data-on={!!st.fx[e.id]}>
+                  <Check label={tx(e.label)} checked={!!st.fx[e.id]} onChange={v => edit(x => x.setEffect(e.id, v))} />
+                  {st.fx[e.id] && (e.params || []).map(p => <ParamControl key={p.key} p={p} value={st.fxp?.[e.id]?.[p.key] ?? p.def}
+                    onChange={v => edit(x => x.setEffectParam(e.id, p.key, v, true))} onCommit={v => edit(x => x.setEffectParam(e.id, p.key, v))} />)}
+                </div>
+              ))}
+            </div>
+          </Section>
+        ))}
       </fieldset>
     </>
   );
 }
-function ParamControl({ p, value, onChange }: { p: Param; value: number | string | boolean; onChange: (v: number | string | boolean) => void }) {
-  if (p.kind === 'toggle') return <Check label={tx(p.label)} checked={!!value} onChange={onChange} />;
-  if (p.kind === 'select') return <Select label={tx(p.label)} value={String(value)} options={(p.options || []).map(([v, k]) => [v, tx(k)])} onChange={onChange} />;
-  return <Slider label={tx(p.label)} min={p.min ?? 0} max={p.max ?? 1} step={p.step ?? 0.05} value={+value} format={f2} onChange={onChange} />;
+function ParamControl({ p, value, onChange, onCommit }: { p: Param; value: number | string | boolean; onChange: (v: number | string | boolean) => void; onCommit: (v: number | string | boolean) => void }) {
+  if (p.kind === 'toggle') return <Check label={tx(p.label)} checked={!!value} onChange={onCommit} />;
+  if (p.kind === 'select') return <Select label={tx(p.label)} value={String(value)} options={(p.options || []).map(([v, k]) => [v, tx(k)])} onChange={onCommit} />;
+  return <Slider label={tx(p.label)} min={p.min ?? 0} max={p.max ?? 1} step={p.step ?? 0.05} value={+value} format={f2} onChange={onChange} onCommit={onCommit} />;
 }
 const SONG_FIELDS = ['title', 'composer', 'lyricist', 'artist'] as const;
 export function EndPane({ s: ss, edit }: PaneProps) {

@@ -91,7 +91,8 @@ export function planCues(map: RhythmMap, st: Style, lines: PLine[], musicEnd: nu
   glass.forEach((q, i) => { const nx = glass[i + 1]; if (nx) q.life = clamp(nx.t - q.t + 0.45, 0.6, 2.2); });
   // glyph contours: a passage opens with one; a long passage changes it at most every few lines and seconds
   const glyphSlots: Cues['glyphSlots'] = [];
-  if (st.fx.glyph) { let li = -9, lt = -1e9, side = 0; const gf = clamp(M.glyphf ?? 1, 0.2, 3), every = Math.max(1, Math.round(2 / gf)), minT = 6 / gf;
+  if (st.fx.glyph) { let li = -9, lt = -1e9, side = 0; // (the effect's own frequency, times the older knob's, kept for styles that tuned it)
+    const gf = clamp((M.glyphf ?? 1) * +(st.fxp?.glyph?.freq ?? 1), 0.2, 3), every = Math.max(1, Math.round(2 / gf)), minT = 6 / gf;
     lines.forEach((P, i) => { const fresh = i === 0 || P.sec !== lines[i - 1].sec;
       if (fresh || (i - li >= every && P.L.t - lt >= minT)) { if (glyphSlots.length) glyphSlots[glyphSlots.length - 1].end = Math.min(glyphSlots[glyphSlots.length - 1].end, P.L.t);
         glyphSlots.push({ t: P.L.t, end: P.secEnd, cut: isFinite(P.secEnd), line: P, side: side++ % 2 }); li = i; lt = P.L.t; } });

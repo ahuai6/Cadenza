@@ -72,7 +72,7 @@ function glyphSpot(sl: RenderFrame['plan']['cues']['glyphSlots'][number], f: Ren
   o = { x: SPOTS[bi][0] * W, y: SPOTS[bi][1] * H, r: r0 }; SPOT.set(sl, o); return o;
 }
 // (deep in the backdrop: behind its roses, its cover, its record — over a song's video when one is up)
-register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z: 0, deep: true, params: [{ key: 'contrast', label: 'p.contrast', kind: 'range', min: 0.05, max: 1, step: 0.05, def: 0.2 }],
+register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z: 0, deep: true, params: [{ key: 'contrast', label: 'p.contrast', kind: 'range', min: 0.05, max: 1, step: 0.05, def: 0.2 }, { key: 'freq', label: 'p.freq', kind: 'range', min: 0.25, max: 1.75, step: 0.05, def: 1 }],   // (freq: how often a pane comes — read by the cues, director/cues.ts)
   draw(g, f, a) {
     const t = f.t, ov = f.cam.ov, k0 = +a.params.contrast, fc = fontStack(f.style.font), TR_IN = 0.4, tr = (g as CanvasRenderingContext2D).getTransform(), px = tr.a, cv = g.canvas as HTMLCanvasElement;
     const veil = f.pal.dark ? mix([255, 255, 255], f.pal.accent, 0.25) : mix(f.pal.bg, [255, 255, 255], 0.6);
