@@ -361,8 +361,10 @@ async function loadMv(id: string, mv: { offset: number }, on: boolean) {
 export async function bindMv() {
   const p = player.get(); if (!p.shownId || !Lib) return false;
   const r = await Lib.bindMv(p.shownId); if (!r) return false;
-  player.set({ mv: { bound: true, name: r.name, offset: r.offset, on: false, ready: false }, song: { ...(p.song || {}), mv: r } });
-  await loadMv(p.shownId, r, true); saveSong({ mvOn: true }); return true;
+  // (kept on before the clip is opened: binding it changes the library, and a song opened again meanwhile reads what
+  // is kept — it would find the MV off, and turn it off)
+  player.set({ mv: { bound: true, name: r.name, offset: r.offset, on: false, ready: false }, song: { ...(p.song || {}), mv: r, mvOn: true } }); saveSong({ mvOn: true });
+  await loadMv(p.shownId, r, true); return true;
 }
 export function setMvOn(on: boolean) { const p = player.get(); if (!p.mv.ready) return; engine.mv.setOn(on); player.set({ mv: { ...p.mv, on } }); saveSong({ mvOn: on }); }
 export function setMvOffset(x: number) { const p = player.get(); engine.mv.offset = +x || 0; engine.invalidate(); player.set({ mv: { ...p.mv, offset: +x || 0 } }); saveSong({ mv: { ...(p.song?.mv || { name: p.mv.name }), offset: +x || 0 } }); }

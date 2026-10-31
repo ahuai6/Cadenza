@@ -31,11 +31,16 @@ export interface PlanInput {
 
 export function plan(inp: PlanInput): ScenePlan {
   const H = REF_H, W = Math.round(REF_H * inp.aspect), { doc, map, style } = inp;
-  const lay = layout({ doc, map, style, measure: inp.measure, W, H, musicEnd: inp.musicEnd });
+  let lay = layout({ doc, map, style, measure: inp.measure, W, H, musicEnd: inp.musicEnd });
   const first = doc.lines.length ? doc.lines[0].t : null;
   const titles = planTitles(inp.song, first, map, inp.musicEnd, inp.labels);
   const introHold = titles.intro && titles.intro.kind === 'card' ? titles.intro.t1 : 0;
-  const { camera, extraPassages } = planCamera({ lines: lay.lines, words: lay.words, passages: lay.passages, map, style, W, H, musicEnd: inp.musicEnd, dur: inp.musicEnd + inp.endLen, introHold });
+  const cam = () => planCamera({ lines: lay.lines, words: lay.words, passages: lay.passages, map, style, W, H, musicEnd: inp.musicEnd, dur: inp.musicEnd + inp.endLen, introHold });
+  let { camera, extraPassages } = cam();
+  // the camera's own transitions (a move too long to make) are transitions like any: the lines turn their way there
+  // too — so the lines are laid out once more knowing them, and the camera planned again on that (its transitions now
+  // part of the layout's; any it still adds stay as they are)
+  if (extraPassages.length) { lay = layout({ doc, map, style, measure: inp.measure, W, H, musicEnd: inp.musicEnd, more: extraPassages }); ({ camera, extraPassages } = cam()); }
   const passages = [...lay.passages, ...extraPassages].sort((a, b) => a.t - b.t);
   assignSections(lay.lines, passages); dropShortFrames(lay.lines);
   // (lines the layout gave a leaving time of their own: the centred stage's groups)

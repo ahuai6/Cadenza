@@ -158,6 +158,13 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const closed = await pop.count() === 0;
     await C(v => window.__cadenza.api.editSong(s => s.setStyle('bg', v)), bg0);   // (the song's colour as it was, for what follows)
     ok('colour picker: opens over the panel, takes a hex, and the eyedropper lays the cover over the square', opened === 1 && bg === '#3366cc' && coverUp === 1 && closed, JSON.stringify({ opened, bg, coverUp, closed })); }
+  // the font picker: its names are baked pictures — opening it loads no face (it used to load thirty, and stall)
+  { const sp = win.locator('[data-test=song-panel]'), links = () => C(() => document.querySelectorAll('link[rel=stylesheet][href*="fonts/"]').length);
+    await sp.getByRole('tab', { name: '文字' }).click(); await W(400); const before = await links(), t0 = Date.now();
+    await sp.getByRole('combobox', { name: '字體' }).click(); await W(500); const open = await C(() => document.querySelectorAll('[role=option]').length), took = Date.now() - t0;
+    const baked = await C(() => [...document.querySelectorAll('[role=option] span')].filter(e => /^url\(/.test(getComputedStyle(e).webkitMaskImage) && getComputedStyle(e).fontSize === '0px').length);
+    await shot('fx-fontpicker'); const after = await links(); await sp.getByRole('combobox', { name: '字體' }).click(); await W(300);
+    ok('font picker: opens with every name a baked picture, loading no face', open > 30 && baked > 30 && after === before, JSON.stringify({ open, baked, before, after, took })); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click(); await W(300); await shot('fx-panel-lyrics');
   const ime = {};
   await win.locator('[data-test=song-panel] textarea').first().click(); await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ㄋ' })));
@@ -185,8 +192,10 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- MV ---------- */
   await win.mouse.move(700, 860); await W(300);
   await win.locator('[data-test=fx-bar]').getByRole('button', { name: 'MV' }).click(); await W(400); await shot('fx-mvbind');
-  await win.locator('[data-test=modal]').getByRole('button', { name: /選擇/ }).click(); await W(2800);
-  const mv = await C(() => { const e = window.__cadenza.engine; return { on: e.mv.on, k: e.mv.k, bg: e.session.style.bgStyle, ready: window.__cadenza.player.get().mv.ready }; });
+  await win.locator('[data-test=modal]').getByRole('button', { name: /選擇/ }).click();
+  // (the clip loads, then fades in: waited for up to six seconds rather than for a fixed time)
+  const mvNow = () => C(() => { const e = window.__cadenza.engine; return { on: e.mv.on, k: e.mv.k, bg: e.session.style.bgStyle, ready: window.__cadenza.player.get().mv.ready }; });
+  let mv = await mvNow(); for (let i = 0; i < 30 && !(mv.on && mv.ready && mv.k > 0.99); i++) { await W(200); mv = await mvNow(); }
   ok('MV mode: bound, fading in over the song\'s own backdrop', mv.on && mv.ready && mv.k > 0.99 && mv.bg === 'cover', JSON.stringify(mv));
   // an MV shorter than the song: once it has run out, the song is as it is without one — whatever its theme is now
   { const r = await C(() => { const e = window.__cadenza.engine, s = e.session, d = e.mv.el.duration, keep = s.style.bgStyle;

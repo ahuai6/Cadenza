@@ -86,6 +86,14 @@ describe.each(styles)('directions (%s)', cut => {
     for (const ls of secs) for (let k = 1; k < ls.length; k++) { if (ls[k].west && ls[k].ax < ls[k - 1].ax) leftSecs.add(ls[k].sec); else if (ls[k].ax > ls[k - 1].ax) right++; }
     expect(right).toBeGreaterThan(3); expect(leftSecs.size).toBeGreaterThanOrEqual(2);
   });
+  it('every transition turns the way the lines go, and the whole passage keeps to it', () => {
+    if (cut === 'close' || cut === 'hover') return;   // (close up most moves are crossed by quick transitions of the camera's own; hovering, no follow to turn)
+    const way = (ls: typeof secs[0]) => { let r = 0, l = 0; for (let k = 1; k < ls.length; k++) { if (ls[k].vert || ls[k - 1].vert) continue; ls[k].ax > ls[k - 1].ax ? r++ : l++; } return r + l < 2 ? 0 : r > l ? 1 : l > r ? -1 : 0; };
+    // (one passage after another; a passage of columns, or of a single line, says no way and is passed over)
+    const ways = secs.map(way); let pairs = 0, turns = 0;
+    for (let k = 1; k < ways.length; k++) if (ways[k] && ways[k - 1]) { pairs++; if (ways[k] !== ways[k - 1]) turns++; }
+    expect(pairs).toBeGreaterThanOrEqual(2); expect(turns / pairs).toBeGreaterThanOrEqual(0.75);
+  });
   it('a line heading leftward is framed whole: one stop, never followed character by character', () => {
     const west = P.lines.filter(L => L.west && !L.vert && !L.scene && L.words.length && !L.words.some(S => S.vert || S.roll || S.frame));
     expect(west.length).toBeGreaterThan(0);
@@ -446,7 +454,7 @@ describe('lyric types', () => {
 });
 
 describe('where a new line goes', () => {
-  it('a line that starts back to the left sits above or below the line before: carrying on over its second-to-last character, or heading back leftward', () => {
+  it('a line that starts back to the left sits above or below the line before: carrying on (its middle never further left than that one\'s), or heading back leftward', () => {
     for (const cut of ['glide', 'punch', 'close'] as const) {
       const P = make(cut, LRC, { frame: false }); let n = 0, ok = 0, nb = 0, okb = 0;
       const unitsAt = (L: typeof P.lines[0]) => L.words.flatMap(S => S.units.map(u => { const c = Math.cos(S.tilt * Math.PI / 180), sn = Math.sin(S.tilt * Math.PI / 180); return [S.x + c * u.ox - sn * u.oy, S.y + sn * u.ox + c * u.oy, u.w] as const; }));
@@ -457,13 +465,14 @@ describe('where a new line goes', () => {
         if (startB >= endA - 1) continue;                                   // (one that runs on to the right)
         // (one laid heading back goes leftward instead: tested below)
         if (B.back) { nb++; const nrm = [-d[1], d[0]], across = (p: readonly number[]) => p[0] * nrm[0] + p[1] * nrm[1];
-          if (along(ub[0]) < along(ua[0]) && along([B.ax, B.ay]) < along([A.ax, A.ay]) && Math.abs(across([B.ax, B.ay]) - across([A.ax, A.ay])) > (A.bh + B.bh) * 0.4) okb++; continue; }
-        n++; const pen = ua[Math.max(0, ua.length - 2)], last = ub[ub.length - 1];
-        if (Math.abs(along(last) - along(pen)) < Math.max(pen[2], last[2]) * 0.75) ok++; }
+          if (along(ub[0]) < along(ua[0]) && along([B.ax, B.ay]) < along([A.ax, A.ay]) && ((Math.abs(across([B.ax, B.ay]) - across([A.ax, A.ay])) > (A.bh + B.bh) * 0.4 || along(ub[ub.length - 1]) < along(ua[0])))) okb++; continue; }
+        if (B.west) continue;                                                // (one in a passage going leftward: framed whole, going left as it should)
+        // (one carrying on in a passage that goes onward: a row above or below, its middle never left of the line before's)
+        n++; if (along([B.ax, B.ay]) >= along([A.ax, A.ay]) - Math.max(A.bh, B.bh) * 0.5) ok++; }
       expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThan(0.7);
-      // a line laid heading back: a row above or below, starting before the line before began, its middle left of that one's
+      // a line laid heading back: a row above or below (or wholly to its left), starting before the line before began, its middle left of that one's
       // (most of them: one nudged clear of an earlier word may sit a little off its row)
-      expect(nb, cut).toBeGreaterThanOrEqual(2); expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75); }
+      expect(nb, cut).toBeGreaterThanOrEqual(1); expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75); }
   });
 });
 

@@ -18,7 +18,8 @@ import { lyricType } from './lyrictypes';
 
 export const TIN_MIX = ['blur', 'drift', 'rise', 'track'];
 export const FRAME_NEED = 1.3;
-export interface LayoutInput { doc: LyricDoc; map: RhythmMap; style: Style; measure: Measurer; W: number; H: number; musicEnd: number }
+export interface LayoutInput { doc: LyricDoc; map: RhythmMap; style: Style; measure: Measurer; W: number; H: number; musicEnd: number;
+  /** transitions decided after a first layout (the camera's, for a move too long): taken as passages from the start, so the lines turn their way there too */ more?: Passage[] }
 /** The most lines a page keeps up at once (the one being sung among them). */
 export const PAGE_LINES = 4;
 export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passage[]; dmin: number; /** clears without a blur (plan.ts applySweeps) */ sweeps: { t: number; line: number }[];
@@ -80,13 +81,16 @@ export function layout(inp: LayoutInput): LayoutResult {
   // how close each camera style holds a word: what the layout's limits (how far apart words may sit, in frames) are measured in
   const close = st.cut === 'close';
   const zOf = (S: PWord) => close ? closeZoom(S, H, W, T) : wordZoom(S, med.get(S.line)!, W, H, T);
-  /** Can a line be framed whole without its words shrinking much (to no less than about half their usual size)? A line
+  /** Can a line be framed whole without its words shrinking too much (to no less than a quarter of their usual size —
+   *  the usual being a close-up of a word or two, a whole line at a quarter is still plainly read)? A line
    *  heading back is framed whole (camera.ts), so only such a line is laid heading back — a longer one goes on onward. */
   const fitsWhole = (Lp: PLine) => { if (!Lp.words.length) return false; const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6;
-    return W * 0.78 / Lw >= 0.55 * Math.min(...Lp.words.map(zOf)); };
+    return W * 0.78 / Lw >= 0.25 * Math.min(...Lp.words.map(zOf)); };
 
   /* ---- passages at pauses ---- */
   const passages = gapPassages(lines.map(P => ({ t: P.words[0]?.show ?? P.L.t, sungEnd: Math.min(P.L.sung, P.L.end) })), map, inp.musicEnd, (st.trans || 'auto') !== 'off', st.bgStyle === 'video');
+  for (const q of inp.more || []) if (!passages.some(x => x.line === q.line)) passages.push({ ...q });
+  passages.sort((a, b) => a.t - b.t);
   /* ---- lyric frames, before placement ----
      About one line in five asks for one on a chosen word (never two framed lines close together): a small target (one
      word, a few characters). When that word does
@@ -128,7 +132,6 @@ export function layout(inp: LayoutInput): LayoutResult {
 
   /* ---- placement ---- */
   const { scenes, rolls } = scenesOf(lines, map, M.speed), drum = new Map<number, [number, number]>();
-  const FLIP = clamp(M.flip ?? 1, 0.2, 6) * BASE * 8 * T;
   const placed: PWord[] = [], pad0 = gap * 0.4;
   const proj = (pts: [number, number][], ax: [number, number]) => { let a = 1e9, b = -1e9; for (const q of pts) { const v = q[0] * ax[0] + q[1] * ax[1]; if (v < a) a = v; if (v > b) b = v; } return [a, b]; };
   const clash = (A: PWord, B: PWord) => {
@@ -269,6 +272,10 @@ export function layout(inp: LayoutInput): LayoutResult {
         if (folds && !first && !Lp.rtl && prevSeg) {
           const zz = Math.min(zOf(prevSeg), zOf(S)); run = (P[0] - lineStart[0]) * d[0] + (P[1] - lineStart[1]) * d[1];
           backMax = FOLD * 0.9 * W / zz - (run - prevSeg.lw - w); }
+        // (a passage going onward to the right: a line set above or below the one before starts back under it no further
+        // than keeps its middle right of that one's — a step down or up, never a step back against the way the lines go)
+        const onward = (back: number) => { if (flow < 0 || !prevLine || k !== 0) return back; const runL = (P[0] - lineStart[0]) * d[0] + (P[1] - lineStart[1]) * d[1];
+          const Lw = Lp.words.reduce((a, Q) => a + Q.lw, 0) + gap * (Lp.words.length - 1) * 1.6; return Math.min(back, Math.max(0, (runL + Lw) / 2)); };   // (at most: right above or below it, middle over middle)
         let cc: [number, number] | null = null;
         if (orb) { cc = [orb[0] + d[0] * w / 2, orb[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; }
         // (the camera frames a line heading back whole: how far back it may start is set by the line, not by a follow's reach)
@@ -287,12 +294,12 @@ export function layout(inp: LayoutInput): LayoutResult {
         } else if (k === 0 && !first && prevLine && !mode && lr >= P_BELOW && lr < P_BELOW + P_ABOVE && !Lp.vert && !prevLine.vert) {
           // above the line before (or below), ending over its second-to-last character: the singing carries on from where
           // it was instead of jumping back to where the line before began
-          const upw = lr < P_BELOW + P_ABOVE * 0.75, back = alignBack(Lp, prevLine, P, d); align = { X: penult(prevLine, P), d };
+          const upw = lr < P_BELOW + P_ABOVE * 0.75, back = onward(alignBack(Lp, prevLine, P, d)); if (back === alignBack(Lp, prevLine, P, d)) align = { X: penult(prevLine, P), d };
           let ext = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) { const v = (p[0] - lineStart[0]) * nrm[0] + (p[1] - lineStart[1]) * nrm[1]; ext = Math.max(ext, upw ? -v : v); }
           const off = (ext + gap * 2.5 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [P[0] + nrm[0] * off - d[0] * back, P[1] + nrm[1] * off - d[1] * back];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
         } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < P_BELOW)) && !prevLine.vert) {
-          const bk = alignBack(Lp, prevLine, P, d); align = { X: penult(prevLine, P), d }; const ref: [number, number] = [P[0] - d[0] * bk, P[1] - d[1] * bk];
+          const bk = onward(alignBack(Lp, prevLine, P, d)); if (bk === alignBack(Lp, prevLine, P, d)) align = { X: penult(prevLine, P), d }; const ref: [number, number] = [P[0] - d[0] * bk, P[1] - d[1] * bk];
           let below = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) below = Math.max(below, (p[0] - ref[0]) * nrm[0] + (p[1] - ref[1]) * nrm[1]);
           const s0: [number, number] = [ref[0] + nrm[0] * (below + gap * 2.5 + h / 2), ref[1] + nrm[1] * (below + gap * 2.5 + h / 2)];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
@@ -372,7 +379,8 @@ export function layout(inp: LayoutInput): LayoutResult {
       // (leftward on the screen, whichever way the path has turned)
       if (ORBIT && opens) { orbO = [B.x, B.y]; orbZ = zOf(Lp.words[0]); }
       Lp.west = !Lp.rtl && fitsWhole(Lp) && (Lp.back || westStart || (!!prevLine && B.x - prevLine.ax < -Math.max(BASE * T, B.w * 0.2)));
-      if (flowFrom == null) flowFrom = pos; else if ((pos - flowFrom) * flow >= FLIP || (flow < 0 && Lp.back && ++backN >= 3)) { flow = -flow; flowFrom = pos; backN = 0; } }
+      // (the way the lines go is the passage's own, all through it: it turns at a transition, never between two lines)
+      if (flowFrom == null) flowFrom = pos; }
     Lp.d = Lp.words.reduce((a, S) => a + S.d, 0) / Math.max(1, Lp.words.length);
     prevLine = Lp;
     S0 = { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN };

@@ -54,7 +54,7 @@ export const DEFAULT_THEME = 'liquid';
 /** The knobs: [key, group, min, max, step]. 1 = the theme's tuning. */
 export const KNOBS: [string, string, number, number, number][] = [
   ['pace', 'grp.camera', 0.4, 1.6, .05], ['energy', 'grp.camera', 0, 2, .05], ['groove', 'grp.camera', 0, 4, .05], ['float', 'grp.camera', 0, 2, .05], ['turns', 'grp.camera', 0, 2, .05],
-  ['flip', 'grp.camera', 0.3, 1.7, .05], ['depth', 'grp.camera', 0, 2, .05], ['size', 'grp.text', 0.6, 2, .05], ['enter', 'grp.text', 0.4, 1.6, .05],
+  ['depth', 'grp.camera', 0, 2, .05], ['size', 'grp.text', 0.6, 2, .05], ['enter', 'grp.text', 0.4, 1.6, .05],
   ['glow', 'grp.text', 0, 2, .05], ['split', 'grp.text', 0, 2, .05], ['jitter', 'grp.text', 0, 2, .05], ['trigger', 'grp.triggers', 0, 2, .05], ['glyph', 'grp.triggers', 0.25, 1.75, .05],
 ];
 export const AA_MODES = ['off', 'ssaa', 'ssaa3'];

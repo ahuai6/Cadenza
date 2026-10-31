@@ -1,7 +1,7 @@
 {
   "name": "cadenza",
   "productName": "Cadenza",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Cadenza: a personal music library whose songs play with lyrics that move to the music, exportable as lyric videos",
   "private": true,
   "type": "module",
@@ -12,6 +12,7 @@
     "test": "vitest run",
     "build:web": "vite build --mode web",
     "build:app": "vite build --mode app && node scripts/fonts.mjs dist-app/fonts",
+    "fonts:previews": "node scripts/font-previews.mjs",
     "build:native": "cargo build --release --manifest-path native/cadenza-audio/Cargo.toml --target x86_64-pc-windows-gnu",
     "test:render": "node tests/render.cjs",
     "test:desktop": "node tests/desktop.cjs",
