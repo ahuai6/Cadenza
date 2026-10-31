@@ -89,17 +89,22 @@ describe('lyric types', () => {
 
 describe('the spread exit', () => {
   const src = '[00:02.00]<00:02.00>hel<00:02.40>lo <00:02.90>窗邊<00:03.60>\n[00:08.00]清晨的 光 落在\n[00:14.00]時間 一直 往前';
-  it('opens out letter from letter (a sung syllable taken apart), only once the line leaves, smoothly', async () => {
-    const { wordState } = await import('../../src/director/words');
+  it('opens out letter from letter (a sung syllable taken apart), from the moment it is in, smoothly, a little apart', async () => {
+    const { wordState, TIN_SPEC } = await import('../../src/director/words');
     const P = make('flow', 'glide', src, {}, { tout: 'spread' }), L = P.lines[0], hel = L.words.find(S => S.w.text === 'hello')!;
     expect(hel.w.units.map(u => u.c)).toEqual(['hel', 'lo']); expect(hel.units.map(u => u.c)).toEqual(['h', 'e', 'l', 'l', 'o']);
     expect(hel.units.map(u => u.t)).toEqual([0, 0, 0, 1, 1].map(i => hel.w.units[i].t));
     const c = (tempo: number) => ({ enter: 0.35, tempo, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false, spread: true });
-    // (none while it is sung; then wider and wider as it fades — the tempo of the moment has no say in it)
-    expect(wordState(hel, L.L.end - 0.1, 0, false, c(1))!.gapx).toBe(0);
+    // (none while it comes in; from then on wider and wider, a little at a time, as it fades — the tempo of the moment
+    // has no say in it; never more than a fifth of a letter's height apart)
+    const W0 = L.words[0], sp = TIN_SPEC[W0.tin] || TIN_SPEC.blur, t0 = W0.show + Math.max(sp.min, 0.35 * sp.dur), h0 = hel.lh / hel.s;
+    expect(wordState(hel, t0 - 0.2, 0, false, c(1))?.gapx ?? 0).toBe(0);
     let last = 0, lastO = 1;
-    for (let t = L.L.end + 0.05; t < L.L.end + 2.1; t += 0.05) { const a = wordState(hel, t, 0, false, c(1)), b = wordState(hel, t, 0, false, c(1.4));
-      if (!a) break; expect(b!.gapx).toBeCloseTo(a.gapx, 9); expect(a.gapx).toBeGreaterThan(last); expect(a.gapx - last).toBeLessThan(hel.lh / hel.s * 0.04); expect(a.o).toBeLessThanOrEqual(lastO + 1e-9); last = a.gapx; lastO = a.o; }
+    for (let t = t0 + 0.05; t < L.L.end + 2.3; t += 0.05) { const a = wordState(hel, t, 0, false, c(1)), b = wordState(hel, t, 0, false, c(1.4));
+      if (!a) break; expect(b!.gapx).toBeCloseTo(a.gapx, 9); expect(a.gapx).toBeGreaterThan(last); expect(a.gapx - last).toBeLessThan(h0 * 0.01); expect(a.gapx).toBeLessThanOrEqual(h0 * 0.2 + 1e-9);
+      if (t > hel.show + 1.5) expect(a.o).toBeLessThanOrEqual(lastO + 1e-9);
+      last = a.gapx; lastO = a.o; }
+    expect(wordState(hel, L.L.end - 0.1, 0, false, c(1))!.gapx).toBeGreaterThan(h0 * 0.05);
     expect(last).toBeGreaterThan(0);
   });
 });

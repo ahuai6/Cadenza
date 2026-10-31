@@ -15,13 +15,13 @@ export const TIN_SPEC: Record<string, { dur: number; min: number; blur: number }
   track: { dur: 1.5, min: 0.34, blur: 0.08 }, pop: { dur: 1.0, min: 0.16, blur: 0.06 },
 };
 const DRIFT_DIRS = [[0, 1], [0, 1], [-1, 0], [0, -1], [1, 0], [-0.7, 0.7]];
-/** The spread exit: how long the line takes to open out and fade (s), and the space it opens between letters at the
- *  end (× the letters' height). */
-const SPREAD = 2.2, SPREAD_GAP = 0.6;
+/** The spread exit: how long the line takes to fade once it leaves (s), and the space it has opened between letters
+ *  by then (× the letters' height: plain to see, never strewn apart). */
+const SPREAD = 2.2, SPREAD_GAP = 0.2;
 export const SUNG = 0.42, PAST = 0.3, END_DIM = 0.3, END_DIM_CARD = 0.25;
 
 export interface WordCtx { enter: number; tempo: number; float: number; future: 'dim' | 'hide'; smooth: boolean; punch: number; motion: number; drift: boolean;
-  /** the 'spread' exit: as the line leaves, its letters drift slowly apart, and it fades out as it goes */ spread?: boolean;
+  /** the 'spread' exit: once the line is in, its letters drift slowly apart, and it fades out as it goes */ spread?: boolean;
   /** lines held up together and taken away together (the centred stage's groups of three): none leaves on its own */ held?: boolean }
 export interface WordState {
   o: number; pe: number; dimK: number; pastK: number; live: boolean; gk: number;
@@ -53,11 +53,15 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   // (spreading out: it leaves altogether, fading as it goes, instead of staying on dimmed — or, held with its group,
   // fades out with the group as it leaves)
   const secK = isFinite(L.secEnd) ? 1 - sstep(clamp((t - (L.secEnd - L.secIn)) / L.secIn)) : 1;
-  // the spread exit: from the moment the line starts to leave (sung — or, held with its group, as the group goes) it
-  // opens out, letter from letter, slowly and steadily, fading as it goes. Its time is fixed, never the tempo of the
+  // the spread exit: from the moment the line's entrance is done it opens out, letter from letter, slowly and steadily,
+  // until it is gone (its own fade once sung — or, held with its group, the group's going); it fades out on the way,
+  // little at first and most at the end, so it reads while it is sung. Its times are fixed, never the tempo of the
   // moment: that changes from beat to beat, and the spreading would jump with it.
-  const xs = c.spread ? clamp((t - (c.held && isFinite(L.secEnd) ? L.secEnd - L.secIn : L.L.end)) / SPREAD) : 0;
-  if (c.spread && !c.held) o *= 1 - sstep(xs);
+  let xs = 0;
+  if (c.spread && L.words.length) { const W0 = L.words[0], s0 = TIN_SPEC[W0.tin] || TIN_SPEC.blur, t0 = W0.show + Math.max(s0.min, c.enter * s0.dur);
+    // (the last of the held has no group after it: gone a while after it is sung)
+    const t1 = c.held && isFinite(L.secEnd) ? L.secEnd : L.L.end + SPREAD * (c.held ? 4 : 1); xs = clamp((t - t0) / Math.max(0.5, t1 - t0));
+    o *= 1 - xs ** 3; }
   o = ov > 0 ? lerp(o * secK, t >= S.show ? Math.min(o, card ? END_DIM_CARD : END_DIM) : 0, ov) : o * secK;
   if (o <= 0.003) return null;
   const q = 1 - pe; let ox = 0, oy = 0, sc = 1;
@@ -66,9 +70,9 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   else if (tin === 'pop') sc = 1 + q * (c.smooth ? 0.08 : 0.45 * Math.min(1.5, c.punch + 0.3)) * c.motion;
   if (c.drift) oy -= dimK * 16 + pastK * 26;
   // (each word moves along with its letters' share, so the whole line opens out evenly from its middle; the letters
-  // move off at once, the spreading easing off as they fade)
+  // move off at once, a little more gently towards the end)
   let gapx = 0;
-  if (xs > 0) { const h0 = S.lh / S.s; gapx = h0 * SPREAD_GAP * (xs * (1.6 - 0.6 * xs));
+  if (xs > 0) { const h0 = S.lh / S.s; gapx = h0 * SPREAD_GAP * (xs * (1.3 - 0.3 * xs));
     const n = (Q: PWord) => Q.units.length; let before = 0; for (let j = 0; j < S.k; j++) before += n(L.words[j]);
     const all = L.words.reduce((a, Q) => a + n(Q), 0); ox += gapx * (before + (n(S) - 1) / 2 - (all - 1) / 2); }
   const ph = rnd(L.i * 3.1 + S.k * 1.7) * 6.28;
