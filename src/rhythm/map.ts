@@ -108,6 +108,8 @@ export class RhythmMap {
   /** Song-relative level 0..1 (slow: the section's loudness) and loudness (fast). */
   level(t: number) { return sampleSeries(this.a.level, this.a.rate, t + this.offset); }
   loud(t: number) { return sampleSeries(this.a.loud, this.a.rate, t + this.offset); }
+  /** How much the voice sings at t (0..1, off the separated vocal stem), or null where the song has no such reading. */
+  voice(t: number): number | null { const V = this.a.voice; return V && V.v.length ? sampleSeries(V.v, V.rate, t + this.offset) : null; }
   /** The coarse spectrum at t (bands low to high, 0..1), or null without audio analysis. */
   spec(t: number, out: number[] = []): number[] | null { const S = this.a.spec; if (!S || !S.length) return null; for (let k = 0; k < S.length; k++) out[k] = sampleSeries(S[k], this.a.rate, t + this.offset); out.length = S.length; return out; }
   /** How much music is really sounding at t (0..1): soft threshold on the fast loudness; `idle` lowers it. */

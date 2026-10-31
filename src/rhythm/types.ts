@@ -77,6 +77,9 @@ export interface RhythmAnalysis {
   bars?: number[];
   /** per beat (the neural engine): how it lands and whether it is played at all */
   accents?: BeatAccentSeries;
+  /** where the voice sings, off the separated vocal stem (the neural engine): `rate` frames a second, 0 (no voice) ..
+   *  1 (the song's loud singing); absent for a song without singing, or where it was not separated */
+  voice?: { rate: number; v: number[] };
   /** drum hits read off the separated drum stem (the neural engine); absent for a song without drums */
   drums?: { t: number[]; s: number[]; k: (0 | 1 | 2)[] };
 }

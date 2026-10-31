@@ -19,6 +19,8 @@ export interface NeuralRhythm {
   drumless: boolean;
   /** whether the drum stem was asked for and separated (false: skipped, or it failed) */
   drumsRun: boolean;
+  /** where the voice sings (vocals.ts: VOICE_RATE frames a second, 0..1), null without singing or a separation */
+  voice?: { rate: number; v: number[] } | null;
   /** how long it took (ms): the beats, the drums */
   ms: { beats: number; drums: number };
 }

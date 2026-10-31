@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { parse } from '../../src/lyrics/parse';
 import { buildLyrics } from '../../src/lyrics/model';
 import { phrase, PHRASE_MAX } from '../../src/lyrics/phrasing';
+import { voiceLevel } from '../../src/rhythm/neural/vocals';
 import { RhythmMap } from '../../src/rhythm/map';
 
 const map = RhythmMap.grid(120, 0, 60);   // (a beat of half a second)
@@ -39,5 +40,29 @@ describe('phrasing', () => {
   it('joined, a word keeps every syllable\'s own time (still sung one at a time)', () => {
     const d = buildLyrics(parse(kar(2, [['我們', 2], ['看過', 2.3]])), map, 30), W = d.lines[0].words[0];
     expect(W.text).toBe('我們看過'); expect(W.units.map(u => u.t)).toEqual([2, 2.15, 2.3, 2.45]);
+  });
+  describe('line-timed, with the voice known (the separated vocal stem)', () => {
+    /** A beat grid with a voice singing over the given stretches (s). */
+    const sings = (...runs: [number, number][]) => Object.assign(RhythmMap.grid(120, 0, 60), { voice: (t: number): number | null => (runs.some(([a, b]) => t >= a && t < b) ? 0.8 : 0.02) });
+    const cut = (src: string, m: ReturnType<typeof sings>) => buildLyrics(parse(src), m, 30).lines.map(L => L.words.map(w => w.text));
+    it('cut where the voice breathes, at the segmenter\'s boundary nearest the breath', () => {
+      expect(cut('[00:02.00]我們 看過 的 故事\n[00:06.00]x', sings([2, 2.8], [3.2, 4]))[0]).toEqual(['我們看過', '的故事']);
+    });
+    it('sung in one breath: one phrase (up to PHRASE_MAX characters)', () => {
+      expect(cut('[00:02.00]我們 看過 故事\n[00:06.00]x', sings([2, 3.6]))[0]).toEqual(['我們看過故事']);
+    });
+    it('a breath shorter than a breath (a consonant, a vibrato dip) is no cut', () => {
+      expect(cut('[00:02.00]我們 看過 故事\n[00:06.00]x', sings([2, 2.7], [2.78, 3.6]))[0]).toEqual(['我們看過故事']);
+    });
+    it('a song without the reading: a lone character goes with its neighbour, as before', () => {
+      expect(cut('[00:02.00]走過 這條 街\n[00:06.00]x', Object.assign(RhythmMap.grid(120, 0, 60), { voice: () => null }))[0]).toEqual(['走過', '這條街']);
+    });
+  });
+  it('the voice level off a vocal stem: 0 where it is silent, up where it sings; none for a song without singing', () => {
+    const n = 44100 * 2, mix = new Float32Array(n), voc = new Float32Array(n);
+    for (let i = 0; i < n; i++) { mix[i] = 0.3 * Math.sin(i * 0.05); voc[i] = i < n / 2 ? 0.25 * Math.sin(i * 0.11) : 0; }
+    const v = voiceLevel(voc, mix)!; expect(v.length).toBe(100);
+    expect(Math.min(...v.slice(5, 45))).toBeGreaterThan(0.8); expect(Math.max(...v.slice(55, 95))).toBe(0);
+    expect(voiceLevel(voc.map(x => x * 0.001), mix)).toBeNull();
   });
 });

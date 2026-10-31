@@ -31,21 +31,31 @@ export function segmentWindow(segment = HTDEMUCS_SEGMENT): Float32Array {
   for (let i = 0; i < ov; i++) { const r = i / (ov - 1); w[i] = r; w[segment - 1 - i] = r; }
   return w;
 }
-/** The drum stem of a stereo song at 44.1 kHz, as mono; null as soon as a segment cannot be separated or `go` says no. */
-export async function separateDrums(left: Float32Array, right: Float32Array, separate: (l: Float32Array, r: Float32Array) => Promise<{ left: Float32Array; right: Float32Array } | null>,
-  progress?: (k: number) => void, go: () => boolean = () => true): Promise<Float32Array | null> {
+/** The stems of a stereo song at 44.1 kHz (as many as `separate` hands back per segment, in its order), each as mono;
+ *  null as soon as a segment cannot be separated or `go` says no. */
+export async function separateStems(left: Float32Array, right: Float32Array, separate: (l: Float32Array, r: Float32Array) => Promise<{ left: Float32Array; right: Float32Array }[] | null>,
+  progress?: (k: number) => void, go: () => boolean = () => true): Promise<Float32Array[] | null> {
   const seg = HTDEMUCS_SEGMENT, total = left.length, win = segmentWindow(seg), starts = segmentStarts(total, seg);
-  const drums = new Float32Array(total), weight = new Float32Array(total), inL = new Float32Array(seg), inR = new Float32Array(seg);
+  const weight = new Float32Array(total), inL = new Float32Array(seg), inR = new Float32Array(seg); let out: Float32Array[] | null = null;
   for (let k = 0; k < starts.length; k++) {
     if (!go()) return null;
     const s = starts[k], n = Math.min(seg, total - s);
     inL.fill(0); inR.fill(0); inL.set(left.subarray(s, s + n)); inR.set(right.subarray(s, s + n));     // (the last runs past the end: zeros)
-    const st = await separate(inL, inR); if (!st) return null;
-    for (let i = 0; i < n; i++) { drums[s + i] += ((st.left[i] + st.right[i]) / 2) * win[i]; weight[s + i] += win[i]; }
+    const st = await separate(inL, inR); if (!st || !st.length) return null;
+    out ??= st.map(() => new Float32Array(total));
+    for (let j = 0; j < out.length; j++) { const o = out[j], a = st[j]; for (let i = 0; i < n; i++) o[s + i] += ((a.left[i] + a.right[i]) / 2) * win[i]; }
+    for (let i = 0; i < n; i++) weight[s + i] += win[i];
     progress?.((k + 1) / starts.length);
   }
-  for (let i = 0; i < total; i++) drums[i] /= Math.max(weight[i], 1e-8);
-  return drums;
+  if (!out) return null;
+  for (const o of out) for (let i = 0; i < total; i++) o[i] /= Math.max(weight[i], 1e-8);
+  return out;
+}
+/** The drum stem alone (separateStems with one source). */
+export async function separateDrums(left: Float32Array, right: Float32Array, separate: (l: Float32Array, r: Float32Array) => Promise<{ left: Float32Array; right: Float32Array } | null>,
+  progress?: (k: number) => void, go: () => boolean = () => true): Promise<Float32Array | null> {
+  const st = await separateStems(left, right, async (l, r) => { const o = await separate(l, r); return o ? [o] : null; }, progress, go);
+  return st ? st[0] : null;
 }
 
 function bandTrack(mel: MelSpectrogram, fromHz: number, toHz: number) {

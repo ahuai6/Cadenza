@@ -49,7 +49,8 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const off = INTRO - 2, dd = ND && ND.drums ? ND.drums : { times: [], kinds: [] }, dk = [0, 0, 0]; dd.kinds.forEach(k => dk[k]++);
     const kickT = dd.times.filter((t, j) => dd.kinds[j] === 0).map(t => t + off), snareT = dd.times.filter((t, j) => dd.kinds[j] === 1).map(t => t + off);
     const onGrid = (ts, phase) => ts.filter(t => t > INTRO + 0.05 && Math.abs((((t - phase) / (2 * B)) % 1 + 1) % 1 - 0.5) > 0.42).length / Math.max(1, ts.filter(t => t > INTRO + 0.05).length);
-    const drumR = { ran: !!ND && ND.drumsRun, drumless: ND && ND.drumless, hits: dd.times.length, kinds: dk, coverage: ND && ND.drums ? ND.drums.coverage : null, kickOn13: onGrid(kickT, 0), snareOn24: onGrid(snareT, B), ms: Math.round(performance.now() - t1) };
+    const drumR = { ran: !!ND && ND.drumsRun, drumless: ND && ND.drumless, hits: dd.times.length, kinds: dk, coverage: ND && ND.drums ? ND.drums.coverage : null, kickOn13: onGrid(kickT, 0), snareOn24: onGrid(snareT, B), ms: Math.round(performance.now() - t1),
+      voice: ND && ND.voice ? { n: ND.voice.v.length, rate: ND.voice.rate, sung: ND.voice.v.filter(x => x >= 0.35).length / ND.voice.v.length } : null };
     const gaps = a.beats.slice(1).map((t, i) => t - a.beats[i]).sort((x, y) => x - y), gap = gaps[gaps.length >> 1];
     const map = new H.rhythm.RhythmMap(a), bars = a.bars || [], barLens = bars.slice(1).map((b, i) => b - bars[i]);
     // where the bars fall against the score's (the first beat of every 4)
@@ -75,6 +76,8 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const D = r.drumR;
     if (!process.env.SKIP_DRUMS) ok('neural: the drum stem is separated and its hits picked (kicks on 1 and 3, the snares found on 2 and 4, hats)', D.ran && !D.drumless && D.hits >= 20 && D.kinds[0] >= 3 && D.kinds[2] >= 3 && D.kickOn13 > 0.8 && (D.kinds[1] === 0 || D.snareOn24 > 0.8),
       `${D.hits} hits, kinds ${D.kinds}, coverage ${D.coverage}, kicks on 1/3 ${(D.kickOn13 * 100).toFixed(0)} %, snares on 2/4 ${(D.snareOn24 * 100).toFixed(0)} %, ${(D.ms / 1000).toFixed(0)} s`);
+    // (the song has no singing: the vocal stem, separated in the same pass, is what leaked in — none, or hardly sung)
+    if (!process.env.SKIP_DRUMS) ok('neural: the voice is separated with the drums, and a song without singing has (almost) none', D.ran && (!D.voice || D.voice.sung < 0.15), JSON.stringify(D.voice));
     ok('neural: the pad intro has no rhythm (no groove, no strong accents there), the kit has', r.introRhythmic.every(v => v === 0) && r.drumRhythmic.filter(v => v === 1).length / r.drumRhythmic.length > 0.9 && r.introGroove === 0 && r.strongInIntro === 0 && r.drumGroove > 40,
       `intro ${r.introRhythmic.join('')}, groove ${r.introGroove}/${r.drumGroove}, strong in intro ${r.strongInIntro}`);
     ok('neural: the beats take seconds, not minutes (here on an emulated GPU)', r.ms < 600000, `${(r.ms / 1000).toFixed(0)} s`);

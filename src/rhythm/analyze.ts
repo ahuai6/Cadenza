@@ -365,5 +365,6 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     ...(NG ? { stems: !opts.neural!.drumsRun ? 'skipped' as const : opts.neural!.drumless ? 'drumless' as const : 'drums' as const } : {}),
     ...(NG ? { bars: NG.bars ?? undefined, accents: NG.accents } : {}),
     ...(DR && DR.times.length ? { drums: { t: DR.times, s: DR.strengths, k: DR.kinds } } : {}),
+    ...(opts.neural?.voice ? { voice: opts.neural.voice } : {}),
   };
 }

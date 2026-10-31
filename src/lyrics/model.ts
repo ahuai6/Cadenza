@@ -10,7 +10,8 @@ import { graphemes, unitsOf, isLatin, RE_CJK, RE_COMPLEX, RE_RTL, syllables } fr
 import { phrase } from './phrasing';
 /** What pacing the words needs from the rhythm (RhythmMap is one): the tempo, the beat's length at a moment, and a
  *  time snapped to the grid within a tolerance. The lyric model reads the beat through this and knows nothing else of it. */
-export interface BeatGrid { readonly bpm: number; beatLen(t: number): number; snap(t: number, tol: number, div: number): number }
+export interface BeatGrid { readonly bpm: number; beatLen(t: number): number; snap(t: number, tol: number, div: number): number;
+  /** how much the voice sings at t (0..1), or null where that is not known: where the lyrics are cut (phrasing.ts) */ voice?(t: number): number | null }
 
 export interface Unit { c: string; /** sung time, or null when the line is timed only as a whole */ t: number | null }
 export interface Word {

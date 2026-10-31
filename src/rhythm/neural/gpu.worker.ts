@@ -11,7 +11,8 @@ import { runPercussiveEnergy } from './wgsl/percussive';
 import { melSpectrogram } from './mel';
 import { splitForModel, aggregateChunks, beatsFromLogits } from './grid';
 import { computeBeatAccents, formatBeatMeter } from './accents';
-import { separateDrums, pickDrumHits, drumCoverage, energyFrames, halve, DRUMLESS_COVERAGE } from './drums';
+import { separateStems, pickDrumHits, drumCoverage, energyFrames, halve, DRUMLESS_COVERAGE } from './drums';
+import { voiceLevel, VOICE_RATE } from './vocals';
 import { loadModel } from './weights';
 import type { NeuralRhythm } from './types';
 
@@ -51,13 +52,17 @@ async function analyse(r: Extract<Req, { kind: 'analyse' }>): Promise<NeuralRhyt
   const tBeats = performance.now() - t0; prog(0.4);
   console.info(`[neural] beats: ${formatBeatMeter(A.meter, A.pulse)} | ${label} | ${tBeats.toFixed(0)} ms`);
   // the drums: HTDemucs' drum stem, segment by segment, then the hits off its spectrogram
-  let drums: NeuralRhythm['drums'] = null, drumless = false, drumsRun = false; const t1 = performance.now();
+  let drums: NeuralRhythm['drums'] = null, drumless = false, drumsRun = false, voice: NeuralRhythm['voice'] = null; const t1 = performance.now();
   if (r.drums) {
     try {
       if (demucsIdle) { clearTimeout(demucsIdle); demucsIdle = null; }
-      // (drums only: one iSTFT; f16 GEMMs where the device has them — Folia: the same drum hits, a tenth faster)
-      if (!demucs) { const { weights, manifest } = await loadModel<HtdemucsWgslManifest>(r.base, 'htdemucs'); demucs = await HtdemucsWgsl.create(dev, weights, manifest, { sources: [0], f16 }); }
-      const D = demucs, stem = await separateDrums(r.left, r.right, async (l, rr) => { const o = await D.run(l, rr, { slice: 'auto' }); return { left: o.left, right: o.right }; }, k => prog(0.4 + 0.58 * k));
+      // (the drums and the voice: two iSTFTs of the four; f16 GEMMs where the device has them — Folia: the same drum
+      // hits, a tenth faster)
+      if (!demucs) { const { weights, manifest } = await loadModel<HtdemucsWgslManifest>(r.base, 'htdemucs'); demucs = await HtdemucsWgsl.create(dev, weights, manifest, { sources: [0, 3], f16 }); }
+      const D = demucs, st = await separateStems(r.left, r.right, async (l, rr) => (await D.run(l, rr, { slice: 'auto' })).stems, k => prog(0.4 + 0.58 * k));
+      const stem = st?.[0];
+      // the voice: where it sings (the lyrics are cut where it breathes)
+      if (st?.[1]) { const v = voiceLevel(st[1], mix); voice = v ? { rate: VOICE_RATE, v } : null; console.info(`[neural] voice: ${v ? `${v.length} frames` : 'none'}`); }
       if (stem) { drumsRun = true;
         const coverage = drumCoverage(energyFrames(stem), energyFrames(mix));
         drumless = coverage < DRUMLESS_COVERAGE;
@@ -71,7 +76,7 @@ async function analyse(r: Extract<Req, { kind: 'analyse' }>): Promise<NeuralRhyt
   prog(1);
   return { model: `beat_this final0 · ${label}`, beats: grid.beats.map(t => +t.toFixed(4)), downbeats: grid.downbeats.map(t => +t.toFixed(4)),
     impact: A.impact, low: A.low, mid: A.mid, high: A.high, rhythmic: A.rhythmic, pulse: A.pulse, confidence: A.confidence, trackScale: A.trackScale,
-    group: A.meter.group, usual: A.meter.usual, drums, drumless, drumsRun, ms: { beats: Math.round(tBeats), drums: Math.round(performance.now() - t1) } };
+    group: A.meter.group, usual: A.meter.usual, drums, drumless, drumsRun, voice, ms: { beats: Math.round(tBeats), drums: Math.round(performance.now() - t1) } };
 }
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
