@@ -57,11 +57,11 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     while (k < ws.length) {
       const S0 = ws[k], grp = [S0]; let j = k + 1;
       const z1 = zOf(S0) * 0.97;
-      // a line laid heading back (leftward): framed whole, one stop, the camera never following along its characters —
-      // that would run it right, against the way the lines go (columns are travelled down as ever)
-      const whole = !!P.west && !hover && !P.scene && !ws.some(S => S.vert || S.roll || S.frame);
-      if (whole) { grp.push(...ws.slice(j)); j = ws.length; }
-      while (!whole && j < ws.length && (stops.length || P.i > 0 || grp.length > 1 || ws[j].w.group === S0.w.group)) {
+      // a line laid heading back (leftward): hovered over, as the hover style does — the camera over the middle of each
+      // group of its words, drifting a little on — never following along its characters, which would run it right
+      // against the way the lines go, nor holding the whole line still (columns are travelled down as ever)
+      const west = !!P.west && !hover && !P.scene && !ws.some(S => S.vert || S.roll || S.frame);
+      while (j < ws.length && (stops.length || P.i > 0 || grp.length > 1 || ws[j].w.group === S0.w.group)) {
         const Q = ws[j], last = grp[grp.length - 1];
         const fused = Q.w.group === last.w.group;                                   // one gesture: always together
         const quick = Q.w.t - last.end < 0.2 || Q.w.t - last.w.t < 0.45;
@@ -79,20 +79,19 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       // (a lyric frame is small — a word or two — so it never pulls the camera closer than the words' own framing)
       // (the words' height sets the closeness; a group wider than the frame is not shrunk to fit: the camera follows the
       // singing along it, so it stays as close as one word would be framed)
-      let z = hover ? Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1) : Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, z1);
+      let z = hover || west ? Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1) : Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, z1);
       // (a column: its characters' size sets the closeness, as a row's height does — about three of them down the frame,
       // the rest travelled as they are sung — never the whole column shrunk to fit the frame's height)
       if (!hover && grp.every(S => S.vert)) { const cw = Math.max(1, ...grp.map(S => S.lw)); z = Math.min(H * 0.55 / cw * T, H * 0.63 / cw, H * 0.77 / clamp(B.h, cw * 2, cw * 3.2), W * 0.8 / B.w); }
       // (a framed word is shown whole, the camera pulling back for it — a column framed less far: it is long, not wide)
       if (F) z = Math.min(z, W * 0.8 / B.w, H * (grp.every(S => S.vert) ? 0.76 : 0.58) / B.h);
-      if (whole) z = Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, W * 0.78 / B.w, z1);
       // close up: a character about two fifths of the frame high (the one being sung always wholly in view)
-      if (close && !F && !whole) { const us = grp.flatMap(S => S.units), uh = us.map(u => u.h).sort((a, b) => a - b)[us.length >> 1] || B.h, uw = Math.max(...us.map(u => u.w), 1), uhm = Math.max(...us.map(u => u.h), 1);
+      if (close && !F && !west) { const us = grp.flatMap(S => S.units), uh = us.map(u => u.h).sort((a, b) => a - b)[us.length >> 1] || B.h, uw = Math.max(...us.map(u => u.w), 1), uhm = Math.max(...us.map(u => u.h), 1);
         z = Math.min(H * 0.4 / uh * T, W * 0.5 / uw, H * 0.62 / uhm); }
       const last = grp[grp.length - 1], rd = P.rtl ? -1 : 1, dv = dirv(S0.ang);
       stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 6 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,
         t: S0.w.t, arrive: 0, leave: 0, sungEnd: last.end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: S0.tilt }, dir: [dv[0] * rd, dv[1] * rd], drift: 0,
-        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0, ...(whole ? { whole } : {}) });
+        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0, ...(west ? { hov: true } : {}) });
       k = j;
     }
   }
@@ -103,7 +102,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     const zm = zs[zs.length >> 1]; for (const s of stops) if (s.words[0].line === P) s.z = Math.min(s.z, zm * (close ? 1.25 : 1));
   }
   // neighbours: at most 1.6× change in closeness within a line, 2.2× across lines (more only across a cut)
-  for (let i = 1; i < stops.length; i++) { const a = stops[i - 1], b = stops[i], k = a.words[0].line === b.words[0].line ? 1.6 : 2.2; if (!b.cut) b.z = b.whole ? Math.min(b.z, a.z * k) : clamp(b.z, a.z / k, a.z * k); }   // (a line framed whole is never pushed in past fitting)
+  for (let i = 1; i < stops.length; i++) { const a = stops[i - 1], b = stops[i], k = a.words[0].line === b.words[0].line ? 1.6 : 2.2; if (!b.cut) b.z = b.hov ? Math.min(b.z, a.z * k) : clamp(b.z, a.z / k, a.z * k); }   // (a line hovered over is never pushed in past fitting)
   // a stop that is soon followed by a wider one already holds wider: no push-in only to pull out again
   if (!close) for (let i = stops.length - 2; i >= 0; i--) { const a = stops[i], b = stops[i + 1]; if (!b.cut && b.t - a.t < 1.2 && b.z < a.z) a.z = Math.max(b.z, a.z * 0.85); }
 
@@ -118,13 +117,13 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   const driftRate = cut === 'punch' ? 0.03 : 0.05, LEADT = (close ? 0.8 : 1) / sp;
   const track = (s: Stop) => {
     // hovering: the words framed whole, the camera over their middle with a little room ahead, drifting slowly that way
-    if (hover) { s.follow = []; s.fax = s.dir; s.head = s.words.map(ubox); s.ubox = unitBoxes(s.words);
+    // (a line heading back leans and drifts the way the lines go — leftward on the screen — not the way its characters read)
+    if (hover || s.hov) { const dv: [number, number] = s.hov ? [-1, 0] : s.dir; s.follow = []; s.fax = dv; s.head = s.words.map(ubox); s.ubox = unitBoxes(s.words);
       if (s.words.some(w => w.frame && w.frame.words[w.frame.words.length - 1] === w)) { s.x = s.box.x; s.y = s.box.y; s.drift = 0; return; }
       const room = Math.max(0, W * SAFE_X / s.z - s.box.w / 2), ld = Math.min(room * 0.5, 0.1 * W / s.z);
-      s.x = s.box.x + s.dir[0] * ld; s.y = s.box.y + s.dir[1] * ld; s.drift = Math.max(0, Math.min(room - ld, 0.045 * W / s.z * 2.5)); return; }
+      s.x = s.box.x + dv[0] * ld; s.y = s.box.y + dv[1] * ld; s.drift = Math.max(0, Math.min(room - ld, 0.045 * W / s.z * 2.5)); return; }
     s.follow = []; s.fax = s.dir; s.head = s.words.map(ubox); s.ubox = unitBoxes(s.words);
     if (s.words.some(w => w.frame && w.frame.words[w.frame.words.length - 1] === w)) { s.x = s.box.x; s.y = s.box.y; s.drift = 0; return; }   // a lyric frame is framed whole, still
-    if (s.whole) { s.x = s.box.x; s.y = s.box.y; s.drift = 0; return; }   // a line heading back: framed whole, held
     const U = s.ubox; if (!U.length) { s.x = s.box.x; s.y = s.box.y; s.drift = 0; return; }
     // along the reading direction; down a column for vertical words
     const across = s.words.every(w => w.vert), ax: [number, number] = across ? dirv(s.box.tilt + 90) : s.dir; s.fax = ax;

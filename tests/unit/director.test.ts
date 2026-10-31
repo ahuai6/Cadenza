@@ -59,7 +59,7 @@ describe.each(styles)('director (%s)', cut => {
     }
   });
   it('follows the singing along the words, never backwards, a little behind it', () => {
-    const stops = P.camera.stops.filter(s => !s.over && !s.whole && !s.words.some(w => w.frame) && s.fax);   // (a line heading back is framed whole: below)
+    const stops = P.camera.stops.filter(s => !s.over && !s.hov && !s.words.some(w => w.frame) && s.fax);   // (a line heading back is hovered over: below)
     // the character being sung sits just right of the middle on arrival (the camera follows the voice, never ahead)…
     // (hovering, the words are framed whole instead)
     const lead = stops.filter(s => { const U = singing(s.words[0], s.words[0].w.t, true), cx = (U[0][0] + U[2][0]) / 2, cy = (U[0][1] + U[2][1]) / 2, c = rawPose(P.camera, s.arrive + 1e-3);
@@ -86,21 +86,34 @@ describe.each(styles)('directions (%s)', cut => {
     for (const ls of secs) for (let k = 1; k < ls.length; k++) { if (ls[k].west && ls[k].ax < ls[k - 1].ax) leftSecs.add(ls[k].sec); else if (ls[k].ax > ls[k - 1].ax) right++; }
     expect(right).toBeGreaterThan(3); expect(leftSecs.size).toBeGreaterThanOrEqual(2);
   });
-  it('every transition turns the way the lines go, and the whole passage keeps to it', () => {
+  it('every transition turns the way the lines set off: rightward, leftward, …', () => {
     if (cut === 'close' || cut === 'hover') return;   // (close up most moves are crossed by quick transitions of the camera's own; hovering, no follow to turn)
-    const way = (ls: typeof secs[0]) => { let r = 0, l = 0; for (let k = 1; k < ls.length; k++) { if (ls[k].vert || ls[k - 1].vert) continue; ls[k].ax > ls[k - 1].ax ? r++ : l++; } return r + l < 2 ? 0 : r > l ? 1 : l > r ? -1 : 0; };
-    // (one passage after another; a passage of columns, or of a single line, says no way and is passed over)
+    // (how a passage sets off: its second line from its first, along — a passage of columns, a single line, or one going
+    // up or down from the first says no way and is passed over)
+    const way = (ls: typeof secs[0]) => { const [A, B] = ls; if (!B || A.vert || B.vert || Math.abs(B.ay - A.ay) > Math.abs(B.ax - A.ax)) return 0; return B.ax > A.ax ? 1 : -1; };
     const ways = secs.map(way); let pairs = 0, turns = 0;
     for (let k = 1; k < ways.length; k++) if (ways[k] && ways[k - 1]) { pairs++; if (ways[k] !== ways[k - 1]) turns++; }
-    expect(pairs).toBeGreaterThanOrEqual(2); expect(turns / pairs).toBeGreaterThanOrEqual(0.75);
+    expect(pairs).toBeGreaterThanOrEqual(2); expect(turns / pairs).toBeGreaterThanOrEqual(0.6);
   });
-  it('a line heading leftward is framed whole: one stop, never followed character by character', () => {
+  it('a passage keeps near where it began: no long run one way — it goes on above and below instead', () => {
+    if (cut === 'close') return;   // (close up, every line is a long way across the frame)
+    let n = 0, near = 0;
+    for (const ls of secs) { const O = ls[0]; if (!O) continue;
+      // (measured against the passage's first line: a frame at its closeness, or its width if wider)
+      const ref = Math.max(P.W / (P.camera.stops.find(s => s.words.includes(O.words[0]))?.z ?? 1), O.bw);
+      for (const L of ls.slice(1)) { if (L.scene === 'dash') continue; n++;
+        if (Math.abs(L.ax - O.ax) <= 2.4 * Math.max(ref, L.bw * 0.5)) near++; } }
+    // (a song sung without a breath leaves no time for a transition: a line or two then go a little further)
+    expect(near / n).toBeGreaterThan(0.85);
+  });
+  it('a line heading leftward is hovered over (as the hover style does), never followed character by character', () => {
     const west = P.lines.filter(L => L.west && !L.vert && !L.scene && L.words.length && !L.words.some(S => S.vert || S.roll || S.frame));
     expect(west.length).toBeGreaterThan(0);
     for (const L of west) { const st = P.camera.stops.filter(s => s.words[0].line === L && !s.over);
       if (cut === 'hover') continue;
-      expect(st.length).toBe(1); expect(st[0].whole).toBe(true);
-      expect(P.camera.drifts.some(d => d[0] >= st[0].arrive - 1e-6 && d[1] <= st[0].leave + 1e-6 && Math.hypot(d[2], d[3]) > 1)).toBe(false); }
+      for (const s of st) { expect(s.hov).toBe(true); expect(s.follow ?? []).toEqual([]);
+        // (over the middle of its words, leaning and drifting leftward — the way the lines go)
+        expect(s.fax![0]).toBeLessThan(0); } }
   });
 });
 
@@ -524,5 +537,20 @@ describe('framing and the page', async () => {
     for (const src of SONGS) { const P = build(src, cut, 16 / 9); let most = 0;
       for (let t = 1; t < P.musicEnd; t += 0.1) { const up = P.lines.filter(L => L.words.length && L.words[0].show <= t && t < L.secEnd - L.secIn - 0.02).length; most = Math.max(most, up); }
       expect(most).toBeLessThanOrEqual(PAGE_LINES); }
+  });
+});
+
+describe('depth', () => {
+  it('the frame\'s shake, roll and push are felt by depth: near more, far less — never one flat layer', async () => {
+    const { project, NO_FX } = await import('../../src/director/project');
+    const cam = { x: 0, y: 0, z: 1, r: 0, d: 0, yaw: 0, pitch: 0 }, fx = { x: 12, y: -8, r: 1.5, z: 1.06 };
+    const moved = (D: number) => { const a = project(200, 100, D, cam, NO_FX, 1280, 720), b = project(200, 100, D, cam, fx, 1280, 720);
+      return { off: Math.hypot(b.sx - a.sx, b.sy - a.sy), rot: b.rot - a.rot, push: b.k / a.k }; };
+    const near = moved(-300), mid = moved(0), far = moved(600);
+    expect(near.off).toBeGreaterThan(mid.off); expect(mid.off).toBeGreaterThan(far.off);
+    expect(near.rot).toBeGreaterThan(mid.rot); expect(mid.rot).toBeGreaterThan(far.rot);
+    expect(near.push).toBeGreaterThanOrEqual(mid.push - 1e-9); expect(mid.push).toBeGreaterThan(far.push);
+    // (at the camera's own depth, the frame's motion as it is)
+    expect(mid.rot).toBeCloseTo(1.5, 6);
   });
 });

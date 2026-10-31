@@ -48,8 +48,9 @@ export interface PLine {
   ax: number; ay: number; bw: number; bh: number; prot: number; d: number;
   /** set as columns (one of a run of vertical lines, see layout.ts) */ vert?: boolean;
   back: boolean; rtl: boolean;
-  /** laid while the path heads back against the reading direction (leftward): the camera frames it whole, never character
-   *  by character (following the singing would run the camera right, against the way the lines go) */ west?: boolean;
+  /** laid while the path heads back against the reading direction (leftward): the camera hovers over it (as the hover
+   *  style does), never character by character (following the singing would run the camera right, against the way the
+   *  lines go) */ west?: boolean;
 }
 export interface FrameRef { words: PWord[]; ts: number; corner: boolean; pad: number; /** fades from here (the camera left it, too far to hold it in view) */ until?: number }
 
@@ -65,7 +66,7 @@ export interface Stop extends Pose {
   sungEnd: number;        // the framed words are sung by here
   box: { x: number; y: number; w: number; h: number; tilt: number };
   dir: [number, number];  // reading direction (unit)
-  /** the line framed whole and held (a line laid heading back: no follow along its characters) */ whole?: boolean;
+  /** hovered over, as the hover style does (a line laid heading back: no follow along its characters) */ hov?: boolean;
   drift: number;          // how far the camera drifts along `dir` while it holds (world units)
   cut: boolean;           // reached by a cut (a transition), not a move
   over: boolean;          // the ending pull-back

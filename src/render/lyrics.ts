@@ -5,7 +5,7 @@
 import { clamp, D2R } from '../core/math';
 import { mix, rgba } from '../core/color';
 import { rnd } from '../core/rng';
-import { project, onScreen, type Projected } from '../director/project';
+import { project, onScreen, depthFeel, type Projected } from '../director/project';
 import { entryK } from '../director/entry';
 import { wordState, unitPose, wordPlacement, TIN_SPEC, type WordCtx, type WordState } from '../director/words';
 import type { PWord } from '../director/types';
@@ -76,7 +76,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
     const { S, ws, p } = v, n = S.units.length, spec = TIN_SPEC[ws.tin] || TIN_SPEC.blur, blurMax = Math.min(32, v.glyphPx * spec.blur);
     const A = v.o * AK * view; if (A < 0.003) continue;
     const wp = wordPlacement(S, p, ws), k = wp.k;
-    g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(f.W / 2 + p.sx + (trail?.dx ?? 0), f.H / 2 + p.sy + (trail?.dy ?? 0)); if (sk) g.transform(1, sk[0], sk[1], 1, 0, 0);
+    g.setTransform(f.px, 0, 0, f.px, 0, 0); g.translate(f.W / 2 + p.sx + (trail?.dx ?? 0), f.H / 2 + p.sy + (trail?.dy ?? 0)); const dfeel = depthFeel(p.kp); if (sk) g.transform(1, sk[0] * dfeel, sk[1] * dfeel, 1, 0, 0);   // (the frame's rocking, and its jitter below, felt by depth as its shake is: project.ts)
     g.rotate(wp.ang * D2R);
     // the line's plane leans in depth: turned a little about its upright (the far end foreshortened and drawn in) and
     // tipped back or forward, as much as the depth setting asks, with a slow breath — the words sit in space, not on glass
@@ -86,7 +86,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
     const sp0 = !trail ? o.split * ws.gk / Math.max(1e-3, k) : 0;
     for (let ui = 0; ui < n; ui++) {
       const u = S.units[ui], up = unitPose(S, ui, f.t, ws, ov, c, !!trail); if (!up) continue;
-      let jx = 0, jy = 0; if (JT > 0 && ws.live) { jx = (rnd(fr * 13 + ui * 7 + S.k) - 0.5) * JT * pulse * 22; jy = (rnd(fr * 7 + ui * 3 + S.k) - 0.5) * JT * pulse * 14; }
+      let jx = 0, jy = 0; if (JT > 0 && ws.live) { jx = (rnd(fr * 13 + ui * 7 + S.k) - 0.5) * JT * pulse * 22 * dfeel; jy = (rnd(fr * 7 + ui * 3 + S.k) - 0.5) * JT * pulse * 14 * dfeel; }
       // ghost of an unsung unit, and the outline that marks a unit just sung: both at the unit's rest pose
       // (an unsung ghost comes in with the word's own entrance — it rises, focuses or drifts in with it — never pops up)
       if (up.ghost || up.outline > 0) {

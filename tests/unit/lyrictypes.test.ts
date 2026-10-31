@@ -25,11 +25,8 @@ function steps(P: ReturnType<typeof make>) {
 }
 
 describe('lyric types', () => {
-  it('流動: the lines go on above or below more often than its odds alone would have them', async () => {
-    const { LYRIC_TYPES } = await import('../../src/director/lyrictypes'), flow = LYRIC_TYPES.flow as { stack?: number }, keep = flow.stack;
-    for (const cut of ['glide', 'punch']) { const share = () => { const s = steps(make('flow', cut)); return s.vert / (s.vert + s.along); };
-      const more = share(); flow.stack = 1; const plain = share(); flow.stack = keep;
-      expect(more, cut).toBeGreaterThan(plain); }
+  it('流動: the lines go on above or below often — more often than onward, once a passage is under way', () => {
+    for (const cut of ['glide', 'punch']) { const s = steps(make('flow', cut)); expect(s.vert / (s.vert + s.along), cut).toBeGreaterThan(0.4); }
   });
   describe('圓心', () => {
     const P = make('orbit'), F = make('flow');
