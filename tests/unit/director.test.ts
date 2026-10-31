@@ -556,3 +556,14 @@ describe('depth', () => {
     expect(mid.rot).toBeCloseTo(1.5, 6);
   });
 });
+
+describe('the ending', () => {
+  it.each(['glide', 'center'] as const)('never brings back a line once gone — only the ones still up dim into it (%s)', cut => {
+    const P = make(cut as 'glide'), t = P.musicEnd + 1.5, ctx = { enter: 0.35, tempo: 1, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false };
+    let gone = 0, up = 0;
+    for (const S of P.words) { const L = S.line, ws = wordState(S, t, 1, false, ctx);
+      if (isFinite(L.secEnd) && L.secEnd < P.musicEnd) { gone++; expect(ws, `${S.w.text} (line ${L.i})`).toBeNull(); }
+      else if (ws) up++; }
+    expect(gone).toBeGreaterThan(10); expect(up).toBeGreaterThan(0);
+  });
+});

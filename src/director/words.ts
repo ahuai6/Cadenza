@@ -62,7 +62,9 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
     // (the last of the held has no group after it: gone a while after it is sung)
     const t1 = c.held && isFinite(L.secEnd) ? L.secEnd : L.L.end + SPREAD * (c.held ? 4 : 1); xs = clamp((t - t0) / Math.max(0.5, t1 - t0));
     o *= 1 - xs ** 3; }
-  o = ov > 0 ? lerp(o * secK, t >= S.show ? Math.min(o, card ? END_DIM_CARD : END_DIM) : 0, ov) : o * secK;
+  // (into the ending, the words still up dim to the ending's level; a word already gone — its passage closed, taken off
+  // the page, faded out — stays gone: the ending never brings back what was taken away)
+  o = (ov > 0 ? lerp(o, t >= S.show ? Math.min(o, card ? END_DIM_CARD : END_DIM) : 0, ov) : o) * secK;
   if (o <= 0.003) return null;
   const q = 1 - pe; let ox = 0, oy = 0, sc = 1;
   if (tin === 'blur') sc = 1 + 0.07 * q;
