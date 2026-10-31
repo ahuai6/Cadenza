@@ -30,31 +30,31 @@ const FX_OFF = { wordring: false, motes: false, feathers: false, grid: false, eq
 const paleHex = (accent: string) => hexOf(paleOf(hex2rgb(accent)));
 export const PRESETS: Record<string, Omit<Style, 'preset' | 'from' | 'k' | 'm' | 'aspect' | 'aa'>> = {
   liquid: { tin: 'rise', tout: 'none', font: 'maru', bg: '#0b0820', bg2: '#2a1f66', text: '#ffffff', accent: '#ff5fc1', flash: paleHex('#ff5fc1'), cut: 'waltz', bgStyle: 'liquid', flashMode: 'color', future: 'dim',
-    m0: { shake: .2, sway: .8, punch: .5, flash: 1, flashk: .35, impact: 1, impk: .6, speed: .75, pulse: .8, tilt: 1, turn: .45, tang: 45, drift: 1.1, split: .4, glow: .35, shadow: 0, enter: .3, lead: .15, depth: 1.2, float: .8, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
+    m0: { shake: .2, sway: .8, punch: .5, flash: 1, flashk: .35, impact: 1, impk: .6, speed: .75, pulse: .8, tilt: 1, turn: .45, tang: 45, drift: 1.1, split: .4, glow: .35, shadow: 0, enter: .21, lead: .15, depth: 1.2, float: .8, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
     fx: { ...FX_OFF, motes: true, vignette: true, stars: true } },
   gothic: { tin: 'drift', tout: 'none', font: 'tiempos', bg: '#24060c', bg2: '#701221', text: '#f2e6de', accent: '#b3172f', flash: paleHex('#b3172f'), cut: 'waltz', bgStyle: 'gothic', flashMode: 'color', future: 'dim',
-    m0: { shake: .75, sway: 1, punch: .8, flash: 1, flashk: .4, impact: 1, impk: .8, speed: .95, pulse: .7, tilt: 1.1, turn: .45, tang: 35, drift: 1.1, split: .25, glow: .35, shadow: 0, enter: .32, lead: .12, depth: 1.3, float: .6, jitter: .15, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
+    m0: { shake: .75, sway: 1, punch: .8, flash: 1, flashk: .4, impact: 1, impk: .8, speed: .95, pulse: .7, tilt: 1.1, turn: .45, tang: 35, drift: 1.1, split: .25, glow: .35, shadow: 0, enter: .22, lead: .12, depth: 1.3, float: .6, jitter: .15, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
     fx: { ...FX_OFF, motes: true, vignette: true, grain: true, glass: true, glyph: true } },
   cover: { tin: 'drift', tout: 'none', font: 'notosans', bg: '#141118', bg2: '#2c2536', text: '#f5f2f7', accent: '#c7a8ff', flash: paleHex('#c7a8ff'), cut: 'glide', bgStyle: 'cover', flashMode: 'color', future: 'dim',
     coverEdge: 'album', coverBlur: 0, coverSize: 0.6,
-    m0: { shake: .1, sway: .4, punch: .3, flash: 1, flashk: .25, impact: 1, impk: .4, speed: .7, pulse: .4, tilt: .6, turn: .25, tang: 30, drift: .8, split: 0, glow: .55, shadow: 0, enter: .35, lead: .15, depth: 1, float: .45, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
+    m0: { shake: .1, sway: .4, punch: .3, flash: 1, flashk: .25, impact: 1, impk: .4, speed: .7, pulse: .4, tilt: .6, turn: .25, tang: 30, drift: .8, split: 0, glow: .55, shadow: 0, enter: .24, lead: .15, depth: 1, float: .45, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
     fx: { ...FX_OFF, motes: true, vignette: true, frame: true } },
   video: { tin: 'blur', tout: 'none', font: 'notosans', bg: '#0b0b0e', bg2: '#3b4250', text: '#f7f2ea', accent: '#e8c8a0', flash: paleHex('#e8c8a0'), cut: 'glide', bgStyle: 'video', flashMode: 'color', future: 'dim',
     vidDark: 0.6, vidBlur: 0.35, vidDesat: 0.35,
-    m0: { shake: .1, sway: .35, punch: .3, flash: 0, flashk: 0, impact: 1, impk: .4, speed: .7, pulse: .35, tilt: .6, turn: .25, tang: 25, drift: .9, split: 0, glow: .22, shadow: 1, enter: .4, lead: .15, depth: 1.4, float: .5, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
+    m0: { shake: .1, sway: .35, punch: .3, flash: 0, flashk: 0, impact: 1, impk: .4, speed: .7, pulse: .35, tilt: .6, turn: .25, tang: 25, drift: .9, split: 0, glow: .22, shadow: 1, enter: .28, lead: .15, depth: 1.4, float: .5, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
     fx: { ...FX_OFF, motes: true, vignette: true, grain: true, frame: true } },
   // the record: the camera holds the middle, where the whole disc turns; lines come and go above and below it; door
   // frames on a horizon, plain lines, wireframe solids and line fragments around it. Its colours come from the cover:
   // the ground the cover's own, the rest its opposite hue (palette.ts). Instrumentals take it by default.
   vinyl: { tin: 'rise', tout: 'none', font: 'notosans', bg: '#120e16', bg2: '#25304a', text: '#f4f6fb', accent: '#7fd4ff', flash: '#d8f1ff', cut: 'center', bgStyle: 'vinyl', flashMode: 'color', future: 'dim',
-    m0: { shake: .1, sway: 0, punch: .35, flash: .7, flashk: .2, impact: 1, impk: .35, speed: .7, pulse: .6, tilt: 0, turn: 0, tang: 0, drift: 0, split: 0, glow: .45, shadow: 0, enter: .4, lead: .15, depth: 0, float: .3, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
+    m0: { shake: .1, sway: 0, punch: .35, flash: .7, flashk: .2, impact: 1, impk: .35, speed: .7, pulse: .6, tilt: 0, turn: 0, tang: 0, drift: 0, split: 0, glow: .45, shadow: 0, enter: .28, lead: .15, depth: 0, float: .3, jitter: 0, tsize: 1, flip: 1, glyphf: 1, glassf: 1 },
     fx: { ...FX_OFF, doors: true, lines: true, wires: true, shards: true } },
 };
 export const DEFAULT_THEME = 'liquid';
 /** The knobs: [key, group, min, max, step]. 1 = the theme's tuning. */
 export const KNOBS: [string, string, number, number, number][] = [
   ['pace', 'grp.camera', 0.4, 1.6, .05], ['energy', 'grp.camera', 0, 2, .05], ['groove', 'grp.camera', 0, 4, .05], ['float', 'grp.camera', 0, 2, .05], ['turns', 'grp.camera', 0, 2, .05],
-  ['depth', 'grp.camera', 0, 2, .05], ['size', 'grp.text', 0.6, 2, .05], ['enter', 'grp.text', 0.4, 1.6, .05],
+  ['depth', 'grp.camera', 0, 2, .05], ['size', 'grp.text', 0.6, 2, .05], ['enter', 'grp.text', 0.15, 1.6, .05],
   ['glow', 'grp.text', 0, 2, .05], ['split', 'grp.text', 0, 2, .05], ['jitter', 'grp.text', 0, 2, .05], ['trigger', 'grp.triggers', 0, 2, .05], ['glyph', 'grp.triggers', 0.25, 1.75, .05],
 ];
 export const AA_MODES = ['off', 'ssaa', 'ssaa3'];

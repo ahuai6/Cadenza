@@ -11,8 +11,8 @@ import type { Projected } from './project';
 
 /** Per entrance style: duration (× the theme's entrance time, never shorter than min) and blur (share of glyph height). */
 export const TIN_SPEC: Record<string, { dur: number; min: number; blur: number }> = {
-  blur: { dur: 1.8, min: 0.42, blur: 0.16 }, drift: { dur: 1.5, min: 0.36, blur: 0.08 }, rise: { dur: 1.4, min: 0.32, blur: 0.1 },
-  track: { dur: 1.5, min: 0.34, blur: 0.08 }, pop: { dur: 1.0, min: 0.16, blur: 0.06 },
+  blur: { dur: 1.8, min: 0.2, blur: 0.16 }, drift: { dur: 1.5, min: 0.17, blur: 0.08 }, rise: { dur: 1.4, min: 0.15, blur: 0.1 },
+  track: { dur: 1.5, min: 0.16, blur: 0.08 }, pop: { dur: 1.0, min: 0.08, blur: 0.06 },
 };
 const DRIFT_DIRS = [[0, 1], [0, 1], [-1, 0], [0, -1], [1, 0], [-0.7, 0.7]];
 /** The spread exit: how long the line takes to fade once it leaves (s), and the space it has opened between letters
@@ -44,7 +44,7 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   const tin = S.tin, sp = TIN_SPEC[tin] || TIN_SPEC.blur, dur = Math.max(sp.min, c.enter * sp.dur * c.tempo);
   const nextT = S.k + 1 < L.words.length ? L.words[S.k + 1].show : Infinity;
   if (lineOn && t >= S.show) {
-    const p = eSine(clamp((t - S.show) / Math.max(0.3, c.enter * 1.2 * c.tempo)));
+    const p = eSine(clamp((t - S.show) / Math.max(0.14, c.enter * 1.2 * c.tempo)));
     pe = eOut(clamp((t - S.show) / dur));
     dimK = eSine(clamp((t - nextT) / (1.2 * c.tempo)));
     live = dimK < 0.5 && pastK < 1;
@@ -102,7 +102,7 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
     const lt = t - u.t;
     if (lt < 0) { if (c.future === 'hide' || trail) return null; ghost = true; uq = 0;
       // the ghost arrives with the word's entrance (as the word's own type would), then waits for its moment
-      if (ov === 0) { const pu = eOut(clamp((t - S.show - ui * 0.055) / ws.dur)), qq = 1 - pu; ua = eSine(clamp((t - S.show - ui * 0.055) / Math.max(0.22, c.enter * 0.9 * c.tempo)));
+      if (ov === 0) { const pu = eOut(clamp((t - S.show - ui * 0.055) / ws.dur)), qq = 1 - pu; ua = eSine(clamp((t - S.show - ui * 0.055) / Math.max(0.1, c.enter * 0.9 * c.tempo)));
         if (ws.tin === 'rise') { dy = 48 * qq; ur = (ui % 2 ? 6 : -6) * qq; }
         else if (ws.tin === 'pop') um = 1 + qq * (c.smooth ? 0.12 : 0.45) * c.motion;
         else if (ws.tin === 'track') dx = rx * 0.55 * qq;
@@ -110,7 +110,7 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
         else dy = 30 * qq; } }
     else {
       const pu = eOut(clamp(lt / ws.dur)), qq = 1 - pu; uq = qq;
-      ua = eSine(clamp(lt / Math.max(0.22, c.enter * 0.9 * c.tempo)));
+      ua = eSine(clamp(lt / Math.max(0.1, c.enter * 0.9 * c.tempo)));
       if (ws.tin === 'pop') { um = 1 + qq * (c.smooth ? 0.12 : 0.6 * Math.min(1.5, c.punch + 0.3)) * c.motion; dy = -18 * qq; }
       else if (ws.tin === 'track') dx = (u.ox >= 0 ? 1 : -1) * 24 * qq;
       else if (ws.tin === 'blur') um = 1 + 0.12 * qq;

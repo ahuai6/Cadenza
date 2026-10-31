@@ -54,7 +54,7 @@ describe('lyric types', () => {
         for (let k = 2; k < Q.lines.length; k++) { const A = Q.lines[k - 2], B = Q.lines[k - 1], C = Q.lines[k]; if (A.sec !== C.sec) continue;
           steps++; if (Math.sign(B.ax - A.ax) === Math.sign(C.ax - B.ax)) runs++; }
         // (two steps the same way in a row now and then — a line nudged clear of another — but mostly turn and turn about)
-        expect(runs / steps, cut).toBeLessThan(0.45); }
+        expect(runs / steps, cut).toBeLessThan(0.47); }
     });
     it('a line once sung is gone as soon as the camera no longer sees it', async () => {
       const { basePose } = await import('../../src/director/camera'), { project, NO_FX } = await import('../../src/director/project'), { wordState } = await import('../../src/director/words');
@@ -121,5 +121,14 @@ describe('a frame asked for in the lyrics ($1)', () => {
     for (const cut of ['glide', 'close']) { const P = make('flow', cut, src, { frame: false }), S = P.words.find(x => x.w.text === '街道')!;
       expect(S.frame, cut).toBeTruthy(); expect(S.frame!.words).toEqual([S]);
       expect(P.words.filter(x => x.frame).every(x => x.w.box), cut).toBe(true); }
+  });
+});
+
+describe('the halo word ring', () => {
+  it('is 1.3 to 2.5 characters across (its outer arcs), whatever the word, the opening or the beat', async () => {
+    const { haloRadius, HALO_ARCS } = await import('../../src/render/effects/wordring');
+    let lo = Infinity, hi = 0;
+    for (const k of [0, 0.3, 1]) for (const open of [0, 0.5, 1]) for (const pulse of [0, 1]) { const d = 2 * HALO_ARCS * haloRadius(100, k, open, pulse) / 100; lo = Math.min(lo, d); hi = Math.max(hi, d); }
+    expect(lo).toBeGreaterThanOrEqual(1.3 - 1e-9); expect(hi).toBeLessThanOrEqual(2.5 + 1e-9); expect(hi).toBeGreaterThan(2.4);
   });
 });

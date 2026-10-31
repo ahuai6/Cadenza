@@ -47,7 +47,9 @@ export function boxIn(segs: { x: number; y: number; lw: number; lh: number; tilt
   for (const S of segs) for (const p of corners(S, pad)) { const a = p[0] * u[0] + p[1] * u[1], b = p[0] * v[0] + p[1] * v[1]; u0 = Math.min(u0, a); u1 = Math.max(u1, a); v0 = Math.min(v0, b); v1 = Math.max(v1, b); }
   const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2; return { x: u[0] * cu + v[0] * cv, y: u[1] * cu + v[1] * cv, w: u1 - u0, h: v1 - v0 };
 }
-const ANTIC = (st: Style) => clamp((st.m.enter ?? 0.3) * 0.3, 0.05, 0.14);
+/** How long before its moment a word shows (s): with the entrance's length, as much as before the entrances were made
+ *  shorter (the default ones ×0.7), so the words are as early as ever. */
+const ANTIC = (st: Style) => clamp((st.m.enter ?? 0.21) / 0.7 * 0.3, 0.05, 0.14);
 
 export function layout(inp: LayoutInput): LayoutResult {
   const { doc, map, style: st, measure, W, H } = inp, M = st.m, T = tsz(st);
