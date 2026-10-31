@@ -472,9 +472,9 @@ export function centerZoom(words: PWord[], H: number, T: number) {
   const hs = words.filter(S => !S.vert).map(S => S.lh / S.s).sort((a, b) => a - b), h0 = hs.length ? hs[hs.length >> 1] : EM;
   return clamp(H * 0.12 / (h0 * T), 0.15, 2);
 }
-/** The centred stage (camera style 'center'): every line is set level, wrapped into rows that fit the frame, three at a
- *  time in a set order — the middle, above it, below it — then a transition, the three leaving in it, and the next
- *  three begin; no depth and no turns. */
+/** The centred stage (camera style 'center'): every line is set level, wrapped into rows that fit the frame, as many
+ *  lines at a time as fit in three rows, in a set order — the middle, above it, below it — then a transition, the
+ *  group leaving in it, and the next begins; no depth and no turns. */
 function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap: number, T: number, map: RhythmMap, trans: boolean): LayoutResult {
   const z = centerZoom(words, H, T), maxW = W * 0.8 / z, rg = gap * 2.2, sp = (S: PWord) => (S.w.latin ? Math.max(gap, S.lh * 0.32) : gap);
   // each line wrapped into rows that fit the frame
@@ -483,9 +483,14 @@ function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap:
       if (rows[rows.length - 1].length && rw + g + S.lw > maxW) { rows.push([]); rw = 0; } rw += (rows[rows.length - 1].length ? g : 0) + S.lw; rows[rows.length - 1].push(S); }
     const rh = rows.map(r => r.length ? Math.max(...r.map(S => S.lh)) : 0), bh = rh.reduce((a, h) => a + h, 0) + rg * (rows.length - 1);
     return { rows, rh, bh }; });
-  // three lines at a time, in a set order: the first in the middle, the next above it, the third below it; then all three
-  // go together as the next three begin (the first of them in the middle again)
-  const sung = lines.filter(P => P.words.length), groupOf = new Map(sung.map((P, k) => [P, Math.floor(k / 3)])), slotOf = new Map(sung.map((P, k) => [P, k % 3]));
+  // as many lines at a time as take three rows at most (three short lines; a wrapped one and a short one; a line of
+  // three rows alone — longer still, alone too), in a set order: the first in the middle, the next above it, the third
+  // below it; then the group goes together as the next begins (its first in the middle again)
+  const sung = lines.filter(P => P.words.length), groupOf = new Map<PLine, number>(), slotOf = new Map<PLine, number>(), firsts = new Set<number>();
+  { let g = -1, rowsIn = 3, slot = 0;
+    for (const P of sung) { const n = blocks[P.i].rows.length;
+      if (rowsIn + n > 3 || slot >= 3) { g++; rowsIn = 0; slot = 0; firsts.add(P.i); }
+      groupOf.set(P, g); slotOf.set(P, slot++); rowsIn += n; } }
   const mid = new Map<number, number>(); for (const P of sung) if (slotOf.get(P) === 0) mid.set(groupOf.get(P)!, blocks[P.i].bh);
   lines.forEach((P, i) => { if (!P.words.length) return;
     const { rows, rh, bh } = blocks[i], slot = slotOf.get(P)!, m = mid.get(groupOf.get(P)!) ?? bh, away = m / 2 + bh / 2 + rg * 1.6;
@@ -495,12 +500,12 @@ function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap:
       y += rh[ri] + rg; });
     const B = boxIn(P.words, 0); P.ax = B.x; P.ay = B.y; P.bw = B.w; P.bh = B.h; P.prot = 0; P.d = 0;
   });
-  // after every three, a transition (the three go in it, the next three come in after it) — a quick one where the
-  // next line follows close on; with transitions off, the three only fade out together just before the next come in
+  // after each group, a transition (the group goes in it, the next comes in after it) — a quick one where the next
+  // line follows close on; with transitions off, the group only fades out together just before the next comes in
   const passages: Passage[] = [], leaves: { line: number; t: number; inn: number }[] = [];
-  sung.forEach((B, k) => { if (k === 0 || k % 3) return; const A = sung[k - 1], end = Math.min(A.L.sung, A.L.end), t = B.words[0].show;
+  sung.forEach((B, k) => { if (k === 0 || !firsts.has(B.i)) return; const A = sung[k - 1], end = Math.min(A.L.sung, A.L.end), t = B.words[0].show;
     if (trans) passages.push({ ...timePassage(end, t, map, t - end < 1.2), line: B.i, quick: t - end < 1.2, reason: 'layout' });
-    else for (const P of sung.slice(k - 3, k)) leaves.push({ line: P.i, t, inn: 0.35 }); });
+    else for (const P of sung.filter(Q => groupOf.get(Q) === groupOf.get(A))) leaves.push({ line: P.i, t, inn: 0.35 }); });
   assignSections(lines, passages);
   const order = [...words].sort((a, b) => a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
   return { lines, words, passages, dmin: 0, sweeps: [], leaves };

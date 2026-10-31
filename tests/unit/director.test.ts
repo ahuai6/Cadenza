@@ -338,22 +338,40 @@ describe('centred stage (the record theme)', () => {
     const gaps = P.lines.slice(1).map((L, i) => [Math.min(P.lines[i].L.sung, P.lines[i].L.end), L.words[0]?.show ?? 0]).filter(([a, b]) => b - a > 4);
     for (const [a] of gaps) { const b = basePose(P.camera, a + 2.5); expect(Math.hypot(b.x, b.y)).toBeLessThan(1); }
   });
-  it('sets every line level and inside the frame, three at a time: the middle, above it, below it; a transition after each three', () => {
+  /** The groups the stage shows (a transition before each but the first): the lines of each, in order. */
+  const groups = (Q: typeof P) => { const sung = Q.lines.filter(L => L.words.length), gs: (typeof sung)[] = [];
+    for (const L of sung) { if (!gs.length || Q.passages.some(x => x.line === L.i)) gs.push([]); gs[gs.length - 1].push(L); } return gs; };
+  const rowsOf = (L: typeof P.lines[0]) => new Set(L.words.map(S => Math.round(S.y))).size;
+  /** In each group: the middle, above it, below it; three rows at most (or a line of more rows alone), and the next
+   *  line would not have fitted in it. */
+  const inTurn = (Q: typeof P) => { const gs = groups(Q);
+    gs.forEach((g, gi) => { const M = g[0], rows = g.reduce((a, L) => a + rowsOf(L), 0);
+      expect(g.length).toBeLessThanOrEqual(3); if (g.length > 1) expect(rows, M.L.text).toBeLessThanOrEqual(3);
+      const nx = gs[gi + 1]?.[0]; if (nx && g.length < 3) expect(rows + rowsOf(nx), M.L.text).toBeGreaterThan(3);
+      expect(Math.abs(M.ay), M.L.text).toBeLessThan(M.bh * 0.6);                                     // (the middle)
+      if (g[1]) expect(g[1].ay).toBeLessThan(M.ay - (M.bh + g[1].bh) / 2 + 1);                        // (above it, clear of it)
+      if (g[2]) expect(g[2].ay).toBeGreaterThan(M.ay + (M.bh + g[2].bh) / 2 - 1); });               // (below it)
+    return gs; };
+  it('sets every line level and inside the frame, as many at a time as fit in three rows: the middle, above it, below it; a transition after each group', () => {
     const sung = P.lines.filter(L => L.words.length);
-    expect(P.passages.map(q => q.line)).toEqual(sung.filter((L, k) => k && k % 3 === 0).map(L => L.i));
-    sung.forEach((L, k) => { for (const S of L.words) expect(S.tilt).toBe(0);
+    sung.forEach(L => { for (const S of L.words) expect(S.tilt).toBe(0);
       const f = cameraAt(P, sig, L.words[0].w.t + 0.3, 0);
-      for (const S of L.words) for (const [x, y] of corners(S)) { const q = project(x, y, S.d, f.cam, NO_FX, P.W, P.H); expect(Math.abs(q.sx), `${L.L.text}`).toBeLessThan(P.W / 2); expect(Math.abs(q.sy)).toBeLessThan(P.H / 2); }
-      const mid = sung[k - (k % 3)];
-      if (k % 3 === 0) expect(Math.abs(L.ay), L.L.text).toBeLessThan(L.bh * 0.6);       // (the middle)
-      if (k % 3 === 1) expect(L.ay).toBeLessThan(mid.ay - (mid.bh + L.bh) / 2 + 1);     // (above it, clear of it)
-      if (k % 3 === 2) expect(L.ay).toBeGreaterThan(mid.ay + (mid.bh + L.bh) / 2 - 1); }); // (below it)
+      for (const S of L.words) for (const [x, y] of corners(S)) { const q = project(x, y, S.d, f.cam, NO_FX, P.W, P.H); expect(Math.abs(q.sx), `${L.L.text}`).toBeLessThan(P.W / 2); expect(Math.abs(q.sy)).toBeLessThan(P.H / 2); } });
+    expect(inTurn(P).length).toBeGreaterThan(3);
   });
-  it('the three go together in the transition before the next three — none before, all of them by its height', () => {
+  it('counts rows, not lines: a wrapped line takes two of the three', () => {
+    const long = '這是一句非常非常長的歌詞 會在畫面裡 換成兩行 才能放得下 一直唱下去', short = '短短一句';
+    const src = [long, short, short, short, long, long, short, short].map((x, i) => `[00:${String(4 + i * 6).padStart(2, '0')}.00]${x}`).join('\n');
+    const pp = parse(src), doc2 = buildLyrics(pp, map, 70);
+    const Q = plan({ doc: doc2, map, style: presetStyle('vinyl'), measure: approxMeasurer(), aspect: 16 / 9, musicEnd: 70, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+    expect(rowsOf(Q.lines[0]), 'the long line wraps').toBeGreaterThan(1);
+    const gs = inTurn(Q); expect(gs[0].length).toBeLessThan(3);
+  });
+  it('a group goes together in the transition before the next — none before, all of it by its height', () => {
     const ctx = { enter: 0.4, tempo: 1, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false };
-    const sung = P.lines.filter(L => L.words.length), up = (L: typeof sung[0], t: number) => L.words.some(S => wordState(S, t, 0, false, ctx) != null);
-    for (let g = 0; (g + 1) * 3 < sung.length; g++) { const grp = sung.slice(g * 3, g * 3 + 3), q = P.passages.find(x => x.line === sung[(g + 1) * 3].i)!;
-      for (const L of grp) { expect(up(L, q.t - q.inn - 0.05), L.L.text).toBe(true); expect(up(L, q.t + 0.01), L.L.text).toBe(false); } }
+    const up = (L: typeof P.lines[0], t: number) => L.words.some(S => wordState(S, t, 0, false, ctx) != null), gs = groups(P);
+    for (let g = 0; g + 1 < gs.length; g++) { const q = P.passages.find(x => x.line === gs[g + 1][0].i)!;
+      for (const L of gs[g]) { expect(up(L, q.t - q.inn - 0.05), L.L.text).toBe(true); expect(up(L, q.t + 0.01), L.L.text).toBe(false); } }
   });
 });
 
