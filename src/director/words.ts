@@ -15,10 +15,13 @@ export const TIN_SPEC: Record<string, { dur: number; min: number; blur: number }
   track: { dur: 1.5, min: 0.34, blur: 0.08 }, pop: { dur: 1.0, min: 0.16, blur: 0.06 },
 };
 const DRIFT_DIRS = [[0, 1], [0, 1], [-1, 0], [0, -1], [1, 0], [-0.7, 0.7]];
+/** The spread exit: how long the line takes to open out and fade (s), and the space it opens between letters at the
+ *  end (× the letters' height). */
+const SPREAD = 2.2, SPREAD_GAP = 0.6;
 export const SUNG = 0.42, PAST = 0.3, END_DIM = 0.3, END_DIM_CARD = 0.25;
 
 export interface WordCtx { enter: number; tempo: number; float: number; future: 'dim' | 'hide'; smooth: boolean; punch: number; motion: number; drift: boolean;
-  /** the 'spread' exit: once in, the line's characters drift slowly apart, and it fades out as it goes */ spread?: boolean;
+  /** the 'spread' exit: as the line leaves, its letters drift slowly apart, and it fades out as it goes */ spread?: boolean;
   /** lines held up together and taken away together (the centred stage's groups of three): none leaves on its own */ held?: boolean }
 export interface WordState {
   o: number; pe: number; dimK: number; pastK: number; live: boolean; gk: number;
@@ -49,8 +52,12 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   }
   // (spreading out: it leaves altogether, fading as it goes, instead of staying on dimmed — or, held with its group,
   // fades out with the group as it leaves)
-  if (c.spread && !c.held) o *= 1 - pastK;
   const secK = isFinite(L.secEnd) ? 1 - sstep(clamp((t - (L.secEnd - L.secIn)) / L.secIn)) : 1;
+  // the spread exit: from the moment the line starts to leave (sung — or, held with its group, as the group goes) it
+  // opens out, letter from letter, slowly and steadily, fading as it goes. Its time is fixed, never the tempo of the
+  // moment: that changes from beat to beat, and the spreading would jump with it.
+  const xs = c.spread ? clamp((t - (c.held && isFinite(L.secEnd) ? L.secEnd - L.secIn : L.L.end)) / SPREAD) : 0;
+  if (c.spread && !c.held) o *= 1 - sstep(xs);
   o = ov > 0 ? lerp(o * secK, t >= S.show ? Math.min(o, card ? END_DIM_CARD : END_DIM) : 0, ov) : o * secK;
   if (o <= 0.003) return null;
   const q = 1 - pe; let ox = 0, oy = 0, sc = 1;
@@ -58,10 +65,10 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   else if (tin === 'drift') { const d = DRIFT_DIRS[Math.floor(rnd(L.i * 5.3 + S.k * 2.9) * DRIFT_DIRS.length)]; ox = d[0] * 130 * q; oy = d[1] * 110 * q; }
   else if (tin === 'pop') sc = 1 + q * (c.smooth ? 0.08 : 0.45 * Math.min(1.5, c.punch + 0.3)) * c.motion;
   if (c.drift) oy -= dimK * 16 + pastK * 26;
-  // the spread exit: from the line's entrance on, the space between its characters widens, slowly and steadily (a
-  // little faster as it leaves); each word moves along with its share, so the whole line opens out evenly from its middle
+  // (each word moves along with its letters' share, so the whole line opens out evenly from its middle; the letters
+  // move off at once, the spreading easing off as they fade)
   let gapx = 0;
-  if (c.spread) { const h0 = S.lh / S.s; gapx = h0 * (0.3 * eSine(clamp((t - L.L.t) / (5 * c.tempo))) + 0.35 * pastK);
+  if (xs > 0) { const h0 = S.lh / S.s; gapx = h0 * SPREAD_GAP * (xs * (1.6 - 0.6 * xs));
     const n = (Q: PWord) => Q.units.length; let before = 0; for (let j = 0; j < S.k; j++) before += n(L.words[j]);
     const all = L.words.reduce((a, Q) => a + n(Q), 0); ox += gapx * (before + (n(S) - 1) / 2 - (all - 1) / 2); }
   const ph = rnd(L.i * 3.1 + S.k * 1.7) * 6.28;

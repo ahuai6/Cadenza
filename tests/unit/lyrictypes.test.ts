@@ -11,9 +11,9 @@ import { approxMeasurer } from '../../src/text/metrics';
 import { plan } from '../../src/director';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
-function make(ltype: string, cut = 'glide', src = LRC, fx: Record<string, boolean> = {}) {
+function make(ltype: string, cut = 'glide', src = LRC, fx: Record<string, boolean> = {}, more: Record<string, string> = {}) {
   const map = RhythmMap.grid(112, 0.3, 160), p = parse(src), musicEnd = Math.max(...p.lines.map(l => l.t)) + 6, doc = buildLyrics(p, map, musicEnd);
-  const st = normalizeStyle({ ...presetStyle('cover'), preset: 'custom', cut: cut as 'glide', ltype, fx: { ...presetStyle('cover').fx, ...fx } });
+  const st = normalizeStyle({ ...presetStyle('cover'), preset: 'custom', cut: cut as 'glide', ltype, ...more, fx: { ...presetStyle('cover').fx, ...fx } });
   return plan({ doc, map, style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
 }
 /** How the lines go on from one to the next within a passage: up or down (more across than along), or along. */
@@ -84,6 +84,23 @@ describe('lyric types', () => {
       const spread = (Q: typeof P) => { const ds = Q.lines.map(L => L.d); const m = ds.reduce((a, b) => a + b, 0) / ds.length; return Math.sqrt(ds.reduce((a, b) => a + (b - m) ** 2, 0) / ds.length); };
       expect(spread(P)).toBeGreaterThan(spread(F) * 1.8);
     });
+  });
+});
+
+describe('the spread exit', () => {
+  const src = '[00:02.00]<00:02.00>hel<00:02.40>lo <00:02.90>窗邊<00:03.60>\n[00:08.00]清晨的 光 落在\n[00:14.00]時間 一直 往前';
+  it('opens out letter from letter (a sung syllable taken apart), only once the line leaves, smoothly', async () => {
+    const { wordState } = await import('../../src/director/words');
+    const P = make('flow', 'glide', src, {}, { tout: 'spread' }), L = P.lines[0], hel = L.words.find(S => S.w.text === 'hello')!;
+    expect(hel.w.units.map(u => u.c)).toEqual(['hel', 'lo']); expect(hel.units.map(u => u.c)).toEqual(['h', 'e', 'l', 'l', 'o']);
+    expect(hel.units.map(u => u.t)).toEqual([0, 0, 0, 1, 1].map(i => hel.w.units[i].t));
+    const c = (tempo: number) => ({ enter: 0.35, tempo, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false, spread: true });
+    // (none while it is sung; then wider and wider as it fades — the tempo of the moment has no say in it)
+    expect(wordState(hel, L.L.end - 0.1, 0, false, c(1))!.gapx).toBe(0);
+    let last = 0, lastO = 1;
+    for (let t = L.L.end + 0.05; t < L.L.end + 2.1; t += 0.05) { const a = wordState(hel, t, 0, false, c(1)), b = wordState(hel, t, 0, false, c(1.4));
+      if (!a) break; expect(b!.gapx).toBeCloseTo(a.gapx, 9); expect(a.gapx).toBeGreaterThan(last); expect(a.gapx - last).toBeLessThan(hel.lh / hel.s * 0.04); expect(a.o).toBeLessThanOrEqual(lastO + 1e-9); last = a.gapx; lastO = a.o; }
+    expect(last).toBeGreaterThan(0);
   });
 });
 

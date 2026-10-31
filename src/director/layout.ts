@@ -11,6 +11,7 @@ import type { LyricDoc } from '../lyrics/model';
 import type { RhythmMap } from '../rhythm/map';
 import type { Style } from '../theme/style';
 import { EM, type Measurer } from '../text/metrics';
+import { graphemes, RE_COMPLEX } from '../text/script';
 import type { PWord, PLine, Passage, FrameRef } from './types';
 import { gapPassages, timePassage, roomForQuick } from './passages';
 import { scenesOf, fastLine } from './scenes';
@@ -59,7 +60,10 @@ export function layout(inp: LayoutInput): LayoutResult {
     for (const Wd of L.words) {
       const k = Wd.k, n = Wd.units.length;
       const vert = !!P.vert;
-      const mb = measure.word(Wd.units.map(u => u.c), { vertical: vert, rtl: L.rtl });
+      // (the spread exit opens out the space between letters, so a unit of several — a sung syllable — is taken letter
+      // by letter, each with its syllable's moment)
+      const us = st.tout === 'spread' ? Wd.units.flatMap(u => (RE_COMPLEX.test(u.c) ? [u] : graphemes(u.c).map(c => ({ c, t: u.t })))) : Wd.units;
+      const mb = measure.word(us.map(u => u.c), { vertical: vert, rtl: L.rtl });
       let s0 = Wd.latin ? 1.1 : !LT.sizes ? 1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
       // words sung as one quick run (one gesture) share one size and one entrance, so they read as one beat, not a stutter
@@ -69,7 +73,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       const show: number = LT.together && P.words.length ? P.words[0].show : fused ? prev!.show : Wd.t - ANTIC(st);
       prev = { group: Wd.group, s0, tin, show };
       const pw: PWord = { w: Wd, line: P, k, x: 0, y: 0, tilt: 0, d: 0, s, lw: mb.w0 * s, lh: mb.h0 * s, w0: mb.w0, h0: mb.h0, vert,
-        units: Wd.units.map((u, ui) => ({ c: u.c, t: u.t, ox: mb.units[ui].cx * s, oy: mb.units[ui].cy * s, w: mb.units[ui].w * s, h: mb.units[ui].h * s, rot: mb.units[ui].rot })),
+        units: us.map((u, ui) => ({ c: u.c, t: u.t, ox: mb.units[ui].cx * s, oy: mb.units[ui].cy * s, w: mb.units[ui].w * s, h: mb.units[ui].h * s, rot: mb.units[ui].rot })),
         ang: 0, frame: null, order: 0, show, end: Wd.end, tin, seed: L.i * 101 + k * 7 + 1,
         harm: Wd.harm ? (hm => ({ text: Wd.harm!.text, t: Wd.harm!.t, w0: hm.w0, h0: hm.h0 }))(measure.word(Wd.harm.units.map(u => u.c), { vertical: false, rtl: L.rtl })) : null };
       P.words.push(pw); words.push(pw);
@@ -128,7 +132,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   let mxd = 1; for (const x of starts) mxd = Math.max(mxd, dens(x));
 
   /* ---- the centred stage: the camera holds the middle; each line is set there, alternately above and below it ---- */
-  if (st.cut === 'center') return centerLayout(lines, words, W, H, gap, T);
+  if (st.cut === 'center') return centerLayout(lines, words, W, H, gap, T, map, (st.trans || 'auto') !== 'off');
 
   /* ---- placement ---- */
   const { scenes, rolls } = scenesOf(lines, map, M.speed), drum = new Map<number, [number, number]>();
@@ -469,9 +473,9 @@ export function centerZoom(words: PWord[], H: number, T: number) {
   return clamp(H * 0.12 / (h0 * T), 0.15, 2);
 }
 /** The centred stage (camera style 'center'): every line is set level, wrapped into rows that fit the frame, three at a
- *  time in a set order — the middle, above it, below it — the three leaving together as the next three begin; no
- *  depth, no turns and no transitions. */
-function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap: number, T: number): LayoutResult {
+ *  time in a set order — the middle, above it, below it — then a transition, the three leaving in it, and the next
+ *  three begin; no depth and no turns. */
+function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap: number, T: number, map: RhythmMap, trans: boolean): LayoutResult {
   const z = centerZoom(words, H, T), maxW = W * 0.8 / z, rg = gap * 2.2, sp = (S: PWord) => (S.w.latin ? Math.max(gap, S.lh * 0.32) : gap);
   // each line wrapped into rows that fit the frame
   const blocks = lines.map(P => { const rows: PWord[][] = [[]]; let rw = 0;
@@ -491,12 +495,15 @@ function centerLayout(lines: PLine[], words: PWord[], W: number, H: number, gap:
       y += rh[ri] + rg; });
     const B = boxIn(P.words, 0); P.ax = B.x; P.ay = B.y; P.bw = B.w; P.bh = B.h; P.prot = 0; P.d = 0;
   });
-  assignSections(lines, []);
-  // (all three of a group leave together, fading out just before the next group's first line comes in)
-  const leaves: { line: number; t: number; inn: number }[] = [];
-  for (const P of sung) { const nx = sung.find(Q => groupOf.get(Q) === groupOf.get(P)! + 1); if (nx) leaves.push({ line: P.i, t: nx.words[0].show, inn: 0.35 }); }
+  // after every three, a transition (the three go in it, the next three come in after it) — a quick one where the
+  // next line follows close on; with transitions off, the three only fade out together just before the next come in
+  const passages: Passage[] = [], leaves: { line: number; t: number; inn: number }[] = [];
+  sung.forEach((B, k) => { if (k === 0 || k % 3) return; const A = sung[k - 1], end = Math.min(A.L.sung, A.L.end), t = B.words[0].show;
+    if (trans) passages.push({ ...timePassage(end, t, map, t - end < 1.2), line: B.i, quick: t - end < 1.2, reason: 'layout' });
+    else for (const P of sung.slice(k - 3, k)) leaves.push({ line: P.i, t, inn: 0.35 }); });
+  assignSections(lines, passages);
   const order = [...words].sort((a, b) => a.w.id - b.w.id); order.forEach((S, i) => { S.order = i; });
-  return { lines, words, passages: [], dmin: 0, sweeps: [], leaves };
+  return { lines, words, passages, dmin: 0, sweeps: [], leaves };
 }
 
 /** A quick clear decided while placing (or by the camera) may still shorten a framed line: such a frame is not drawn

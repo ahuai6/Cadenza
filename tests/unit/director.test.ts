@@ -338,9 +338,9 @@ describe('centred stage (the record theme)', () => {
     const gaps = P.lines.slice(1).map((L, i) => [Math.min(P.lines[i].L.sung, P.lines[i].L.end), L.words[0]?.show ?? 0]).filter(([a, b]) => b - a > 4);
     for (const [a] of gaps) { const b = basePose(P.camera, a + 2.5); expect(Math.hypot(b.x, b.y)).toBeLessThan(1); }
   });
-  it('sets every line level and inside the frame, three at a time: the middle, above it, below it; no transitions', () => {
-    expect(P.passages.length).toBe(0);
+  it('sets every line level and inside the frame, three at a time: the middle, above it, below it; a transition after each three', () => {
     const sung = P.lines.filter(L => L.words.length);
+    expect(P.passages.map(q => q.line)).toEqual(sung.filter((L, k) => k && k % 3 === 0).map(L => L.i));
     sung.forEach((L, k) => { for (const S of L.words) expect(S.tilt).toBe(0);
       const f = cameraAt(P, sig, L.words[0].w.t + 0.3, 0);
       for (const S of L.words) for (const [x, y] of corners(S)) { const q = project(x, y, S.d, f.cam, NO_FX, P.W, P.H); expect(Math.abs(q.sx), `${L.L.text}`).toBeLessThan(P.W / 2); expect(Math.abs(q.sy)).toBeLessThan(P.H / 2); }
@@ -349,11 +349,11 @@ describe('centred stage (the record theme)', () => {
       if (k % 3 === 1) expect(L.ay).toBeLessThan(mid.ay - (mid.bh + L.bh) / 2 + 1);     // (above it, clear of it)
       if (k % 3 === 2) expect(L.ay).toBeGreaterThan(mid.ay + (mid.bh + L.bh) / 2 - 1); }); // (below it)
   });
-  it('the three go together, as the next three begin — none before, all of them then', () => {
+  it('the three go together in the transition before the next three — none before, all of them by its height', () => {
     const ctx = { enter: 0.4, tempo: 1, float: 0, future: 'dim' as const, smooth: true, punch: 0.3, motion: 1, drift: false };
     const sung = P.lines.filter(L => L.words.length), up = (L: typeof sung[0], t: number) => L.words.some(S => wordState(S, t, 0, false, ctx) != null);
-    for (let g = 0; (g + 1) * 3 < sung.length; g++) { const grp = sung.slice(g * 3, g * 3 + 3), next = sung[(g + 1) * 3].words[0].show;
-      for (const L of grp) { expect(up(L, next - 0.45), L.L.text).toBe(true); expect(up(L, next + 0.02), L.L.text).toBe(false); } }
+    for (let g = 0; (g + 1) * 3 < sung.length; g++) { const grp = sung.slice(g * 3, g * 3 + 3), q = P.passages.find(x => x.line === sung[(g + 1) * 3].i)!;
+      for (const L of grp) { expect(up(L, q.t - q.inn - 0.05), L.L.text).toBe(true); expect(up(L, q.t + 0.01), L.L.text).toBe(false); } }
   });
 });
 
