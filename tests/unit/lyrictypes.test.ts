@@ -70,7 +70,8 @@ describe('lyric types', () => {
     });
     it('a turned line has its characters\' tops away from the line before (never towards it, never upside down)', () => {
       let n = 0;
-      for (let k = 1; k < P.lines.length; k++) { const A = P.lines[k - 1], B = P.lines[k], a = B.prot;
+      // (over two camera styles: a line is turned now and then, so one song in one style may turn only one)
+      for (const Q of [P, make('orbit', 'punch')]) for (let k = 1; k < Q.lines.length; k++) { const A = Q.lines[k - 1], B = Q.lines[k], a = B.prot;
         if (A.sec !== B.sec || B.scene || B.words.some(S => S.roll || S.vert) || Math.abs(a) < 15) continue;
         n++; expect(Math.abs(a)).toBeLessThanOrEqual(101);
         const up = [Math.sin(a * Math.PI / 180), -Math.cos(a * Math.PI / 180)], out = [B.ax - A.ax, B.ay - A.ay];

@@ -88,9 +88,10 @@ describe.each(styles)('directions (%s)', cut => {
   });
   it('every transition turns the way the lines set off: rightward, leftward, …', () => {
     if (cut === 'close' || cut === 'hover') return;   // (close up most moves are crossed by quick transitions of the camera's own; hovering, no follow to turn)
-    // (how a passage sets off: its second line from its first, along — a passage of columns, a single line, or one going
-    // up or down from the first says no way and is passed over)
-    const way = (ls: typeof secs[0]) => { const [A, B] = ls; if (!B || A.vert || B.vert || Math.abs(B.ay - A.ay) > Math.abs(B.ax - A.ax)) return 0; return B.ax > A.ax ? 1 : -1; };
+    // (how a passage sets off: its first step along among its first lines — steps up or down, or of columns, passed
+    // over; a passage with none says no way and is passed over)
+    const way = (ls: typeof secs[0]) => { for (let k = 1; k < Math.min(ls.length, 4); k++) { const A = ls[k - 1], B = ls[k];
+      if (A.vert || B.vert || Math.abs(B.ay - A.ay) > Math.abs(B.ax - A.ax)) continue; return B.ax > A.ax ? 1 : -1; } return 0; };
     const ways = secs.map(way); let pairs = 0, turns = 0;
     for (let k = 1; k < ways.length; k++) if (ways[k] && ways[k - 1]) { pairs++; if (ways[k] !== ways[k - 1]) turns++; }
     expect(pairs).toBeGreaterThanOrEqual(2); expect(turns / pairs).toBeGreaterThanOrEqual(0.6);
@@ -500,7 +501,8 @@ describe('where a new line goes', () => {
         if (B.west) continue;                                                // (one in a passage going leftward: framed whole, going left as it should)
         // (one carrying on in a passage that goes onward: a row above or below, its middle never left of the line before's)
         n++; if (along([B.ax, B.ay]) >= along([A.ax, A.ay]) - Math.max(A.bh, B.bh) * 0.5) ok++; }
-      expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThan(0.7);
+      // (a passage gone far from where it began steps a little back towards there on purpose: a few lines do)
+      expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThanOrEqual(0.7);
       // a line laid heading back: a row above or below (or wholly to its left), starting before the line before began, its middle left of that one's
       // (most of them: one nudged clear of an earlier word may sit a little off its row)
       expect(nb, cut).toBeGreaterThanOrEqual(1); expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75); }

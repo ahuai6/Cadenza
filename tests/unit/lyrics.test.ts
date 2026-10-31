@@ -32,11 +32,11 @@ describe('lyrics', () => {
     const onGrid = w.slice(1).filter(x => Math.abs(x.t * 4 - Math.round(x.t * 4)) < 0.01).length; expect(onGrid).toBeGreaterThanOrEqual(2);
     expect(d.lines[0].words[3].rest).toBeGreaterThan(1);
   });
-  it('breaks words at spaces only: an unspaced line is one word, its characters still sung one at a time', () => {
+  it('breaks words at spaces only (a lone character going with its neighbour): an unspaced line is one word, its characters still sung one at a time', () => {
     const d = buildLyrics(parse('[00:01.00]我們沿著熟悉的街道慢慢走回家\n[00:05.00]走過 這條 街\n[00:09.00]x'), map, 20);
     const w = d.lines[0].words; expect(w.map(x => x.text)).toEqual(['我們沿著熟悉的街道慢慢走回家']);
     expect(w[0].paced).toBe(true); for (let i = 1; i < w[0].units.length; i++) expect(w[0].units[i].t!).toBeGreaterThan(w[0].units[i - 1].t!);
-    expect(d.lines[1].words.map(x => x.text)).toEqual(['走過', '這條', '街']);
+    expect(d.lines[1].words.map(x => x.text)).toEqual(['走過', '這條街']);
   });
   it('chorus marks (#1 strongest, #2 or a bare #, #3 lighter) are read and never shown', () => {
     const d = buildLyrics(parse('[00:01.00]#1 夜に駆ける\n[00:04.00]走過 #3這條 街\n[00:07.00]#\n[00:08.00]<00:08.00>#2sing <00:08.50>a<00:09.00>long<00:09.50>\n[00:12.00]x'), map, 20);

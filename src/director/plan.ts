@@ -128,7 +128,9 @@ function pickEmphasis(lines: ScenePlan['lines']) {
     if (i < next) return;
     const content = P.words.filter(S => /[\p{L}\p{N}]/u.test(S.w.text));
     if (content.length < 2) { next = i + 1; return; }
-    const long = content.filter(S => S.w.latin || S.units.length >= 2), pool = long.length ? long : content;
+    // (a word of two to four characters where there is one — a phrase the singing joined may be longer: lit whole, it
+    // would be most of the line)
+    const long = content.filter(S => S.w.latin || S.units.length >= 2), mid = long.filter(S => S.w.latin || S.units.length <= 4), pool = mid.length ? mid : long.length ? long : content;
     const S = pool[Math.floor(rnd(i * 5.17 + 0.3) * pool.length)]; S.emph = [0, S.units.length];
     next = i + 3 + (rnd(i * 2.9 + 1) < 0.5 ? 1 : 0);
   });

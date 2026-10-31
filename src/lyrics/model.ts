@@ -7,6 +7,7 @@
    move for each (word timing like <25.570>１ <25.600>２ <25.630>３ used to start three moves in 60 ms). */
 import type { Parsed, RawLine } from './parse';
 import { graphemes, unitsOf, isLatin, RE_CJK, RE_COMPLEX, RE_RTL, syllables } from '../text/script';
+import { phrase } from './phrasing';
 /** What pacing the words needs from the rhythm (RhythmMap is one): the tempo, the beat's length at a moment, and a
  *  time snapped to the grid within a tolerance. The lyric model reads the beat through this and knows nothing else of it. */
 export interface BeatGrid { readonly bpm: number; beatLen(t: number): number; snap(t: number, tol: number, div: number): number }
@@ -39,6 +40,8 @@ export interface Line {
   sung: number;
   text: string; subs: string[]; words: Word[];
   kar: boolean; rtl: boolean;
+  /** spaced by the listener: its words as they wrote them (not joined by the singing) */
+  own?: boolean;
 }
 export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number; /** where choruses come in (the lyrics' own marks): time, level 1..3, and whether that time is a stamp (exact) */ marks: Mark[];
   /** curtains the lyrics ask for ('@N'): curtain N closed at t, then drawn open */ curtains: { t: number; kind: number }[] }
@@ -51,7 +54,8 @@ const syllableTime = (n: number, bpm: number) => n * 0.3 * Math.sqrt(120 / bpm);
 
 /** end: where the song's music ends (song time) — the last line stays current until a few bars after it is sung. */
 export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
-  const bpm = map.bpm, raw = p.lines, lines: Line[] = [];
+  // (the words joined into the phrases they are sung in: phrasing.ts)
+  const bpm = map.bpm, raw = phrase(p, map).lines, lines: Line[] = [];
   const sungEndOf = (L: RawLine) => {
     if (L.kar) { const lk = Math.max(...L.kar.flat().map(u => u.t)); return L.close ?? lk + 0.5; }
     return L.t + syllableTime(syllables(L.text), bpm) + 0.8;
@@ -60,7 +64,7 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
     const next = i + 1 < raw.length ? raw[i + 1].t : end, sung = Math.min(sungEndOf(R), R.stop ?? Infinity);
     let lend = Math.min(next, R.stop ?? Infinity, sung + Math.max(2.5, 8 * 60 / bpm));
     lend = Math.max(lend, Math.min(next, R.t + 0.6));
-    lines.push({ i, t: R.t, end: lend, sung, text: R.text, subs: R.subs, words: [], kar: !!R.kar, rtl: RE_RTL.test(R.text) });
+    lines.push({ i, t: R.t, end: lend, sung, text: R.text, subs: R.subs, words: [], kar: !!R.kar, rtl: RE_RTL.test(R.text), ...(R.own ? { own: true } : {}) });
   });
   const words: Word[] = []; let gid = -1;
   lines.forEach((L, i) => {

@@ -26,6 +26,8 @@ export interface RawLine {
   close?: number;
   /** an empty stamp ending this line early */
   stop?: number;
+  /** spaced by the listener (spacing.ts): its words are theirs, never joined into phrases (phrasing.ts) */
+  own?: boolean;
 }
 export interface Parsed { lines: RawLine[]; meta: Record<string, string>; /** chorus marks on a stamp of their own (no words) */ marks: { t: number; level: number }[];
   /** curtain openings asked for ('@N': curtain N closed at once at that stamp, then drawn open) */ curtains?: { t: number; kind: number }[] }

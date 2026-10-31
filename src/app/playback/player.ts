@@ -334,12 +334,14 @@ async function writeIntoFile(id: string, text: string) {
 }
 /** The shown song's lines as its words are spaced now (one per line). */
 export const spacedLines = () => (player.get().session?.doc?.lines || []).filter(L => L.words.length).map(L => L.words.map(w => w.text).join(' '));
-/** Keep the listener's spacing of the shown song's lines (only where it differs from the segmenter's), or none: every
- *  line back to the segmenter's at once. */
+/** Keep the listener's spacing of the shown song's lines (only where it differs from the automatic one — the phrases
+ *  the singing joins the segmenter's words into, as shown — or from the segmenter's own), or none: every line back to
+ *  the automatic spacing at once. */
 export async function saveSpacing(edited: string[] | null) {
   const p = player.get(), s = p.session; if (!s) return;
   let sp: Spacing | undefined;
-  if (edited) { const o: Spacing = {}; for (const e of edited) { const t = e.trim().replace(/\s+/g, ' '); if (t && t !== autoSpacing(t)) o[spacingKey(t)] = t; } if (Object.keys(o).length) sp = o; }
+  const auto = new Map((s.doc?.lines || []).filter(L => L.words.length && !L.own).map(L => { const t = L.words.map(w => w.text).join(' '); return [spacingKey(t), t]; }));
+  if (edited) { const o: Spacing = {}; for (const e of edited) { const t = e.trim().replace(/\s+/g, ' '); if (t && t !== auto.get(spacingKey(t)) && t !== autoSpacing(t)) o[spacingKey(t)] = t; } if (Object.keys(o).length) sp = o; }
   s.setSpacing(sp); await s.flush(); engine.invalidate(); saveSong({ spacing: sp }); player.set({ rev: p.rev + 1 });
 }
 export const hasTimedLines = (text: string) => parse(text, 0).lines.length > 0 && /\[\d+:\d+/.test(text);

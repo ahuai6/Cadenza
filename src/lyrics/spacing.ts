@@ -39,7 +39,7 @@ export function respace(p: Parsed, overrides: Spacing = {}): Parsed {
     const base = L.words.map(w => w.text).join(' '), key = spacingKey(base), own = overrides[key];
     const spaced = own != null && spacingKey(own) === key ? own : autoSpacing(base);
     const want = spaced.split(/\s+/).filter(Boolean); if (!want.length) continue;
-    L.words = regroup(L.words, want);
+    L.words = regroup(L.words, want); if (own != null && spacingKey(own) === key) L.own = true; else delete L.own;
     if (L.kar) L.kar = L.words.map(w => w.units || []);
   }
   return p;
