@@ -2,10 +2,10 @@
 import type { LyricDoc } from '../lyrics/model';
 import type { RhythmMap } from '../rhythm/map';
 import type { Style } from '../theme/style';
-import type { Measurer } from '../text/metrics';
+import { measureKey, type Measurer, type WordBox } from '../text/metrics';
 import type { ScenePlan } from './types';
 import { REF_H } from './types';
-import { layout, assignSections, dropShortFrames, PAGE_LINES } from './layout';
+import { layout, layoutUnits, assignSections, dropShortFrames, PAGE_LINES } from './layout';
 import { planCamera } from './camera';
 import { lyricType } from './lyrictypes';
 import { curtainDown } from './curtains';
@@ -61,6 +61,19 @@ export function plan(inp: PlanInput): ScenePlan {
     lines: lay.lines, words: lay.words, drawOrder, passages, camera, cues, titles, dmin: lay.dmin, hasSubs: doc.lines.some(L => L.subs.length > 0) };
   planEntries(out);
   pickEmphasis(lay.lines);
+  return out;
+}
+/** Every word the layout can measure for this lyric and style — each set across and down (whether a line stands
+ *  upright is the layout's own choice), and the harmonies — measured now: what a planning worker, which has no fonts,
+ *  lays the words out from (text/metrics.ts, tableMeasurer). */
+export function measuresFor(doc: LyricDoc, style: Style, measure: Measurer): Record<string, WordBox> {
+  const out: Record<string, WordBox> = {};
+  const add = (units: string[], o: { vertical: boolean; rtl: boolean }) => { const k = measureKey(units, o); if (!(k in out)) out[k] = measure.word(units, o); };
+  for (const L of doc.lines) for (const Wd of L.words) {
+    const us = layoutUnits(Wd, style).map(u => u.c);
+    add(us, { vertical: false, rtl: L.rtl }); add(us, { vertical: true, rtl: L.rtl });
+    if (Wd.harm) add(Wd.harm.units.map(u => u.c), { vertical: false, rtl: L.rtl });
+  }
   return out;
 }
 /** A plan's effect cues made anew for its style as it is now (the rest of the plan as it was): what a trigger's

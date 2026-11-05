@@ -5,7 +5,7 @@ import { clamp, sstep } from '../../core/math';
 import { eOut, eIO } from '../../core/ease';
 import { rnd } from '../../core/rng';
 import { mix, rgba, hexOf, K3, W3 } from '../../core/color';
-import { register } from './registry';
+import { register, midShift, atMid, type BackdropView } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeVinyl, coverSquare } from './cover';
 import { geoPattern, geoShapes } from './backdrops';
@@ -17,15 +17,15 @@ let REC: { key: string; c: HTMLCanvasElement } | null = null;
 const record = (f: RenderFrame) => { const key = `${f.media.coverKey}|${f.media.cover ? '' : f.style.accent + f.style.bg2}`;
   if (!REC || REC.key !== key) REC = { key, c: makeVinyl(coverSquare(f, 1024), 1024) }; return REC.c; };
 /** Where the record sits and how big it is (the centre of the frame; most of its height). */
-export const recordAt = (f: RenderFrame) => ({ x: f.W / 2, y: f.H / 2, R: f.H * 0.43 });
+export const recordAt = (f: RenderFrame, bd: Pick<BackdropView, 'ox' | 'oy'>) => { const [sx, sy] = midShift(bd); return { x: f.W / 2 + sx, y: f.H / 2 + sy, R: f.H * 0.43 }; };
 register({ id: 'vinyl', label: 'bg.vinyl', layer: 'backdrop', kind: 'backdrop', draw(g, f, a) {
-  const { W: w, H: h } = f, E = a.bd.E, B = f.pal.bg, B2 = f.pal.bg2, { x, y, R } = recordAt(f), M = Math.max(w, h);
+  const { W: w, H: h } = f, E = a.bd.E, B = f.pal.bg, B2 = f.pal.bg2, { x, y, R } = recordAt(f, a.bd), M = Math.max(w, h);
   // the ground: the cover's colour, lit from behind the record, a little more on the beat
   const gr = g.createRadialGradient(x, y, R * 0.6, x, y, M * 0.85); gr.addColorStop(0, hexOf(mix(B, B2, 0.55 + 0.15 * f.I))); gr.addColorStop(1, hexOf(mix(B, K3, 0.25)));
   g.fillStyle = gr; g.fillRect(-E, -E, w + 2 * E, h + 2 * E); },
   // the disc stands in front of the horizon and the lines, behind the solids and fragments floating round it
-  frontZ: 19, front(g, f) {
-  const { x, y, R } = recordAt(f);
+  frontZ: 19, front(g, f, a) {
+  const { x, y, R } = recordAt(f, a.bd);
   // a halo of the accent round the disc that swells with the pulse, and a soft contact shadow under it
   const hk = 0.14 + 0.1 * f.I + 0.12 * f.P, halo = g.createRadialGradient(x, y, R * 0.92, x, y, R * 1.55); halo.addColorStop(0, rgba(f.pal.accent, hk)); halo.addColorStop(1, rgba(f.pal.accent, 0));
   g.fillStyle = halo; g.beginPath(); g.arc(x, y, R * 1.55, 0, 6.283); g.fill();
@@ -105,7 +105,7 @@ register({ id: 'shards', label: 'fx.shards', layer: 'backdrop', kind: 'effect', 
 
 /* ---------- a horizon of door frames: a ground, its horizon, and line-drawn frames receding to it, still (a backdrop:
    it gives depth, it does not dance; it moves only with the backdrop's own camera) ---------- */
-register({ id: 'doors', label: 'fx.doors', layer: 'backdrop', kind: 'effect', z: 4, draw(g, f, a) {
+register({ id: 'doors', label: 'fx.doors', layer: 'backdrop', kind: 'effect', z: 4, draw: atMid((g, f, a) => {
   const E = a.bd.E, w = f.W, h = f.H, hy = h * 0.62, mx = w / 2, A = f.pal.accent, I = 0.5, t = accentClock(f.plan.map, f.t);
   // the ground, a shade lifted towards the horizon
   const gg = g.createLinearGradient(0, hy, 0, h + E); gg.addColorStop(0, rgba(mix(f.pal.bg2, A, 0.15), 0.22)); gg.addColorStop(0.35, rgba(mix(f.pal.bg2, A, 0.08), 0.12)); gg.addColorStop(1, rgba(f.pal.bg, 0)); g.fillStyle = gg; g.fillRect(-E, hy, w + 2 * E, h - hy + E);
@@ -120,7 +120,7 @@ register({ id: 'doors', label: 'fx.doors', layer: 'backdrop', kind: 'effect', z:
     // the inner jamb, a step in: the frame has thickness
     const d = half * 0.06; g.lineWidth *= 0.5; g.strokeStyle = rgba(A, al * 0.5); g.beginPath(); g.moveTo(mx - half + d, yb); g.lineTo(mx - half + d, top + d); g.lineTo(mx + half - d, top + d); g.lineTo(mx + half - d, yb); g.stroke(); }
   // the horizon itself, bright on the beat
-  g.fillStyle = rgba(A, 0.42); g.fillRect(-E, hy - 1, w + 2 * E, 2); } });
+  g.fillStyle = rgba(A, 0.42); g.fillRect(-E, hy - 1, w + 2 * E, 2); }) });
 
 /* ---------- plain lines on the background: a few compositions of solid strokes, drifting very slowly ---------- */
 const LINESETS = Array.from({ length: 5 }, (_, i) => ({ kind: i, x: [0.18, 0.82, 0.5, 0.12, 0.88][i], y: [0.2, 0.75, 0.12, 0.82, 0.3][i], a: (rnd(i * 4.7) - 0.5) * 1.2, ph: rnd(i * 2.9) * 6.28 }));
@@ -142,11 +142,11 @@ register({ id: 'lines', label: 'fx.lines', layer: 'backdrop', kind: 'effect', z:
   g.restore(); } });
 
 /* ---------- inverted plane shapes: now and then a bar brings a flat shape that inverts everything under it ----------
-   Over the whole picture, lyrics included (the topmost effect). Fewer bars than the geometric theme's own, and each
+   Over the lyric world, lyrics included (the last of the foreground) — under the captions, titles, end card and curtain. Fewer bars than the geometric theme's own, and each
    leaves before the next bar comes. It comes in sliding (growing in from its edge), or flashing (there whole at once,
    flickering on like a struck light and off the same way), or either, bar by bar. */
 const BLINK = (u: number) => (u < 0.05 ? 1 : u < 0.09 ? 0 : u < 0.14 ? 1 : u < 0.17 ? 0.35 : 1);
-register({ id: 'invgeo', label: 'fx.invgeo', layer: 'screen', kind: 'effect', z: 50,
+register({ id: 'invgeo', label: 'fx.invgeo', layer: 'foreground', kind: 'effect', z: 50,
   params: [{ key: 'entry', label: 'p.entry', kind: 'select', options: [['slide', 'p.entry.slide'], ['flash', 'p.entry.flash'], ['mix', 'p.entry.mix']], def: 'slide' }],
   draw(g, f, a) {
   const calm = f.cam.calm * f.view.effect; if (calm <= 0.01) return;

@@ -1,6 +1,7 @@
 /* The renderer: draws one RenderFrame in a fixed order of layers —
-     backdrop → (backdrop-space effects) → flash → world-back → lyrics → world-front → foreground → screen → invert →
-     transition blur → idle dots, captions, titles → handoff overlay
+     backdrop → (backdrop-space effects) → flash → world-back → lyrics → world-front → foreground (its last: the inverted
+     shapes) → invert flash → transition blur → idle dots, captions, titles, end card → the ending's fade → curtain →
+     screen (fading with the ending) → handoff overlay
    The view mix runs from the now-playing backdrop alone (ambient, 0) to the full effect-lyrics picture (1): the theme's
    backdrop fades in over the ambient field (the cover theme *is* the ambient field, so nothing changes there), and
    words, decor and screen effects fade with it — nothing pops in when the view changes. */
@@ -89,7 +90,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // a curtain the lyrics asked for ('@N', curtain.ts): its ground under the words, the words fading in as it opens
   const cu = view > 0.001 ? curtainAt(f) : null;
   if (cu) { drawCurtainGround(g, f, cu); const wk = curtainWords(cu); if (wk < 1) for (const v of f.vis) v.o *= wk; }
-  const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen') => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id))).sort(byZ)) e.draw(g, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
+  const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen', fr: RenderFrame = f) => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id))).sort(byZ)) e.draw(g, fr, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
   if (view > 0.001) {
     world('world-back');
     // (the afterimage: the effect's strength — 0.4 at 1, the liquid look's — times the older knob's, kept for styles that tuned it)
@@ -113,8 +114,9 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // the curtain: over the picture, its captions and titles — fixed to the screen, never moved by the camera or its shake
   if (cu) { g.setTransform(f.px, 0, 0, f.px, 0, 0); drawCurtain(g, f, cu); }
   // the screen's own effects (grain, scan lines, vignette, colour split…) last: they are the display's, over everything
-  // in the picture, the curtain too
-  g.setTransform(f.px, 0, 0, f.px, 0, 0); if (view > 0.001) world('screen');
+  // in the picture, the curtain too — and they go with the picture at the end (they fade as the effect view does, so
+  // once the song has faded to its ground no grain or vignette is left over it)
+  g.setTransform(f.px, 0, 0, f.px, 0, 0); if (view * (1 - fo) > 0.001) world('screen', fo > 0 ? { ...f, view: { effect: view * (1 - fo) } } : f);
   o.overlay?.(g, f);
 }
 /** Effects that belong to a backdrop and follow it rather than a switch (they check the backdrop themselves). */

@@ -51,6 +51,11 @@ export function boxIn(segs: { x: number; y: number; lw: number; lh: number; tilt
  *  shorter (the default ones ×0.7), so the words are as early as ever. */
 const ANTIC = (st: Style) => clamp((st.m.enter ?? 0.21) / 0.7 * 0.3, 0.05, 0.14);
 
+/** The units a word is laid out by: its own, or (the spread exit opens out the space between letters) letter by letter,
+ *  each with its syllable's moment. */
+export function layoutUnits(Wd: LyricDoc['lines'][number]['words'][number], st: Style) {
+  return st.tout === 'spread' ? Wd.units.flatMap(u => (RE_COMPLEX.test(u.c) ? [u] : graphemes(u.c).map(c => ({ c, t: u.t })))) : Wd.units;
+}
 export function layout(inp: LayoutInput): LayoutResult {
   const { doc, map, style: st, measure, W, H } = inp, M = st.m, T = tsz(st);
   const BASE = EM, gap = BASE * 0.14 * T, TURN = clamp(M.turn ?? 0.4, 0, 1), TA = M.tang ?? 90, TK = M.tilt, DEP = M.depth ?? 1;
@@ -66,7 +71,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       const vert = !!P.vert;
       // (the spread exit opens out the space between letters, so a unit of several — a sung syllable — is taken letter
       // by letter, each with its syllable's moment)
-      const us = st.tout === 'spread' ? Wd.units.flatMap(u => (RE_COMPLEX.test(u.c) ? [u] : graphemes(u.c).map(c => ({ c, t: u.t })))) : Wd.units;
+      const us = layoutUnits(Wd, st);
       const mb = measure.word(us.map(u => u.c), { vertical: vert, rtl: L.rtl });
       let s0 = Wd.latin ? 1.1 : !LT.sizes ? 1 : n === 1 ? 0.5 : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);

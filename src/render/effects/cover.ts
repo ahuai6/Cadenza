@@ -5,7 +5,7 @@
    vinyl (0..1) is how far the record has slid out from under the sleeve: it comes out after the cover lands. */
 import { clamp } from '../../core/math';
 import { rgba, hexOf } from '../../core/color';
-import { register, type Ctx, type BackdropView } from './registry';
+import { register, midShift, type Ctx, type BackdropView } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { drawLiquid } from './liquid';
@@ -69,7 +69,7 @@ export function coverLayers(f: RenderFrame): Layers {
 /** Where the cover rests in the backdrop's own frame (before the backdrop camera's roll and zoom), in reference px. */
 export function coverRest(f: RenderFrame, bd: Pick<BackdropView, 'ox' | 'oy'>): { x: number; y: number; S: number } {
   const S = Math.min(f.W, f.H) * (f.style.coverSize ?? 0.6) * (1 + f.P * 0.012), album = (f.style.coverEdge || 'album') === 'album';
-  return { x: f.W / 2 - S / 2 + bd.ox * 0.6 - (album ? S * 0.16 : 0), y: f.H * 0.47 - S / 2 + bd.oy * 0.6, S };
+  const [sx, sy] = midShift(bd); return { x: f.W / 2 - S / 2 + sx - (album ? S * 0.16 : 0), y: f.H * 0.47 - S / 2 + sy, S };
 }
 /** The cover itself at (x, y, S) in the current transform: sleeve with its record (vinyl: how far it is out), float, or blend. */
 /** o.finish (0..1): how much of the scene's own finish the cover wears (its sheen, rim light and groove) — the hand-over

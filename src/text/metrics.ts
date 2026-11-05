@@ -37,3 +37,13 @@ export function approxMeasurer(): Measurer {
     },
   };
 }
+
+/** The key a word's measurement is kept under (its units and how it is set). */
+export const measureKey = (units: string[], o: { vertical: boolean; rtl: boolean }) => units.join('\u0001') + '|' + (o.vertical ? 'v' : 'h') + (o.rtl ? 'r' : 'l');
+/** A measurer reading words measured beforehand (a planning worker has no fonts: the page measures every word the
+ *  layout can ask for and hands the table over). A word not in it is estimated — it never is, when the table was made
+ *  by the director's own measuresFor. */
+export function tableMeasurer(table: Record<string, WordBox>, onMiss?: (key: string) => void): Measurer {
+  const approx = approxMeasurer();
+  return { word(units, o) { const k = measureKey(units, o), b = table[k]; if (b) return b; onMiss?.(k); return approx.word(units, o); } };
+}

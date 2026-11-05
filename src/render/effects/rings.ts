@@ -1,7 +1,7 @@
 // Beat rings and the subwoofer orb: launched on the rhythm's events, from the words, the cover or the picture's centre.
 import { clamp } from '../../core/math';
 import { mix, rgba, type RGB } from '../../core/color';
-import { register, type Ctx } from './registry';
+import { register, midShift, type Ctx } from './registry';
 import type { RenderFrame } from '../frame';
 
 /* ---------- beat rings: one per rhythmic event, launched on it, bigger on strong accents and downbeats ----------
@@ -54,9 +54,10 @@ function drawWoofer(g: Ctx, f: RenderFrame, mx: number, cy: number) {
 }
 export const ringsOrigin = (f: RenderFrame): 'self' | 'cover' | [number, number] | null =>
   f.style.bgStyle === 'cover' ? 'cover' : f.style.bgStyle === 'vinyl' ? [f.W / 2, f.H / 2] : f.style.fx.doors ? [f.W / 2, f.H * 0.62] : f.style.fx.grid ? [f.W / 2, f.H * 0.66] : 'self';
-register({ id: 'rings', label: 'fx.rings', layer: 'backdrop', kind: 'effect', z: 1, draw(g, f) {
+register({ id: 'rings', label: 'fx.rings', layer: 'backdrop', kind: 'effect', z: 1, draw(g, f, a) {
   const o = ringsOrigin(f); if (o === 'cover' || !o) return;                       // (the cover theme draws them under its sleeve)
-  if (o === 'self') { const mx = f.W / 2, cy = f.H * 0.45; drawRings(g, f, mx, cy, M0(f)); drawWoofer(g, f, mx, cy); return; }
-  drawRings(g, f, o[0], o[1]);
+  const [sx, sy] = midShift(a.bd);                                                  // (with what they come from: the middle ground)
+  if (o === 'self') { const mx = f.W / 2 + sx, cy = f.H * 0.45 + sy; drawRings(g, f, mx, cy, M0(f)); drawWoofer(g, f, mx, cy); return; }
+  drawRings(g, f, o[0] + sx, o[1] + sy);
 } });
 const M0 = (f: RenderFrame) => Math.max(f.W, f.H) * 0.063;

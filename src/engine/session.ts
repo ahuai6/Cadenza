@@ -7,7 +7,8 @@ import { respace, type Spacing } from '../lyrics/spacing';
 import { loadSegmenter, segmenterReady } from '../text/segment';
 import { buildLyrics, type LyricDoc } from '../lyrics/model';
 import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis } from '../rhythm';
-import { plan as makePlan, planCuesFor, recommendMotion, ASPECTS, type ScenePlan } from '../director';
+import { planCuesFor, recommendMotion, ASPECTS, type ScenePlan } from '../director';
+import { planSong, type MapOrigin } from './planner';
 import type { SongInfo } from '../director/titles';
 import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, withLook, withMotion, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style } from '../theme/style';
 import { canvasMeasurer, EM } from '../text/metrics';
@@ -98,32 +99,45 @@ export class Session {
     // layout, the beats, the audio and the video stay in agreement
     const text = parsed.lines.map(L => L.text).join('');
     await ensureFontSoon(this.style.font, text + sp.song.title, this.env.lang, 1200, () => { this.fontsLate = true; this.dirty |= REPLAN; });
-    this.parsed = parsed; this.retime();
+    this.parsed = parsed; await this.retime();
   }
   /** From the timing down (the lyric shift, the ending, the rhythm map, the lyric model, the plan) — the words read from
    *  the lyrics as they were: what the timing sliders change, without reading and breaking the lyrics again. */
-  private retime() {
+  private async retime() {
     const sp = this.spec, r = parseRange(sp.range), buf = sp.audio, parsed = this.parsed!;
-    this.audioStart = r.a - (sp.lshift || 0) / 1000; this.endLen = sp.song.album ? 0.05 : Math.min(8, Math.max(2, sp.endLen ?? 3.5));
+    // (all of it made aside and put in place together with its plan: until the plan is ready the picture goes on with
+    // the timing, map and plan it has, never a new map under an old plan)
+    const audioStart = r.a - (sp.lshift || 0) / 1000, endLen = sp.song.album ? 0.05 : Math.min(8, Math.max(2, sp.endLen ?? 3.5));
     const fileEnd = buf ? (r.b != null ? Math.min(r.b, buf.duration) : buf.duration) : Infinity, last = parsed.lines[parsed.lines.length - 1];
-    this.musicEnd = buf ? Math.max(1, fileEnd - this.audioStart) : (last ? (last.stop ?? last.t + 3) + 1.6 : 10);
-    this.dur = this.musicEnd + this.endLen;
-    this.map = this.analysis ? new RhythmMap(this.analysis, this.audioStart) : RhythmMap.grid(Math.max(40, Math.min(240, sp.bpm || 120)), 0, this.dur + 2);
-    this.sig = new Signals(this.map);
-    this.doc = buildLyrics(parsed, this.map, this.musicEnd); this.rec = null;
-    this.replan();
+    const musicEnd = buf ? Math.max(1, fileEnd - audioStart) : (last ? (last.stop ?? last.t + 3) + 1.6 : 10), dur = musicEnd + endLen;
+    const origin: MapOrigin = this.analysis ? { analysis: this.analysis, offset: audioStart } : { grid: [Math.max(40, Math.min(240, sp.bpm || 120)), 0, dur + 2] };
+    const map = 'grid' in origin ? RhythmMap.grid(...origin.grid) : new RhythmMap(origin.analysis, origin.offset);
+    const doc = buildLyrics(parsed, map, musicEnd);
+    const plan = await this.planOf(doc, map, origin, musicEnd, endLen);
+    Object.assign(this, { audioStart, endLen, musicEnd, dur, map, sig: new Signals(map), doc, plan, rec: null }); this.version++;
   }
+  /** The plan for these words and this map, in the style as it is now (planner.ts: off the page's thread). */
+  private planOf(doc: LyricDoc, map: RhythmMap, origin: MapOrigin, musicEnd: number, endLen: number): Promise<ScenePlan> {
+    const fc = fontStack(this.style.font, doc.lines.map(L => L.text).join('').slice(0, 400), this.env.lang);
+    const aspect = ASPECTS[this.style.aspect] ?? this.env.viewAspect();
+    // the glyph bitmaps are keyed by face: they stay valid across a replan, unless the face itself arrived late (the ones
+    // drawn before then are of a stand-in face under the same name)
+    if (this.fontsLate) { clearGlyphCache(); this.fontsLate = false; }
+    return planSong({ doc, map, style: this.style, measure: canvasMeasurer(`${fc.w} ${EM}px ${fc.stack}`), aspect, musicEnd, endLen, song: this.spec.song, labels: this.env.labels }, origin);
+  }
+  private get origin(): MapOrigin { return this.analysis ? { analysis: this.analysis, offset: this.audioStart } : { grid: [Math.max(40, Math.min(240, this.spec.bpm || 120)), 0, this.dur + 2] }; }
   private parsed: ReturnType<typeof parse> | null = null;
   /** A newer reading of the song's rhythm, arriving while it plays (streaming: the song started on a quick reading of
    *  its opening): everything that follows from it — map, signals, lyric timing, plan — is made aside now, and put in
    *  place at once by takeStaged when the engine finds the moment (under a blur, or with a crossfade). */
   staged: { analysis: RhythmAnalysis; map: RhythmMap; sig: Signals; doc: LyricDoc; plan: ScenePlan } | null = null;
-  stage(a: RhythmAnalysis): boolean {
+  async stage(a: RhythmAnalysis): Promise<boolean> {
     if (!this.parsed || !isCurrent(a)) return false;
-    const keep = { analysis: this.analysis, map: this.map, sig: this.sig, doc: this.doc, plan: this.plan, version: this.version, dirty: this.dirty };
-    this.analysis = a; this.map = new RhythmMap(a, this.audioStart); this.sig = new Signals(this.map); this.doc = buildLyrics(this.parsed, this.map, this.musicEnd); this.replan();
-    this.staged = { analysis: this.analysis, map: this.map, sig: this.sig, doc: this.doc, plan: this.plan };
-    Object.assign(this, keep); return true;
+    const map = new RhythmMap(a, this.audioStart), doc = buildLyrics(this.parsed, map, this.musicEnd);
+    const plan = await this.planOf(doc, map, { analysis: a, offset: this.audioStart }, this.musicEnd, this.endLen);
+    // (an edit or a newer reading meanwhile has taken over: this one is not wanted any more)
+    if (this.analysis?.partial !== true || this.parsed == null) return false;
+    this.staged = { analysis: a, map, sig: new Signals(map), doc, plan }; return true;
   }
   /** Put the staged reading in place; returns the session as it was (for the picture to fade from), or null. */
   takeStaged(): Session | null {
@@ -131,15 +145,11 @@ export class Session {
     const before = Object.assign(Object.create(Object.getPrototypeOf(this)), this) as Session;
     Object.assign(this, st); this.rec = null; this.version++; return before;
   }
-  replan() {
-    const fc = fontStack(this.style.font, this.doc.lines.map(L => L.text).join('').slice(0, 400), this.env.lang);
-    const aspect = ASPECTS[this.style.aspect] ?? this.env.viewAspect();
-    // the glyph bitmaps are keyed by face: they stay valid across a replan, unless the face itself arrived late (the ones
-    // drawn before then are of a stand-in face under the same name)
-    if (this.fontsLate) { clearGlyphCache(); this.fontsLate = false; }
-    this.plan = makePlan({ doc: this.doc, map: this.map, style: this.style, measure: canvasMeasurer(`${fc.w} ${EM}px ${fc.stack}`), aspect,
-      musicEnd: this.musicEnd, endLen: this.endLen, song: this.spec.song, labels: this.env.labels });
-    this.version++;
+  async replan() {
+    const doc = this.doc, map = this.map, plan = await this.planOf(doc, map, this.origin, this.musicEnd, this.endLen);
+    // (a rebuild of the words or the timing meanwhile is newer: it keeps its own)
+    if (this.doc !== doc || this.map !== map) return;
+    this.plan = plan; this.version++;
   }
   /** The effect cues alone, the rest of the plan as it is (a trigger's sensitivity, an effect struck on accents). */
   private recue() { this.plan.cues = planCuesFor(this.plan); this.version++; }   // (the same plan: its glyphs need no baking again)
@@ -158,7 +168,7 @@ export class Session {
           // (an edit while a newer rhythm waits: it is taken now, under the edit's own rebuild)
           if (this.staged) { this.analysis = this.staged.analysis; this.staged = null; this.dirty |= BUILD; }
           const d = this.dirty; this.dirty = 0;
-          if (d & BUILD) await this.build(); else if (d & RETIME) this.retime(); else if (d & REPLAN) this.replan(); else if (d & RECUE) this.recue();
+          if (d & BUILD) await this.build(); else if (d & RETIME) await this.retime(); else if (d & REPLAN) await this.replan(); else if (d & RECUE) this.recue();
         }
       } finally { done = true; if (this.flushing === run) this.flushing = null; }
     })();

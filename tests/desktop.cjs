@@ -186,6 +186,18 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
       const recued = s.version - v1, sameplan = s.plan.cues !== cues0; s.setEffect('chroma', was); await s.flush();
       return { builds, recued, sameplan }; });
     ok('rebuilds: one at a time however often asked for; switching the colour split remakes its cues at once', r.builds === 1 && r.recued === 1 && r.sameplan, JSON.stringify(r)); }
+  // a replan is made off the page's thread (engine/plan.worker.ts): the frames go on while it runs, and the plan is laid
+  // out from the widths the page measured (every one of them there)
+  { const r = await C(async () => { const c = window.__cadenza, s = c.player.get().session, st0 = { ...c.planStats }, v0 = s.version, was = s.style.motion || 'story';
+      let gap = 0, last = performance.now(), on = true; const tick = () => { const n = performance.now(); gap = Math.max(gap, n - last); last = n; if (on) requestAnimationFrame(tick); }; requestAnimationFrame(tick);
+      await new Promise(r => setTimeout(r, 300));
+      // (the longest wait between frames with nothing being planned, then while a replan runs: a frame here is slow —
+      // a software canvas — so the replan is judged against the frames' own pace, not a fixed figure)
+      gap = 0; await new Promise(r => setTimeout(r, 700)); const baseGap = gap; gap = 0;
+      const t0 = performance.now(); c.api.editSong(x => x.applyMotion(was === 'waltz' ? 'groove' : 'waltz')); await s.flush(); const ms = performance.now() - t0;
+      const replanGap = gap; c.api.editSong(x => x.applyMotion(was)); await s.flush(); on = false;
+      return { worker: c.planStats.worker - st0.worker, here: c.planStats.here - st0.here, miss: c.planStats.miss, workerMs: Math.round(c.planStats.ms), totalMs: Math.round(ms), baseGap: Math.round(baseGap), replanGap: Math.round(replanGap), replans: s.version - v0 }; });
+    ok('planning: a replan runs in the planning worker, from the measured widths, and the frames go on meanwhile', r.worker >= 1 && r.here === 0 && r.miss === 0 && r.replans >= 2 && r.replanGap <= r.baseGap * 1.3 + 120, JSON.stringify(r)); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click(); await W(300); await shot('fx-panel-lyrics');
   const ime = {};
   await win.locator('[data-test=song-panel] textarea').first().click(); await C(() => document.querySelector('[data-test=song-panel] textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ㄋ' })));

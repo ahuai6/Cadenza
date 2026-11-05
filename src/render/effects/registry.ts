@@ -10,6 +10,13 @@ export type Layer = 'backdrop' | 'world-back' | 'world-front' | 'foreground' | '
 export interface Param { key: string; label: string; kind: 'range' | 'toggle' | 'select'; min?: number; max?: number; step?: number; options?: [string, string][]; def: number | boolean | string }
 /** What the backdrop layer adds to a frame: the backdrop's own camera (it never cuts) and the bleed beyond the frame. */
 export interface BackdropView { roll: number; zoom: number; ox: number; oy: number; E: number; Ev: number; /** how far a video is drawn with as little crop as can be (0..1) */ fit?: number; /** a long pause's rest (0..1) */ rest?: number }
+/** The backdrop's middle ground — the cover, the record, the horizon of the floor and the doors, the beat rings and the
+ *  glass panes — moves with the camera by this share of the backdrop's own pan (the pan's parallax). Elements nearer or
+ *  further take their own share (motes, feathers, shards: by their depth); the ground itself covers the bleed. */
+export const MID = 0.6;
+export const midShift = (bd: Pick<BackdropView, 'ox' | 'oy'>, k = MID): [number, number] => [bd.ox * k, bd.oy * k];
+/** A backdrop element of the middle ground drawn shifted with it. */
+export const atMid = (draw: Effect['draw']): Effect['draw'] => (g, f, a) => { const [x, y] = midShift(a.bd); g.save(); g.translate(x, y); draw(g, f, a); g.restore(); };
 export interface DrawArgs { bd: BackdropView; params: Record<string, number | boolean | string>;
   /** (a backdrop's own draw) call once its ground is painted and before its elements: the deep effects go there */ under?: () => void }
 

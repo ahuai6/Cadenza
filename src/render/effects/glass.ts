@@ -2,7 +2,7 @@
 import { clamp, sstep } from '../../core/math';
 import { rnd } from '../../core/rng';
 import { mix, rgba, K3 } from '../../core/color';
-import { register, type Ctx } from './registry';
+import { register, midShift, type Ctx } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { gfx } from '../gfx';
@@ -53,10 +53,10 @@ const burstAt = (sh: { r0: number; delay: number }) => 0.03 + sh.r0 * 0.07 + sh.
 /** How far a piece that breaks out has gone (0 still there .. 1 gone), as the shards' own pass times it. Once gone it
  *  stays gone: the opening fades with the rest of the pane, it never closes up again (glass does not heal). */
 const goneK = (sh: { r0: number; delay: number; fly: boolean }, dt: number, reach: number, fade: number) => { if (!sh.fly || sh.r0 > reach) return 0; const st = Math.max(0, dt - burstAt(sh)); return sstep(clamp(st / 0.25)) * fade; };
-register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z: 40, draw(g, f) {
-  const w = f.W, h = f.H, t = f.t, dark = f.pal.dark;
+register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z: 40, draw(g, f, a) {
+  const w = f.W, h = f.H, t = f.t, dark = f.pal.dark, [mx, my] = midShift(a.bd);   // (the pane in the middle ground)
   for (const ev of f.plan.cues.glass) { const dt = t - ev.t; if (dt < 0 || dt > ev.life) continue;
-    const G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, grow = sstep(clamp(dt / 0.07)), fade = paneFade(dt, ev.life), reach = grow * 1.2, hot = mix(mix(f.pal.text, f.pal.accent, 0.3), [255, 255, 255], 0.55), glow = mix(f.pal.accent, [255, 255, 255], 0.35);
+    const G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w + mx, cy = ev.y * h + my, grow = sstep(clamp(dt / 0.07)), fade = paneFade(dt, ev.life), reach = grow * 1.2, hot = mix(mix(f.pal.text, f.pal.accent, 0.3), [255, 255, 255], 0.55), glow = mix(f.pal.accent, [255, 255, 255], 0.35);
     g.save(); g.translate(cx, cy); g.lineJoin = 'round'; g.lineCap = 'round';
     // the openings (pieces that have broken out): their cracks went with them — the cracks are drawn round them only,
     // so between two neighbours that both fell out no line is left, and at the edge of a piece that stays half the
@@ -88,16 +88,17 @@ register({ id: 'glass', label: 'fx.glass', layer: 'backdrop', kind: 'effect', z:
     g.restore(); } } });
 const GSNAP = makeCanvas(16, 16) as HTMLCanvasElement;
 
-register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'effect', z: 0, draw(g, f) {
+register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'effect', z: 0, draw(g, f, a) {
   if (!f.style.fx.glass) return; const t = f.t, act = f.plan.cues.glass.filter(ev => t >= ev.t && t - ev.t <= ev.life); if (!act.length) return;
   const w = f.W, h = f.H, cv = g.canvas as HTMLCanvasElement;
-  const roll = f.cam.fx.r - f.cam.cont.r, zoom = f.cam.fx.z, Mbg = new DOMMatrix().translate(w / 2, h / 2).rotate(roll).scale(zoom).translate(-w / 2, -h / 2), inv = Mbg.inverse(), dark = f.pal.dark;
+  // (the pane's own frame: the backdrop's camera and its middle ground, exactly as the pane was drawn)
+  const roll = a.bd.roll, zoom = a.bd.zoom, [mx, my] = midShift(a.bd), Mbg = new DOMMatrix().translate(w / 2, h / 2).rotate(roll).scale(zoom).translate(-w / 2, -h / 2), inv = Mbg.inverse(), dark = f.pal.dark;
   // what each flying piece carries is only the picture where it was: the frame is copied for those places alone, and
   // each piece draws only its own part of it (a piece no longer reads the whole frame — the cost of the shatter)
   // (a large frame is copied at a little under its full size: the pieces are in flight, a hair of softness is not seen)
   const sk = Math.min(cv.width > 1600 ? 1600 / cv.width : 1, gfx() === 'optimized' ? 0.5 : 1), SW = Math.round(cv.width * sk), SH = Math.round(cv.height * sk); if (GSNAP.width !== SW || GSNAP.height !== SH) { GSNAP.width = SW; GSNAP.height = SH; }
   const kx = SW / w, ky = SH / h, BOX = new Map<any, number[]>(); let U = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, reach = sstep(clamp(dt / 0.07)) * 1.2;
+  for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w + mx, cy = ev.y * h + my, reach = sstep(clamp(dt / 0.07)) * 1.2;
     for (const sh of G.shards) { if (sh.r0 > reach || !sh.fly) continue; const b = [Infinity, Infinity, -Infinity, -Infinity];
       for (const p of sh.poly) { const q = Mbg.transformPoint({ x: cx + p[0] * Rr, y: cy + p[1] * Rr }); b[0] = Math.min(b[0], q.x); b[1] = Math.min(b[1], q.y); b[2] = Math.max(b[2], q.x); b[3] = Math.max(b[3], q.y); }
       b[0] = Math.max(0, Math.floor(b[0] - 2)); b[1] = Math.max(0, Math.floor(b[1] - 2)); b[2] = Math.min(w, Math.ceil(b[2] + 2)); b[3] = Math.min(h, Math.ceil(b[3] + 2));
@@ -107,7 +108,7 @@ register({ id: 'glass-shards', label: 'fx.glass', layer: 'foreground', kind: 'ef
   // (the copy as a pattern laid where the picture was: a piece filled with it carries its part of the frame wherever it flies)
   const pat = U[2] > U[0] ? g.createPattern(GSNAP, 'no-repeat') : null; pat?.setTransform(inv.multiply(new DOMMatrix().scale(1 / kx, 1 / ky)));
   const light = dark ? mix(f.pal.text, [255, 255, 255], 0.2) : mix(f.pal.text, f.pal.bg, 0.35);
-  for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w, cy = ev.y * h, reach = sstep(clamp(dt / 0.07)) * 1.2, fade = paneFade(dt, ev.life), split = sstep(clamp(dt / 0.08)) * 0.035;
+  for (const ev of act) { const dt = t - ev.t, G = glassGeom(ev), Rr = Math.hypot(w, h) * 0.5 * ev.size, cx = ev.x * w + mx, cy = ev.y * h + my, reach = sstep(clamp(dt / 0.07)) * 1.2, fade = paneFade(dt, ev.life), split = sstep(clamp(dt / 0.08)) * 0.035;
     g.save(); g.transform(Mbg.a, Mbg.b, Mbg.c, Mbg.d, Mbg.e, Mbg.f); g.globalCompositeOperation = 'source-over';
     { let kk = 0, n = 0; g.beginPath(); for (const sh of G.shards) { const gone = goneK(sh, dt, reach, fade); if (gone < 0.01) continue; kk += gone; n++;
         sh.poly.forEach((p: number[], k: number) => { const x = cx + p[0] * Rr, y = cy + p[1] * Rr; k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); }
