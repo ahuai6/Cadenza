@@ -67,8 +67,13 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         const quick = Q.w.t - last.end < 0.2 || Q.w.t - last.w.t < 0.45;
         if (!fused) {
           // (a column is a stop of its own: the camera goes down it, then on to the next, as from row to row)
-          if (grp.length >= (close || S0.vert ? 1 : 3) || !quick || Math.abs(angDiff(Q.tilt, S0.tilt)) > 8) break;
-          const B = boxIn([...grp, Q], S0.tilt); if (Math.min(W * 0.82 / B.w, H * 0.52 / B.h) < z1 * 0.6) break;
+          // (hovering: the whole line is held, however its words are timed, as long as it fits a frame a little further
+          // back — the camera rests over it instead of stepping along it, and leaving its first words off the edge)
+          if (hover && !S0.vert && !Q.vert && !Q.frame && !grp.some(S => S.frame) && Math.abs(angDiff(Q.tilt, S0.tilt)) <= 8) { const B = boxIn([...grp, Q], S0.tilt); if (Math.min(W * 0.82 / B.w, H * 0.52 / B.h) < z1 * 0.42) break; }
+          else {
+            if (grp.length >= (close || S0.vert ? 1 : 3) || !quick || Math.abs(angDiff(Q.tilt, S0.tilt)) > 8) break;
+            const B = boxIn([...grp, Q], S0.tilt); if (Math.min(W * 0.82 / B.w, H * 0.52 / B.h) < z1 * 0.6) break;
+          }
         }
         grp.push(Q); j++;
       }
@@ -94,7 +99,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       const pw = stops[stops.length - 1]?.words.at(-1), tStop = pw && pw.w.endGiven && pw.w.end > S0.w.t + 0.05 ? Math.min(pw.w.end, S0.w.t + 2) : S0.w.t;
       stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 6 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,
         t: tStop, arrive: 0, leave: 0, sungEnd: last.end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: S0.tilt }, dir: [dv[0] * rd, dv[1] * rd], drift: 0,
-        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0, ...(west ? { hov: true } : {}) });
+        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0, ...(S0.rollD ? { rollD: S0.rollD } : {}), ...(west ? { hov: true } : {}) });
       k = j;
     }
   }
@@ -240,7 +245,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       // holds it too — the camera pulls back and moves over it and the words, holding still — or, were that too far,
       // the frame fades as the camera leaves it, never left cut off at the edge
       for (const [F, fi] of frameStop) { if (fi >= i) continue; const fEnd = Math.min(F.until ?? Infinity, F.words[0].line.L.end - 0.8) + 0.8; if (arrive >= fEnd || F.ts > arrive + 2) continue;
-        const fb = F.words.map(S => ({ x: S.x, y: S.y, lw: S.lw + F.pad * 2, lh: S.lh + F.pad * 2, tilt: S.tilt })), all = [...fb, ...(B.ubox || [])];
+        const fb = F.words.map(S => ({ x: S.x, y: S.y, lw: (S.lw + F.pad * 2) * 1.2, lh: (S.lh + F.pad * 2) * 1.2, tilt: S.tilt })), all = [...fb, ...(B.ubox || [])];   // (a little room round it: its depth and the frame's shake move it a few pixels)
         if (fits(all, B, W, H)) continue;
         const both = fitPose(all, B.box.tilt, B.r, W, H, T);
         if (both.z >= B.z * 0.3 && fits(all, { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)) { B.z = Math.min(B.z, both.z); B.x = both.x; B.y = both.y; B.follow = []; B.drift = 0; B.head = B.ubox || []; }
@@ -264,7 +269,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     // that lets it land before the new word appears). A word that appears before the roll is over is simply there, at its
     // own place on the drum — still upside down to the camera — and the roll turns the camera round to it
     const roll = B.roll && !B.cut ? B.roll : 0;
-    if (roll) { const D = rollDur(M.speed); s = Math.max(A.arrive + 0.05, Math.min(s, Math.max(B.words[0].show - D, A.sungEnd - 0.12))); arrive = s + D; }
+    if (roll) { const D = B.rollD ?? rollDur(M.speed); s = Math.max(A.arrive + 0.05, Math.min(s, Math.max(B.words[0].show - D, A.sungEnd - 0.12))); arrive = s + D; }
     B.arrive = arrive;
     const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy);
     let bow: [number, number] = [0, 0], bend = 0;
@@ -275,9 +280,10 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     if (roll) {
       // the way it was asked to turn (half a turn has two ways round), sprung by the force knob, swinging further and
       // breathing out more with the turns knob
-      const dr = angDiff(B.r - roll * 180, A.r) + roll * 180;
+      // (a quicker roll, for a quicker repeat, is lighter too: less overshoot, less breathing out)
+      const dr = angDiff(B.r - roll * 180, A.r) + roll * 180, lt = clamp((B.rollD ?? rollDur(M.speed)) / rollDur(M.speed), 0.5, 1);
       moves.push({ s, a: arrive, dx, dy, dz: Math.log(B.z / A.z), dr, dd: B.d - A.d, ease: 'roll', bow: [0, 0],
-        spring: [clamp(0.75 + M.punch * 0.9, 0.6, 2.4), clamp(0.05 + 0.09 * TK, 0.02, 0.32)], zb: clamp(0.1 * TK, 0, 0.3) });
+        spring: [clamp(0.75 + M.punch * 0.9, 0.6, 2.4), clamp((0.05 + 0.09 * TK) * lt, 0.02, 0.32)], zb: clamp(0.1 * TK * lt, 0, 0.3) });
       continue;
     }
     const mv: Move = { s, a: B.cut ? s : arrive, dx, dy, dz: Math.log(B.z / A.z), dr: angDiff(B.r, A.r), dd: B.d - A.d, ease: B.cut ? 'cut' : smooth ? (waltz ? 'waltz' : glideE === 'cruise' && (close || L * Math.sqrt(A.z * B.z) / W > 0.5) ? 'reach' : glideE) : (slow > 0 ? 'glide' : 'punch'), bow };
@@ -292,7 +298,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
 
   /* ---- the ending: no pull-back — the camera stays with the last words and keeps drifting gently until the end ---- */
   { const go = Math.max(inp.musicEnd, lastS.sungEnd, lastS.arrive + 0.2) + 3, h0 = Math.max(lastS.arrive, follow(lastS, Infinity), lastSung(lastS)), ax = lastS.fax || lastS.dir;
-    if (lastS.drift > 0 && go - h0 > 0.2) { const dd = Math.min(lastS.drift, lastS.drift * (go - h0) / 2.5); drifts.push([h0, go, ax[0] * dd, ax[1] * dd]); lastS.x += ax[0] * dd; lastS.y += ax[1] * dd; } }
+    // (not with a lyric frame still up on the last line: the drift would carry it off the edge)
+    if (lastS.drift > 0 && go - h0 > 0.2 && !lastS.words[0].line.words.some(w => w.frame)) { const dd = Math.min(lastS.drift, lastS.drift * (go - h0) / 2.5); drifts.push([h0, go, ax[0] * dd, ax[1] * dd]); lastS.x += ax[0] * dd; lastS.y += ax[1] * dd; } }
 
   /* ---- cuts: the jump the base path makes at each transition (the backdrop does not follow these) ---- */
   const plan: CameraPlan = { style: cut, start, stops, moves, drifts, cuts: [], idle: idleWindows(lines, inp.musicEnd),

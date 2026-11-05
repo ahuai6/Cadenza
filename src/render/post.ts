@@ -46,7 +46,10 @@ export function drawTransition(g: Ctx, f: RenderFrame, k: number) {
   // of the song's own background colour at the peak (lifted a little, so it reads as frosting, not a darker pane) — a
   // loss of focus in the song's colour, never a curtain nor a plastic sheet
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = true; (g as any).imageSmoothingQuality = 'high';
-  g.globalAlpha = Math.min(1, k * 1.6) * 0.94; g.drawImage(TB, m, m, w1, h1, 0, 0, w1 * fct, h1 * fct);
+  // (back onto exactly the frame: the halvings round their sizes up, so the small picture holds the whole frame in
+  // w1 × h1 — drawn at w1·2ⁿ it came out a little larger than the frame, from the top left, and a sharp cover's edges
+  // slid against their blurred copy as the blur rose and cleared: a twitch on the looks with things in the backdrop)
+  g.globalAlpha = Math.min(1, k * 1.6) * 0.94; g.drawImage(TB, m, m, w1, h1, 0, 0, w, h);
   g.globalAlpha = k * k * 0.085; g.fillStyle = hexOf(tint); g.fillRect(0, 0, w, h); g.restore();
 }
 

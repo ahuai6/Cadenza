@@ -70,3 +70,20 @@ describe('word stamps with nothing after them', () => {
     expect(b.text).toBe('feeling'); expect(b.end).toBeCloseTo(22.8, 2);
   });
 });
+
+describe('harmonies hold nothing', () => {
+  it('a stamp after a harmony ends the harmony, not the line\'s own last word', () => {
+    const p = parse('[00:01.00]<00:01.00>hold <00:01.50>on<00:02.00>(<00:02.10>oh <00:02.60>yeah)<00:04.00>\n[00:03.00]<00:03.00>next');
+    const L = p.lines[0], on = L.words[L.words.length - 1];
+    expect(on.units!.at(-1)!.e).toBeCloseTo(2, 3); expect(L.close).toBeUndefined();   // (it ends where the harmony opens)
+    expect(on.harm!.units!.at(-1)!.e).toBeCloseTo(4, 3);
+    // (so the line's own last word is over before the next line, and nothing waits for the harmony)
+    const doc = buildLyrics(p, RhythmMap.grid(120, 0, 40), 30), W = doc.lines[0].words.at(-1)!;
+    expect(W.end).toBeCloseTo(2, 3); expect(doc.lines[0].sung).toBeLessThan(3);
+  });
+  it('a line timed only as a whole: its harmony comes with the line', () => {
+    const doc = buildLyrics(parse('[00:01.00]hold on to me (oh yeah)\n[00:06.00]next'), RhythmMap.grid(120, 0, 40), 30);
+    const W = doc.lines[0].words.find(w => w.harm)!;
+    expect(W.harm!.t).toBe(doc.lines[0].t);
+  });
+});

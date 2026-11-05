@@ -107,8 +107,9 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
       // a word timed only as a whole: its characters spread over its singing, so it is still sung (and followed) one
       // character at a time
       if (!W.timed && W.units.length > 1) { const D = Math.max(0.12, (W.end - W.t) * 0.85); W.units.forEach((u, j) => { u.t = W.t + D * j / W.units.length; }); W.paced = true; }
-      // its harmony: with the word when it has no timing of its own
-      if (W.harm && !isFinite(W.harm.t)) W.harm.t = W.t;
+      // its harmony: with the word when it has no timing of its own — and on a line timed only as a whole, with the
+      // line (it is shown as the line is, all at once: not at its word's guessed moment)
+      if (W.harm && (!isFinite(W.harm.t) || !R.kar)) W.harm.t = R.kar ? W.t : L.t;
     });
     // groups: a fast run is one gesture
     L.words.forEach((W, k) => {

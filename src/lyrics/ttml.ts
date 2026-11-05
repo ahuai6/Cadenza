@@ -129,6 +129,9 @@ function lineOf(p: El, b: number, e: number | null): RawLine | null {
   for (const w of words) if (w.harm) w.harm.text = w.harm.units!.map(u => u.c + (u.sp ? ' ' : '')).join('').trim();
   if (!words.length) return null;
   L.words = words; L.kar = words.map(w => w.units!); L.close = lastEnd ?? e ?? undefined; if (L.close == null) delete L.close;
+  // (the line ends where its own voice does: background vocals running on after it hold nothing — the page and the
+  // camera may move on while a harmony is still sounding)
+  if (lastEnd != null && L.end != null) L.end = Math.max(L.t + 0.05, lastEnd);
   L.text = words.map(w => w.text).join(' '); return L;
 }
 const role = (e: El) => attr(e, 'role');

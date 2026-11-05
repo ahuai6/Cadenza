@@ -335,6 +335,13 @@ describe('roller', () => {
         expect(Math.abs(end.q.sx)).toBeLessThan(P.W / 2); expect(Math.abs(end.q.sy)).toBeLessThan(P.H / 2); }
     });
   }
+  it('a repeat a little quicker than a half turn still rolls — a shorter, lighter roll (2.17)', () => {
+    const quick = [ts(1) + 'the night is young', kar(4, [['go', 4], ['走吧', 4.6], ['走吧', 5.4], ['走吧', 6.2], ['好嗎', 7]]), ts(11) + 'under the city lights'].join('\n');
+    const P = make('glide', quick), rolls = P.words.filter(S => S.roll);
+    expect(rolls.length).toBeGreaterThanOrEqual(1);
+    for (const S of rolls) { expect(S.rollD!).toBeLessThan(1.05 / 0.7 + 1e-6); expect(S.rollD!).toBeGreaterThanOrEqual(0.4); }
+    const m = P.camera.moves.find(x => x.ease === 'roll')!; expect(m.a - m.s).toBeLessThan(1.2);
+  });
   it('pace, energy and turns reach the roll (its length, its spring, its swing)', () => {
     const roll = (k: Record<string, number>) => { const base = presetStyle('cover'), st = normalizeStyle({ ...base, preset: 'custom', cut: 'glide', k: { ...base.k, ...k } });
       const doc = buildLyrics(parse(src), RhythmMap.grid(112, 0.3, 160), 30), P = plan({ doc, map: RhythmMap.grid(112, 0.3, 160), style: st, measure: approxMeasurer(), aspect: 16 / 9, musicEnd: 30, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
@@ -508,7 +515,7 @@ describe('where a new line goes', () => {
         // (one carrying on in a passage that goes onward: a row above or below, its middle never left of the line before's)
         n++; if (along([B.ax, B.ay]) >= along([A.ax, A.ay]) - Math.max(A.bh, B.bh) * 0.5) ok++; }
       // (a passage gone far from where it began steps a little back towards there on purpose: a few lines do)
-      expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThanOrEqual(0.7);
+      expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThanOrEqual(0.6);   // (2.17: lines set above as often as below — more of them in passages gone far, which step back on purpose)
       // a line laid heading back: a row above or below (or wholly to its left), starting before the line before began, its middle left of that one's
       // (most of them: one nudged clear of an earlier word may sit a little off its row)
       expect(nb, cut).toBeGreaterThanOrEqual(1); expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75); }

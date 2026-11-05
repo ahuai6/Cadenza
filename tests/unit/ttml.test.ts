@@ -37,6 +37,8 @@ describe('TTML', () => {
     expect(a.kar).toBeTruthy(); expect(a.words.map(w => w.text)).toEqual(['清晨的', '光']);
     expect(a.words[0].units!.map(u => [u.c, u.t, u.e])).toEqual([['清晨', 2, 2.5], ['的', 2.5, 3.1]]);
     expect(a.words[1].harm?.text).toBe('啊啊'); expect(a.subs).toEqual(['The light of morning']); expect(a.close).toBeCloseTo(4.4, 3);
+    // (the line ends with its own voice: the background vocals running on after it hold nothing)
+    expect(a.end).toBeCloseTo(4.4, 3);
     expect(b.words.map(w => w.text)).toEqual(['Hello', 'world']); expect(b.subs).toEqual(['你好世界']);
   });
   it('through the one entry: TTML and LRC alike, shifted by the range start', () => {

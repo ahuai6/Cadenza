@@ -109,13 +109,34 @@ const paintKey = (f: Paint) => (typeof f === 'string' ? f : Array.isArray(f) ? f
  *  glyphs change size all the time — its breathing, the entrances — and each new step was a new bitmap, made in the
  *  frame that first needed it), always the step at or above the size asked (drawn a little smaller: never soft). */
 const ladder = (G: number) => { const st = G > 400 || (ALL_BITMAP && G < LARGE) ? 4 : 8; return Math.max(8, Math.min(1200, Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, G)) * st - 1e-6) / st)))); };
+/* How much new large bitmap a frame may make (device px²). A close-up zooming along a long word crosses size steps all
+   the time, and each step made every character anew in every layer (face, edge, outline) — one frame of 「きゃきゃ…」
+   at 4K made and sent to the GPU some 190 million pixels, which stalls a graphics card long enough for the system to
+   reset it (the picture stuck, the play page's backdrop black). Past the budget a glyph already made at a nearby size
+   stands in (drawn a little larger or smaller), and its own size is made in a later frame. */
+const FRAME_PIX = 6e6;
+let FRAME_MADE = 0;
+/** A new frame: its budget for new large bitmaps starts again (renderer.ts, each frame). */
+export function glyphFrame() { FRAME_MADE = 0; }
+const stepOf = (S: number) => Math.round(Math.log2(S) * 4);
+/* The largest a bitmap is made (device px): for the GPU lyric layer small enough that every glyph lives in its atlas pages
+   (no texture of its own: a close-up at 4K made dozens of 1200 × 1700 textures, hundreds of MB of graphics memory —
+   enough on some cards for the system to reset the device: the picture stuck, the play page's backdrop black); for the
+   2D canvas within what a canvas may be. A glyph seen larger is drawn from it scaled up a little. */
+const CAP_GPU: [number, number] = [2000, 1080], CAP_2D: [number, number] = [4096, 2048];
 export function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
-  const S = ladder(G), key = 'S|' + font + '|' + paintKey(fill) + '|' + S + '|' + txt;
+  if (sg.font !== font) sg.font = font;
+  const cap = ALL_BITMAP ? CAP_GPU : CAP_2D, wem = Math.max(1, sg.measureText(txt).width / EM), Smax = Math.floor(Math.min((cap[0] - 4) / (wem + 0.28), (cap[1] - 4) / 1.68));
+  const S = Math.max(8, Math.min(ladder(G), Smax)), pre = 'S|' + font + '|' + paintKey(fill) + '|', key = pre + S + '|' + txt;
   let e = CACHE.get(key); if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
   if (late()) return EMPTY;
+  const q = S / EM;
+  const tw = Math.max(S, wem * EM * q), pad = Math.ceil(S * 0.14 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.4 + pad * 2);
+  // (over this frame's budget: the nearest size already made — larger first, it only sharpens — if there is one)
+  if (S > 300 && FRAME_MADE + w * h > FRAME_PIX) {
+    const st = stepOf(S); for (const d of [1, -1, 2, -2, 3, -3, 4, -4, 6, -6, 8, -8]) { const S2 = Math.round(2 ** ((st + d) / 4)), o = CACHE.get(pre + S2 + '|' + txt) ?? CACHE.get(pre + ladder(S2) + '|' + txt); if (o) return o; } }
+  FRAME_MADE += w * h;
   STATS.miss++; STATS.keys?.push('sharp|' + S + '|' + txt);
-  const q = S / EM; if (sg.font !== font) sg.font = font;
-  const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(S * 0.14 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.4 + pad * 2);
   const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d', CPU) as CanvasRenderingContext2D;
   c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.setTransform(q, 0, 0, q, w / 2, h / 2);
   if (typeof fill === 'string') { c.fillStyle = fill; c.fillText(txt, 0, 0); }

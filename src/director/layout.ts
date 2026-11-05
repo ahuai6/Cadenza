@@ -173,12 +173,16 @@ export function layout(inp: LayoutInput): LayoutResult {
   const secOf = new Map<PLine, number>();
   const near = (S: PWord, Q: PWord) => Q.line === S.line || (secOf.get(Q.line) === secOf.get(S.line) && Q.line.i > S.line.i - PAGE_LINES);
   const hits = (S: PWord) => placed.some(Q => Q.frame && Q.frame === S.frame ? false : near(S, Q) && clash(S, Q));
-  const FLOW: [string, number][] = waltz ? [['right', .34], ['below', .26], ['stair', .26], ['rise', .14]] : smooth ? [['right', .38], ['below', .30], ['stair', .28], ['rise', .04]] : [['right', .40], ['below', .28], ['stair', .20], ['rise', .12]];
+  // (a word goes on up as often as down: below / above, a step down / a step up — the small rise beside them is a lift
+  // within the row, not a way to go)
+  const FLOW: [string, number][] = waltz ? [['right', .34], ['below', .13], ['above', .13], ['stair', .13], ['climb', .13], ['rise', .14]] : smooth ? [['right', .36], ['below', .15], ['above', .15], ['stair', .14], ['climb', .14], ['rise', .06]] : [['right', .38], ['below', .14], ['above', .14], ['stair', .11], ['climb', .11], ['rise', .12]];
   const placeNext = (S: PWord, Q: PWord, w: number, h: number, d: [number, number], n: [number, number], i: number, k: number): [number, number] | null => {
     let r = rnd(i * 61.7 + k * 4.3 + 3), mode = 'right'; for (const [m, wt] of FLOW) { if (r < wt) { mode = m; break; } r -= wt; }
     const down = Q.lh / 2 + gap * 1.3 + h / 2;
     if (mode === 'below') { const al = rnd(i * 5.1 + k * 7.7), ax = al < 0.34 ? (w - Q.lw) / 2 : al < 0.67 ? 0 : (Q.lw - w) / 2; return [Q.x + n[0] * down + d[0] * ax, Q.y + n[1] * down + d[1] * ax]; }
+    if (mode === 'above') { const al = rnd(i * 5.1 + k * 7.7), ax = al < 0.34 ? (w - Q.lw) / 2 : al < 0.67 ? 0 : (Q.lw - w) / 2; return [Q.x - n[0] * down + d[0] * ax, Q.y - n[1] * down + d[1] * ax]; }
     if (mode === 'stair') { const ax = Q.lw * 0.3 + w * 0.3; return [Q.x + n[0] * down * 0.92 + d[0] * ax, Q.y + n[1] * down * 0.92 + d[1] * ax]; }
+    if (mode === 'climb') { const ax = Q.lw * 0.3 + w * 0.3; return [Q.x - n[0] * down * 0.92 + d[0] * ax, Q.y - n[1] * down * 0.92 + d[1] * ax]; }
     if (mode === 'rise') { const ax = Q.lw / 2 + (S.w.latin && Q.w.latin ? Math.max(gap, h * 0.32) : gap) + w / 2, up = (Q.lh + h) * 0.32; return [Q.x + d[0] * ax - n[0] * up, Q.y + d[1] * ax - n[1] * up]; }
     return null;
   };
@@ -186,7 +190,8 @@ export function layout(inp: LayoutInput): LayoutResult {
   const WANDER = 1.8, ORBIT_REACH = 1.0, ORBIT_RANGE = 1.0, ORBIT_TRIES = 10, SPAN = ({ punch: 0.6, waltz: 0.55, glide: 0.55, close: 0.4, hover: 0.5 } as Record<string, number>)[st.cut] ?? 0.55, BACK_REACH = 0.7, FOLD = 0.9;
   // where a new line goes, by style: below the line before, above it, or on to the right (the rest); close up it mostly
   // runs on (a short way, seen travelling), hovering it spreads round the middle
-  const [PB0, PA0] = ({ punch: [0.3, 0.25], waltz: [0.3, 0.3], glide: [0.3, 0.25], close: [0.2, 0.15], hover: [0.35, 0.3] } as Record<string, number[]>)[st.cut] ?? [0.34, 0.26];
+  // (as often above as below)
+  const [PB0, PA0] = ({ punch: [0.3, 0.3], waltz: [0.3, 0.3], glide: [0.28, 0.28], close: [0.18, 0.18], hover: [0.33, 0.33] } as Record<string, number[]>)[st.cut] ?? [0.3, 0.3];
   // (the lyric type can ask for more lines above and below and fewer onward — the odds kept short of always)
   const SK = Math.min(LT.stack ?? 1, 0.85 / (PB0 + PA0)), P_BELOW = PB0 * SK, P_ABOVE = PA0 * SK;
   const blankOf = (A: PWord, B: PWord) => { const z = Math.min(zOf(A), zOf(B)), d = dirv(A.tilt), n = dirv(A.tilt + 90), dx = B.x - A.x, dy = B.y - A.y;
@@ -290,7 +295,7 @@ export function layout(inp: LayoutInput): LayoutResult {
         let m = nr ? drum.get(roll.run) : undefined; if (!m) { const n1 = dirv(th + 90); m = [-n1[0], -n1[1]]; drum.set(roll.run, m); }
         const off = prevH / 2 + gap * 2.2 + h / 2;
         c = [P[0] + m[0] * off - d1[0] * w / 2, P[1] + m[1] * off - d1[1] * w / 2]; P = [c[0] + d2[0] * w / 2, c[1] + d2[1] * w / 2];
-        th = th2; if (k === 0) lineStart = [c[0] - d2[0] * w / 2, c[1] - d2[1] * w / 2]; lastTurn = S.w.t; S.roll = sg;
+        th = th2; if (k === 0) lineStart = [c[0] - d2[0] * w / 2, c[1] - d2[1] * w / 2]; lastTurn = S.w.t; S.roll = sg; S.rollD = roll.dur;
       } else if (turn) {
         const th2 = th + turn, d1 = dirv(th), d2 = dirv(th2);
         const P2: [number, number] = [P[0] + d1[0] * (h / 2 + gap) - d2[0] * prevH / 2, P[1] + d1[1] * (h / 2 + gap) - d2[1] * prevH / 2];
@@ -334,12 +339,15 @@ export function layout(inp: LayoutInput): LayoutResult {
           const upw = Math.abs(side[0] - side[1]) < gap ? rnd(i * 4.1 + 2) < 0.5 : side[0] < side[1], ext = upw ? side[0] : side[1];
           const off = (ext + gap * 2.2 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [lineStart[0] + nrm[0] * off - d[0] * back, lineStart[1] + nrm[1] * off - d[1] * back];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0; Lp.back = true;
-        } else if (k === 0 && !first && prevLine && !mode && lr >= P_BELOW && lr < P_BELOW + P_ABOVE && !Lp.vert && !prevLine.vert) {
-          // above the line before (or below), ending over its second-to-last character: the singing carries on from where
-          // it was instead of jumping back to where the line before began
-          const upw = lr < P_BELOW + P_ABOVE * 0.75, back = onward(alignBack(Lp, prevLine, P, d)); if (back === alignBack(Lp, prevLine, P, d)) align = { X: penult(prevLine, P), d };
-          let ext = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) { const v = (p[0] - lineStart[0]) * nrm[0] + (p[1] - lineStart[1]) * nrm[1]; ext = Math.max(ext, upw ? -v : v); }
-          const off = (ext + gap * 2.5 + h / 2) * (upw ? -1 : 1), s0: [number, number] = [P[0] + nrm[0] * off - d[0] * back, P[1] + nrm[1] * off - d[1] * back];
+        } else if (k === 0 && !first && prevLine && (mode === 'above' || (!mode && lr >= P_BELOW && lr < P_BELOW + P_ABOVE)) && !Lp.vert && !prevLine.vert) {
+          // above the line before, ending over its second-to-last character: the singing carries on from where it was
+          // instead of jumping back to where the line before began (below has its own branch, as likely as this one)
+          // (measured from where it is set — the pen, gone back along the line — as below is: measured from where the line
+          // before began, a line that had stepped down as it went was set on top of its own end, and rejected)
+          const back = onward(alignBack(Lp, prevLine, P, d)); if (back === alignBack(Lp, prevLine, P, d)) align = { X: penult(prevLine, P), d };
+          const ref: [number, number] = [P[0] - d[0] * back, P[1] - d[1] * back];
+          let ext = 0; for (const Q of prevLine.words) for (const p of corners(Q, padOf(Q))) ext = Math.max(ext, -((p[0] - ref[0]) * nrm[0] + (p[1] - ref[1]) * nrm[1]));
+          const off = -(ext + gap * 2.5 + h / 2), s0: [number, number] = [ref[0] + nrm[0] * off, ref[1] + nrm[1] * off];
           cc = [s0[0] + d[0] * w / 2, s0[1] + d[1] * w / 2]; P = [cc[0] + d[0] * w / 2, cc[1] + d[1] * w / 2]; lineStart = s0;
         } else if (k === 0 && !first && prevLine && (mode === 'below' || (!mode && lr < P_BELOW)) && !prevLine.vert) {
           const bk = onward(alignBack(Lp, prevLine, P, d)); if (bk === alignBack(Lp, prevLine, P, d)) align = { X: penult(prevLine, P), d }; const ref: [number, number] = [P[0] - d[0] * bk, P[1] - d[1] * bk];
@@ -388,8 +396,10 @@ export function layout(inp: LayoutInput): LayoutResult {
       else if (hits(S)) { const d = dirv(th), n = dirv(th + 90), ox = S.x, oy = S.y; let done = false;
         // (a passage gone far from where it began is nudged up, down, or back towards it — never further on)
         const sd = far && secO ? Math.sign((secO[0] - ox) * d[0] + (secO[1] - oy) * d[1]) || -1 : 1;
+        // (up or down: away from the line before, on the side it is already on — never always down)
+        const vs = prevLine && prevLine !== Lp ? Math.sign((ox - prevLine.ax) * n[0] + (oy - prevLine.ay) * n[1]) || (rnd(i * 2.1 + k) < 0.5 ? -1 : 1) : (rnd(i * 2.1 + k) < 0.5 ? -1 : 1);
         const tries = (s2: number) => far ? [[n[0] * h * 0.45 * s2, n[1] * h * 0.45 * s2], [-n[0] * h * 0.45 * s2, -n[1] * h * 0.45 * s2], [sd * d[0] * w * 0.3 * s2, sd * d[1] * w * 0.3 * s2]]
-          : [[d[0] * w * 0.3 * s2, d[1] * w * 0.3 * s2], [n[0] * h * 0.45 * s2, n[1] * h * 0.45 * s2], [(d[0] + n[0]) * w * 0.22 * s2, (d[1] + n[1]) * w * 0.22 * s2]];
+          : [[d[0] * w * 0.3 * s2, d[1] * w * 0.3 * s2], [vs * n[0] * h * 0.45 * s2, vs * n[1] * h * 0.45 * s2], [(d[0] + vs * n[0]) * w * 0.22 * s2, (d[1] + vs * n[1]) * w * 0.22 * s2]];
         for (let s2 = 1; s2 <= 12 && !done; s2++) for (const [ux, uy] of tries(s2)) {
           S.x = ox + ux; S.y = oy + uy; if (!hits(S)) { P = [P[0] + ux, P[1] + uy]; done = true; break; } }
         if (!done) { S.x = ox; S.y = oy; bad = true; clashed = true; } }
@@ -410,8 +420,11 @@ export function layout(inp: LayoutInput): LayoutResult {
       placed.push(S); prevSeg = S;
       // (a type set deeper: its lines further apart in depth, its words within a line a little more — √ of it — so a line
       // still reads as one)
-      if (k === 0) Lp.d = first ? 0 : DEP * LD * ((rnd(i * 7.9 + 2) - 0.5) * 600);
-      S.d = first ? 0 : Lp.d + DEP * Math.sqrt(LD) * ((rnd(i * 13 + k * 3.3) - 0.5) * 260 + (k % 2 ? 80 : -60));
+      // (a type set deep — round a centre — has each line come in a step nearer than the one before, so the lines sung
+      // fall back into the depth as the camera goes on, smaller; set at random depths, a line before could be far nearer
+      // than the one sung, and loomed up to twice its size past the frame's edges)
+      if (k === 0) Lp.d = first ? 0 : LD > 1 && prevLine ? prevLine.d - DEP * Math.sqrt(LD) * (60 + 70 * rnd(i * 7.9 + 2)) : DEP * LD * ((rnd(i * 7.9 + 2) - 0.5) * 600);
+      S.d = first ? 0 : Lp.d + DEP * Math.min(Math.sqrt(LD), 1.15) * ((rnd(i * 13 + k * 3.3) - 0.5) * 260 + (k % 2 ? 80 : -60));
       // (set apart by a rule: nearer than every word of its line before it — and so drawn over them)
       if (S.w.lift) S.d = Math.min(S.d, ...Lp.words.slice(0, k).map(Q => Q.d)) - S.w.lift.near;
       if (!S.vert) prevH = h;
@@ -478,14 +491,17 @@ export function layout(inp: LayoutInput): LayoutResult {
         newPassage(); onPage = pageUnits(Lp); placeLine(Lp, i, null); return; }
       orbitTry = ORBIT_TRIES; placeLine(Lp, i, null); orbitTry = null; return; }
     if (placeLine(Lp, i, null) || i === 0 || startsAt.has(i)) return;
-    // (then below the line before, then — in a passage going rightward — on to the right)
-    restore(before); if (placeLine(Lp, i, 'below')) return;
+    // (then below or above the line before — either first, as it falls — then, in a passage going rightward, on to the right)
+    const vfirst = rnd(i * 3.7 + 1.3) < 0.5 ? 'below' : 'above';
+    restore(before); if (placeLine(Lp, i, vfirst)) return;
+    restore(before); if (placeLine(Lp, i, vfirst === 'below' ? 'above' : 'below')) return;
     if (S0.flow > 0) { restore(before); if (placeLine(Lp, i, 'right')) return; }
     const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
-    // no room for a clear (or none allowed): keep going on the page — below the line before if it fits there, which
-    // stays nearest — and where it fits nowhere, a quick blur all the same if there is any moment at all for one (a
+    // no room for a clear (or none allowed): keep going on the page — below or above the line before if it fits there,
+    // which stays nearest — and where it fits nowhere, a quick blur all the same if there is any moment at all for one (a
     // blur is better than lines on top of each other), else wherever it goes, the camera making the longer move
-    if (!canClear || !roomForQuick(endA, Lp.words[0].show)) { roam = true; restore(before); let ok = placeLine(Lp, i, 'below');
+    if (!canClear || !roomForQuick(endA, Lp.words[0].show)) { roam = true; restore(before); let ok = placeLine(Lp, i, vfirst);
+      if (!ok) { restore(before); ok = placeLine(Lp, i, vfirst === 'below' ? 'above' : 'below'); }
       if (!ok) { restore(before); ok = placeLine(Lp, i, null); }
       roam = false; if (ok || !clashed || !canClear || Lp.words[0].show - endA < 0.2) return; }
     restore(before);

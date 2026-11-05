@@ -73,8 +73,9 @@ export const MOTIONS: Record<string, MotionRecipe> = {
   waltz: mo('liquid', 'waltz', 'flow', 'rise', 'drift'),
   /** 律動: quick and hard on the beat — fast songs, electronic, rock */
   groove: mo('gothic', 'punch', 'flow', 'pop', 'none'),
-  /** 特寫: close on every character — rap, spoken words, dense lyrics */
-  close: mo('cover', 'close', 'flow', 'track', 'none'),
+  /** 特寫: close on every character — rap, spoken words, dense lyrics (a quick entrance: a word this large, this close,
+   *  must be read the moment it is there) */
+  close: mo('cover', 'close', 'flow', 'track', 'none', { enter: .12 }),
   /** 漂浮: hovering, round a centre, deep — ambient, dreamy, post-rock */
   float: mo('liquid', 'hover', 'orbit', 'blur', 'spread', { depth: 1.5, float: 1 }),
   /** 舞台: held in the middle, whole lines — instrumentals, karaoke, subtitles */
@@ -172,6 +173,8 @@ export const isCustom = (s: Style) => s.preset === 'custom';
 export function styleFromStored(st: any): Style {
   if (!st || typeof st !== 'object') return presetStyle(DEFAULT_THEME);
   if (st.coverBlur === 0.55) st = { ...st, coverBlur: 0 };
+  // (the close-up's entrance as it was before 2.17, untouched: its new, quicker one)
+  if (st.motion === 'close' && st.m0 && st.m0.enter === 0.24) st = { ...st, m0: { ...st.m0, enter: 0.12 } };
   const own: any = {}; for (const k of PROJECT_KEYS) if (st[k] != null) own[k] = st[k];
   if (st.m0) return st.preset === 'custom' ? normalizeStyle({ ...st }) : { ...presetStyle(st.preset, st), ...own };
   if (PRESETS[st.preset]) return { ...presetStyle(st.preset, { ...st, k: { size: st.m && st.m.tsize != null ? st.m.tsize : 1 } }), ...own };

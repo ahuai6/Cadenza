@@ -6,7 +6,7 @@ import { mix, rgba } from '../../core/color';
 import { register } from './registry';
 import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
-import { project, NO_FX } from '../../director/project';
+import { project, NO_FX, FOCAL } from '../../director/project';
 import { basePose } from '../../director/camera';
 import { fontStack } from '../../text/fonts';
 import { graphemes, isLatin } from '../../text/script';
@@ -55,21 +55,26 @@ function glyphPane(ch: string, w: number, stack: string) {
   e = { mask, small, rim, S: S / R }; GLY.set(key, e); if (GLY.size > 24) GLY.delete(GLY.keys().next().value!); return e;
 }
 const PANE = [makeCanvas(8, 8) as HTMLCanvasElement, makeCanvas(8, 8) as HTMLCanvasElement];
-/** Where a glyph pane stands on screen: the place among a few (either side, the four corners' insides) that the words
- *  of its passage cross least while it shows — the planned camera sampled over its time, every line seen meanwhile —
- *  so it fills the empty part of the picture, held there. */
-const SPOT = new WeakMap<object, { x: number; y: number; r: number }>();
+/** Where a glyph pane stands: the place among a few (either side, the four corners' insides) that the words of its
+ *  passage cross least while it shows — the planned camera sampled over its time, every line seen meanwhile — taken
+ *  at its first moment and set there in the scene, far behind the words (so the camera's moves carry it, slower than
+ *  the words: it is in the world, not stuck on the lens). */
+const SPOT = new WeakMap<object, { X: number; Y: number; D: number; k: number; rot: number }>();
 const SPOTS = [[-0.3, 0], [0.3, 0], [-0.26, -0.2], [0.26, -0.2], [-0.26, 0.2], [0.26, 0.2]];
+/** How far behind the camera's focus the pane stands (its parallax: about 0.4 of the focus plane's). */
+const PANE_DEPTH = FOCAL * 1.5;
 function glyphSpot(sl: RenderFrame['plan']['cues']['glyphSlots'][number], f: RenderFrame) {
   let o = SPOT.get(sl); if (o) return o;
   const W = f.W, H = f.H, plan = f.plan, t1 = Math.min(sl.end, sl.t + 8), score = SPOTS.map(() => 0), rad = H * 0.42;
-  let r0 = 0;
-  for (let ts = sl.t; ts <= t1; ts += 0.5) { const b = basePose(plan.camera, ts), cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 }; if (ts === sl.t) r0 = b.r;
+  for (let ts = sl.t; ts <= t1; ts += 0.5) { const b = basePose(plan.camera, ts), cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
     for (const P of plan.lines) { if (P.sec !== sl.line.sec || P.L.t > ts + 0.5 || P.L.end < ts) continue;
       for (const S of P.words) { const p = project(S.x, S.y, S.d, cam, NO_FX, W, H), wr = Math.hypot(S.lw, S.lh) * 0.5 * p.k;
         SPOTS.forEach(([sx, sy], i) => { const d = Math.hypot(p.sx - sx * W, p.sy - sy * H); score[i] += Math.max(0, rad + wr - d); }); } } }
   let bi = sl.side ? 1 : 0; score.forEach((v, i) => { if (v < score[bi] - 1e-6) bi = i; });
-  o = { x: SPOTS[bi][0] * W, y: SPOTS[bi][1] * H, r: r0 }; SPOT.set(sl, o); return o;
+  // (the screen place, back into the world at the pane's depth, as the camera stands when it comes)
+  const b = basePose(plan.camera, sl.t), D = b.d + PANE_DEPTH, kp = FOCAL / (FOCAL + PANE_DEPTH), m = kp * b.z;
+  const qx = SPOTS[bi][0] * W, qy = SPOTS[bi][1] * H, c = Math.cos(b.r * D2R), sn = Math.sin(b.r * D2R);
+  o = { X: b.x + (qx * c - qy * sn) / m, Y: b.y + (qx * sn + qy * c) / m, D, k: m, rot: -b.r }; SPOT.set(sl, o); return o;
 }
 // (deep in the backdrop: behind its roses, its cover, its record — over a song's video when one is up)
 register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z: 0, deep: true, params: [{ key: 'contrast', label: 'p.contrast', kind: 'range', min: 0.05, max: 1, step: 0.05, def: 0.2 }, { key: 'freq', label: 'p.freq', kind: 'range', min: 0.25, max: 1.75, step: 0.05, def: 1 }],   // (freq: how often a pane comes — read by the cues, director/cues.ts)
@@ -80,20 +85,19 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z:
       if (t < sl.t - 0.2 || t > sl.end + 1.8) continue; const P = sl.line, ch = keyChar(P); if (!ch) continue;
       const fin = eSine(clamp((t - sl.t + 0.2) / 1.8)), fout = sl.cut ? 1 - sstep(clamp((t - (sl.end - TR_IN)) / TR_IN)) : 1 - eSine(clamp((t - sl.end + 0.2) / 1.8));
       const al = Math.min(1, fin * fout * (1 - ov) * f.view.effect * k0); if (al < 0.01) continue;
-      // where the words are not (a large shape filling the empty part of the picture, most of a frame high), floating
-      // there on its own, as a pane of glass adrift in water would: it travels slowly across its place over its whole
-      // time (each its own way), bobs and sways on a few slow waves that never line up, breathes, and turns a little in
-      // depth (narrowing as it turns). It is bound to nothing: not the camera (no parallax: the frame's moves, turns,
-      // shakes and cuts leave it where it is on screen), not the beat — its drift, sway and breath run on the song's own
-      // time alone
-      const tt = f.t;
-      const at = glyphSpot(sl, f), ph = P.i * 1.37, life = Math.max(2, sl.end + 1.8 - (sl.t - 0.2)), u = clamp((t - sl.t + 0.2) / life) - 0.5, da = rnd(P.i * 5.3) * 6.283;
-      const br = 1 + 0.03 * Math.sin(tt * 0.47 + ph) + 0.015 * Math.sin(tt * 0.83 + ph * 1.9), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br;
+      // where the words are not (a large shape filling the empty part of the picture, most of a frame high), far back in
+      // the scene: the camera's moves, turns and zooms carry it as they do anything that far off (less than the words).
+      // There it floats on its own, as a pane of glass adrift in water would: it travels slowly across its place over its
+      // whole time (each its own way), bobs and sways on a few slow waves that never line up, breathes, and turns a
+      // little in depth (narrowing as it turns) — on the song's own time, not the beat
+      const tt = f.t, sp = glyphSpot(sl, f), pj = project(sp.X, sp.Y, sp.D, f.cam.cam, f.cam.fx, f.W, f.H), zk = clamp(pj.k / sp.k, 0.6, 1.8);
+      const at = { x: pj.sx, y: pj.sy }, ph = P.i * 1.37, life = Math.max(2, sl.end + 1.8 - (sl.t - 0.2)), u = clamp((t - sl.t + 0.2) / life) - 0.5, da = rnd(P.i * 5.3) * 6.283;
+      const br = 1 + 0.03 * Math.sin(tt * 0.47 + ph) + 0.015 * Math.sin(tt * 0.83 + ph * 1.9), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br * zk;
       const ly = glyphPane(ch, fc.w, fc.stack); if (!ly) continue;
-      const rot = ((rnd(P.i * 2.3) - 0.5) * 12 + u * 7 * (rnd(P.i * 1.1) < 0.5 ? -1 : 1) + Math.sin(tt * 0.37 + ph) * 3.5 + Math.sin(tt * 0.71 + ph * 2.1) * 1.3) * D2R;
+      const rot = ((pj.rot - sp.rot) + (rnd(P.i * 2.3) - 0.5) * 12 + u * 7 * (rnd(P.i * 1.1) < 0.5 ? -1 : 1) + Math.sin(tt * 0.37 + ph) * 3.5 + Math.sin(tt * 0.71 + ph * 2.1) * 1.3) * D2R;
       const yaw = 1 - 0.07 * (0.5 + 0.5 * Math.sin(tt * 0.29 + ph * 1.3)), pitch = 1 - 0.035 * (0.5 + 0.5 * Math.sin(tt * 0.41 + ph * 0.7));
-      const cx = f.W / 2 + at.x + Math.cos(da) * u * 0.09 * f.W + (Math.sin(tt * 0.43 + ph) * 0.02 + Math.sin(tt * 0.79 + ph * 1.7) * 0.008) * f.W,
-        cy = f.H / 2 + at.y + Math.sin(da) * u * 0.07 * f.H + (Math.sin(tt * 0.53 + ph * 0.8) * 0.026 + Math.sin(tt * 0.97 + ph * 2.3) * 0.01) * f.H, w = size * ly.S, half = w * 0.72;
+      const cx = f.W / 2 + at.x + Math.cos(da) * u * 0.09 * f.W * zk + (Math.sin(tt * 0.43 + ph) * 0.02 + Math.sin(tt * 0.79 + ph * 1.7) * 0.008) * f.W,
+        cy = f.H / 2 + at.y + Math.sin(da) * u * 0.07 * f.H * zk + (Math.sin(tt * 0.53 + ph * 0.8) * 0.026 + Math.sin(tt * 0.97 + ph * 2.3) * 0.01) * f.H, w = size * ly.S, half = w * 0.72;
       // the picture under the pane, small, blurred, lifted, cut to the glyph
       // (worked small: a quarter of its size on screen, never over 160 px — it is blurred, so nothing is lost, and a large
       // pane up close no longer costs a large blur)

@@ -96,6 +96,10 @@ export class Engine extends Emitter<EngineEvents> {
 
   constructor(canvas: HTMLCanvasElement, opts: { audioContext: () => AudioContext }) {
     super(); this.canvas = canvas; this.g = canvas.getContext('2d')!; this.clock = new AudioClock(opts.audioContext);
+    // (the graphics card reset under the page — a driver fault, a GPU timeout: the canvas comes back empty; it is drawn
+    // again at once, and the event noted for the performance overlay)
+    canvas.addEventListener('contextlost', () => { console.warn('[gpu] canvas context lost at', this.t.toFixed(2)); this.stalls.push({ ms: 0, at: Date.now(), t: +this.t.toFixed(2), where: 'frame', glyphs: 0, uploads: -1, resized: false, replanned: false, view: 'context lost' }); });
+    canvas.addEventListener('contextrestored', () => { this.dirty = true; });
     this.handoff.toRef = r => this.toRef(r);
     this.raf = requestAnimationFrame(n => this.frame(n));
   }

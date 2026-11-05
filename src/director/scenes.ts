@@ -29,27 +29,29 @@ const DASH: SceneRule = { id: 'dash', applies: (lines, i) => dense(lines[i]) && 
 /* ---- roller ---- */
 const key = (S: PWord) => S.w.text.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
 /** How the roller turns one word: sg the roll's direction (−1 left, +1 right), run the repeated word's run, j its place in it. */
-export interface Roll { sg: number; run: number; j: number }
+export interface Roll { sg: number; run: number; j: number; /** how long its half turn takes (s) */ dur: number }
 const MAX_ROLLS = 4;
 /** How long half a turn takes at a camera pace (the pace knob's speed): the same for the scene's rule and the camera. */
 export const rollDur = (speed: number) => Math.min(1.9, Math.max(0.55, 1.05 / Math.max(0.3, speed)));
 /** The words the roller turns, in singing order: each run of the same word sung back to back (at least two characters,
- *  each within two bars of the one before, never faster than a roll can be followed), from its first word on, at most
- *  four rolls a run. Lines whose scene is a dash keep their own arrangement. */
+ *  each within two bars of the one before), from its first word on, at most four rolls a run. A repeat quicker than the
+ *  pace's half turn still rolls — a shorter, lighter roll in the time there is, down to half the pace's (never under
+ *  0.4 s, which could not be followed). Lines whose scene is a dash keep their own arrangement. */
+const ROLL_MIN = 0.4;
 export function rollsOf(lines: PLine[], scenes: (SceneId | null)[], map: RhythmMap, D: number): Map<PWord, Roll> {
   const out = new Map<PWord, Roll>(), seq = lines.flatMap((P, i) => (scenes[i] === 'dash' ? [] : P.words.map(S => ({ S, i }))));
   let run = 0;
   for (let a = 0; a < seq.length;) {
     const k0 = key(seq[a].S); let b = a + 1;
     while (b < seq.length && [...k0].length >= 2 && key(seq[b].S) === k0 && seq[b].i - seq[b - 1].i <= 1
-      && seq[b].S.w.t - seq[b - 1].S.w.t <= 2 * map.meter * map.beatLen(seq[b].S.w.t) && seq[b].S.w.t - seq[b - 1].S.w.t >= 0.3) b++;
+      && seq[b].S.w.t - seq[b - 1].S.w.t <= 2 * map.meter * map.beatLen(seq[b].S.w.t) && seq[b].S.w.t - seq[b - 1].S.w.t >= 0.25) b++;
     if (b - a >= 2) { run++; let j = 0;
       // a word rolls only when the roll fits between the word before it being sung and the word after it starting, so
       // the camera is never late for the words that follow (the word itself may ride along with the camera)
       for (let q = a; q < b && j < MAX_ROLLS; q++) { const S = seq[q].S, prev = seq[q - 1]?.S, next = seq[q + 1]?.S;
         if (!prev || (seq[q].i === 0 && S.k === 0)) continue;
-        if ((next ? next.w.t : Infinity) - Math.min(prev.end, prev.w.t + 1.2) < D) continue;
-        out.set(S, { sg: j % 2 ? 1 : -1, run, j }); j++; } }
+        const room = (next ? next.w.t : Infinity) - Math.min(prev.end, prev.w.t + 1.2); if (room < Math.max(ROLL_MIN, D * 0.5)) continue;
+        out.set(S, { sg: j % 2 ? 1 : -1, run, j, dur: Math.min(D, room) }); j++; } }
     a = b;
   }
   return out;

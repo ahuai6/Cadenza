@@ -67,7 +67,9 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   const c = plan.camera, b = basePose(c, t), M = plan.style.m, W = plan.W;
   // the frame's own motion plays through a transition's blur, a little stronger under it (see holdAt)
   const trans = transK(plan.passages, t), hold = holdAt(plan, t);
-  const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t, idleK(plan, t)), calm = 1 - clamp((t - plan.musicEnd) / 0.3), still = 1 - rs.still;
+  const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t, idleK(plan, t)), calm = 1 - sstep(clamp((t - plan.musicEnd) / 0.8)), still = 1 - rs.still;
+  // (calm: past the music's end the frame's own motion settles — over about as long as a last swing takes to die out,
+  // never cut short)
   // (the music's drive: a driving stretch without words floats less and shakes more — see driveAt)
   const drive = driveAt(plan, t), wk = centre ? 0 : wordlessK(plan, t);
   const cam: Cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };

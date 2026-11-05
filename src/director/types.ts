@@ -30,6 +30,8 @@ export interface PWord {
   entry?: { dx: number; dy: number; t0: number; t1: number } | null;
   /** the roller (scenes.ts): turned half round onto the drum's next row, the camera rolling that way (−1 left, +1 right); 0 none */
   roll?: number;
+  /** the roller: how long its half turn takes (s) — shorter, and lighter, for a word repeated quicker than the pace's own */
+  rollD?: number;
   /** draw order: fixed at plan time (back to front), never view-dependent */
   order: number;
   /** when it appears (a little before it is sung), when it is over */
@@ -73,6 +75,7 @@ export interface Stop extends Pose {
   rest: number;           // the pause after these words
   words: PWord[];
   roll?: number;          // the roller: reached by half a turn this way (−1 left, +1 right)
+  rollD?: number;         // … taking this long (s)
   /** the follow: the axis the camera travels along these words' characters, and each step [t0, t1, dx, dy, ease] */
   fax?: [number, number]; follow?: [number, number, number, number, string][];
   /** what of these words is in view on arrival, and each character as a box (for keeping what is sung in frame) */

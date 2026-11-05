@@ -27,6 +27,7 @@ export function looksRomaji(sub: string, line: string) {
 export function subLines(L: { text: string; subs: string[]; reads?: string[] }, reads = true): SubLine[] {
   const out: SubLine[] = [];
   for (const t of L.subs) { const { main, harm } = splitBrackets(t); if (main) out.push({ s: main, kind: 'sub' }); if (harm) out.push({ s: harm, kind: 'harm' }); }
-  if (reads) for (const r of L.reads || []) if (!sameAsLine(r, L.text)) out.push({ s: r, kind: 'read' });
+  // (a reading's part in brackets too: every kind of lyric line treats its brackets — full- or half-width — as a harmony)
+  if (reads) for (const r of L.reads || []) { if (sameAsLine(r, L.text)) continue; const { main, harm } = splitBrackets(r); if (main) out.push({ s: main, kind: 'read' }); if (harm) out.push({ s: harm, kind: 'harm' }); }
   return out;
 }

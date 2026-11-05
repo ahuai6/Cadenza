@@ -29,9 +29,11 @@ export class Signals {
     let s = 0;
     for (const e of this.map.eventsIn(t - 6 * tau, t)) {
       const dt = t - e.t; if (dt < 0) continue;
-      s += TIER_W[e.tier] * Math.min(1.6, e.s) * sstep(dt / 0.012) * Math.exp(-dt / tau);
+      // (each as loud as the music was where it struck: a pulse once begun dies away on its own, never cut off by the music
+      // falling quiet after it)
+      s += TIER_W[e.tier] * Math.min(1.6, e.s) * sstep(dt / 0.012) * Math.exp(-dt / tau) * this.map.sounding(e.t, idle);
     }
-    return (1 - Math.exp(-s * 1.2)) * this.map.sounding(t, idle);
+    return 1 - Math.exp(-s * 1.2);
   }
   /* The groove's hits: one on every felt beat, each as hard as the beat lands — the way a listener nods along. A beat's
      impact is how much it rises (the strongest onset on it, the low end counting most) and how loud the music is around
@@ -83,12 +85,16 @@ export class Signals {
     out.sort((x, y) => x.t - y.t);
     return (this.hits = out);
   }
-  /** The cone's displacement (about -0.3 .. 1.5) and its alternating roll partner: kicked by the groove's hits only. */
+  /** The cone's displacement (about -0.3 .. 1.5) and its alternating roll partner: kicked by the groove's hits only, each
+   *  as strong as the music sounded where it landed. */
   coneAt(t: number, idle = 0): { z: number; r: number } {
     const w = 2 * Math.PI * this.cone.hz, z0 = this.cone.zeta, H = this.grooveHits(); let z = 0, r = 0;
     let lo = 0, hi = H.length; while (lo < hi) { const m = (lo + hi) >> 1; if (H[m].t < t - 1.4) lo = m + 1; else hi = m; }
-    for (let i = lo; i < H.length && H[i].t <= t; i++) { const h = H[i], v = h.a * impulse(t - h.t, w, z0); z += v; r += v * (rnd(h.t * 13.7) < 0.5 ? -1 : 1); }
-    const k = this.map.sounding(t, idle); return { z: z * k, r: r * k };
+    // (each hit as the music sounded where it landed — its swing then plays out as a cone's would: weighing the whole
+    // swing by the loudness now cut a swing short wherever the music fell away after it, as in an ending, and the
+    // picture was yanked back mid-motion)
+    for (let i = lo; i < H.length && H[i].t <= t; i++) { const h = H[i], v = h.a * impulse(t - h.t, w, z0) * this.map.sounding(h.t, idle); z += v; r += v * (rnd(h.t * 13.7) < 0.5 ? -1 : 1); }
+    return { z, r };
   }
   sample(t: number, idle = 0): RhythmSample {
     const p = this.map.beatAt(t), c = this.coneAt(t, idle), b = this.map.build(t);

@@ -195,7 +195,10 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         else fill(e, w.t, end); });
       // the harmonies: each from its own first sound to its last (at least as long as the word it goes with)
       const hs = el.querySelectorAll<HTMLElement>('[data-h]');
-      L.words.filter(w => w.harm).forEach((w, k) => { const e = hs[k], H = w.harm!; if (!e) return; const t0 = isFinite(H.t) ? H.t : w.t, last = H.units[H.units.length - 1]?.t ?? t0;
+      L.words.filter(w => w.harm).forEach((w, k) => { const e = hs[k], H = w.harm!; if (!e) return;
+        // (a line timed only as a whole: its harmonies light with it, at once, as its words do)
+        if (!L.kar) { const on = p.t >= L.t; e.style.setProperty('--p', on ? '1' : '0'); e.style.translate = `0 ${(-LIFT * 0.6 * liftAt(p.t - L.t, Math.max(0.3, L.sung - L.t))).toFixed(2)}px`; return; }
+        const t0 = isFinite(H.t) ? H.t : w.t, last = H.units[H.units.length - 1]?.t ?? t0;
         const t1 = Math.max(t0 + 0.3, last + 0.25, w.end), q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0)));
         e.style.setProperty('--p', q.toFixed(3)); e.style.translate = `0 ${(-LIFT * 0.6 * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; });
       }

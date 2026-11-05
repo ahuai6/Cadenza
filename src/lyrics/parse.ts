@@ -94,7 +94,7 @@ export function plainWords(body: string): RawWord[] {
 
 function parseKar(body: string, shift: number): { words: RawWord[]; close: number | null } {
   const re = /<(\d+):(\d+)(?:[.:](\d+))?>([^<]*)/g; let m: RegExpExecArray | null;
-  const words: RawWord[] = []; let cur: RawWord | null = null, close: number | null = null, depth = 0, mark: number | undefined, boxNext = body.slice(0, Math.max(0, body.indexOf('<'))).includes(BOX);
+  const words: RawWord[] = []; let cur: RawWord | null = null, close: number | null = null, inHarm = false, lastHarm: { t: number; e?: number } | null = null, depth = 0, mark: number | undefined, boxNext = body.slice(0, Math.max(0, body.indexOf('<'))).includes(BOX);
   // a chorus mark written before the first stamp marks the first word
   { const lead = body.slice(0, Math.max(0, body.indexOf('<'))).trim().match(MARK); if (lead) mark = lead[1] ? +lead[1] : 2; }
   const flush = () => { if (cur && (cur.units?.length || cur.harm)) words.push(cur); cur = null; };
@@ -113,8 +113,9 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
       const u = { t: tt, c: txt, sp }, lead = /^\s/.test(c);      // (a space before the unit breaks just as one after the one before)
       if (before > 0 || opened) {
         const host = cur && cur.units?.length ? cur : words[words.length - 1] || (cur ||= { text: '', units: [] }), hu = (host.harm ||= { text: '', units: [] }).units!;
-        if (lead && hu.length) hu[hu.length - 1].sp = true; hu.push(u);
+        if (lead && hu.length) hu[hu.length - 1].sp = true; hu.push(u); inHarm = true; lastHarm = u;
       } else {
+        inHarm = false;
         if (lead && cur && cur.units?.length) { cur.gap = true; flush(); }
         if (!cur) { cur = { text: '', units: [], ...(mark ? { mark } : {}) }; mark = undefined; }
         cur.units!.push(u); cur.text += txt; if (boxNext) { cur.box = true; boxNext = false; }
@@ -124,6 +125,8 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
     } else {
       // a stamp with nothing to sing after it (or only a space, as in `stop <00:21.180> <00:22.260>feeling`): where the
       // unit before it stops — it is sustained until then, and the time to the next one is a breath, not a word
+      // (after a harmony: where the harmony stops — the line's own voice ended before it, and is not held for it)
+      if (inHarm) { if (lastHarm && tt > lastHarm.t) lastHarm.e = tt; if (cur && /\s/.test(c)) flush(); continue; }
       const prev = cur && cur.units?.length ? cur.units : words[words.length - 1]?.units; if (prev?.length) { const u = prev[prev.length - 1]; if (tt > u.t) u.e = tt; }
       if (cur && /\s/.test(c)) flush(); close = tt; }
   }

@@ -19,6 +19,8 @@ describe('sub-lines', () => {
     const L = { text: 'hello world', reads: ['Hello world', 'helo'], subs: ['你好世界（世界）'] };
     expect(subLines(L)).toEqual([{ s: '你好世界', kind: 'sub' }, { s: '世界', kind: 'harm' }, { s: 'helo', kind: 'read' }]);
     expect(subLines(L, false)).toEqual([{ s: '你好世界', kind: 'sub' }, { s: '世界', kind: 'harm' }]);
+    // (a reading's brackets as well)
+    expect(subLines({ text: '夜空 (星)', reads: ['yozora (hoshi)'], subs: [] })).toEqual([{ s: 'yozora', kind: 'read' }, { s: 'hoshi', kind: 'harm' }]);
   });
   it('tells romaji from a translation (kana lines only)', () => {
     expect(looksRomaji('yozora no hoshi ga kirakira', '夜空の星がきらきら')).toBe(true);

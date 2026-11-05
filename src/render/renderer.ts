@@ -18,6 +18,7 @@ import { makeCanvas } from './palette';
 import { cameraAt } from '../director/evaluate';
 import type { Signals } from '../rhythm/signals';
 import { gfx, LITE_OFF } from './gfx';
+import { glyphFrame } from './glyphs';
 
 const byZ = (a: Effect, b: Effect) => (a.z ?? 0) - (b.z ?? 0);
 const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
@@ -32,6 +33,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const st = f.style, M = st.m, W = f.W, H = f.H, view = f.view.effect, cf = f.cam, PR = PROFILE.on ? PROFILE.ms : null; let tp = PR ? now() : 0;
   const mark = (k: keyof typeof PROFILE.ms) => { if (PR) { const t = now(); PR[k] += t - tp; tp = t; } };
   if (PR) for (const k in PR) PR[k as keyof typeof PR] = 0;
+  glyphFrame();   // (this frame's budget for new large glyph bitmaps: glyphs.ts)
   g.setTransform(f.px, 0, 0, f.px, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.filter = 'none';
   // the camera's speed on screen (for the motion trail and the backdrop's slight lean-in when moving fast)
   const prev = cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam, cam = cf.cam;
