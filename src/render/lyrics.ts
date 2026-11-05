@@ -14,7 +14,8 @@ import { EM } from '../text/metrics';
 import { blurGlyph, drawFocus, focusW, sharpGlyph, strokeGlyph, type InkGrad } from './glyphs';
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
-import { gfx } from './gfx';
+import { gfx, gpuLyrics } from './gfx';
+import { GpuLyrics } from './gpu';
 
 /** Culling can be switched off to prove it never removes anything visible (render tests). */
 let CULL = true; export const setCulling = (on: boolean) => { CULL = on; };
@@ -123,6 +124,19 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
     if (S.harm && !trail) drawHarmony(g, S, f.t, A, fc, inkC, shadowC, c.future);
   }
   g.restore();
+}
+/** The lyric layer: the passes given (a motion trail, then the words), on the GPU when it can (render/gpu.ts: the same
+ *  pass recorded and drawn as textured quads, set into the frame in one copy), else straight onto the frame.
+ *  dry: only make (and upload) what these words will need — a look ahead, nothing drawn. */
+let GPU: GpuLyrics | null | undefined;
+export const GPU_STATS = { on: false, quads: 0, uploads: 0, draws: 0 };
+export function paintLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], passes: Parameters<typeof drawLyrics>[3][], dry = false) {
+  const L = gpuLyrics() ? (GPU === undefined ? (GPU = GpuLyrics.create()) : GPU) : null;
+  if (!L || !L.alive()) { GPU_STATS.on = false; for (const o of passes) drawLyrics(g, f, vis, o); return; }   // (dry too: drawn on a scratch, for its bitmaps)
+  const cv = g.canvas as { width: number; height: number };
+  L.begin(cv.width, cv.height, dry);
+  try { for (const o of passes) drawLyrics(L.ctx, f, vis, o); } finally { const img = L.end(); if (!dry) { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.drawImage(img, 0, 0, L.w, L.h, 0, 0, L.w, L.h); g.restore(); } }
+  Object.assign(GPU_STATS, { on: true }, L.stats);
 }
 const HARM = 0.52;   // a harmony's size against its word
 /** A harmony: small, at the word's lower right (the word upper left, the harmony lower right, sung together), in the

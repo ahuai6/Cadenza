@@ -197,6 +197,14 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
       const t0 = performance.now(); c.api.editSong(x => x.applyMotion(was === 'waltz' ? 'groove' : 'waltz')); await s.flush(); const ms = performance.now() - t0;
       const replanGap = gap; c.api.editSong(x => x.applyMotion(was)); await s.flush(); on = false;
       return { worker: c.planStats.worker - st0.worker, here: c.planStats.here - st0.here, miss: c.planStats.miss, workerMs: Math.round(c.planStats.ms), totalMs: Math.round(ms), baseGap: Math.round(baseGap), replanGap: Math.round(replanGap), replans: s.version - v0 }; });
+  // the performance overlay (settings) over the effect lyrics: frame rate, the time per layer, the GPU lyric layer
+  { await C(() => window.__cadenza.setSettings({ perfHud: true })); await W(1500);
+    const r = await C(() => { const c = window.__cadenza, P = c.engine.perf, el = document.querySelector('[data-test=perf-hud]');
+      return { shown: !!el, text: el ? el.textContent.slice(0, 60) : '', fps: Math.round(P.fps), layers: Object.keys(P.layers).length, gpu: c.gpuStats.on, quads: c.gpuStats.quads, webgl2: !!document.createElement('canvas').getContext('webgl2') }; });
+    await shot('fx-perf'); await C(() => window.__cadenza.setSettings({ perfHud: false })); await W(300);
+    const gone = await C(() => !document.querySelector('[data-test=perf-hud]'));
+    // (no WebGL2 here — Electron without a graphics card — the lyric layer is drawn as before, and says so)
+    ok('performance overlay: shows the frame rate and each layer\'s time; the lyric layer on the GPU where WebGL2 is (else as before)', r.shown && r.fps > 0 && r.layers === 5 && (r.webgl2 ? r.gpu && r.quads > 0 : !r.gpu) && gone, JSON.stringify(r)); }
     ok('planning: a replan runs in the planning worker, from the measured widths, and the frames go on meanwhile', r.worker >= 1 && r.here === 0 && r.miss === 0 && r.replans >= 2 && r.replanGap <= r.baseGap * 1.3 + 120, JSON.stringify(r)); }
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click(); await W(300); await shot('fx-panel-lyrics');
   const ime = {};

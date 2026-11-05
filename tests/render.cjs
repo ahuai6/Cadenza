@@ -32,6 +32,23 @@ const CHECKS = {
       H.setCulling(true); out.push(worst); } return out; });
     ok('cull: never removes a visible word (pixels identical with it off)', r.every(x => x === 0), JSON.stringify(r));
   },
+  // the lyric layer on the GPU (render/gpu.ts) draws what the 2D canvas does: the same frames with it on and off, compared
+  // pixel by pixel — the sharp glyphs come from bitmaps there (a hair softer at a size between two of their steps), so
+  // a few edge pixels may differ a little, nothing more
+  async gpu(p) {
+    const r = await p.evaluate(async () => { const out = []; for (const th of ['liquid', 'gothic', 'cover', 'c:punch:stage', 'c:waltz:geo']) {
+      const s = th.startsWith('c:') ? { theme: 'liquid', cut: th.split(':')[1], bg: th.split(':')[2] } : { theme: th }, ses = await H.open({ ...s, coverUrl: 'cover.jpg' });
+      const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720; const g = cv.getContext('2d', { willReadFrequently: true });
+      let worst = 0, mean = 0, n = 0, on = false, quads = 0, msOn = 0, msOff = 0;
+      for (const t of [1.2, 3.1, 6.4, 9.8, 14.2, 18.5, 22.7]) { const f = H.engine.frameAt(t, { px: 1 });
+        const draw = gpu => { H.setGpuLyrics(gpu); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, 1280, 720); const a = performance.now(); H.drawFrame(g, { ...f, vis: undefined }, { sig: ses.sig }); const d = g.getImageData(0, 0, 1280, 720).data; return [d, performance.now() - a]; };
+        draw(true); draw(false);                                                  // (each path's bitmaps made once)
+        const [a, ta] = draw(false), [b, tb] = draw(true); on = on || H.lyrics.GPU_STATS.on; quads = Math.max(quads, H.lyrics.GPU_STATS.quads); msOff += ta; msOn += tb;
+        let big = 0, sum = 0; for (let i = 0; i < a.length; i += 4) { const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]); sum += d; if (d > 60) big++; }
+        worst = Math.max(worst, big / (a.length / 4)); mean += sum / (a.length / 4) / 3; n++; }
+      H.setGpuLyrics(true); out.push({ th, on, quads, worst: +(worst * 100).toFixed(3), mean: +(mean / n).toFixed(3), msOn: Math.round(msOn / n), msOff: Math.round(msOff / n) }); } return out; });
+    for (const x of r) ok(`gpu: the lyric layer on the GPU draws what the canvas does (${x.th})`, x.on && x.quads > 0 && x.worst < 0.5 && x.mean < 0.6, JSON.stringify(x));
+  },
   async perf(p) {
     const r = await p.evaluate(async () => { const out = {}; for (const th of ['liquid', 'gothic', 'cover']) { const ses = await H.open({ theme: th, coverUrl: 'cover.jpg' });
       const f0 = H.engine.frameAt(1); const cv = document.createElement('canvas'); cv.width = 1280; cv.height = 720; const g = cv.getContext('2d'); const ts = [];

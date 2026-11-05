@@ -80,13 +80,17 @@ export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as Ima
    itself made once at a size on a 1/8-octave ladder (sharp at that size, scaled by at most 4 % to the size asked),
    which costs a texture copy instead. */
 const LARGE = 150;
+/** Every sharp glyph from a bitmap, whatever its size: set while the lyric pass draws for the GPU (render/gpu.ts),
+ *  which draws images only. */
+let ALL_BITMAP = false;
+export const setAllBitmap = (on: boolean) => { ALL_BITMAP = on; };
 type Paint = string | InkGrad | { stroke: string; w: number };
 const paintKey = (f: Paint) => (typeof f === 'string' ? f : Array.isArray(f) ? f.join('>') : 'K' + f.stroke + '/' + f.w);
 /** The ladder of sizes a sharp bitmap is made at: an eighth of an octave up to 400 px, a quarter above (a close-up's
  *  glyphs change size all the time — its breathing, the entrances — and each new step was a new bitmap, made in the
  *  frame that first needed it), always the step at or above the size asked (drawn a little smaller: never soft). */
-const ladder = (G: number) => { const st = G > 400 ? 4 : 8; return Math.min(1200, Math.round(2 ** (Math.ceil(Math.log2(G) * st - 1e-6) / st))); };
-function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
+const ladder = (G: number) => { const st = G > 400 || (ALL_BITMAP && G < LARGE) ? 4 : 8; return Math.max(8, Math.min(1200, Math.round(2 ** (Math.ceil(Math.log2(Math.max(1, G)) * st - 1e-6) / st)))); };
+export function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
   const S = ladder(G), key = 'S|' + font + '|' + paintKey(fill) + '|' + S + '|' + txt;
   let e = CACHE.get(key); if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
   STATS.miss++; STATS.keys?.push('sharp|' + S + '|' + txt);
@@ -117,7 +121,7 @@ export function strokeGlyph(g: Ctx, txt: string, G: number, w: number, x = 0, y 
 /** Draw `txt` sharp at em size G device px, at (x, y) in the context's EM units: from the text below LARGE, from its
  *  bitmap above. fill: a colour, or the lit gradient (null: the context's fill colour). */
 export function sharpGlyph(g: Ctx, txt: string, G: number, fill?: InkGrad | null, x = 0, y = 0) {
-  if (G < LARGE) { if (fill) { const c = g.fillStyle, gr = g.createLinearGradient(x, y - EM * 0.55, x, y + EM * 0.6); gr.addColorStop(0, fill[0]); gr.addColorStop(0.55, fill[1]); gr.addColorStop(1, fill[2]); g.fillStyle = gr; g.fillText(txt, x, y); g.fillStyle = c; } else g.fillText(txt, x, y); return; }
+  if (G < LARGE && !ALL_BITMAP) { if (fill) { const c = g.fillStyle, gr = g.createLinearGradient(x, y - EM * 0.55, x, y + EM * 0.6); gr.addColorStop(0, fill[0]); gr.addColorStop(0.55, fill[1]); gr.addColorStop(1, fill[2]); g.fillStyle = gr; g.fillText(txt, x, y); g.fillStyle = c; } else g.fillText(txt, x, y); return; }
   const e = sharpBm(g.font, txt, G, fill || (g.fillStyle as string));
   g.drawImage(e.bm, 0, 0, e.w, e.h, x - e.w / 2 * e.s, y - e.h / 2 * e.s, e.w * e.s, e.h * e.s);
 }
@@ -125,7 +129,7 @@ export function sharpGlyph(g: Ctx, txt: string, G: number, fill?: InkGrad | null
 /** (the hand-over spans from the finest level's own blur — a close-up glyph's finest level is softer than 1.6 px)  */
 export const focusW = (bpx: number, G = 0) => { const top = Math.max(1.6, B0 * G / TOP * 1.15); return bpx > 0.4 ? clamp((top - bpx) / (top - 0.4)) : 1; };
 export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number, sharp?: CanvasGradient | null, grad?: InkGrad | null) {
-  const w = focusW(bpx, G), sharpFill = () => { if (G >= LARGE) { sharpGlyph(g, ch, G, grad); return; } if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
+  const w = focusW(bpx, G), sharpFill = () => { if (G >= LARGE || ALL_BITMAP) { sharpGlyph(g, ch, G, grad); return; } if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
   if (w >= 1) { g.globalAlpha = A; sharpFill(); return; }
   if (w <= 0) { g.globalAlpha = A; blurGlyph(g, ch, bpx, G, grad); return; }
   const sA = A * w, bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));

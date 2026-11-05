@@ -19,9 +19,11 @@ import { askMv, askMvOffset } from './Modals';
 import { MvLook } from './Settings';
 import { setSettings } from '../actions/settings';
 import s from './Effect.module.css';
+import { PerfHud } from './PerfHud';
 
 const IDLE_MS = 2600;
 export function EffectView() {
+  const hud = useStore(settings, x => !!x.perfHud);
   const layer = useStore(ui, x => x.layer), full = useStore(ui, x => x.win.full), queue = useStore(ui, x => x.queue), modal = useStore(ui, x => !!x.modal);
   const shownId = useStore(player, x => x.shownId), session = useStore(player, x => x.session), hasLyrics = useStore(player, x => x.hasLyrics);
   const t = trackOf(shownId), root = useRef<HTMLDivElement>(null);
@@ -44,6 +46,7 @@ export function EffectView() {
   return (
     <div data-test="fx" className={s.fx + ' on-picture'} ref={root} data-on={on} data-bar={bar} data-cursor={cursor} aria-hidden={!on} inert={!on}
       onPointerMove={e => setNear(e.clientY > innerHeight - 130)}>
+      {hud && on && <PerfHud />}
       <div className={s.edge} onPointerEnter={() => setPanel(true)} />
       {list && hasLyrics && session && <div className={s.list + ' glass'} role="dialog" aria-label={tx('s.lyricList')}><NpLyrics lines={session.doc.lines} live compact /></div>}
       <div data-test="fx-bar" className={s.bottom + ' glass'}>

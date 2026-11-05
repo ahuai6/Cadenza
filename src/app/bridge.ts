@@ -34,6 +34,8 @@ export interface Settings {
   rhythmStream?: 'stream' | 'full';
   /** the picture-quality mode (render/gfx.ts): as designed, optimised (cheap stand-ins for blurs and glass), or lite */
   gfx?: 'default' | 'optimized' | 'lite';
+  /** the lyric layer drawn on the GPU (default on) */ gpuLyrics?: boolean;
+  /** the performance overlay over the effect lyrics */ perfHud?: boolean;
 }
 type Off = () => void;
 export interface DesktopApi {

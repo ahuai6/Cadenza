@@ -67,6 +67,8 @@ export function SettingsView() {
         <Field label={tx('s.set.scale')}><Seg size="sm" fit value={String(st.scale)} onChange={v => set({ scale: v === 'auto' ? 'auto' : +v })} options={SCALES.map(v => [String(v), v === 'auto' ? tx('s.set.scale.auto') : tx('s.set.scale.p', { n: Math.round(v * 100) })])} /></Field>
         <Field label={tx('s.set.fps')}><Seg size="sm" fit value={+st.fps} onChange={v => set({ fps: v })} options={FPS.map(v => [v, v ? `${v} fps` : tx('s.set.fps.none')])} /></Field>
         <Toggle label={tx('s.set.prerender')} help={tx('s.set.prerenderHelp')} on={st.prerender !== false} set={v => set({ prerender: v })} />
+        <Toggle label={tx('s.set.gpuLyrics')} help={tx('s.set.gpuLyricsHelp')} on={st.gpuLyrics !== false} set={v => set({ gpuLyrics: v })} />
+        <Toggle label={tx('s.set.perfHud')} help={tx('s.set.perfHudHelp')} on={!!st.perfHud} set={v => set({ perfHud: v })} />
       </Group>
       <DataGroup />
       <Group title={tx('s.set.about')}><Note>{tx('s.set.aboutText', { v: st.version || '' })}</Note></Group>

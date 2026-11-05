@@ -20,6 +20,11 @@ export function setGfx(m: GfxMode) { LIVE = MODE = m === 'optimized' || m === 'l
 /** Draw in another mode for just this (synchronous) call — an export's frames, while the live picture keeps its own:
  *  nothing else can draw in between, and the setting is not touched, so a change of it meanwhile is not undone. */
 export function withGfx<T>(m: GfxMode, draw: () => T): T { MODE = m; try { return draw(); } finally { MODE = LIVE; } }
+/** The lyric layer on the GPU (render/gpu.ts) where WebGL2 is there: the setting (on unless turned off). Exports draw
+ *  the same way as the live picture, so a preview and its export match. */
+let GPU = true;
+export const gpuLyrics = () => GPU;
+export function setGpuLyrics(on: boolean) { GPU = !!on; }
 /** Effects the lite mode leaves out (each reads the whole frame again, or blurs, every frame it shows). */
 export const LITE_OFF = new Set(['glyph', 'glass-shards', 'chroma', 'glitch']);
 

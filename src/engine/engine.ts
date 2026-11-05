@@ -8,7 +8,8 @@
 import { clamp, sstep } from '../core/math';
 import { Emitter } from '../core/emitter';
 import { cameraAt } from '../director/evaluate';
-import { drawFrame } from '../render/renderer';
+import { drawFrame, PROFILE } from '../render/renderer';
+import { setGpuLyrics } from '../render/gfx';
 import { MV_LOOK, type RenderFrame, type MvLook } from '../render/frame';
 import { makeCanvas } from '../render/palette';
 import type { RhythmSample } from '../rhythm/signals';
@@ -26,7 +27,12 @@ export type View = 'hidden' | 'ambient' | 'effect';
 export type AspectBox = 'fill' | number | { cover: number };
 export interface Tick { t: number; dur: number; musicEnd: number; playing: boolean; rs: RhythmSample | null; session: Session | null }
 export interface EngineEvents extends Record<string, unknown> { tick: Tick; change: void; musicend: Session; ended: Session; session: Session | null; frame: number }
-export interface RenderSettings { scale: 'auto' | number; fps: number; prerender: boolean }
+export interface RenderSettings { scale: 'auto' | number; fps: number; prerender: boolean;
+  /** the lyric layer on the GPU where it can be (render/gpu.ts) */ gpu?: boolean;
+  /** measure where each frame's time goes (Engine.perf: the settings' performance overlay) */ stats?: boolean }
+/** The live picture's own measures, while asked for (RenderSettings.stats): frames a second, the page's time per frame
+ *  and per layer, smoothed; what the GPU lyric layer drew; the last plan. */
+export interface PerfStats { fps: number; frameMs: number; drawMs: number; layers: Record<string, number>; w: number; h: number }
 
 const CARRY = 3.2;          // seconds the song before stays on in album play
 const SWAP_FADE = 0.9;      // seconds a newer rhythm's picture takes over from the one before (with no blur to hide it)
@@ -40,7 +46,8 @@ export class Engine extends Emitter<EngineEvents> {
   readonly video = new VideoSource(); readonly mv = new MvSource();
   readonly handoff = new Handoff();
   view: View = 'hidden'; loop = false; volume = 1; muted = false;
-  render: RenderSettings = { scale: 'auto', fps: 0, prerender: true };
+  render: RenderSettings = { scale: 'auto', fps: 0, prerender: true, gpu: true, stats: false };
+  readonly perf: PerfStats = { fps: 0, frameMs: 0, drawMs: 0, layers: {}, w: 0, h: 0 }; private lastFrameAt = 0;
   labels: Record<string, string> = {};
   /** how the song's own video (MV mode) is graded and framed (an app setting) */
   mvLook: MvLook = { ...MV_LOOK };
@@ -90,7 +97,8 @@ export class Engine extends Emitter<EngineEvents> {
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
   private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.redrawNow(); } }
-  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
+  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); PROFILE.on = !!this.render.stats;
+    if (o.stats) Object.assign(this.perf, { fps: 0, frameMs: 0, drawMs: 0, layers: {} }), this.lastFrameAt = 0; if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
   /** A window rect (CSS px) in the picture's reference px. */
   toRef(r: WinRect) { const c = this.canvas.getBoundingClientRect(), s = this.session, H = s ? s.plan.H : 720, k = H / Math.max(1, c.height);
     return { x: (r.left - c.left) * k, y: (r.top - c.top) * k, w: r.width * k, h: r.height * k }; }
@@ -218,7 +226,12 @@ export class Engine extends Emitter<EngineEvents> {
     const N = !this.playing ? ssFactor(s.style.aa, cw, ch) : 1, target = N > 1 ? this.ssCanvas(cw * N, ch * N) : null, tg = target ? target.getContext('2d')! : g;
     tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalAlpha = 1; tg.globalCompositeOperation = 'source-over';
     f.px = ch * N / s.plan.H;
+    const t0 = this.render.stats ? performance.now() : 0;
     drawFrame(tg, f, { sig: s.sig, captions: true, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
+    if (this.render.stats) { const P = this.perf, now = performance.now(), k = 0.1, dt = this.lastFrameAt ? now - this.lastFrameAt : 0; this.lastFrameAt = now;
+      // (smoothed; each starts at its first reading)
+      P.drawMs = P.drawMs ? P.drawMs + (now - t0 - P.drawMs) * k : now - t0; if (dt > 0 && dt < 1000) { P.frameMs = P.frameMs ? P.frameMs + (dt - P.frameMs) * k : dt; P.fps = 1000 / Math.max(1, P.frameMs); }
+      for (const [n, v] of Object.entries(PROFILE.ms)) P.layers[n] = (P.layers[n] ?? v) + (v - (P.layers[n] ?? v)) * k; P.w = cw; P.h = ch; }
     if (target) ssDown(target, this.canvas, N);
     if (this.carry) { const el = (performance.now() - this.carry.at) / 1000; if (el >= CARRY || this.carry.s.needsFlush) this.carry = null; else this.drawCarry(this.carry, el); }
     // (a newer rhythm put in place without a blur to hide it: the picture as it was fades out over the new one)
@@ -255,8 +268,8 @@ export class Engine extends Emitter<EngineEvents> {
       const cg = this.carryCv.getContext('2d')!; cg.setTransform(1, 0, 0, 1, 0, 0); cg.globalAlpha = 1; cg.clearRect(0, 0, cw, ch); drawFrame(cg, f, { sig: c.s.sig });
       g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = (1 - u) ** 1.3; g.drawImage(this.carryCv, 0, 0); g.restore(); }
     const L = 1 - sstep(clamp((el - 0.6) / (CARRY - 0.6))), k = L * (1 - (1 - u) ** 1.3); if (k < 0.01) return;
-    const { visibleWords, drawLyrics } = require_lyrics(); f.view = { effect: k }; f.vis = visibleWords(f, false);
-    drawLyrics(g, f, f.vis, { ink: f.pal.text, split: 0 });
+    const { visibleWords, paintLyrics } = require_lyrics(); f.view = { effect: k }; f.vis = visibleWords(f, false);
+    paintLyrics(g, f, f.vis, [{ ink: f.pal.text, split: 0 }]);
   }
   private ss: HTMLCanvasElement | null = null;
   private ssCanvas(w: number, h: number) { if (!this.ss) this.ss = makeCanvas(w, h) as HTMLCanvasElement; if (this.ss.width !== w || this.ss.height !== h) { this.ss.width = w; this.ss.height = h; } return this.ss; }
@@ -318,7 +331,7 @@ export class Engine extends Emitter<EngineEvents> {
   private lookAhead(s: Session, t: number) {
     if (t >= s.dur) return; if (!this.warm) this.warm = (makeCanvas(2, 2) as HTMLCanvasElement).getContext('2d')!;
     const f = this.frameAt(t); if (!f) return; f.px = this.canvas.height / s.plan.H;
-    const { visibleWords, drawLyrics } = require_lyrics(); f.vis = visibleWords(f, !!f.plan.titles.end); this.warm.setTransform(f.px, 0, 0, f.px, 0, 0); drawLyrics(this.warm, f, f.vis, { ink: f.pal.text, split: 0 });
+    const { visibleWords, paintLyrics } = require_lyrics(); f.vis = visibleWords(f, !!f.plan.titles.end); this.warm.setTransform(f.px, 0, 0, f.px, 0, 0); paintLyrics(this.warm, f, f.vis, [{ ink: f.pal.text, split: 0 }], true);
   }
 }
 import * as handoffMod from './handoff';

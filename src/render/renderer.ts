@@ -11,7 +11,7 @@ import { rgba } from '../core/color';
 import { effects, effect, paramsFor, type Ctx, type BackdropView, type Effect } from './effects/registry';
 import './effects/ambient'; import './effects/cover'; import './effects/backdrops'; import './effects/particles'; import './effects/floor'; import './effects/rings'; import './effects/glass'; import './effects/glyph'; import './effects/frames'; import './effects/wordring'; import './effects/stars'; import './effects/screen'; import './effects/vinyl'; import './effects/strike';
 import type { RenderFrame } from './frame';
-import { visibleWords, drawLyrics } from './lyrics';
+import { visibleWords, paintLyrics } from './lyrics';
 import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';
 import { curtainAt, curtainWords, drawCurtain, drawCurtainGround } from './curtain';
 import { makeCanvas } from './palette';
@@ -22,10 +22,16 @@ import { gfx, LITE_OFF } from './gfx';
 const byZ = (a: Effect, b: Effect) => (a.z ?? 0) - (b.z ?? 0);
 const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
 
+/** Where a frame's time goes, layer by layer (the page's own time: what the canvas or the GPU does after is seen in the
+ *  frame rate). Collected only while on (the settings' performance overlay). */
+export const PROFILE = { on: false, ms: { backdrop: 0, world: 0, lyrics: 0, post: 0, screen: 0 } };
+const now = () => performance.now();
 export interface DrawOptions { captions?: boolean; captionBottom?: number; overlay?: (g: Ctx, f: RenderFrame) => void; /** drawn on the backdrop, under the words */ under?: (g: Ctx, f: RenderFrame) => void; sig: Signals }
 
 export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
-  const st = f.style, M = st.m, W = f.W, H = f.H, view = f.view.effect, cf = f.cam;
+  const st = f.style, M = st.m, W = f.W, H = f.H, view = f.view.effect, cf = f.cam, PR = PROFILE.on ? PROFILE.ms : null; let tp = PR ? now() : 0;
+  const mark = (k: keyof typeof PROFILE.ms) => { if (PR) { const t = now(); PR[k] += t - tp; tp = t; } };
+  if (PR) for (const k in PR) PR[k as keyof typeof PR] = 0;
   g.setTransform(f.px, 0, 0, f.px, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.filter = 'none';
   // the camera's speed on screen (for the motion trail and the backdrop's slight lean-in when moving fast)
   const prev = cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam, cam = cf.cam;
@@ -71,7 +77,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // leaving as the scene takes over — so nothing that crosses from the page into the picture changes brightness
   if (view < 0.999 && !f.offline) { const k = 1 - sstep(view); if (k > 0.003) { const R = Math.hypot(W * 1.2, H * 0.9) * 0.5, sh = g.createRadialGradient(W * 0.3, H * 0.55, 0, W * 0.3, H * 0.55, R);
     sh.addColorStop(0, 'rgba(8,6,14,0.12)'); sh.addColorStop(1, 'rgba(8,6,14,0.46)'); g.save(); g.globalAlpha = k; g.fillStyle = sh; g.fillRect(0, 0, W, H); g.restore(); } }
-  o.under?.(g, f); g.setTransform(f.px, 0, 0, f.px, 0, 0);
+  o.under?.(g, f); g.setTransform(f.px, 0, 0, f.px, 0, 0); mark('backdrop');
   /* ---- flashes ---- */
   const bl = f.plan.map.beatLen(f.t), tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)), calm = cf.calm;
   let flash = 0; { const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));
@@ -92,15 +98,17 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   if (cu) { drawCurtainGround(g, f, cu); const wk = curtainWords(cu); if (wk < 1) for (const v of f.vis) v.o *= wk; }
   const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen', fr: RenderFrame = f) => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id))).sort(byZ)) e.draw(g, fr, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
   if (view > 0.001) {
-    world('world-back');
+    mark('backdrop'); world('world-back'); mark('world');
     // (the afterimage: the effect's strength — 0.4 at 1, the liquid look's — times the older knob's, kept for styles that tuned it)
     const afterK = st.fx.afterimage ? 0.4 * +(st.fxp?.afterimage?.amount ?? 1) * (st.k.split ?? 1) : 0;
     const split = (cf.split * 10 + f.rs.pulse * 1.5 * f.I) * f.motion * afterK;
     const tk = clamp((mb - 0.3) / 2.5);
+    const passes: Parameters<typeof paintLyrics>[3] = [];
     if (tk > 0.02) { const len = mb * 1.6, d = Math.hypot(vx, vy) || 1, c = Math.cos(-cam.r * D2R), s = Math.sin(-cam.r * D2R), mdx = (vx * c - vy * s) / d, mdy = (vx * s + vy * c) / d;
-      drawLyrics(g, f, f.vis, { ink: f.ink, split, trail: { k: 0.22 * tk, dx: mdx * len * 0.7, dy: mdy * len * 0.7 } }); }
-    drawLyrics(g, f, f.vis, { ink: f.ink, split });
-    world('world-front'); world('foreground');
+      passes.push({ ink: f.ink, split, trail: { k: 0.22 * tk, dx: mdx * len * 0.7, dy: mdy * len * 0.7 } }); }
+    passes.push({ ink: f.ink, split });
+    paintLyrics(g, f, f.vis, passes); mark('lyrics');
+    world('world-front'); world('foreground'); mark('world');
   }
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   if (inv) { g.save(); g.globalCompositeOperation = 'difference'; g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H); g.restore(); }
@@ -116,7 +124,8 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // the screen's own effects (grain, scan lines, vignette, colour split…) last: they are the display's, over everything
   // in the picture, the curtain too — and they go with the picture at the end (they fade as the effect view does, so
   // once the song has faded to its ground no grain or vignette is left over it)
-  g.setTransform(f.px, 0, 0, f.px, 0, 0); if (view * (1 - fo) > 0.001) world('screen', fo > 0 ? { ...f, view: { effect: view * (1 - fo) } } : f);
+  mark('post'); g.setTransform(f.px, 0, 0, f.px, 0, 0); if (view * (1 - fo) > 0.001) world('screen', fo > 0 ? { ...f, view: { effect: view * (1 - fo) } } : f);
+  mark('screen');
   o.overlay?.(g, f);
 }
 /** Effects that belong to a backdrop and follow it rather than a switch (they check the backdrop themselves). */
