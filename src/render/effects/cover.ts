@@ -78,7 +78,7 @@ export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S
   // the cover blur is a focus pull on the whole cover — sleeve, record, rim, shadow, glow — as a lens would blur it: the
   // group is drawn on a canvas just its size, blurred there (a filter costs as much as the canvas it works on), and set in
   const bl = clamp(f.style.coverBlur ?? 0);
-  if (bl < 0.01) { coverGroup(g, f, x, y, S, vinyl, alpha, o); return; }
+  if (bl < 0.01) { const edge = f.style.coverEdge || 'album'; if ((edge === 'album' && vinyl <= 0.001) || edge === 'float') sleeveSprite(g, f, x, y, S, alpha, o); else coverGroup(g, f, x, y, S, vinyl, alpha, o); return; }
   const mt = g.getTransform(), q = Math.min(2.5, Math.hypot(mt.a, mt.b)), edge = f.style.coverEdge || 'album';
   const pl = edge === 'blend' ? S * 0.55 : S * 0.2, pr = edge === 'album' ? S * 0.62 : pl, pv = edge === 'blend' ? S * 0.55 : S * 0.25;
   const bw = S + pl + pr, bh = S + pv * 2, W = Math.min(2048, Math.ceil(bw * q)), H = Math.min(2048, Math.ceil(bh * q)), k = W / bw;
@@ -87,6 +87,21 @@ export function drawCoverSubject(g: Ctx, f: RenderFrame, x: number, y: number, S
   b.setTransform(1, 0, 0, 1, 0, 0); b.clearRect(0, 0, W, H); const rb = bl * S * k * 0.035, md = gfx();
   if (md === 'default') { b.filter = `blur(${rb.toFixed(2)}px)`; b.drawImage(A, 0, 0); b.filter = 'none'; } else if (md === 'optimized') cheapBlurDraw(b, A, W, H, rb, 0, 0, W, H); else b.drawImage(A, 0, 0);
   g.save(); g.globalAlpha *= alpha; g.drawImage(B, 0, 0, W, H, x - pl, y - pv, bw, bh); g.restore();
+}
+/* The sleeve as it rests — the cover, its soft shadow, its sheen and rim — made once into a picture of its own and drawn
+   from it: the shadow is a wide blur, and made anew every frame it was one of the costliest parts of the picture. It is
+   made again only when what it shows changes (the cover, its finish, the colours) or its size on screen does by more
+   than a step (an eighth of an octave: the beat's breathing is a few per cent, drawn from the same picture). */
+let SLEEVE: { key: string; cv: HTMLCanvasElement; m: number } | null = null;
+function sleeveSprite(g: Ctx, f: RenderFrame, x: number, y: number, S: number, alpha: number, o: { finish?: number; shadow?: boolean }) {
+  const mt = g.getTransform(), q = Math.hypot(mt.a, mt.b) || 1, Sq = 2 ** (Math.round(Math.log2(Math.max(8, S * q)) * 8) / 8), k = Sq / S, m = S * 0.35;
+  const key = [f.media.coverKey, f.style.coverEdge || 'album', f.pal.dark, f.pal.bg.join(), Math.round((o.finish ?? 1) * 20), o.shadow !== false, gfx() === 'lite', Math.round(Sq)].join('|');
+  if (!SLEEVE || SLEEVE.key !== key) {
+    const cv = (SLEEVE?.cv ?? makeCanvas(2, 2)) as HTMLCanvasElement, n = Math.ceil((S + 2 * m) * k); cv.width = n; cv.height = n;
+    const c = cv.getContext('2d')!; c.setTransform(k, 0, 0, k, 0, 0); coverGroup(c, f, m, m, S, 0, 1, o); SLEEVE = { key, cv, m };
+  }
+  g.save(); g.globalAlpha *= alpha; g.imageSmoothingEnabled = true; (g as CanvasRenderingContext2D).imageSmoothingQuality = 'high';
+  g.drawImage(SLEEVE.cv, x - m, y - m, S + 2 * m, S + 2 * m); g.restore();
 }
 const GROUP: (HTMLCanvasElement | null)[] = [null, null];
 function groupCanvas(i: number, w: number, h: number) { let c = GROUP[i]; if (!c || c.width < w || c.height < h || c.width > w * 1.5 || c.height > h * 1.5) { c = makeCanvas(w, h) as HTMLCanvasElement; GROUP[i] = c; } if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } return c; }

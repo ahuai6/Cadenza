@@ -124,7 +124,7 @@ export const TrackList = memo(function TrackList({ tracks, numbered, menuExtra, 
           </span>
           <span className={s.main}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span>
           <span className={s.album}>{t.album}</span>
-          <span className={s.badges}>{t.protected ? <Badge k="warn"><Icon n="lock" size={11} />{tx('s.badge.protected')}</Badge> : <><QualityTag t={t} />{t.lrc || t.embedded ? <Badge>{tx('s.badge.lrc')}</Badge> : null}</>}</span>
+          <span className={s.badges}>{t.protected ? <Badge k="warn"><Icon n="lock" size={11} />{tx('s.badge.protected')}</Badge> : <><QualityTag t={t} />{t.lrc || t.embedded || t.ttml || t.instrumental ? null : <Badge><Icon n="lyrics" size={11} />{tx('s.badge.noLyrics')}</Badge>}</>}</span>
           {t.protected ? <span /> : <IconButton n="plus" size="sm" label={tx('s.queue.add')} className={s.hide + ' ' + s.qadd} onClick={() => enqueue([t.id])} />}
           <IconButton n="heart" size="sm" filled={on} on={on} data-fav="" className={s.hide} label={tx(on ? 's.unfav' : 's.fav')} onClick={() => Lib!.favorite(t.id, !on)} />
           <span className={s.time}>{fmtTime(t.duration)}</span>

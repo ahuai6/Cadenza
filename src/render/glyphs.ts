@@ -11,7 +11,14 @@ import { EM } from '../text/metrics';
 const HAS_FILTER = (() => { try { const g = (makeCanvas(2, 2) as HTMLCanvasElement).getContext('2d')!; g.filter = 'blur(2px)'; return g.filter === 'blur(2px)'; } catch { return false; } })();
 const sg = (makeCanvas(4, 4) as HTMLCanvasElement).getContext('2d') as CanvasRenderingContext2D;     // for measuring
 type Bm = { bm: ImageBitmap | HTMLCanvasElement | OffscreenCanvas; w: number; h: number; s: number };
-const CACHE = new Map<string, Bm>(); let PIX = 0; const MAX = 48e6;
+const CACHE = new Map<string, Bm>(); let PIX = 0, MAX = 48e6;
+/** Glyph bitmaps are made on the CPU (a canvas the browser keeps in memory, not on the graphics card): taking one into the
+ *  GPU lyric layer is then a plain upload — from a canvas held on the graphics card it was a read back from it, which
+ *  waits for the card; a frame of many new glyphs stalled for a second and more. */
+const CPU = { willReadFrequently: true } as CanvasRenderingContext2DSettings;
+/** The cache's size for a picture of w × h device pixels: room for a few dozen of its large glyphs (a bigger picture's
+ *  glyphs are bigger; with too small a cache a zooming camera made the same glyphs again and again). */
+export function setGlyphCacheFor(w: number, h: number) { MAX = Math.min(160e6, Math.max(48e6, w * h * 30)); }
 export const filterSupported = HAS_FILTER;
 /** bitmaps made (for profiling) */
 export const STATS: { miss: number; keys?: string[] } = { miss: 0 };
@@ -38,7 +45,7 @@ function level(font: string, col: string, txt: string, k: number, grad?: InkGrad
   const S = TOP >> k, q = S / EM; if (sg.font !== font) sg.font = font;
   const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(B0 * 3 + S * 0.12 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.35 + pad * 2);
   // drawn straight into a canvas of exactly its size (a filter costs as much as the canvas it draws on)
-  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d') as CanvasRenderingContext2D;
+  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d', CPU) as CanvasRenderingContext2D;
   c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.setTransform(q, 0, 0, q, w / 2, h / 2);
   if (grad) { const gr = c.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6); gr.addColorStop(0, grad[0]); gr.addColorStop(0.55, grad[1]); gr.addColorStop(1, grad[2]); c.fillStyle = gr; } else c.fillStyle = col;
   if (HAS_FILTER) { c.filter = `blur(${B0}px)`; c.fillText(txt, 0, 0); c.filter = 'none'; }
@@ -109,7 +116,7 @@ export function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
   STATS.miss++; STATS.keys?.push('sharp|' + S + '|' + txt);
   const q = S / EM; if (sg.font !== font) sg.font = font;
   const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(S * 0.14 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.4 + pad * 2);
-  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d') as CanvasRenderingContext2D;
+  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d', CPU) as CanvasRenderingContext2D;
   c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.setTransform(q, 0, 0, q, w / 2, h / 2);
   if (typeof fill === 'string') { c.fillStyle = fill; c.fillText(txt, 0, 0); }
   else if (Array.isArray(fill)) { const gr = c.createLinearGradient(0, -EM * 0.55, 0, EM * 0.6); gr.addColorStop(0, fill[0]); gr.addColorStop(0.55, fill[1]); gr.addColorStop(1, fill[2]); c.fillStyle = gr; c.fillText(txt, 0, 0); }

@@ -9,6 +9,7 @@ import type { Parsed, RawLine } from './parse';
 import { graphemes, unitsOf, isLatin, RE_CJK, RE_COMPLEX, RE_RTL, syllables } from '../text/script';
 import { phrase } from './phrasing';
 import { applyWordRules, type WordLift } from './rules';
+import { looksRomaji } from './subs';
 /** What pacing the words needs from the rhythm (RhythmMap is one): the tempo, the beat's length at a moment, and a
  *  time snapped to the grid within a tolerance. The lyric model reads the beat through this and knows nothing else of it. */
 export interface BeatGrid { readonly bpm: number; beatLen(t: number): number; snap(t: number, tol: number, div: number): number;
@@ -79,7 +80,9 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
     lend = Math.max(lend, Math.min(next, R.t + 0.6));
     // (its own end, when the lyrics give one, holds even over a line that comes in before it: a background line, a duet)
     if (R.end != null) lend = Math.max(lend, R.end);
-    lines.push({ i, t: R.t, end: lend, sung, text: R.text, subs: R.subs, words: [], kar: !!R.kar, rtl: RE_RTL.test(R.text), ...(R.own ? { own: true } : {}), ...(R.reads?.length ? { reads: R.reads } : {}) });
+    // (a kana line's romaji, given as a translation — as most LRC files do — is its reading)
+    const rom = R.reads?.length ? [] : R.subs.filter(s => looksRomaji(s, R.text)), reads = R.reads?.length ? R.reads : rom, subs = rom.length ? R.subs.filter(s => !rom.includes(s)) : R.subs;
+    lines.push({ i, t: R.t, end: lend, sung, text: R.text, subs, words: [], kar: !!R.kar, rtl: RE_RTL.test(R.text), ...(R.own ? { own: true } : {}), ...(reads.length ? { reads } : {}) });
   });
   const words: Word[] = []; let gid = -1;
   lines.forEach((L, i) => {

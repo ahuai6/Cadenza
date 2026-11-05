@@ -18,7 +18,7 @@ const mul = (m: M, a: number, b: number, c: number, d: number, e: number, f: num
   [m[0] * a + m[2] * b, m[1] * a + m[3] * b, m[0] * c + m[2] * d, m[1] * c + m[3] * d, m[0] * e + m[2] * f + m[4], m[1] * e + m[3] * f + m[5]];
 
 /* ---------- the atlas: shelves on 2048² pages; a bitmap too big for a shelf gets a texture of its own ---------- */
-const PAGE = 2048, MAX_PAGES = 6, BIG = 900, GUT = 2;
+const PAGE = 2048, MAX_PAGES = 10, BIG = 900, GUT = 2;
 interface Slot { tex: WebGLTexture; u0: number; v0: number; u1: number; v1: number; page: Page | null }
 interface Page { tex: WebGLTexture; shelves: { y: number; h: number; x: number }[]; top: number }
 
@@ -63,7 +63,7 @@ class Rec {
 /* ---------- the GPU side ---------- */
 /** (a bitmap is uploaded through a 2D canvas: for an ImageBitmap WebGL ignores how it is asked to premultiply, and
  *  leaves it to how the bitmap was made — a canvas is uploaded as asked) */
-const UP = makeCanvas(16, 16) as HTMLCanvasElement, upg = UP.getContext('2d')!;
+const UP = makeCanvas(16, 16) as HTMLCanvasElement, upg = UP.getContext('2d', { willReadFrequently: true })!;   // (in memory: uploaded without a read back from the graphics card)
 // (uploaded as a w × h rectangle from its top left corner: WebGL2's sized texSubImage2D)
 function viaCanvas(src: Src): TexImageSource {
   if (!(typeof ImageBitmap !== 'undefined' && src instanceof ImageBitmap)) return src as TexImageSource;
@@ -145,7 +145,7 @@ export class GpuLyrics {
       const tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, tex); this.params();
       const c = viaCanvas(src); if (c === UP) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, UP); }
       else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); this.own.push(tex);
-      if (this.own.length > 24) { this.flush(); const old = this.own.shift()!; for (const k of this.bigOf.get(old) ?? []) this.slots.delete(k); this.bigOf.delete(old); if (this.tex === old) this.tex = null; gl.deleteTexture(old); }   // (the oldest big one goes — what is waiting to be drawn with it first: it is made again if it is seen again)
+      if (this.own.length > 48) { this.flush(); const old = this.own.shift()!; for (const k of this.bigOf.get(old) ?? []) this.slots.delete(k); this.bigOf.delete(old); if (this.tex === old) this.tex = null; gl.deleteTexture(old); }   // (the oldest big one goes — what is waiting to be drawn with it first: it is made again if it is seen again)
       s = { tex, u0: 0, v0: 0, u1: 1, v1: 1, page: null }; this.slots.set(src, s); this.bigOf.set(tex, [src]); return s;
     }
     let at = this.place(w + GUT * 2, h + GUT * 2);

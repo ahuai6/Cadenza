@@ -22,7 +22,7 @@ export const ui = createStore({
   toast: null as null | { text: string; id: number },
   wallLayout: remember('wallLayout', 'mosaic'), wallSource: remember('wallSource', 'all'),
   /** the play page's lyrics: their size, the soft focus on the lines around the sung one, translations shown */
-  npLyr: { font: 'ui', ...remember('npLyr', { size: 1, blur: true, subs: true }) } as { size: number; blur: boolean; subs: boolean; font: string },
+  npLyr: { font: 'ui', reads: true, ...remember('npLyr', { size: 1, blur: true, subs: true }) } as { size: number; blur: boolean; subs: boolean; reads: boolean; font: string },
 });
 export const lib = createStore({ ...({ folders: [], tracks: [], favorites: [], playlists: [] } as LibView), loaded: false,
   progress: { phase: 'idle', done: 0, total: 0 }, analysis: null as null | { done: number; total: number },

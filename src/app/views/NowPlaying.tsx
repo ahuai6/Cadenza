@@ -10,7 +10,7 @@ import { Drive } from '../motion';
 import { engine } from '../playback/stage';
 import { player } from '../playback/player';
 import { refs, openFx, back } from '../layers';
-import { fontStack, type LyricLine as Line } from '../../engine';
+import { fontStack, subLines, type LyricLine as Line } from '../../engine';
 import { QualityTag } from '../ui/quality';
 import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, QueueButton } from './Player';
 import { pickPlaylist, editMeta, npSettings } from './Modals';
@@ -166,7 +166,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     const ro = new ResizeObserver(() => { const keep = S.ls; measure(); S.ls.forEach((w, i) => { const o = keep[i]; if (w && o) { w.y = o.y; w.v = o.v; } }); aim(S.cur, false, true); });
     if (box.current) ro.observe(box.current);
     return () => { cancelAnimationFrame(S.raf); S.raf = 0; ro.disconnect(); };
-  }, [lines, view.size, view.subs]);   // (a new size or the translations shown or not: the lines are measured again)
+  }, [lines, view.size, view.subs, view.reads]);   // (a new size or the translations shown or not: the lines are measured again)
   useEffect(() => {
     if (!live) return;
     const S = st.current, i0 = findLine(engine.time); if (i0 !== S.cur) { S.cur = i0; mark(i0); aim(i0, false, true); }   // catch up after being away
@@ -180,15 +180,19 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       const ws = el.querySelectorAll<HTMLElement>('[data-w]'), lvl = p.rs ? p.rs.level : 0.5;
       // each word: its fill (how far it is sung), its glow (only once it is all but sung) and its own lift as it is sung
       L.words.forEach((w, k) => { const e = ws[k]; if (!e) return;
+        // (a word is all sung by the time the next one starts: with no gap, or a tiny one, it does not trail on under it)
+        const nx = L.words[k + 1], end = nx && nx.t > w.t ? Math.min(w.end, nx.t) : w.end;
         const fill = (el: HTMLElement, t0: number, t1: number) => { const q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0))), gl = Math.min(1, Math.max(0, (q - 0.6) / 0.4));
           el.style.setProperty('--p', q.toFixed(3)); el.style.setProperty('--gl', (gl * gl * lvl).toFixed(3)); el.style.translate = `0 ${(-LIFT * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; };
         // a word drawn character by character (one that may wrap onto the next row): each character fills in its own
         // time, so a second row lights up only once it is sung
         if (byUnit(w) && L.kar) { const us = e.querySelectorAll<HTMLElement>('[data-u]'), n = w.units.length, span = Math.max(0.08, w.end - w.t);
           const at = (i: number) => w.units[i]?.t ?? w.t + span * 0.85 * i / n;
-          us.forEach((u, i) => fill(u, at(i), i + 1 < n ? at(i + 1) : w.end)); }
+          us.forEach((u, i) => fill(u, at(i), i + 1 < n ? at(i + 1) : end)); }
         // (a line timed only as a whole lights as a whole, at once)
-        else if (!L.kar) fill(e, L.t, L.t + 0.25); else fill(e, w.t, w.end); });
+        else if (!L.kar) { const on = p.t >= L.t; e.style.setProperty('--p', on ? '1' : '0'); e.style.setProperty('--gl', on ? (0.6 * lvl).toFixed(3) : '0');
+          e.style.translate = `0 ${(-LIFT * liftAt(p.t - L.t, Math.max(0.3, L.sung - L.t))).toFixed(2)}px`; }   // (lit at once, no sweep: the line moves as one)
+        else fill(e, w.t, end); });
       // the harmonies: each from its own first sound to its last (at least as long as the word it goes with)
       const hs = el.querySelectorAll<HTMLElement>('[data-h]');
       L.words.filter(w => w.harm).forEach((w, k) => { const e = hs[k], H = w.harm!; if (!e) return; const t0 = isFinite(H.t) ? H.t : w.t, last = H.units[H.units.length - 1]?.t ?? t0;
@@ -206,8 +210,9 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
           {L.words.length ? L.words.map((w, k) => <Fragment key={k}>{byUnit(w) ? <span data-w data-u-w className={s.wu}>{w.units.map((u, i) => <span key={i} data-u className={s.w}>{u.c}</span>)}</span> : <span data-w className={s.w}>{w.disp ?? w.text}{k < L.words.length - 1 && (w.gap ?? (w.latin && L.words[k + 1].latin)) ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
           {/* the harmonies, as Apple Music shows backing vocals: their own smaller line under the words, each lit as it is sung */}
           {L.words.some(w => w.harm) && <span className={s.harmRow}>{L.words.filter(w => w.harm).map((w, k, a) => <span key={k} data-h className={s.w}>{w.harm!.text}{k < a.length - 1 ? ' ' : ''}</span>)}</span>}
-          {(L.reads || []).map((x, k) => <small key={'r' + k} data-read>{x}</small>)}
-          {L.subs.map((x, k) => <small key={k}>{x}</small>)}
+          {/* readings (softer than translations; one that only repeats the line left out), translations, and a translation's
+              bracketed part on a line of its own, as a harmony is */}
+          {subLines(L, view.reads !== false).map((x, k) => <small key={k} data-kind={x.kind}>{x.s}</small>)}
         </button>
       ))}
     </div>

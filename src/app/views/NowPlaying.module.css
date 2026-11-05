@@ -69,6 +69,8 @@
 .line[data-on="true"] .w { transition: none; }
 .harmRow { display: block; font-size: 0.6em; font-weight: 600; opacity: 0.78; margin-top: 0.22em; }   /* the harmonies: their own smaller line under the words */
 .line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; }
+.line small[data-kind="read"] { opacity: 0.45; font-weight: 500; }   /* a reading: softer than a translation */
+.line small[data-kind="harm"] { font-size: 0.47em; font-weight: 600; opacity: 0.6; margin-top: 2px; }   /* a translation's bracketed part, as a harmony is */
 .np[data-fx="true"] .line[data-handed="true"] { visibility: hidden; }
 .compact .line { font-size: calc(17px * var(--np-fs, 1)); padding: 7px 10px; }
 .none { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; color: var(--fg-2); }

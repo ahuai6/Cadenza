@@ -66,7 +66,7 @@ function trackView(t) {
     artist: o.artist || t.artist || '', album: o.album || t.album || '', albumArtist: o.albumArtist || t.albumArtist || '', genre: o.genre || t.genre || [],
     year: o.year || t.year || null, track: o.track || t.track || null, disc: o.disc || t.disc || null, duration: t.duration || 0, codec: t.codec || '', bitrate: t.bitrate || 0,
     sampleRate: t.sampleRate || 0, bits: t.bits || 0, lossless: !!t.lossless, ext: path.extname(t.path).slice(1).toLowerCase(), composer: t.composer || '', lyricist: t.lyricist || '',
-    cover: o.coverKey || t.coverKey || null, lrc: !!t.lrc, embedded: !!t.embedded, protected: !!t.protected, analyzed: t.analyzed || 0,
+    cover: o.coverKey || t.coverKey || null, lrc: !!t.lrc, embedded: !!t.embedded, ttml: !!(t.ttml || t.ttmlFile), protected: !!t.protected, analyzed: t.analyzed || 0,
     added: t.added, plays: t.plays || 0, last: t.last || 0, looked: !!o.mbid, edited: Object.keys(o).some(k => k !== 'coverKey' && k !== 'instrumental'), coverSet: !!o.coverKey, instrumental: !!o.instrumental, loudness: t.loudness || null,
     // what the file itself says, for the edit form's placeholders and per-field reset
     tags: { title: t.title || path.parse(t.path).name, artist: t.artist || '', album: t.album || '', albumArtist: t.albumArtist || '', year: t.year || null, genre: t.genre || [], track: t.track || null, disc: t.disc || null } };
@@ -162,7 +162,7 @@ async function scan() {
     let done = 0; send('lib:progress', { phase: 'scan', done, total: files.length });
     const queue = files.slice(), work = async () => { for (let p; (p = queue.shift());) {
       try { const st = await fsp.stat(p), old = byPath.get(p);
-        if (old && old.size === st.size && old.mtime === st.mtimeMs) { old.lrc = !!sidecar(p);
+        if (old && old.size === st.size && old.mtime === st.mtimeMs) { old.lrc = !!sidecar(p); old.ttmlFile = !!ttmlSidecar(p);
           if (!old.ak && !old.protected) old.ak = await audioKey(p, st.size).catch(() => undefined);   // (a song from before audio keys: its key, once)
           if (!old.protected && old.tv !== TAGS_V) { const tg = await readTags(p).catch(() => null); if (tg) { delete tg.cover; Object.assign(old, tg); } } }
         else {
@@ -171,7 +171,7 @@ async function scan() {
           const ak = await audioKey(p, st.size).catch(() => null), same = (t) => t && ak && t.ak === ak;
           const moved = ak && !same(old) ? Object.values(db.tracks).find(t => t.ak === ak && t.path !== p && !seen.has(t.path)) : null;
           const id = same(old) ? old.id : moved ? moved.id : await fileId(p, st.size), x = path.extname(p).toLowerCase(), prev = db.tracks[id];
-          const base = { id, ak, path: p, size: st.size, mtime: st.mtimeMs, added: prev?.added || Date.now(), plays: prev?.plays || 0, last: prev?.last || 0, lrc: !!sidecar(p), failed: false };
+          const base = { id, ak, path: p, size: st.size, mtime: st.mtimeMs, added: prev?.added || Date.now(), plays: prev?.plays || 0, last: prev?.last || 0, lrc: !!sidecar(p), ttmlFile: !!ttmlSidecar(p), failed: false };
           if (PROTECTED.has(x)) db.tracks[id] = { ...base, title: path.parse(p).name, protected: true };
           else { const tg = await readTags(p).catch(() => ({})); const coverKey = await storeCover(tg.cover).catch(() => null); delete tg.cover;
             // (the analysis goes with the sound: kept while the audio key is the same, whatever happened to the tags)
@@ -267,7 +267,7 @@ async function writeLyrics(id, text, target = 'lrc') {
   // TTML: kept as TTML, beside the file (and read first again); other lyrics on a song that has TTML: the listener's own
   // edit, read from then on in place of the TTML
   const o = db.overrides[id] || {};
-  if (target === 'ttml') { const b = t.path.slice(0, -path.extname(t.path).length); await fsp.writeFile(ttmlSidecar(t.path) || b + '.ttml', String(text), 'utf8'); if (o.preferLrc) { delete o.preferLrc; db.overrides[id] = o; save(); } changed(); return { ok: true, target: 'ttml' }; }
+  if (target === 'ttml') { const b = t.path.slice(0, -path.extname(t.path).length); await fsp.writeFile(ttmlSidecar(t.path) || b + '.ttml', String(text), 'utf8'); t.ttmlFile = true; if (o.preferLrc) { delete o.preferLrc; db.overrides[id] = o; save(); } changed(); return { ok: true, target: 'ttml' }; }
   if ((t.ttml || ttmlSidecar(t.path)) && !o.preferLrc) { db.overrides[id] = { ...o, preferLrc: true }; save(); }
   const crlf = String(text).replace(/\r?\n/g, '\r\n'), sc = sidecar(t.path);
   if (target === 'tag') {

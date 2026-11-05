@@ -146,7 +146,7 @@ export function ttmlToLrc(src: string): string {
     if (L.kar) body = L.words.map(w => (w.units || []).map(u => `<${ts(u.t)}>${u.c}`).join('') + (w.harm?.units?.length ? '(' + w.harm.units.map(u => `<${ts(u.t)}>${u.c}`).join('') + ')' : '')).join(' ') + (L.close != null ? `<${ts(L.close)}>` : '');
     else body = L.words.map(w => w.text + (w.harm ? ` (${w.harm.text})` : '')).join(' ');
     out.push(`[${ts(L.t)}]${body}`);
-    for (const s of [...(L.reads || []), ...L.subs]) out.push(`[${ts(L.t)}]${s}`);
+    for (const s of [...L.subs, ...(L.reads || [])]) out.push(`[${ts(L.t)}]${s}`);
     const nx = p.lines[i + 1]?.t ?? Infinity; if (L.end != null && L.end + 0.05 < nx) out.push(`[${ts(L.end)}]`);
   });
   return out.join('\n');

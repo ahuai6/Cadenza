@@ -64,7 +64,8 @@ function NpModal({ m }: { m: { tab: string } }) {
         <Slider label={tx('np.size')} min={0.75} max={1.4} step={0.05} value={o.size} format={v => Math.round(v * 100) + '%'} onChange={v => set({ size: v })} />
         <Check label={tx('np.blur')} checked={o.blur} onChange={v => set({ blur: v })} />
         <Check label={tx('np.subs')} checked={o.subs} onChange={v => set({ subs: v })} />
-        <Row><Button kind="ghost" size="sm" onClick={() => set({ size: 1, blur: true, subs: true, font: 'ui' })}>{tx('reset.all')}</Button></Row>
+        <Check label={tx('np.reads')} checked={o.reads !== false} onChange={v => set({ reads: v })} />
+        <Row><Button kind="ghost" size="sm" onClick={() => set({ size: 1, blur: true, subs: true, reads: true, font: 'ui' })}>{tx('reset.all')}</Button></Row>
       </div>}
     </>
   );

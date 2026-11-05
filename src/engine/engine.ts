@@ -18,7 +18,7 @@ import { VideoSource, MvSource } from './media';
 import { Handoff, type HandoffSpec, type WinRect } from './handoff';
 import type { Session } from './session';
 import { ssDown, ssFactor } from './ssaa';
-import { prewarmGlyphs, prewarmSharp, withMakeBudget, STATS as GLYPHS } from '../render/glyphs';
+import { prewarmGlyphs, prewarmSharp, withMakeBudget, setGlyphCacheFor, STATS as GLYPHS } from '../render/glyphs';
 import { GPU_STATS } from '../render/lyrics';
 import { EM } from '../text/metrics';
 
@@ -75,6 +75,7 @@ export class Engine extends Emitter<EngineEvents> {
     idle(step);
   }
   /** Drawing every frame, the page's work small, yet a frame comes a fifth or more later than the display's: the GPU. */
+  private floorScale() { return (this.gpuBehind() ? 0.7 : 1) / this.baseDpr(); }
   private gpuBehind() { return this.render.fps === 0 && isFinite(this.refresh) && this.ivMed > this.refresh * 1.2 && this.ema < this.ivMed * 0.5; }
   /** Frames that took too long (over 150 ms), the latest few, with what happened in them: for the performance overlay. */
   readonly stalls: { ms: number; at: number; t: number; where: 'frame' | 'between'; glyphs: number; uploads: number; resized: boolean; replanned: boolean; view: string }[] = [];
@@ -127,7 +128,7 @@ export class Engine extends Emitter<EngineEvents> {
   /** The aspect of the picture's box (for sessions whose style fills the view). */
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
-  private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.mark.resized = true; this.redrawNow(); } }
+  private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; setGlyphCacheFor(W, H); this.mark.resized = true; this.redrawNow(); } }
   setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); PROFILE.on = !!this.render.stats;
     if (o.stats) Object.assign(this.perf, { fps: 0, frameMs: 0, drawMs: 0, layers: {} }), this.lastFrameAt = 0; if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
   /** A window rect (CSS px) in the picture's reference px. */
@@ -246,7 +247,9 @@ export class Engine extends Emitter<EngineEvents> {
       // (a change of resolution makes every glyph of the picture anew at the new size — in one frame, it was a stall of a
       // second with the canvas cleared: the new size's glyphs are made ahead in idle time, then it is switched in one
       // frame; and after a switch the resolution rests for a while, so it never goes up and down)
-      else if (this.playing && (this.ema > 22 || this.gpuBehind()) && this.pscale > 1 / this.baseDpr() + 1e-3 && now - this.scaleAt > 6000) this.toScale(s, Math.max(1 / this.baseDpr(), this.pscale - 0.25));
+      // (never below one CSS pixel for the page's own slowness; the graphics card falling behind may take it to 0.7 —
+      // a big window at 100 % has no finer pixels to give up)
+      else if (this.playing && (this.ema > 22 || this.gpuBehind()) && this.pscale > this.floorScale() + 1e-3 && now - this.scaleAt > 6000) this.toScale(s, Math.max(this.floorScale(), this.pscale - 0.25));
       else if (this.playing && this.ema < 9 && this.ivMed <= this.refresh * 1.05 && this.pscale < 1 && now - this.scaleAt > 12000) { if (++this.fast > 240) { this.fast = 0; this.toScale(s, Math.min(1, this.pscale + 0.25)); } } else this.fast = 0; }
     // before each blur transition, whatever the frame's spare time: the picture after the cut is drawn once ahead into a
     // tiny canvas (its words' glyphs made then, not in the frame where the blur clears and they first show)

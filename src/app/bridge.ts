@@ -6,7 +6,7 @@ export interface Track {
   year: number | null; track: number | null; disc: number | null; duration: number; codec: string; bitrate: number;
   /** the sound: sample rate (Hz), bit depth, lossless, the file's extension */ sampleRate: number; bits: number; lossless: boolean; ext: string;
   composer: string; lyricist: string;
-  cover: string | null; lrc: boolean; embedded: boolean; protected: boolean; analyzed: number;
+  cover: string | null; lrc: boolean; embedded: boolean; /** TTML lyrics (a .ttml beside it, or a TTML tag) */ ttml?: boolean; protected: boolean; analyzed: number;
   added: number; plays: number; last: number; looked: boolean; edited: boolean; coverSet: boolean;
   /** marked as an instrumental: its own line instead of lyrics, the record theme by default */ instrumental?: boolean;
   /** how loud it is (BS.1770), once measured: the volume balance's input */ loudness?: { lufs: number; peak: number } | null;

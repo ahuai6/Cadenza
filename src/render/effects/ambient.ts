@@ -8,6 +8,8 @@ import { makeCanvas } from '../palette';
 import { gfx } from '../gfx';
 
 const SW = 128, SH = 80;
+/** the ambient field's size (its edges, 6 and 4 px, are left out where it is drawn: the blur fades them) */
+export const AMB_W = SW, AMB_H = SH;
 const small = makeCanvas(SW, SH) as HTMLCanvasElement, sx = small.getContext('2d')!;
 const soft = makeCanvas(SW, SH) as HTMLCanvasElement, so = soft.getContext('2d')!;
 let lastKey = '';
