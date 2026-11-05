@@ -55,6 +55,8 @@ export class Session {
   map!: RhythmMap; sig!: Signals; doc!: LyricDoc; plan!: ScenePlan;
   hasLyrics = false; audioStart = 0; musicEnd = 0; dur = 0; endLen = 3.5;
   version = 0;                        // bumps on every replan (views re-read the plan)
+  /** how long opening it took, phase by phase (ms): the cover, the word segmenter, the face, the plan (the latest of each) */
+  timings: { cover?: number; segment?: number; font?: number; plan?: number } = {};
   /** what needs rebuilding before the next frame: REPLAN, BUILD (from the lyrics down), RETIME (the timing only: the
    *  lyric shift, the ending's length — the words as they were), RECUE (the effect cues only) */
   private dirty = 0;
@@ -64,7 +66,7 @@ export class Session {
 
   static async open(spec: SessionSpec, env: SessionEnv): Promise<Session> {
     const s = new Session(spec, env);
-    s.cover = await loadImage(spec.coverUrl || ''); s.coverKey = spec.coverUrl || '';
+    const tc = performance.now(); s.cover = await loadImage(spec.coverUrl || ''); s.coverKey = spec.coverUrl || ''; s.timings.cover = performance.now() - tc;
     { const id = spec.preset || 'cover'; s.style = spec.style ? styleFromStored(spec.style) : { ...presetStyle(id), ...(s.cover ? paletteForPreset(id, s.cover) || {} : {}) }; }
     if (spec.aspect) s.style.aspect = spec.aspect;
     if (spec.look) { s.ownLook = s.lookOf(); Object.assign(s.style, spec.look); }
@@ -94,11 +96,13 @@ export class Session {
     if (!this.hasLyrics) parsed = parse(titleCard(sp.song), 0);
     // the words: where the segmenter (or the listener) breaks each line — its dictionary waited for a moment the first
     // time (it loads once, in the background); without it the lines break by the browser's own word breaker
-    if (this.hasLyrics) { if (!segmenterReady()) await Promise.race([loadSegmenter(), new Promise(r => setTimeout(r, 2500))]); parsed = respace(parsed, sp.spacing); }
+    const ts = performance.now(); if (this.hasLyrics) { if (!segmenterReady()) await Promise.race([loadSegmenter(), new Promise(r => setTimeout(r, 2500))]); parsed = respace(parsed, sp.spacing); }
     // song time 0 is the range start; the lyric shift moves the music under the lyrics (it is in audioStart), so the
     // layout, the beats, the audio and the video stay in agreement
     const text = parsed.lines.map(L => L.text).join('');
+    this.timings.segment = performance.now() - ts; const tf = performance.now();
     await ensureFontSoon(this.style.font, text + sp.song.title, this.env.lang, 1200, () => { this.fontsLate = true; this.dirty |= REPLAN; });
+    this.timings.font = performance.now() - tf;
     this.parsed = parsed; await this.retime();
   }
   /** From the timing down (the lyric shift, the ending, the rhythm map, the lyric model, the plan) — the words read from
@@ -113,7 +117,7 @@ export class Session {
     const origin: MapOrigin = this.analysis ? { analysis: this.analysis, offset: audioStart } : { grid: [Math.max(40, Math.min(240, sp.bpm || 120)), 0, dur + 2] };
     const map = 'grid' in origin ? RhythmMap.grid(...origin.grid) : new RhythmMap(origin.analysis, origin.offset);
     const doc = buildLyrics(parsed, map, musicEnd);
-    const plan = await this.planOf(doc, map, origin, musicEnd, endLen);
+    const tp = performance.now(); const plan = await this.planOf(doc, map, origin, musicEnd, endLen); this.timings.plan = performance.now() - tp;
     Object.assign(this, { audioStart, endLen, musicEnd, dur, map, sig: new Signals(map), doc, plan, rec: null }); this.version++;
   }
   /** The plan for these words and this map, in the style as it is now (planner.ts: off the page's thread). */

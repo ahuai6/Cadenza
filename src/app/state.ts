@@ -26,7 +26,8 @@ export const ui = createStore({
 });
 export const lib = createStore({ ...({ folders: [], tracks: [], favorites: [], playlists: [] } as LibView), loaded: false,
   progress: { phase: 'idle', done: 0, total: 0 }, analysis: null as null | { done: number; total: number },
-  /** how far the song being analysed now is (0..1), null between songs */ analysisNow: null as null | number });
+  /** how far the song being analysed now is (0..1), null between songs */ analysisNow: null as null | number,
+  /** which song that is */ analysisFor: null as null | string });
 export const settings = createStore<Settings>({ theme: 'system', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
   audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, rhythmEngine: 'auto', rhythmDrums: true, gfx: 'default', version: '' });
 

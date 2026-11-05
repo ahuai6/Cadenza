@@ -76,6 +76,11 @@ pub trait Backend {
     fn devices(&mut self) -> Vec<DevInfo>;
     fn probe(&mut self, dev: Option<&str>) -> Result<Caps, String>;
     fn open(&mut self, dev: Option<&str>, f: &Format) -> Result<Box<dyn Stream>, String>;
+    // can this device be opened now (it is there and enabled)? A device unplugged or switched off is still known to the
+    // system by its id, and opening it only fails later: it is asked here first, and the default taken in its place
+    fn usable(&mut self, _dev: &str) -> bool {
+        true
+    }
     // the volume balance in the device's own hardware volume: `db` from the level the user set (0 takes it back off).
     // The user's own changes are kept: the offset is measured from the level as it stands minus what was applied before.
     // Some((applied dB, the device's level in dB)) when the device has a hardware volume; None when it has none (then
@@ -162,6 +167,9 @@ pub mod fake {
         }
     }
     impl Backend for Fake {
+        fn usable(&mut self, dev: &str) -> bool {
+            self.present && dev == "fake-dac"
+        }
         fn devices(&mut self) -> Vec<DevInfo> {
             if !self.present {
                 return vec![];
@@ -281,6 +289,10 @@ pub mod wasapi_be {
         WaveFormat::new(store, valid, &t, rate as usize, ch, None)
     }
     impl Backend for Wasapi {
+        fn usable(&mut self, dev: &str) -> bool {
+            let Some(en) = self.en.as_ref() else { return false };
+            matches!(en.get_device(dev).and_then(|d| d.get_state()), Ok(DeviceState::Active))
+        }
         fn devices(&mut self) -> Vec<DevInfo> {
             let Some(en) = self.en.as_ref() else { return vec![] };
             let def = en.get_default_device(&Direction::Render).ok().and_then(|d| d.get_id().ok());

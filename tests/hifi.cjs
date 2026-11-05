@@ -174,6 +174,18 @@ function maxStep(a, full, from = 0, to = a.length) { let m = 0; for (let i = fro
     ok(nh.supported === false, 'a device without a hardware volume: nothing is touched (and the page is told)');
     await B.done();
   }
+  /* 7. the chosen device is not there (unplugged): the system's default plays in its place, nothing to choose again */
+  console.log('a chosen device that is gone');
+  {
+    const A = start('rates=44100,96000;fmts=i24in32', 'gone');
+    A.send({ cmd: 'config', device: 'usb-dac-unplugged', mode: 'exclusive' });
+    A.send({ cmd: 'load', id: 'cd', path: F.cd, seq: 1 }); await A.wait(e => e.ev === 'ready');
+    const fb = await A.wait(e => e.ev === 'fallback' && e.code === 'default').catch(() => null);
+    A.send({ cmd: 'play', pos: 0 }); const run = await A.wait(e => e.ev === 'pos' && e.run && e.t > 0.3, 4000).catch(() => null);
+    const err = A.evs.find(e => e.ev === 'error' && e.code === 'device');
+    ok(!!fb && !!run && !err, 'the default device plays in its place, said once, no error, nothing to choose again');
+    await A.done();
+  }
   console.log(fails ? `${fails} failed` : 'all passed');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

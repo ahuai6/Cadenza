@@ -10,3 +10,4 @@
 .dim { color: #b9b6ad; }
 .bar { height: 3px; background: rgba(242, 240, 234, 0.12); border-radius: var(--r-pill); margin: 1px 0 3px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
+.sep { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(242, 240, 234, 0.14); }

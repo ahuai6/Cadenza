@@ -96,7 +96,7 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
 }
 function Clock() {
   const cur = useRef<HTMLElement>(null), tot = useRef<HTMLSpanElement>(null);
-  useEffect(() => engine.on('tick', p => { if (cur.current) cur.current.textContent = fmt(p.t); if (tot.current) tot.current.textContent = ' / ' + fmt(p.dur); }), []);
+  useEffect(() => engine.on('tick', p => { if (cur.current) cur.current.textContent = fmt(Math.min(p.t, p.musicEnd)); if (tot.current) tot.current.textContent = ' / ' + fmt(p.musicEnd); }), []);
   return <span className={s.time}><b ref={cur}>00:00.00</b><span ref={tot}> / 00:00.00</span></span>;
 }
 /** Title and credits; tempo, bar and beat (through refs on every tick). */

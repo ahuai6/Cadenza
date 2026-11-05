@@ -111,7 +111,9 @@ function Sidebar() {
   let done = 0, total = 0;
   // (without a progress event yet: the songs analysed by this version of the rhythm analysis — an older one is to be redone)
   if (an) { done = an.done; total = an.total; } else { const playable = tracks.filter(t => !t.protected); total = playable.length; done = playable.filter(t => t.analyzed === RHYTHM_VERSION).length; }
-  const now = useStore(lib, x => x.analysisNow);
+  const now = useStore(lib, x => x.analysisNow), forId = useStore(lib, x => x.analysisFor), shown = useStore(player, x => x.shownId);
+  // (the song playing, read whole while it plays: said as that, not as the library's queue)
+  const thisSong = !!forId && forId === shown;
   // the chosen place is marked by one bar that slides to it (from page to page and section to section)
   const navRef = useRef<HTMLDivElement>(null), [mark, setMark] = useState<{ y: number; h: number } | null>(null);
   useLayoutEffect(() => { const el = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]'); setMark(el ? { y: el.offsetTop, h: el.offsetHeight } : null); }, [page, section, detail]);
@@ -134,7 +136,8 @@ function Sidebar() {
       </div>
       <div className={s.sideFoot}>
         {prog.phase === 'scan' && <div className={s.chip} style={{ ['--p' as string]: `${(prog.done / Math.max(1, prog.total)) * 100}%` }}><span>{tx('s.scanning', prog)}</span><i /></div>}
-        {prog.phase !== 'scan' && done < total && <div className={s.chip} style={{ ['--p' as string]: `${(done / Math.max(1, total)) * 100}%` }}><span>{tx('s.analyzing', { done, total })}{now != null && now > 0.01 ? ` · ${Math.round(now * 100)}%` : ''}</span><i /></div>}
+        {thisSong && <div className={s.chip} style={{ ['--p' as string]: `${(now ?? 0) * 100}%` }}><span>{tx('s.analyzingThis', { pct: Math.round((now ?? 0) * 100) })}</span><i /></div>}
+        {!thisSong && prog.phase !== 'scan' && done < total && <div className={s.chip} style={{ ['--p' as string]: `${(done / Math.max(1, total)) * 100}%` }}><span>{tx('s.analyzing', { done, total })}{now != null && now > 0.01 ? ` · ${Math.round(now * 100)}%` : ''}</span><i /></div>}
         <OutputSwitch />
         <button type="button" className={s.navi} aria-current={page === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><Icon n="settings" size={18} /><span>{tx('s.settings')}</span></button>
       </div>

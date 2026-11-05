@@ -18,7 +18,8 @@ import { VideoSource, MvSource } from './media';
 import { Handoff, type HandoffSpec, type WinRect } from './handoff';
 import type { Session } from './session';
 import { ssDown, ssFactor } from './ssaa';
-import { prewarmGlyphs, prewarmSharp } from '../render/glyphs';
+import { prewarmGlyphs, prewarmSharp, STATS as GLYPHS } from '../render/glyphs';
+import { GPU_STATS } from '../render/lyrics';
 import { EM } from '../text/metrics';
 
 const idle = (fn: (d?: { timeRemaining(): number }) => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(d => fn(d), { timeout: 400 }) : setTimeout(() => fn(), 30));
@@ -52,7 +53,29 @@ export class Engine extends Emitter<EngineEvents> {
   /** how the song's own video (MV mode) is graded and framed (an app setting) */
   mvLook: MvLook = { ...MV_LOOK };
   private t = 0; private playing = false; private scrub = false; private lastDraw = 0; private dirty = true;
-  private pscale = 1; private ema = 0; private fast = 0;
+  private pscale = 1; private ema = 0; private fast = 0; private scaleAt = 0;
+  private scaleJob: { to: number; i: number; s: Session } | null = null;
+  /** Go to another resolution: the glyphs the coming seconds need at its size made first, a slice at a time in idle
+   *  time, then the switch in one frame. */
+  private toScale(s: Session, to: number) {
+    if (this.scaleJob?.to === to) return; this.scaleJob = { to, i: 0, s }; this.ema = 0;
+    const step = (dl?: { timeRemaining(): number }) => {
+      const j = this.scaleJob; if (!j || j.s !== this.session || !this.playing) { this.scaleJob = null; return; }
+      const px = Math.round(this.box.h * this.baseDpr() * j.to) / j.s.plan.H, AHEAD = [0, 0.3, 0.6, 1, 1.5, 2.2];
+      const t0 = performance.now(); while (j.i < AHEAD.length && (dl ? dl.timeRemaining() > 4 : performance.now() - t0 < 6)) { try { this.lookAhead(j.s, this.t + AHEAD[j.i], px); } catch { /* ignore */ } j.i++; }
+      if (j.i < AHEAD.length) { idle(step); return; }
+      this.scaleJob = null; this.pscale = j.to; this.scaleAt = performance.now(); this.applyScale(); this.ema = 0;
+    };
+    idle(step);
+  }
+  /** Frames that took too long (over 150 ms), the latest few, with what happened in them: for the performance overlay. */
+  readonly stalls: { ms: number; at: number; t: number; where: 'frame' | 'between'; glyphs: number; uploads: number; resized: boolean; replanned: boolean; view: string }[] = [];
+  private mark = { t0: 0, miss: 0, ver: -1, resized: false, uploads: 0 };
+  private stall(ms: number, where: 'frame' | 'between', s: Session) {
+    const m = this.mark; this.stalls.push({ ms: Math.round(ms), at: Date.now(), t: +this.t.toFixed(2), where, glyphs: GLYPHS.miss - m.miss, uploads: GPU_STATS.uploads, resized: m.resized, replanned: s.version !== m.ver && m.ver >= 0, view: this.view });
+    if (this.stalls.length > 8) this.stalls.shift();
+    if (ms > 600) console.warn('[stall]', JSON.stringify(this.stalls[this.stalls.length - 1]));
+  }
   private fadeOut: { cv: HTMLCanvasElement; t0: number } | null = null;
   /** album play: the song before, still running on in the picture for a moment (see show) */
   private carry: { s: Session; t0: number; at: number } | null = null; private carryCv: HTMLCanvasElement | null = null;
@@ -91,12 +114,12 @@ export class Engine extends Emitter<EngineEvents> {
     this.redrawNow();
   }
   /** Draw at once (a resize clears the canvas: waiting for the next frame showed it black for a moment). */
-  private redrawNow() { const s = this.session; if (!s || this.view === 'hidden' || s.needsFlush) return; try { this.draw(s); this.dirty = false; } catch (e) { console.warn(e); } }
+  private redrawNow() { const s = this.session; if (!s || this.view === 'hidden') return; try { this.draw(s); this.dirty = false; } catch (e) { console.warn(e); } }
   setAspectBox(a: AspectBox, letterbox = '#000') { const same = JSON.stringify(a) === JSON.stringify(this.aspectBox); this.aspectBox = a; this.letterbox = letterbox; if (!same) this.fit(); }
   /** The aspect of the picture's box (for sessions whose style fills the view). */
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
-  private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.redrawNow(); } }
+  private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.mark.resized = true; this.redrawNow(); } }
   setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); PROFILE.on = !!this.render.stats;
     if (o.stats) Object.assign(this.perf, { fps: 0, frameMs: 0, drawMs: 0, layers: {} }), this.lastFrameAt = 0; if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
   /** A window rect (CSS px) in the picture's reference px. */
@@ -179,6 +202,8 @@ export class Engine extends Emitter<EngineEvents> {
   private frame(now: number) {
     this.raf = requestAnimationFrame(n => this.frame(n));
     const t0 = performance.now(), s = this.session;
+    // (a long wait since the last frame — work outside the frames held them up — is noted with what changed meanwhile)
+    if (s && this.playing && this.view !== 'hidden' && this.mark.t0 && t0 - this.mark.t0 > 250) this.stall(t0 - this.mark.t0, 'between', s);
     if (!s) { if (this.dirty && this.view !== 'hidden') { this.dirty = false; this.g.setTransform(1, 0, 0, 1, 0, 0); this.g.clearRect(0, 0, this.canvas.width, this.canvas.height); } return; }
     if (s.needsFlush) { s.flush().then(() => { this.dirty = true; this.emit('change', undefined); }).catch(e => console.warn(e)); }
     if (this.playing && !this.scrub) {
@@ -208,14 +233,19 @@ export class Engine extends Emitter<EngineEvents> {
     const inPass = s.plan.passages.some(P => this.t > P.t - P.inn - 0.5 && this.t < P.t + P.out + 0.5);
     if (vis && this.render.scale === 'auto' && !inPass) { const d = performance.now() - t0; this.ema = this.ema ? this.ema * 0.9 + d * 0.1 : d;
       if (!this.playing && this.pscale < 1) { this.pscale = 1; this.applyScale(); this.dirty = true; }
-      else if (this.playing && this.ema > 22 && this.pscale > 1 / this.baseDpr() + 1e-3) { this.pscale = Math.max(1 / this.baseDpr(), this.pscale - 0.25); this.applyScale(); this.ema = 0; }
-      else if (this.playing && this.ema < 9 && this.pscale < 1) { if (++this.fast > 120) { this.pscale = Math.min(1, this.pscale + 0.25); this.applyScale(); this.ema = 0; this.fast = 0; } } else this.fast = 0; }
+      // (a change of resolution makes every glyph of the picture anew at the new size — in one frame, it was a stall of a
+      // second with the canvas cleared: the new size's glyphs are made ahead in idle time, then it is switched in one
+      // frame; and after a switch the resolution rests for a while, so it never goes up and down)
+      else if (this.playing && this.ema > 22 && this.pscale > 1 / this.baseDpr() + 1e-3 && now - this.scaleAt > 6000) this.toScale(s, Math.max(1 / this.baseDpr(), this.pscale - 0.25));
+      else if (this.playing && this.ema < 9 && this.pscale < 1 && now - this.scaleAt > 12000) { if (++this.fast > 240) { this.fast = 0; this.toScale(s, Math.min(1, this.pscale + 0.25)); } } else this.fast = 0; }
     // before each blur transition, whatever the frame's spare time: the picture after the cut is drawn once ahead into a
     // tiny canvas (its words' glyphs made then, not in the frame where the blur clears and they first show)
     if (vis && this.view === 'effect' && this.playing) for (const P of s.plan.passages) { if (this.t < P.t - P.inn - 0.8 || this.t > P.t - P.inn || this.warmedPass.has(P)) continue;
       this.warmedPass.add(P); try { this.lookAhead(s, P.t + 0.02); this.lookAhead(s, P.t + P.out); } catch { /* ignore */ } }
     // look ahead: draw ~0.6 s ahead into a tiny canvas when the frame had time to spare (fills the glyph caches)
     if (vis && this.view === 'effect' && this.render.prerender && this.playing && performance.now() - t0 < 9) { try { this.lookAhead(s, this.t + 0.6); } catch { /* ignore */ } }
+    { const d = performance.now() - t0; if (d > 150 && this.playing && vis) this.stall(d, 'frame', s); }
+    this.mark = { t0: performance.now(), miss: GLYPHS.miss, ver: s.version, resized: false, uploads: 0 };
     this.emit('frame', now);
   }
   private warmedPass = new WeakSet<object>();
@@ -328,9 +358,9 @@ export class Engine extends Emitter<EngineEvents> {
     const g = this.probeCv.getContext('2d')!; f.px = H / s.plan.H; if (mid) { f.view = { effect: 0.5 }; f.coverOwner = 'backdrop'; } else f.view = { effect: 1 };
     g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); drawFrame(g, f, { sig: s.sig });
   }
-  private lookAhead(s: Session, t: number) {
+  private lookAhead(s: Session, t: number, px?: number) {
     if (t >= s.dur) return; if (!this.warm) this.warm = (makeCanvas(2, 2) as HTMLCanvasElement).getContext('2d')!;
-    const f = this.frameAt(t); if (!f) return; f.px = this.canvas.height / s.plan.H;
+    const f = this.frameAt(t); if (!f) return; f.px = px ?? this.canvas.height / s.plan.H;
     const { visibleWords, paintLyrics } = require_lyrics(); f.vis = visibleWords(f, !!f.plan.titles.end); this.warm.setTransform(f.px, 0, 0, f.px, 0, 0); paintLyrics(this.warm, f, f.vis, [{ ink: f.pal.text, split: 0 }], true);
   }
 }

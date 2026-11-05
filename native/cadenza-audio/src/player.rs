@@ -101,6 +101,8 @@ pub struct Player {
     frames: Vec<i32>,
     mmcss: bool,
     hw_db: f64, // the volume balance asked for in the device's hardware volume (applied on the device in use)
+    on_default: bool,          // the chosen device is not there: the system's default plays in its place
+    retry_at: Option<Instant>, // a device lost: when to try opening one again
 }
 
 pub fn run(rx: Receiver<Cmd>) {
@@ -138,6 +140,8 @@ pub fn run(rx: Receiver<Cmd>) {
         frames: Vec::new(),
         mmcss: false,
         hw_db: 0.0,
+        on_default: false,
+        retry_at: None,
     };
     #[cfg(windows)]
     unsafe {
@@ -208,17 +212,46 @@ fn describe(info: &SrcInfo, f: &Format) -> serde_json::Value {
 }
 
 impl Player {
+    // the device to open: the chosen one while it is there, else the system's default (said once, and said again when
+    // the chosen one is back)
+    fn out_dev(&mut self) -> Option<String> {
+        let d = self.dev.clone()?;
+        if self.be.usable(&d) {
+            if self.on_default {
+                self.on_default = false;
+                emit(json!({ "ev": "fallback", "code": "back" }));
+            }
+            Some(d)
+        } else {
+            if !self.on_default {
+                self.on_default = true;
+                emit(json!({ "ev": "fallback", "code": "default" }));
+            }
+            None
+        }
+    }
     fn ensure_caps(&mut self) -> Option<Arc<Caps>> {
         if self.caps.is_none() {
-            match self.be.probe(self.dev.as_deref()) {
+            // (after a device was lost: one try a second, not one every pass of the loop)
+            if let Some(t) = self.retry_at {
+                if t.elapsed() < Duration::from_secs(1) {
+                    return None;
+                }
+            }
+            let dev = self.out_dev();
+            match self.be.probe(dev.as_deref()) {
                 Ok(c) => {
                     emit(json!({ "ev": "caps", "name": c.name, "exclusive": !c.exclusive.is_empty(), "why": c.why_not,
                         "rates": c.exclusive.iter().map(|x| x.0).fold(Vec::<u32>::new(), |mut v, r| { if !v.contains(&r) { v.push(r) } v }),
                         "mix": c.mix.map(|m| m.rate) }));
                     self.caps = Some(Arc::new(c));
+                    self.retry_at = None;
                 }
                 Err(e) => {
-                    emit(json!({ "ev": "error", "code": "device", "msg": e }));
+                    if self.retry_at.is_none() {
+                        emit(json!({ "ev": "error", "code": "device", "msg": e }));
+                    }
+                    self.retry_at = Some(Instant::now());
                     return None;
                 }
             }
@@ -505,7 +538,7 @@ impl Player {
                 (q.info.clone(), Shared::frames(&q) as f64 >= need * plan.rate as f64 || q.eof)
             };
             let Some(info) = info else { return };
-            let Some(caps) = self.caps.clone() else { return };
+            let Some(caps) = self.ensure_caps() else { return };
             let f = choose(&caps, self.excl_now(), &info);
             if self.ofmt != Some(f) {
                 if !self.open(f) {
@@ -535,7 +568,8 @@ impl Player {
 
     fn open(&mut self, f: Format) -> bool {
         self.close();
-        match self.be.open(self.dev.as_deref(), &f) {
+        let dev = self.out_dev();
+        match self.be.open(dev.as_deref(), &f) {
             Ok(s) => {
                 #[cfg(windows)]
                 if !self.mmcss {
@@ -759,13 +793,22 @@ impl Player {
         }
     }
     fn lost(&mut self, e: String) {
-        emit(json!({ "ev": "error", "code": "device", "msg": e }));
-        self.out = None;
-        self.ofmt = None;
-        if self.st != St::Idle {
+        // a song playing goes on, from where it was, on whatever device is there now (the default, if the chosen one
+        // was unplugged): the device is opened again as a song starting would open it
+        let resume = matches!(self.st, St::Playing | St::Waiting) && self.cur.is_some();
+        emit(json!({ "ev": "lost", "msg": e, "resume": resume }));
+        if resume {
+            let rate = self.cur.as_ref().and_then(|c| c.sh.q.lock().unwrap().plan.map(|p| p.rate as f64)).unwrap_or(48000.0);
+            self.want = Some((self.head as f64 / rate, self.end.map(|x| x as f64 / rate)));
+            self.st = St::Waiting;
+            self.fade_in = true;
+        } else if self.st != St::Idle {
             self.st = St::Paused;
         }
+        self.out = None;
+        self.ofmt = None;
         self.caps = None;
+        self.retry_at = Some(Instant::now());
         emit(json!({ "ev": "device", "open": false }));
     }
 

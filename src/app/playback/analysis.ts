@@ -31,7 +31,7 @@ export function analyzeNow(id: string, decoded?: AudioBuffer | null, urgent = fa
       const opts = urgent ? { drums: false, timeoutMs: 20_000, urgent: true } : { timeoutMs: 60_000 + dur * 600 };
       // (the neural engine only, and it did not answer while the player waited: the song plays on a tempo grid, and is
       // analysed again in the background, with the time a background analysis has)
-      let a = await analyzeInBackground(buf, k => lib.set({ analysisNow: k }), opts).catch(e => { if (urgent && rhythmEngine() === 'neural') { upgrade.add(id); setTimeout(() => loop(), 30_000); } throw e; }).finally(() => lib.set({ analysisNow: null }));
+      lib.set({ analysisFor: id }); let a = await analyzeInBackground(buf, k => lib.set({ analysisNow: k, analysisFor: id }), opts).catch(e => { if (urgent && rhythmEngine() === 'neural') { upgrade.add(id); setTimeout(() => loop(), 30_000); } throw e; }).finally(() => lib.set({ analysisFor: null, analysisNow: null }));
       // (a reading that is not sound — rhythm/validate.ts — is never kept: the built-in analysis has one more go, and a
       // song it cannot read either is marked failed, with why, instead of being analysed again and again)
       let why = checkAnalysis(a, dur);
@@ -76,4 +76,7 @@ async function verifyCached(): Promise<boolean> {
   return bad;
 }
 export function startAnalysis() { if (!Lib) return; Lib.onWake(() => loop()); setTimeout(loop, 1500); }
-export function pauseAnalysis(on: boolean) { paused = on; if (!on) { wake?.(); wake = null; } }
+/** Hold the library's queue (between songs) for a reason — an export, or the effect lyrics on screen while a song plays
+ *  (the picture and the analysis would share the GPU: the picture stuttered) — until no reason is left. */
+const holds = new Set<string>();
+export function pauseAnalysis(on: boolean, why = 'export') { if (on) holds.add(why); else holds.delete(why); paused = holds.size > 0; if (!paused) { wake?.(); wake = null; } }

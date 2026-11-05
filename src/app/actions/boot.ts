@@ -8,6 +8,7 @@ import * as playerApi from '../playback/player';
 import { toggle, seekBy, resumeLast } from '../playback/player';
 import { startAnalysis, pauseAnalysis } from '../playback/analysis';
 import { applyEngineConfig } from '../engineConfig';
+import { loadSegmenter } from '../../engine';
 import * as layers from '../layers';
 import { back } from '../layers';
 import { applyUiFont } from '../uifont';
@@ -24,11 +25,19 @@ export function boot(ready: () => void): () => void {
     applyEngineConfig(st);
     lib.set({ ...(await l.get()), loaded: true }); ready();
     resumeLast().catch(() => {});   // (the last song, paused: the play page is ready before it is opened)
+    // what the first play would otherwise wait for, made in idle time after launch: the audio context and the word
+    // segmenter's dictionary
+    const idle = (f: () => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(f, { timeout: 3000 }) : setTimeout(f, 1500));
+    idle(() => { try { playerApi.warmAudio(); } catch { /* ignore */ } loadSegmenter().catch(() => {}); });
     startAnalysis();
   })();
+  // the library's analysis waits (between songs) while the effect lyrics are on screen and a song plays: the picture has
+  // the GPU to itself then; it goes on in the library, on the play page, or paused
+  const watch = () => pauseAnalysis(ui.get().layer === 'fx' && playerApi.player.get().playing, 'watching');
+  const offW = [ui.subscribe(watch), playerApi.player.subscribe(watch)];
   const offs = [l.onChanged(v => lib.set({ ...v, analysis: null })), l.onProgress(p => lib.set({ progress: p })), l.onAnalysis(a => lib.set({ analysis: a })),
     d.onWin(win => ui.set({ win }))];
-  return () => offs.forEach(f => f());
+  return () => { offs.forEach(f => f()); offW.forEach(f => f()); };
 }
 /** The keys: space plays, Esc steps back out of the effect view and the now-playing page, arrows seek there. */
 export function bindKeys(): () => void {

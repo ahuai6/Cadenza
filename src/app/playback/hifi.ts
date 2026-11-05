@@ -64,7 +64,7 @@ export const release = () => A && A.cmd({ cmd: 'release' });
 /** Stop and let go of the song (its decoder closed: the file is no longer held). */
 export const stop = () => A && A.cmd({ cmd: 'stop' });
 
-type Trouble = 'fallback' | 'device' | 'down';
+type Trouble = 'fallback' | 'device' | 'down' | 'lost' | 'toDefault' | 'back';
 const listeners = new Set<(k: Trouble) => void>();
 export const onTrouble = (f: (k: Trouble) => void) => { listeners.add(f); return () => { listeners.delete(f); }; };
 
@@ -84,7 +84,13 @@ if (A) {
       case 'caps': hifi.set({ caps: e, fallback: false }); break;
       case 'device': hifi.set({ device: e.open ? e : null }); break;
       case 'ready': { const w = waiting.get(e.seq); hifi.set({ track: { src: e.src, out: e.out } }); if (w) { waiting.delete(e.seq); w.res(e); } break; }
-      case 'fallback': hifi.set({ fallback: true }); listeners.forEach(f => f('fallback')); break;
+      // (the chosen device is not there: the default plays in its place, and the chosen one again once it is back)
+      case 'fallback': if (e.code === 'default' || e.code === 'back') { listeners.forEach(f => f(e.code === 'default' ? 'toDefault' : 'back')); break; }
+        hifi.set({ fallback: true }); listeners.forEach(f => f('fallback')); break;
+      // a device lost while a song played: the player opens one again and goes on from the same place — the clock waits
+      // where it is until it reports from there
+      case 'lost': if (e.resume) { C.want = output.clock(); C.base = C.want; C.at = performance.now(); C.run = false; C.hold = true; listeners.forEach(f => f('lost')); }
+        else listeners.forEach(f => f('device')); break;
       case 'error': {
         if (e.code === 'decode' && e.seq && waiting.has(e.seq)) { const w = waiting.get(e.seq)!; waiting.delete(e.seq); w.rej(new Error('hifi-decode')); break; }
         if (e.code === 'device') { hifi.set({ error: e.msg }); listeners.forEach(f => f('device')); }

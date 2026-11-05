@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react';
 import { tx } from '../../i18n';
 import { engine } from '../playback/stage';
+import { lastStart } from '../playback/trace';
+import { useStore } from '../state';
 import { GPU_STATS, PLAN_STATS } from '../../engine';
 import s from './PerfHud.module.css';
 
@@ -11,6 +13,7 @@ const LAYERS = ['backdrop', 'world', 'lyrics', 'post', 'screen'] as const;
 export function PerfHud() {
   const [, tick] = useState(0);
   useEffect(() => { const id = window.setInterval(() => tick(n => n + 1), 250); return () => clearInterval(id); }, []);
+  const st = useStore(lastStart, x => x.trace), stall = engine.stalls.filter(x => Date.now() - x.at < 120_000).reduce<(typeof engine.stalls)[number] | null>((m, x) => (!m || x.ms > m.ms ? x : m), null);
   const P = engine.perf, total = Math.max(0.01, LAYERS.reduce((a, k) => a + (P.layers[k] ?? 0), 0));
   const f1 = (v: number) => v.toFixed(1);
   return (
@@ -23,6 +26,12 @@ export function PerfHud() {
       <div className={s.row + ' ' + s.dim}><span>{tx('perf.gpu')}</span><span>{GPU_STATS.on ? tx('perf.gpuOn', { q: GPU_STATS.quads, d: GPU_STATS.draws }) : tx('perf.gpuOff')}</span></div>
       <div className={s.row + ' ' + s.dim}><span>{tx('perf.plan')}</span><span>{PLAN_STATS.worker || PLAN_STATS.here ? `${f1(PLAN_STATS.ms)} ms${PLAN_STATS.here ? ' · ' + tx('perf.planHere') : ''}` : '—'}</span></div>
       <div className={s.row + ' ' + s.dim}><span>{tx('perf.size')}</span><span>{P.w}×{P.h}</span></div>
+      {st && <>
+        <div className={s.row + ' ' + s.head + ' ' + s.sep}><span>{tx('perf.start')}{st.cached ? ' · ' + tx('perf.cached') : ''}</span><span>{st.total} ms</span></div>
+        {st.phases.map(([k, v]) => <div key={k} className={s.row + ' ' + s.dim}><span>{tx('perf.ph.' + k)}</span><span>{v}</span></div>)}
+      </>}
+      <div className={s.row + ' ' + s.head + ' ' + s.sep}><span>{tx('perf.stall')}</span><span>{stall ? stall.ms + ' ms' : '—'}</span></div>
+      {stall && <div className={s.dim}>{[stall.where === 'between' ? tx('perf.stallBetween') : tx('perf.stallFrame'), stall.glyphs ? tx('perf.stallGlyphs', { n: stall.glyphs }) : '', stall.resized ? tx('perf.stallResized') : '', stall.replanned ? tx('perf.stallReplan') : ''].filter(Boolean).join(' · ')}</div>}
     </div>
   );
 }
