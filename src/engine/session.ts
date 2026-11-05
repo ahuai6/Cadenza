@@ -2,7 +2,7 @@
    video — and its plan. Sessions are independent objects: the player and the workshop each keep their own, and the
    engine can render two at once (a song change crossfades them). Edits go through the session; it replans what they
    affect, in one place. */
-import { parse, parseRange } from '../lyrics/parse';
+import { parseLyrics as parse, parseRange } from '../lyrics/parse';
 import { respace, type Spacing } from '../lyrics/spacing';
 import { loadSegmenter, segmenterReady } from '../text/segment';
 import { buildLyrics, type LyricDoc } from '../lyrics/model';
@@ -35,6 +35,8 @@ export interface SessionSpec {
   aspect?: string;
   /** another song's look in place of this one's own (album play: the first song's), for as long as the session lives */
   look?: Partial<Style>;
+  /** an instrumental: no words at all in the picture (not even the title as a lyric) */
+  instrumental?: boolean;
 }
 export interface SessionEnv { lang: string; labels: { composer: string; lyricist: string; artist: string }; viewAspect: () => number; onAnalysis?: (a: RhythmAnalysis) => void }
 type Img = CanvasImageSource & { width: number; height: number };
@@ -93,7 +95,7 @@ export class Session {
     const fileEnd = buf ? (r.b != null ? Math.min(r.b, buf.duration) : buf.duration) : Infinity;
     const parsedLen = isFinite(fileEnd) ? fileEnd - r.a : Infinity;
     let parsed = parse(sp.lyrics || '', r.a, parsedLen); this.hasLyrics = parsed.lines.length > 0;
-    if (!this.hasLyrics) parsed = parse(titleCard(sp.song), 0);
+    if (!this.hasLyrics && !sp.instrumental) parsed = parse(titleCard(sp.song), 0);
     // the words: where the segmenter (or the listener) breaks each line — its dictionary waited for a moment the first
     // time (it loads once, in the background); without it the lines break by the browser's own word breaker
     const ts = performance.now(); if (this.hasLyrics) { if (!segmenterReady()) await Promise.race([loadSegmenter(), new Promise(r => setTimeout(r, 2500))]); parsed = respace(parsed, sp.spacing); }

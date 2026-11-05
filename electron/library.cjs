@@ -111,6 +111,7 @@ async function audioKey(p, size) {
     return h.digest('hex').slice(0, 20);
   } finally { await fh.close(); }
 }
+const ttmlSidecar = p => { const b = p.slice(0, -path.extname(p).length); for (const e of ['.ttml', '.TTML']) if (fs.existsSync(b + e)) return b + e; return null; };
 const sidecar = p => { const b = p.slice(0, -path.extname(p).length); for (const e of ['.lrc', '.LRC', '.Lrc']) if (fs.existsSync(b + e)) return b + e; return null; };
 
 /* ---------- covers: kept once per image, with a small copy for grids ---------- */
@@ -131,14 +132,24 @@ async function walk(dir, out, depth = 0) {
     if (e.isDirectory()) await walk(p, out, depth + 1);
     else { const x = path.extname(e.name).toLowerCase(); if (PLAYABLE.has(x) || PROTECTED.has(x)) out.push(p); } }
 }
-const TAGS_V = 2;       // what readTags reads; files read by an older version are read again once
+const TAGS_V = 3;       // what readTags reads; files read by an older version are read again once
+/** TTML lyrics in a file's tags: a field named TTML in whatever form the tag format writes it (a Vorbis comment TTML,
+ *  an ID3 TXXX:TTML, an MP4 ----:com.apple.iTunes:TTML), its text when it looks like TTML. */
+function ttmlOf(native) {
+  for (const list of Object.values(native || {})) for (const tag of list || []) {
+    const id = String(tag.id || '').toUpperCase(); if (!/(^|[:\s])TTML$/.test(id)) continue;
+    let v = tag.value; if (v && typeof v === 'object') v = v.text ?? v.value ?? (Array.isArray(v) ? v.join('') : ''); if (Buffer.isBuffer(v)) v = v.toString('utf8');
+    if (typeof v === 'string' && /<tt[\s>]/i.test(v)) return v;
+  }
+  return null;
+}
 async function readTags(p) {
   mm ||= await import('music-metadata');
   const r = await mm.parseFile(p, { duration: false, skipCovers: false });
   const c = r.common, f = r.format, pic = c.picture && c.picture[0];
   return { title: c.title || '', artist: c.artist || (c.artists || []).join(', '), album: c.album || '', albumArtist: c.albumartist || '', genre: c.genre || [],
     year: c.year || null, track: c.track && c.track.no || null, disc: c.disk && c.disk.no || null, duration: f.duration || 0, codec: f.codec || f.container || '',
-    bitrate: f.bitrate || 0, cover: pic ? pic.data : null, embedded: !!(c.lyrics && c.lyrics.length),
+    bitrate: f.bitrate || 0, cover: pic ? pic.data : null, embedded: !!(c.lyrics && c.lyrics.length), ttml: !!ttmlOf(r.native),
     // the sound itself (for the quality label) and the credits (for the ending card)
     sampleRate: f.sampleRate || 0, bits: f.bitsPerSample || 0, lossless: !!f.lossless, composer: (c.composer || []).join(', '), lyricist: (c.lyricist || []).join(', '), tv: TAGS_V };
 }
@@ -238,6 +249,12 @@ async function setSong(id, data, fromDialog) {
 /* ---------- lyrics: the .lrc beside the audio file, or the lyrics embedded in it ---------- */
 async function readLyrics(id) {
   const t = db.tracks[id]; if (!t) return null; const sc = sidecar(t.path);
+  // TTML first — a .ttml beside the file, or a TTML field in its tags — unless the listener has edited the lyrics here
+  // since (their edit is kept as LRC and read from then on)
+  if (!(db.overrides[id] && db.overrides[id].preferLrc)) {
+    const st = ttmlSidecar(t.path); if (st) { const b = await fsp.readFile(st); return { source: 'ttml', text: decodeText(b) }; }
+    if (t.ttml) { try { mm ||= await import('music-metadata'); const r = await mm.parseFile(t.path, { skipCovers: true }); const x = ttmlOf(r.native); if (x) return { source: 'ttml', text: x }; } catch (e) { /* unreadable tags */ } }
+  }
   if (sc) { const b = await fsp.readFile(sc); return { source: 'lrc', text: decodeText(b) }; }
   if (t.embedded) { try { mm ||= await import('music-metadata'); const r = await mm.parseFile(t.path, { skipCovers: true }); const L = (r.common.lyrics || [])[0];
     if (L) { const txt = L.syncText && L.syncText.length ? L.syncText.map(s => `[${lrcTime((s.timestamp || 0) / 1000)}]${s.text}`).join('\n') : (L.text || ''); if (txt.trim()) return { source: 'embedded', text: txt }; } } catch (e) { /* unreadable tags */ } }
@@ -247,6 +264,11 @@ async function readLyrics(id) {
  *  beside it. A .lrc already there is kept in step either way (it is read first). Returns how it went. */
 async function writeLyrics(id, text, target = 'lrc') {
   const t = db.tracks[id]; if (!t || t.protected) return { ok: false, why: 'protected' };
+  // TTML: kept as TTML, beside the file (and read first again); other lyrics on a song that has TTML: the listener's own
+  // edit, read from then on in place of the TTML
+  const o = db.overrides[id] || {};
+  if (target === 'ttml') { const b = t.path.slice(0, -path.extname(t.path).length); await fsp.writeFile(ttmlSidecar(t.path) || b + '.ttml', String(text), 'utf8'); if (o.preferLrc) { delete o.preferLrc; db.overrides[id] = o; save(); } changed(); return { ok: true, target: 'ttml' }; }
+  if ((t.ttml || ttmlSidecar(t.path)) && !o.preferLrc) { db.overrides[id] = { ...o, preferLrc: true }; save(); }
   const crlf = String(text).replace(/\r?\n/g, '\r\n'), sc = sidecar(t.path);
   if (target === 'tag') {
     const why = await writeTagLyrics(t.path, String(text).replace(/\r\n/g, '\n'));

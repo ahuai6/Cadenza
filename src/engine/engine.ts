@@ -18,7 +18,7 @@ import { VideoSource, MvSource } from './media';
 import { Handoff, type HandoffSpec, type WinRect } from './handoff';
 import type { Session } from './session';
 import { ssDown, ssFactor } from './ssaa';
-import { prewarmGlyphs, prewarmSharp, STATS as GLYPHS } from '../render/glyphs';
+import { prewarmGlyphs, prewarmSharp, withMakeBudget, STATS as GLYPHS } from '../render/glyphs';
 import { GPU_STATS } from '../render/lyrics';
 import { EM } from '../text/metrics';
 
@@ -54,6 +54,10 @@ export class Engine extends Emitter<EngineEvents> {
   mvLook: MvLook = { ...MV_LOOK };
   private t = 0; private playing = false; private scrub = false; private lastDraw = 0; private dirty = true;
   private pscale = 1; private ema = 0; private fast = 0; private scaleAt = 0;
+  /** The display's own frame interval (the steadiest second of animation frames seen), and the last second's: a frame
+   *  rate under the display's with little work on the page is the graphics card falling behind — the picture is drawn
+   *  smaller then too, not only when the page's own work is slow. */
+  private refresh = Infinity; private ivs: number[] = []; private ivMed = 0; private prevRaf = 0;
   private scaleJob: { to: number; i: number; s: Session } | null = null;
   /** Go to another resolution: the glyphs the coming seconds need at its size made first, a slice at a time in idle
    *  time, then the switch in one frame. */
@@ -62,12 +66,16 @@ export class Engine extends Emitter<EngineEvents> {
     const step = (dl?: { timeRemaining(): number }) => {
       const j = this.scaleJob; if (!j || j.s !== this.session || !this.playing) { this.scaleJob = null; return; }
       const px = Math.round(this.box.h * this.baseDpr() * j.to) / j.s.plan.H, AHEAD = [0, 0.3, 0.6, 1, 1.5, 2.2];
-      const t0 = performance.now(); while (j.i < AHEAD.length && (dl ? dl.timeRemaining() > 4 : performance.now() - t0 < 6)) { try { this.lookAhead(j.s, this.t + AHEAD[j.i], px); } catch { /* ignore */ } j.i++; }
+      // (each slice makes glyphs for a few ms at most; a moment ahead is done once none of its glyphs is missing)
+      const t0 = performance.now(); while (j.i < AHEAD.length) { const left = dl ? dl.timeRemaining() - 2 : 6 - (performance.now() - t0); if (left < 2) break;
+        let done = true; try { done = withMakeBudget(left, () => this.lookAhead(j.s, this.t + AHEAD[j.i], px)); } catch { /* ignore */ } if (done) j.i++; else break; }
       if (j.i < AHEAD.length) { idle(step); return; }
       this.scaleJob = null; this.pscale = j.to; this.scaleAt = performance.now(); this.applyScale(); this.ema = 0;
     };
     idle(step);
   }
+  /** Drawing every frame, the page's work small, yet a frame comes a fifth or more later than the display's: the GPU. */
+  private gpuBehind() { return this.render.fps === 0 && isFinite(this.refresh) && this.ivMed > this.refresh * 1.2 && this.ema < this.ivMed * 0.5; }
   /** Frames that took too long (over 150 ms), the latest few, with what happened in them: for the performance overlay. */
   readonly stalls: { ms: number; at: number; t: number; where: 'frame' | 'between'; glyphs: number; uploads: number; resized: boolean; replanned: boolean; view: string }[] = [];
   private mark = { t0: 0, miss: 0, ver: -1, resized: false, uploads: 0 };
@@ -202,6 +210,8 @@ export class Engine extends Emitter<EngineEvents> {
   private frame(now: number) {
     this.raf = requestAnimationFrame(n => this.frame(n));
     const t0 = performance.now(), s = this.session;
+    if (this.prevRaf) { this.ivs.push(now - this.prevRaf); if (this.ivs.length >= 60) { const q = [...this.ivs].sort((a, b) => a - b); this.ivMed = q[30]; if (q[30] >= 4) this.refresh = Math.min(this.refresh, q[30]); this.ivs.length = 0; } }
+    this.prevRaf = now;
     // (a long wait since the last frame — work outside the frames held them up — is noted with what changed meanwhile)
     if (s && this.playing && this.view !== 'hidden' && this.mark.t0 && t0 - this.mark.t0 > 250) this.stall(t0 - this.mark.t0, 'between', s);
     if (!s) { if (this.dirty && this.view !== 'hidden') { this.dirty = false; this.g.setTransform(1, 0, 0, 1, 0, 0); this.g.clearRect(0, 0, this.canvas.width, this.canvas.height); } return; }
@@ -236,14 +246,15 @@ export class Engine extends Emitter<EngineEvents> {
       // (a change of resolution makes every glyph of the picture anew at the new size — in one frame, it was a stall of a
       // second with the canvas cleared: the new size's glyphs are made ahead in idle time, then it is switched in one
       // frame; and after a switch the resolution rests for a while, so it never goes up and down)
-      else if (this.playing && this.ema > 22 && this.pscale > 1 / this.baseDpr() + 1e-3 && now - this.scaleAt > 6000) this.toScale(s, Math.max(1 / this.baseDpr(), this.pscale - 0.25));
-      else if (this.playing && this.ema < 9 && this.pscale < 1 && now - this.scaleAt > 12000) { if (++this.fast > 240) { this.fast = 0; this.toScale(s, Math.min(1, this.pscale + 0.25)); } } else this.fast = 0; }
+      else if (this.playing && (this.ema > 22 || this.gpuBehind()) && this.pscale > 1 / this.baseDpr() + 1e-3 && now - this.scaleAt > 6000) this.toScale(s, Math.max(1 / this.baseDpr(), this.pscale - 0.25));
+      else if (this.playing && this.ema < 9 && this.ivMed <= this.refresh * 1.05 && this.pscale < 1 && now - this.scaleAt > 12000) { if (++this.fast > 240) { this.fast = 0; this.toScale(s, Math.min(1, this.pscale + 0.25)); } } else this.fast = 0; }
     // before each blur transition, whatever the frame's spare time: the picture after the cut is drawn once ahead into a
     // tiny canvas (its words' glyphs made then, not in the frame where the blur clears and they first show)
     if (vis && this.view === 'effect' && this.playing) for (const P of s.plan.passages) { if (this.t < P.t - P.inn - 0.8 || this.t > P.t - P.inn || this.warmedPass.has(P)) continue;
-      this.warmedPass.add(P); try { this.lookAhead(s, P.t + 0.02); this.lookAhead(s, P.t + P.out); } catch { /* ignore */ } }
+      // (a few ms a frame until all of it is made: never one long frame of new glyphs)
+      try { if (withMakeBudget(6, () => { this.lookAhead(s, P.t + 0.02); this.lookAhead(s, P.t + P.out); })) this.warmedPass.add(P); } catch { this.warmedPass.add(P); } break; }
     // look ahead: draw ~0.6 s ahead into a tiny canvas when the frame had time to spare (fills the glyph caches)
-    if (vis && this.view === 'effect' && this.render.prerender && this.playing && performance.now() - t0 < 9) { try { this.lookAhead(s, this.t + 0.6); } catch { /* ignore */ } }
+    if (vis && this.view === 'effect' && this.render.prerender && this.playing && performance.now() - t0 < 9) { try { withMakeBudget(4, () => this.lookAhead(s, this.t + 0.6)); } catch { /* ignore */ } }
     { const d = performance.now() - t0; if (d > 150 && this.playing && vis) this.stall(d, 'frame', s); }
     this.mark = { t0: performance.now(), miss: GLYPHS.miss, ver: s.version, resized: false, uploads: 0 };
     this.emit('frame', now);

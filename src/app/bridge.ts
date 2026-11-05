@@ -57,7 +57,7 @@ export interface LibApi {
   /** everything Cadenza keeps — library, songs' data, caches, settings — removed, and the app restarted */ resetAll(): Promise<void>;
   nextAnalysis(version: number): Promise<{ id: string; only?: 'loudness' } | null>; prioritize(ids: string[]): Promise<void>;
   song(id: string): Promise<SongData | null>; setSong(id: string, d: SongData): Promise<boolean>;
-  lyrics(id: string): Promise<{ source: 'lrc' | 'embedded'; text: string } | null>; writeLyrics(id: string, t: string, target?: 'tag' | 'lrc'): Promise<{ ok: boolean; target?: 'tag' | 'lrc'; why?: string }>; importLyricsFile(): Promise<string | null>;
+  lyrics(id: string): Promise<{ source: 'lrc' | 'embedded' | 'ttml'; text: string } | null>; writeLyrics(id: string, t: string, target?: 'tag' | 'lrc' | 'ttml'): Promise<{ ok: boolean; target?: 'tag' | 'lrc'; why?: string }>; importLyricsFile(): Promise<string | null>;
   searchLyrics(q: object): Promise<LyricsFound[]>; searchMeta(q: object): Promise<MetaFound[]>; applyMeta(id: string, m: MetaFound): Promise<boolean>; clearMeta(id: string, part: 'tags' | 'cover' | 'all'): Promise<boolean>; instrumental(id: string, on: boolean): Promise<boolean>;
   editMeta(id: string, f: object): Promise<boolean>; searchCovers(q: object): Promise<CoverFound[]>; setCover(id: string, how: { url?: string; file?: boolean; reset?: boolean }): Promise<boolean>;
   bindMv(id: string): Promise<{ name: string; offset: number } | null>;

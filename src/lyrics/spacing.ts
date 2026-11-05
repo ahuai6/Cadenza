@@ -49,21 +49,25 @@ function regroup(words: RawWord[], want: string[]): RawWord[] {
   // where the new words begin, over the line's characters without spaces
   const starts = new Set<number>(); let n = 0; for (const w of want) { starts.add(n); n += w.length; }
   const timed = words.every(w => w.units && w.units.length);
-  const out: RawWord[] = []; let cur: RawWord | null = null, pos = 0;
-  const open = () => { cur = { text: '', ...(timed ? { units: [] as RawUnit[] } : {}) }; out.push(cur); return cur; };
+  const out: RawWord[] = []; let cur: RawWord | null = null, pos = 0, spaceBefore = false;
+  // (the lyrics' own spaces go along: after a new word that ends where one was, or inside one that runs across it)
+  const open = () => { if (cur && spaceBefore) cur.gap = true; spaceBefore = false; cur = { text: '', disp: '', ...(timed ? { units: [] as RawUnit[] } : {}) }; out.push(cur); return cur; };
+  const put = (c: string) => { if (spaceBefore) { cur!.disp += ' '; spaceBefore = false; } cur!.text += c; cur!.disp += c; };
   for (const w of words) {
     // (the new word this word's first character goes to: a new one where one begins here, else the one going on)
     const first = !cur || starts.has(pos) ? out.length : out.length - 1;
     // a new word begins only where a wanted one does and a unit (or, untimed, a character) begins — a timed unit is never
     // split, so a wanted break inside one is not taken (the words either side of it stay one)
-    if (timed) for (const u of w.units!) { const c = spacingKey(u.c); if (!cur || starts.has(pos)) open(); cur!.units!.push({ ...u, sp: false }); cur!.text += c; pos += c.length; }
-    else for (const ch of spacingKey(w.text)) { if (!cur || starts.has(pos)) open(); cur!.text += ch; pos++; }
+    if (timed) for (const u of w.units!) { const c = spacingKey(u.c); if (!cur || starts.has(pos)) open(); cur!.units!.push({ ...u, sp: false }); put(c); pos += c.length; }
+    else for (const ch of spacingKey(w.text)) { if (!cur || starts.has(pos)) open(); put(ch); pos++; }
     // its chorus mark with its first character, its harmony with its last
     // (its time stays its own syllable's: a new word that begins earlier must not pull the chorus earlier with it)
     if (w.box && out[first]) out[first].box = true;
     if (w.mark && out[first]) { out[first].mark ??= w.mark; const mt = w.markT ?? w.units?.[0]?.t; if (mt != null && out[first].markT == null) out[first].markT = mt; }
     if (w.harm && cur) (cur as RawWord).harm = w.harm;
+    if (w.gap) spaceBefore = true;
   }
+  for (const w of out) if (w.disp === w.text) delete w.disp;
   if (timed) for (const w of out) { const u = w.units![w.units!.length - 1]; if (u) u.sp = true; }
   return out.filter(w => w.text || w.harm);
 }

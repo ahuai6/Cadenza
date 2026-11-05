@@ -320,12 +320,13 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     await C(() => window.__cadenza.setSettings({ volBalance: true })); await W(200); const back = await C(() => window.__cadenza.engine.balance);
     ok('volume balance: off in the settings, the song plays at its own level; on again, the same gain', off === 1 && Math.abs(back - v.want) < 1e-6, JSON.stringify({ off, back })); }
 
-  /* ---------- an instrumental: marked from the song's menu, it shows its own line, in the record theme ---------- */
+  /* ---------- an instrumental: marked from the song's menu — no words in the picture, the play page says it is an
+     instrumental, the record theme by default ---------- */
   await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
   await win.getByRole('menuitem', { name: '標記為純音樂' }).click(); await W(600);
   await C(id => window.__cadenza.api.playIds([id], 0), ids['晨光']); await W(2500);
-  const ins = await C(() => { const s = window.__cadenza.engine.session; return { marked: window.__cadenza.lib.get().tracks.find(t => t.title === '晨光').instrumental, text: s.doc.lines.map(L => L.text).join('|'), bg: s.style.bgStyle, cut: s.style.cut }; });
-  ok('instrumental: marked from the menu, its own line instead of lyrics, the record theme by default', ins.marked === true && ins.text === '純音樂，請欣賞' && ins.bg === 'vinyl' && ins.cut === 'center', JSON.stringify(ins));
+  const ins = await C(() => { const s = window.__cadenza.engine.session; return { marked: window.__cadenza.lib.get().tracks.find(t => t.title === '晨光').instrumental, lines: s.doc.lines.length, np: [...document.querySelectorAll('[data-test=np] b')].map(e => e.textContent).find(t => t.includes('純音樂')) || '', bg: s.style.bgStyle, cut: s.style.cut }; });
+  ok('instrumental: marked from the menu, no words in the picture, the play page says 純音樂 請欣賞, the record theme by default', ins.marked === true && ins.lines === 0 && ins.np === '純音樂 請欣賞' && ins.bg === 'vinyl' && ins.cut === 'center', JSON.stringify(ins));
   await C(() => window.__cadenza.layers.openFx()); await W(2200); await shot('fx-instrumental'); await C(() => window.__cadenza.ui.set({ layer: 'none' })); await W(1500);
   await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' }); await W(300);
   await win.getByRole('menuitem', { name: '取消純音樂標記' }).click(); await W(2500);

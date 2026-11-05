@@ -25,6 +25,13 @@ export interface LayoutInput { doc: LyricDoc; map: RhythmMap; style: Style; meas
 /** At most this many lines up at once (the one sung and the two before it): an older one fades out as a new one comes
  *  in (plan.ts) — so a new line keeps clear only of those (and the space of the ones gone is free again). */
 export const PAGE_LINES = 3;
+/** What the page's clearing counts: a line's words as the segmenter (and the singing) cut them, and its line break —
+ *  so a page of short lines holds more of them than a page of long ones. */
+export const pageUnits = (P: { words: unknown[] }) => P.words.length + 1;
+/** As many as about three lines of three words: the most a page holds up at once (plan.ts). */
+export const PAGE_UNITS = 12;
+/** As many as about five such lines: from here a crowding page takes a quick clear. */
+export const CROWD_UNITS = 20;
 export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passage[]; dmin: number; /** clears without a blur (plan.ts applySweeps) */ sweeps: { t: number; line: number }[];
   /** lines that leave at a set time of their own, fading over `inn` (the centred stage's groups of three) */ leaves?: { line: number; t: number; inn: number }[] }
 
@@ -77,9 +84,11 @@ export function layout(inp: LayoutInput): LayoutResult {
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
       // words sung as one quick run (one gesture) share one size and one entrance, so they read as one beat, not a stutter
       const fused: boolean = !!prev && prev.group === Wd.group; if (fused) s0 = prev!.s0;
-      const tinV = st.tin || 'mix', tin: string = fused ? prev!.tin : tinV === 'mix' ? TIN_MIX[Math.floor(rnd(L.i * 13.7 + k * 7.1 + 2) * TIN_MIX.length)] : tinV, s = s0 * T;
+      const tinV = st.tin || 'mix', tin: string = fused ? prev!.tin : tinV === 'mix' ? TIN_MIX[Math.floor(rnd(L.i * 13.7 + k * 7.1 + 2) * TIN_MIX.length)] : tinV, s = (Wd.lift ? Math.max(s0, ...P.words.map(Q => Q.s / T)) * Wd.lift.scale : s0) * T;   // (a word set apart by a rule — lyrics/rules.ts: bigger than the line's words before it)
       // (a type that brings the line in whole: every word with the first)
-      const show: number = LT.together && P.words.length ? P.words[0].show : fused ? prev!.show : Wd.t - ANTIC(st);
+      // (a line timed only as a whole is shown as a whole: its words come in with its first — only the camera still
+      // goes along it at the words' estimated moments)
+      const show: number = (LT.together || !Wd.timed) && P.words.length ? P.words[0].show : fused ? prev!.show : Wd.t - ANTIC(st);
       prev = { group: Wd.group, s0, tin, show };
       const pw: PWord = { w: Wd, line: P, k, x: 0, y: 0, tilt: 0, d: 0, s, lw: mb.w0 * s, lh: mb.h0 * s, w0: mb.w0, h0: mb.h0, vert,
         units: us.map((u, ui) => ({ c: u.c, t: u.t, ox: mb.units[ui].cx * s, oy: mb.units[ui].cy * s, w: mb.units[ui].w * s, h: mb.units[ui].h * s, rot: mb.units[ui].rot })),
@@ -394,6 +403,8 @@ export function layout(inp: LayoutInput): LayoutResult {
       // still reads as one)
       if (k === 0) Lp.d = first ? 0 : DEP * LD * ((rnd(i * 7.9 + 2) - 0.5) * 600);
       S.d = first ? 0 : Lp.d + DEP * Math.sqrt(LD) * ((rnd(i * 13 + k * 3.3) - 0.5) * 260 + (k % 2 ? 80 : -60));
+      // (set apart by a rule: nearer than every word of its line before it — and so drawn over them)
+      if (S.w.lift) S.d = Math.min(S.d, ...Lp.words.slice(0, k).map(Q => Q.d)) - S.w.lift.near;
       if (!S.vert) prevH = h;
     });
     // a line that went back to the left: moved along so that its last character stands exactly over (under) the line
@@ -425,14 +436,14 @@ export function layout(inp: LayoutInput): LayoutResult {
     return !bad;
   };
   // (close up, a page holds fewer lines: more of the song is crossed by quick blur transitions)
-  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = 5, sweeps: { t: number; line: number }[] = []; let onPage = 0;
+  const startsAt = new Set(passages.map(p => p.line)), canClear = (st.trans || 'auto') !== 'off', CROWD = CROWD_UNITS, sweeps: { t: number; line: number }[] = []; let onPage = 0;
   lines.forEach((Lp, i) => {
     if (!Lp.words.length) return;
     // a crowding page: from a couple of lines before CROWD, a line with room for a quick clear clears the picture; from
     // CROWD on, even a short breath is taken, so a song sung without pauses still clears — and where there is no time
     // even for that, the lines out of sight are taken away unseen. (Whatever these choose, plan.ts holds the page to
     // PAGE_LINES lines up at once.)
-    if (i > 0 && !startsAt.has(i) && canClear && onPage >= CROWD - 2) { const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
+    if (i > 0 && !startsAt.has(i) && canClear && onPage >= CROWD - 8) { const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
       const nx = Lp.words[0].show;
       // (a crowded page takes even a short breath: the line before sung out, then a quick blur in and out)
       if (nx - endA >= (onPage >= CROWD ? 0.45 : 0.55)) { passages.push({ ...timePassage(endA, nx, map, true), line: i, quick: true, reason: 'crowd' }); startsAt.add(i); }
@@ -442,7 +453,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       // (a clear just made: a pause's own one a line or two later would only blur the page again at once)
       if (startsAt.has(i)) for (let j = i + 1; j <= i + 2; j++) { const q = passages.findIndex(x => x.line === j && x.reason === 'gap'); if (q >= 0) { passages.splice(q, 1); startsAt.delete(j); } } }
     if (i > 0 && startsAt.has(i)) { newPassage(); onPage = 0; }
-    onPage++;
+    onPage += pageUnits(Lp);
     const before = save();
     // a scene's own arrangement first (a dash runs on to the right); the ordinary tries after it
     Lp.scene = scenes[i];
@@ -455,7 +466,7 @@ export function layout(inp: LayoutInput): LayoutResult {
       const A = lines[i - 1], endA = Math.min(A.L.sung, A.L.end);
       if (canClear && roomForQuick(endA, Lp.words[0].show)) { restore(before);
         passages.push({ ...timePassage(endA, Lp.words[0].show, map, true), line: i, quick: true, reason: 'layout' }); startsAt.add(i);
-        newPassage(); onPage = 1; placeLine(Lp, i, null); return; }
+        newPassage(); onPage = pageUnits(Lp); placeLine(Lp, i, null); return; }
       orbitTry = ORBIT_TRIES; placeLine(Lp, i, null); orbitTry = null; return; }
     if (placeLine(Lp, i, null) || i === 0 || startsAt.has(i)) return;
     // (then below the line before, then — in a passage going rightward — on to the right)
@@ -471,7 +482,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     restore(before);
     const tm = timePassage(endA, Lp.words[0].show, map, true);
     passages.push({ ...tm, line: i, quick: true, reason: 'layout' }); startsAt.add(i);
-    newPassage(); onPage = 1; placeLine(Lp, i, null);
+    newPassage(); onPage = pageUnits(Lp); placeLine(Lp, i, null);
   });
   passages.sort((a, b) => a.t - b.t);
   assignSections(lines, passages);

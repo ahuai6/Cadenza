@@ -15,7 +15,10 @@ export interface RawUnit { t: number; c: string; sp: boolean; /** when it stops 
 export interface RawHarm { text: string; units?: RawUnit[] }
 export interface RawWord { text: string; units?: RawUnit[]; harm?: RawHarm; /** a chorus comes in on this word: 1 strongest .. 3 lighter */ mark?: number;
   /** where the mark was written (timed lines: its syllable's stamp) — kept when the words are regrouped */ markT?: number;
-  /** a lyric frame asked for on this word ('$1' before it) */ box?: boolean }
+  /** a lyric frame asked for on this word ('$1' before it) */ box?: boolean;
+  /** the lyrics have a space after it (what the play page shows; the words themselves may be cut elsewhere) */ gap?: boolean;
+  /** the word as shown, where the lyrics have a space inside it (a word joined across one) */ disp?: string;
+  /** set apart by a word rule (rules.ts) */ lift?: import('./rules').WordLift }
 export interface RawLine {
   t: number; text: string; subs: string[];
   /** the line's words (broken at spaces only), each with its harmony and chorus mark, if any */
@@ -28,6 +31,10 @@ export interface RawLine {
   stop?: number;
   /** spaced by the listener (spacing.ts): its words are theirs, never joined into phrases (phrasing.ts) */
   own?: boolean;
+  /** its readings (romanisation, kana), apart from its translations (subs): what the lyrics say are readings */
+  reads?: string[];
+  /** when the line ends, where the lyrics say (TTML): it stays up that long, over a line that starts before */
+  end?: number;
 }
 export interface Parsed { lines: RawLine[]; meta: Record<string, string>; /** chorus marks on a stamp of their own (no words) */ marks: { t: number; level: number }[];
   /** curtain openings asked for ('@N': curtain N closed at once at that stamp, then drawn open) */ curtains?: { t: number; kind: number }[] }
@@ -61,7 +68,7 @@ export const CUE_SYMBOLS: readonly { text: string; key: string; label: string }[
   { text: '@1', key: '5', label: 'lyr.cue.curtain1' },
 ];
 /** Words from a line's text: broken at spaces; '#N' before a word marks it; brackets make a harmony of the word before. */
-function plainWords(body: string): RawWord[] {
+export function plainWords(body: string): RawWord[] {
   const out: RawWord[] = []; let tok = '', harm = '', depth = 0, mark: number | undefined;
   const push = () => { let s = tok; tok = ''; let box = false;
     for (let again = true; again;) { again = false; const m = s.match(MARK); if (m) { mark = m[1] ? +m[1] : 2; s = s.slice(m[0].length); again = true; } if (s.startsWith(BOX)) { box = true; s = s.slice(1); again = true; } }
@@ -74,10 +81,11 @@ function plainWords(body: string): RawWord[] {
     if (depth) { if (CLOSE.test(ch)) { if (--depth === 0) addHarm(); else harm += ch; } else { if (OPEN.test(ch)) depth++; harm += ch; } continue; }
     if (OPEN.test(ch)) { if (tok) push(); depth = 1; continue; }
     if (CLOSE.test(ch)) continue;
-    if (/\s/.test(ch)) { if (tok) push(); continue; }
+    if (/\s/.test(ch)) { if (tok) push(); if (out.length) out[out.length - 1].gap = true; continue; }
     tok += ch;
   }
   if (tok) push(); if (depth) addHarm();
+  if (out.length) delete out[out.length - 1].gap;
   // a harmony before any word belongs to the first one; a line only in brackets is sung as itself
   const lead = out.findIndex(w => w.text); if (lead < 0) return out.flatMap(w => (w.harm ? plainWords(w.harm.text.replace(/[()（）]/g, ' ')) : []));
   if (lead > 0) { const pre = out.slice(0, lead).map(w => w.harm?.text).filter(Boolean).join(' '); out.splice(0, lead); if (pre) out[0].harm = { text: out[0].harm ? pre + ' ' + out[0].harm.text : pre }; }
@@ -107,10 +115,10 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
         const host = cur && cur.units?.length ? cur : words[words.length - 1] || (cur ||= { text: '', units: [] }), hu = (host.harm ||= { text: '', units: [] }).units!;
         if (lead && hu.length) hu[hu.length - 1].sp = true; hu.push(u);
       } else {
-        if (lead && cur && cur.units?.length) flush();
+        if (lead && cur && cur.units?.length) { cur.gap = true; flush(); }
         if (!cur) { cur = { text: '', units: [], ...(mark ? { mark } : {}) }; mark = undefined; }
         cur.units!.push(u); cur.text += txt; if (boxNext) { cur.box = true; boxNext = false; }
-        if (sp) flush();
+        if (sp) { cur.gap = true; flush(); }
       }
       close = null;
     } else {
@@ -119,7 +127,7 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
       const prev = cur && cur.units?.length ? cur.units : words[words.length - 1]?.units; if (prev?.length) { const u = prev[prev.length - 1]; if (tt > u.t) u.e = tt; }
       if (cur && /\s/.test(c)) flush(); close = tt; }
   }
-  flush();
+  flush(); if (words.length) delete words[words.length - 1].gap;
   for (const w of words) if (w.harm) w.harm.text = w.harm.units!.map(u => u.c + (u.sp ? ' ' : '')).join('').trim();
   return { words: words.filter(w => w.text || w.harm).map(w => (w.text ? w : { text: w.harm!.text, units: w.harm!.units })), close };
 }
@@ -168,3 +176,7 @@ export function parse(src: string, off = 0, len = Infinity): Parsed {
   lines.forEach((L, i) => { const nx = lines[i + 1] ? lines[i + 1].t : Infinity, b = br.find(x => x > L.t + 0.05 && x < nx + 0.01); if (b != null) L.stop = b; });
   return { lines, meta, marks: marks.filter(m => m.t > -0.05 && m.t < len).sort((a, b) => a.t - b.t), curtains: curtains.filter(c => c.t > -0.05 && c.t < len).sort((a, b) => a.t - b.t) };
 }
+
+/** Lyrics in either format: TTML when the text is TTML, else LRC (or plain lines). */
+import { isTtml, parseTtml } from './ttml';
+export function parseLyrics(src: string, off = 0, len = Infinity): Parsed { return isTtml(src) ? parseTtml(src, off, len) : parse(src, off, len); }

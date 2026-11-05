@@ -23,7 +23,7 @@ export function Stage() {
 }
 
 export function NowPlaying() {
-  const album = useStore(player, x => !!x.album), dir = useStore(player, x => x.dir), shownId = useStore(player, x => x.shownId), hasLyrics = useStore(player, x => x.hasLyrics), session = useStore(player, x => x.session);
+  const album = useStore(player, x => !!x.album), dir = useStore(player, x => x.dir), shownId = useStore(player, x => x.shownId), hasLyrics = useStore(player, x => x.hasLyrics), session = useStore(player, x => x.session), instr = useStore(lib, () => !!trackOf(shownId)?.instrumental);
   useStore(lib, x => x.tracks);
   const t = trackOf(shownId);
   const amb = useRef<HTMLDivElement>(null), root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null);
@@ -86,7 +86,7 @@ export function NowPlaying() {
         <div className={s.right} ref={right}>
           {/* a new song's lyrics come in from the side the queue went (a replan of the same song: in place, at once) */}
           <div key={shownId || ''} className={s.swapIn} style={{ ['--sd' as string]: dir }}>
-            {hasLyrics && session ? <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} /> : <div className={s.fade}><NoLyrics /></div>}
+            {instr ? <div className={s.fade}><Instrumental /></div> : hasLyrics && session ? <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} /> : <div className={s.fade}><NoLyrics /></div>}
           </div>
         </div>
       </div>
@@ -94,6 +94,8 @@ export function NowPlaying() {
     </>
   );
 }
+/** A song marked as an instrumental: this, in place of lyrics. */
+function Instrumental() { return <div className={s.none}><Icon n="note" size={30} /><b>{tx('s.instr.text')}</b></div>; }
 function NoLyrics() { return <div className={s.none}><Icon n="lyrics" size={30} /><b>{tx('s.noLyrics')}</b><p>{tx('s.noLyricsHelp')}</p></div>; }
 
 /* ---------- lyrics ----------
@@ -125,7 +127,9 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   // when each line becomes the current one: as it starts — or, as Apple Music does, half a beat early when the line
   // before is sung well before it (a breath of a beat or more): the page is already there when the voice comes in
   const starts = useMemo(() => { const map = engine.session?.map; return lines.map((L, i) => { const P = lines[i - 1], bl = map ? map.beatLen(L.t) : 0.5;
-    return P && L.t - Math.min(P.sung, P.end) >= bl ? L.t - bl / 2 : L.t - 0.15; }); }, [lines]);
+    // (a line that starts while the one before is still sounding, by the lyrics' own end, becomes current once that ends)
+    const lastW = P?.words.at(-1), held = lastW && lastW.endGiven && lastW.end > L.t ? lastW.end : -Infinity;
+    return Math.max(held, P && L.t - Math.min(P.sung, P.end) >= bl ? L.t - bl / 2 : L.t - 0.15); }); }, [lines]);
   const findLine = (t: number) => { let lo = 0, hi = lines.length - 1, r = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (starts[m] <= t) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
   const step = (now: number) => {
     const S = st.current, dt = Math.min(0.05, Math.max(0.001, (now - S.last) / 1000)); S.last = now; let moving = false;
@@ -157,17 +161,21 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     S.ls = lineEls.current.map(el => el ? { el, y: 0, v: 0, ty: 0, at: 0, next: 0 } : null);
   };
   useLayoutEffect(() => {
-    const S = st.current; measure(); const i = Math.max(0, findLine(engine.time)); S.cur = i; mark(i); aim(i, false, true);
+    // (before the first line: none is current — the first is not lit before it is sung)
+    const S = st.current; measure(); const i = findLine(engine.time); S.cur = i; mark(i); aim(i, false, true);
     const ro = new ResizeObserver(() => { const keep = S.ls; measure(); S.ls.forEach((w, i) => { const o = keep[i]; if (w && o) { w.y = o.y; w.v = o.v; } }); aim(S.cur, false, true); });
     if (box.current) ro.observe(box.current);
     return () => { cancelAnimationFrame(S.raf); S.raf = 0; ro.disconnect(); };
   }, [lines, view.size, view.subs]);   // (a new size or the translations shown or not: the lines are measured again)
   useEffect(() => {
     if (!live) return;
-    const S = st.current, i0 = Math.max(0, findLine(engine.time)); if (i0 !== S.cur) { S.cur = i0; mark(i0); aim(i0, false, true); }   // catch up after being away
+    const S = st.current, i0 = findLine(engine.time); if (i0 !== S.cur) { S.cur = i0; mark(i0); aim(i0, false, true); }   // catch up after being away
     return engine.on('tick', p => {
       const i = findLine(p.t);
-      if (i !== S.cur && i >= 0) { S.cur = i; mark(i); aim(i, !S.manual, false); }
+      if (i !== S.cur) { S.cur = i; mark(i); aim(i, !S.manual, false); }
+      // (the current line — and a line already begun under it, still waiting to be current: its words are sung meanwhile)
+      paint(i); if (lines[i + 1] && p.t >= lines[i + 1].t) paint(i + 1);
+      function paint(i: number) {
       const L = lines[i], el = lineEls.current[i]; if (!L || !el) return;
       const ws = el.querySelectorAll<HTMLElement>('[data-w]'), lvl = p.rs ? p.rs.level : 0.5;
       // each word: its fill (how far it is sung), its glow (only once it is all but sung) and its own lift as it is sung
@@ -176,15 +184,17 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
           el.style.setProperty('--p', q.toFixed(3)); el.style.setProperty('--gl', (gl * gl * lvl).toFixed(3)); el.style.translate = `0 ${(-LIFT * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; };
         // a word drawn character by character (one that may wrap onto the next row): each character fills in its own
         // time, so a second row lights up only once it is sung
-        if (byUnit(w)) { const us = e.querySelectorAll<HTMLElement>('[data-u]'), n = w.units.length, span = Math.max(0.08, w.end - w.t);
+        if (byUnit(w) && L.kar) { const us = e.querySelectorAll<HTMLElement>('[data-u]'), n = w.units.length, span = Math.max(0.08, w.end - w.t);
           const at = (i: number) => w.units[i]?.t ?? w.t + span * 0.85 * i / n;
           us.forEach((u, i) => fill(u, at(i), i + 1 < n ? at(i + 1) : w.end)); }
-        else fill(e, w.t, w.end); });
+        // (a line timed only as a whole lights as a whole, at once)
+        else if (!L.kar) fill(e, L.t, L.t + 0.25); else fill(e, w.t, w.end); });
       // the harmonies: each from its own first sound to its last (at least as long as the word it goes with)
       const hs = el.querySelectorAll<HTMLElement>('[data-h]');
       L.words.filter(w => w.harm).forEach((w, k) => { const e = hs[k], H = w.harm!; if (!e) return; const t0 = isFinite(H.t) ? H.t : w.t, last = H.units[H.units.length - 1]?.t ?? t0;
         const t1 = Math.max(t0 + 0.3, last + 0.25, w.end), q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0)));
         e.style.setProperty('--p', q.toFixed(3)); e.style.translate = `0 ${(-LIFT * 0.6 * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; });
+      }
     });
   }, [lines, live]);
   const wheel = (e: React.WheelEvent) => { const S = st.current; S.manual -= e.deltaY; clearTimeout(S.mTm); aim(S.cur, false, false); if (box.current) box.current.dataset.manual = 'true';
@@ -193,9 +203,10 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     <div className={s.lyr + (compact ? ' ' + s.compact : '')} ref={box} onWheel={wheel} data-blur={view.blur} data-subs={view.subs} style={{ ['--np-fs' as string]: view.size, ...faceStyle } as React.CSSProperties}>
       {lines.map((L, i) => (
         <button key={i} type="button" data-test="line" className={s.line} ref={el => { lineEls.current[i] = el; }} onClick={() => { st.current.manual = 0; engine.seek(Math.max(0, L.t - 0.05)); if (!engine.isPlaying) engine.play(); }}>
-          {L.words.length ? L.words.map((w, k) => <Fragment key={k}>{byUnit(w) ? <span data-w data-u-w className={s.wu}>{w.units.map((u, i) => <span key={i} data-u className={s.w}>{u.c}</span>)}</span> : <span data-w className={s.w}>{w.text}{k < L.words.length - 1 && w.latin ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
+          {L.words.length ? L.words.map((w, k) => <Fragment key={k}>{byUnit(w) ? <span data-w data-u-w className={s.wu}>{w.units.map((u, i) => <span key={i} data-u className={s.w}>{u.c}</span>)}</span> : <span data-w className={s.w}>{w.disp ?? w.text}{k < L.words.length - 1 && (w.gap ?? (w.latin && L.words[k + 1].latin)) ? ' ' : ''}</span>}</Fragment>) : <span data-w className={s.w}>{L.text}</span>}
           {/* the harmonies, as Apple Music shows backing vocals: their own smaller line under the words, each lit as it is sung */}
           {L.words.some(w => w.harm) && <span className={s.harmRow}>{L.words.filter(w => w.harm).map((w, k, a) => <span key={k} data-h className={s.w}>{w.harm!.text}{k < a.length - 1 ? ' ' : ''}</span>)}</span>}
+          {(L.reads || []).map((x, k) => <small key={'r' + k} data-read>{x}</small>)}
           {L.subs.map((x, k) => <small key={k}>{x}</small>)}
         </button>
       ))}

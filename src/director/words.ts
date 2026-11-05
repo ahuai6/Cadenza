@@ -42,7 +42,9 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   const pastK = eSine(clamp((t - L.L.end) / (1.6 * c.tempo)));
   let o = 0, live = false, dimK = 0, pe = 1;
   const tin = S.tin, sp = TIN_SPEC[tin] || TIN_SPEC.blur, dur = Math.max(sp.min, c.enter * sp.dur * c.tempo);
-  const nextT = S.k + 1 < L.words.length ? L.words[S.k + 1].show : Infinity;
+  // (sung once the next word comes in — or, a line timed only as a whole, once the line is)
+  // (a word still sounding past the next one's start — its own end, as the lyrics give it — is sung until then)
+  const nextT = !S.w.timed ? L.L.sung : S.k + 1 < L.words.length ? Math.max(L.words[S.k + 1].show, S.w.endGiven ? S.w.end : -Infinity) : Infinity;
   if (lineOn && t >= S.show) {
     const p = eSine(clamp((t - S.show) / Math.max(0.14, c.enter * 1.2 * c.tempo)));
     pe = eOut(clamp((t - S.show) / dur));
@@ -98,7 +100,7 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
   if (ws.gapx) rx += ws.gapx * (ui - (n - 1) / 2);                 // (the spread exit: its characters apart, round the word's middle)
   if (c.float > 0) ry += Math.sin(t * 1.15 + ui * 0.7 + L.i) * c.float * 2.6;     // float: part of the rest pose
   let ua = 1, um = 1, dx = 0, dy = 0, ur = 0, uq = 1 - ws.pe, ghost = false, outline = 0;
-  if ((S.w.timed || S.w.paced) && u.t != null && ov === 0) {   // (a paced word: its characters at their estimated moments)
+  if (S.w.timed && u.t != null && ov === 0) {   // (characters lit one by one only where the lyrics time them)
     const lt = t - u.t;
     if (lt < 0) { if (c.future === 'hide' || trail) return null; ghost = true; uq = 0;
       // the ghost arrives with the word's entrance (as the word's own type would), then waits for its moment

@@ -19,9 +19,21 @@ const TOP = 256, LEVELS = 6, B0 = 1.1;          // level k: working size TOP / 2
 
 /** A fill lit from above (top, middle and bottom colours across the em), as the lyric pass draws its sharp glyphs. */
 export type InkGrad = [string, string, string];
+/* Making glyphs ahead (a look ahead, a resolution prepared) within a time budget: past its deadline a glyph not made yet
+   is skipped — drawn as nothing, in a pass nobody sees — and made by the next slice. A real frame has no deadline. */
+let DEADLINE = Infinity, SKIPPED = 0;
+const EMPTY: Bm = { bm: makeCanvas(1, 1) as HTMLCanvasElement, w: 1, h: 1, s: 0 };
+const late = () => { if (performance.now() <= DEADLINE) return false; SKIPPED++; return true; };
+/** Run fn (drawing a pass ahead) making glyphs for at most ms; true when it needed none it did not make. */
+export function withMakeBudget(ms: number, fn: () => void): boolean {
+  DEADLINE = performance.now() + ms; SKIPPED = 0;
+  try { fn(); } finally { DEADLINE = Infinity; }
+  return SKIPPED === 0;
+}
 function level(font: string, col: string, txt: string, k: number, grad?: InkGrad | null): Bm {
   const key = font + '|' + (grad ? grad.join('>') : col) + '|' + k + '|' + txt; let e = CACHE.get(key);
   if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
+  if (late()) return EMPTY;
   STATS.miss++; STATS.keys?.push(col + '|' + k + '|' + txt);
   const S = TOP >> k, q = S / EM; if (sg.font !== font) sg.font = font;
   const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(B0 * 3 + S * 0.12 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.35 + pad * 2);
@@ -93,6 +105,7 @@ const ladder = (G: number) => { const st = G > 400 || (ALL_BITMAP && G < LARGE) 
 export function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
   const S = ladder(G), key = 'S|' + font + '|' + paintKey(fill) + '|' + S + '|' + txt;
   let e = CACHE.get(key); if (e) { CACHE.delete(key); CACHE.set(key, e); return e; }
+  if (late()) return EMPTY;
   STATS.miss++; STATS.keys?.push('sharp|' + S + '|' + txt);
   const q = S / EM; if (sg.font !== font) sg.font = font;
   const tw = Math.max(S, sg.measureText(txt).width * q), pad = Math.ceil(S * 0.14 + 2), w = Math.ceil(tw + pad * 2), h = Math.ceil(S * 1.4 + pad * 2);

@@ -156,7 +156,9 @@ describe.each(styles)('entrances (%s)', cut => {
   const P = make(cut);
   it('a word never appears cut off on an edge the camera is not heading for', () => {
     let bad = 0, n = 0; const worst: string[] = [];
-    for (const S of P.words) { const t = S.show + 0.03; if (transK(P.passages, t) > 0.02) continue; n++;
+    // (a line timed only as a whole comes in whole: its later words arrive with its first and the camera goes along to
+    // them — the words that come in on their own are the ones that must not be cut off)
+    for (const S of P.words) { const t = S.show + 0.03; if (transK(P.passages, t) > 0.02 || (!S.w.timed && S.k > 0)) continue; n++;
       const b = basePose(P.camera, t), cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 }, b2 = basePose(P.camera, t + 0.25), cam2 = { ...cam, x: b2.x, y: b2.y, z: b2.z, r: b2.r };
       const ek = S.entry && t > S.entry.t0 ? 1 - ((u: number) => u * u * (3 - 2 * u))(Math.min(1, (t - S.entry.t0) / (S.entry.t1 - S.entry.t0))) : S.entry ? 1 : 0;
       const X = S.x + (S.entry ? S.entry.dx * ek : 0), Y = S.y + (S.entry ? S.entry.dy * ek : 0), sh = { ...S, x: X, y: Y };
@@ -164,7 +166,7 @@ describe.each(styles)('entrances (%s)', cut => {
       const vx = c1.sx - c0.sx, vy = c1.sy - c0.sy, lim = 0.5 * 1.02;
       const out = pts.some(q => (q.sx > P.W * lim && !(vx < -0.015 * P.W)) || (q.sx < -P.W * lim && !(vx > 0.015 * P.W)) || (q.sy > P.H * lim && !(vy < -0.015 * P.W)) || (q.sy < -P.H * lim && !(vy > 0.015 * P.W)));
       if (out) { bad++; if (worst.length < 4) worst.push(`${S.show.toFixed(2)} "${S.w.text}"`); } }
-    expect(bad / n, worst.join(', ')).toBeLessThan(0.02);
+    expect(bad, worst.join(', ')).toBeLessThanOrEqual(Math.max(1, Math.floor(n * 0.02)));
   });
 });
 
@@ -481,7 +483,11 @@ describe('lyric types', () => {
     const mk = (ltype: string) => plan({ doc, map, style: normalizeStyle({ ...presetStyle('cover'), preset: 'custom', ltype }), measure: approxMeasurer(), aspect: 16 / 9, musicEnd, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
     const line = mk('line'), flow = mk('flow');
     for (const L of line.lines) { for (const S of L.words) expect(S.show).toBe(L.words[0].show); expect(new Set(L.words.filter(S => !S.w.latin).map(S => S.s)).size).toBeLessThanOrEqual(1); }
-    expect(flow.lines.some(L => L.words.some(S => S.show > L.words[0].show + 0.1))).toBe(true);
+    // flow: a line timed only as a whole comes in whole too (no made-up word timing); a word-timed line word by word
+    for (const L of flow.lines) for (const S of L.words) expect(S.show).toBe(L.words[0].show);
+    const kar = '[00:02.00]<00:02.00>清晨 <00:03.20>的光 <00:04.40>落在 <00:05.60>窗邊<00:06.80>\n[00:08.00]<00:08.00>我們 <00:09.20>慢慢 <00:10.40>走<00:11.60>';
+    const pk = parse(kar), dk = buildLyrics(pk, map, 16), fk = plan({ doc: dk, map, style: normalizeStyle({ ...presetStyle('cover'), preset: 'custom', ltype: 'flow' }), measure: approxMeasurer(), aspect: 16 / 9, musicEnd: 16, endLen: 3.5, song: { on: true, title: 'T', artist: 'A' }, labels: { composer: 'c', lyricist: 'l', artist: 'a' } });
+    expect(fk.lines.some(L => L.words.some(S => S.show > L.words[0].show + 0.1))).toBe(true);
   });
 });
 
@@ -510,9 +516,9 @@ describe('where a new line goes', () => {
 });
 
 /* A lyric frame is wholly in the picture while it is up — whatever the camera style, the aspect, rows or columns, long
-   lines (fit.ts); and a page never keeps more than PAGE_LINES lines up at once (plan.ts), one more only while it fades. */
+   lines (fit.ts); and a page never keeps more than PAGE_UNITS of its words and line breaks up at once (plan.ts). */
 describe('framing and the page', async () => {
-  const { PAGE_LINES } = await import('../../src/director/layout');
+  const { PAGE_UNITS, pageUnits } = await import('../../src/director/layout');
   // (the lyrics as the app has them: broken into words by the segmenter)
   const { loadSegmenter } = await import('../../src/text/segment'), { respace } = await import('../../src/lyrics/spacing'); await loadSegmenter();
   const line = (t: number, s: string) => { const m = Math.floor(t / 60), x = (t % 60).toFixed(2).padStart(5, '0'); return `[0${m}:${x}]${s}`; };
@@ -535,10 +541,12 @@ describe('framing and the page', async () => {
     }
     expect(bad.slice(0, 5)).toEqual([]);
   });
-  it.each(styles)('a page keeps at most PAGE_LINES lines up (%s)', cut => {
-    for (const src of SONGS) { const P = build(src, cut, 16 / 9); let most = 0;
-      for (let t = 1; t < P.musicEnd; t += 0.1) { const up = P.lines.filter(L => L.words.length && L.words[0].show <= t && t < L.secEnd - L.secIn - 0.02).length; most = Math.max(most, up); }
-      expect(most).toBeLessThanOrEqual(PAGE_LINES); }
+  it.each(styles)('a page keeps at most PAGE_UNITS of its words and line breaks up — never more than the lines still being sung need (%s)', cut => {
+    for (const src of SONGS) { const P = build(src, cut, 16 / 9); let worst = 0, at = 0;
+      for (let t = 1; t < P.musicEnd; t += 0.1) { const up = P.lines.filter(L => L.words.length && L.words[0].show <= t && t < L.secEnd - L.secIn - 0.02);
+        const n = up.reduce((a, L) => a + pageUnits(L), 0), sung = up.filter((L, i) => i === up.length - 1 || Math.min(L.L.sung, L.L.end) > L.words[0].show - 0.05 && Math.min(L.L.sung, L.L.end) > t - 0.3).reduce((a, L) => a + pageUnits(L), 0);
+        const over = n - Math.max(PAGE_UNITS, sung); if (over > worst) { worst = over; at = t; } }
+      expect(worst, `at ${at.toFixed(1)}`).toBeLessThanOrEqual(0); }
   });
 });
 

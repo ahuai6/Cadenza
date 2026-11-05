@@ -104,10 +104,10 @@ export function captionLayout(f: Pick<RenderFrame, 'W' | 'H'>, subs: string[], b
 }
 export function drawCaptions(g: Ctx, f: RenderFrame, bottom: number) {
   if (f.cam.ov > 0 || !f.plan.hasSubs) return; const w = f.W, h = f.H, T = f.pal.text;
-  for (const P of f.plan.lines) { const L = P.L; if (!L.subs.length) continue;
+  for (const P of f.plan.lines) { const L = P.L, subs = L.reads?.length ? [...L.reads, ...L.subs] : L.subs; if (!subs.length) continue;
     const o = (f.t >= L.t ? clamp((f.t - L.t - 0.1) / 0.3) : 0) * (1 - clamp((f.t - L.end + 0.15) / 0.25)) * sstep(clamp((f.view.effect - 0.55) / 0.45)); if (o <= 0) continue;   // (in a hand-over: after the page's own lines have come down)
     const base = Math.min(h, w * 1.2); let y = bottom + (1 - o) * 8;
-    for (let k = L.subs.length - 1; k >= 0; k--) { const s = L.subs[k], lat = isLatin(s), sz = Math.max(lat ? 11 : 12, base * (lat ? 0.019 : 0.021)), ls = sz * (lat ? 0.28 : 0.24);
+    for (let k = subs.length - 1; k >= 0; k--) { const s = subs[k], lat = isLatin(s), sz = Math.max(lat ? 11 : 12, base * (lat ? 0.019 : 0.021)), ls = sz * (lat ? 0.28 : 0.24);
       const font = lat ? `600 ${sz}px ${captionStack(s)}` : `500 ${sz}px ${captionStack(s)}`, sp = capSprite(lat ? s.toLowerCase() : s, font, sz, ls, w * 0.92, rgba(T, 1), rgba(f.pal.bg, 0.95), f.px);
       g.save(); g.globalAlpha = o * (lat ? 0.75 : 0.9); g.drawImage(sp.cv, w / 2 - sp.w / 2, y - sp.base, sp.w, sp.h); g.restore(); y -= sz * 1.75; } }
 }

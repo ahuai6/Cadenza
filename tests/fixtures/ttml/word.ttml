@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Word" xml:lang="zh-Hant">
+<head><metadata><iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><translations><translation type="subtitle" xml:lang="en"><text for="L1">The light of morning</text></translation></translations></iTunesMetadata></metadata></head>
+<body><div><p begin="00:02.000" end="00:05.000" itunes:key="L1"><span begin="00:02.000" end="00:02.500">清晨</span><span begin="00:02.500" end="00:03.100">的</span> <span begin="00:03.300" end="00:04.400">光</span><span ttm:role="x-bg"><span begin="00:03.600" end="00:04.200">(啊</span><span begin="00:04.200" end="00:04.800">啊)</span></span></p>
+<p begin="00:05.500" end="00:08.000" itunes:key="L2"><span begin="00:05.500" end="00:06.000">Hello </span><span begin="00:06.000" end="00:06.600">world</span><span ttm:role="x-translation" xml:lang="zh">你好世界</span></p></div></body></tt>

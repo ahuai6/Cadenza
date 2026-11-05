@@ -89,8 +89,11 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       if (close && !F && !west) { const us = grp.flatMap(S => S.units), uh = us.map(u => u.h).sort((a, b) => a - b)[us.length >> 1] || B.h, uw = Math.max(...us.map(u => u.w), 1), uhm = Math.max(...us.map(u => u.h), 1);
         z = Math.min(H * 0.4 / uh * T, W * 0.5 / uw, H * 0.62 / uhm); }
       const last = grp[grp.length - 1], rd = P.rtl ? -1 : 1, dv = dirv(S0.ang);
+      // a word still sounding when the next one starts (its own end, as the lyrics give it, after the next one's start):
+      // the camera stays with it until it ends — the next word comes in and is sung as ever meanwhile
+      const pw = stops[stops.length - 1]?.words.at(-1), tStop = pw && pw.w.endGiven && pw.w.end > S0.w.t + 0.05 ? Math.min(pw.w.end, S0.w.t + 2) : S0.w.t;
       stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 6 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,
-        t: S0.w.t, arrive: 0, leave: 0, sungEnd: last.end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: S0.tilt }, dir: [dv[0] * rd, dv[1] * rd], drift: 0,
+        t: tStop, arrive: 0, leave: 0, sungEnd: last.end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: S0.tilt }, dir: [dv[0] * rd, dv[1] * rd], drift: 0,
         cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0, ...(west ? { hov: true } : {}) });
       k = j;
     }

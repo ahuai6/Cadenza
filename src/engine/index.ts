@@ -14,7 +14,8 @@ export { exportVideo, openFrameSource, estimate, exportSize, blobSink, type Expo
    The app imports only from here (and from core, theme and i18n): a rebuilt interface needs nothing else, and
    tests/unit/arch.test.ts keeps it so. */
 export { analyzeInBackground, analyzeHead, loudnessInBackground, RHYTHM_VERSION, isCurrent, checkAnalysis, balanceDb, rhythmEngine, neuralDrums, neuralStatus, neuralRecheck, type RhythmAnalysis, type RhythmEngine, type NativeRuntime } from '../rhythm';
-export { parse as parseLyrics, CUE_SYMBOLS } from '../lyrics/parse';
+export { parseLyrics, CUE_SYMBOLS } from '../lyrics/parse';
+export { isTtml, ttmlToLrc } from '../lyrics/ttml';
 export { autoSpacing, spacingKey, type Spacing } from '../lyrics/spacing';
 export { loadSegmenter } from '../text/segment';
 export type { Line as LyricLine } from '../lyrics/model';

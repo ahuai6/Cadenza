@@ -8,7 +8,7 @@
 // (card, now playing, effect lyrics) switches together, however fast the user skips (each request supersedes the last).
 import { createStore } from '../../core/emitter';
 import { Session, type AudioLike } from '../../engine';
-import { ensureFont, analyzeHead, RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, autoSpacing, spacingKey, type RhythmAnalysis, type Spacing } from '../../engine';
+import { ensureFont, analyzeHead, RHYTHM_VERSION, isCurrent, balanceDb, parseLyrics as parse, isTtml, spacingKey, type RhythmAnalysis, type Spacing } from '../../engine';
 import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
 import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge';
@@ -121,13 +121,13 @@ async function openSong(id: string, wantRoute: 'std' | 'hifi', ok: () => boolean
   const t = trackOf(id)!, instr = !!t.instrumental, album = player.get().album;
   // an instrumental: its own line in place of lyrics, and the record theme unless the song already has a look of its own.
   // In album play: no fade at the end (the audio is the album's own), only the small title, the first song's look
-  const open = (audio: AudioLike, analysis: RhythmAnalysis | null) => Session.open({ key: id, lyrics: instr ? instrumentalLyrics() : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '', album: !!album },
+  const open = (audio: AudioLike, analysis: RhythmAnalysis | null) => Session.open({ key: id, instrumental: instr, lyrics: instr ? '' : lyr?.text || '', style: song?.style, preset: instr ? 'vinyl' : undefined, song: { on: true, title: t.title, artist: t.artist || '', composer: t.composer || '', lyricist: t.lyricist || '', album: !!album },
     coverUrl: coverUrl(t.cover, true), audio, analysis, lshift: song?.lshift || 0, spacing: song?.spacing, fade: !album, aspect: fxAspect(), look: album?.look || undefined }, sessionEnv());
   let prep: Prep, s: Session, tso = performance.now();
   if (known && isCurrent(known)) {
     const early = open({ duration: known.duration, sampleRate: 48000, numberOfChannels: 2, length: Math.round(known.duration * 48000), load: () => decodeFile(id) }, known);
     [prep, s] = await Promise.all([prepP, early]); if (!ok()) return null;
-    tracePhase(tr, 'media', performance.now() - tm); tracePhase(tr, 'read', prep.ms?.read); tracePhase(tr, 'session', performance.now() - tso);
+    tracePhase(tr, 'media', performance.now() - tm); if (fresh) tracePhase(tr, 'read', prep.ms?.read); tracePhase(tr, 'session', performance.now() - tso);
     // the decoded audio in place of its stand-in: the same length, nothing to redo; another (a file changed since it was
     // analysed) builds the timing again
     if (prep.buffer) { if (Math.abs(prep.buffer.duration - known.duration) < 0.05) s.spec.audio = prep.buffer; else s.setAudio(prep.buffer, prep.analysis); }
@@ -250,8 +250,6 @@ export function applyBalance() {
 }
 // (the device answers whether it has a hardware volume: the balance goes where it can)
 hifi.subscribe((h, prev) => { if (h.hw?.supported !== prev.hw?.supported && player.get().route === 'hifi') applyBalance(); });
-/** What an instrumental shows instead of lyrics: one line, a moment in, for a few bars. */
-export const instrumentalLyrics = () => `[00:01.50]${tx('s.instr.text')}\n[00:10.00]`;
 /** Mark a song as an instrumental, or no longer. */
 export async function setInstrumental(id: string, on: boolean) {
   if (!Lib) return;
@@ -346,6 +344,8 @@ export function editSong(fn: (s: Session) => unknown) {
 export async function useLyrics(text: string) {
   const p = player.get(), s = p.session; if (!p.shownId || !s || !Lib) return false;
   s.setLyrics(text); await s.flush(); engine.invalidate();
+  // (TTML is kept as TTML — a .ttml beside the song; anything else as the setting says)
+  if (isTtml(text)) { player.set({ hasLyrics: s.hasLyrics, lyrics: { source: 'ttml', text }, rev: p.rev + 1 }); await Lib.writeLyrics(p.shownId, text, 'ttml'); return s.hasLyrics; }
   player.set({ hasLyrics: s.hasLyrics, lyrics: { source: settings.get().lyricsTarget === 'lrc' ? 'lrc' : 'embedded', text }, rev: p.rev + 1 });
   if (settings.get().lyricsTarget === 'lrc') await Lib.writeLyrics(p.shownId, text, 'lrc');
   else await writeIntoFile(p.shownId, text);
@@ -372,8 +372,12 @@ export const spacedLines = () => (player.get().session?.doc?.lines || []).filter
 export async function saveSpacing(edited: string[] | null) {
   const p = player.get(), s = p.session; if (!s) return;
   let sp: Spacing | undefined;
-  const auto = new Map((s.doc?.lines || []).filter(L => L.words.length && !L.own).map(L => { const t = L.words.map(w => w.text).join(' '); return [spacingKey(t), t]; }));
-  if (edited) { const o: Spacing = {}; for (const e of edited) { const t = e.trim().replace(/\s+/g, ' '); if (t && t !== auto.get(spacingKey(t)) && t !== autoSpacing(t)) o[spacingKey(t)] = t; } if (Object.keys(o).length) sp = o; }
+  // each line as it is shown now (the segmenter's words, joined into the phrases they are sung in — or the listener's own)
+  const shown = new Map((s.doc?.lines || []).filter(L => L.words.length).map(L => { const t = L.words.map(w => w.text).join(' '); return [spacingKey(t), { t, own: !!L.own }]; }));
+  // a line is kept as the listener's when it differs from what is shown, or was theirs already — compared with what is
+  // shown, never with the segmenter's own split: a phrase split back to the segmenter's words is an edit too (it used
+  // to be taken for no change, and the singing joined it again)
+  if (edited) { const o: Spacing = {}; for (const e of edited) { const t = e.trim().replace(/\s+/g, ' '), k = spacingKey(t), cur = shown.get(k); if (!t || !cur) continue; if (t !== cur.t || cur.own) o[k] = t; } if (Object.keys(o).length) sp = o; }
   s.setSpacing(sp); await s.flush(); engine.invalidate(); saveSong({ spacing: sp }); player.set({ rev: p.rev + 1 });
 }
 export const hasTimedLines = (text: string) => parse(text, 0).lines.length > 0 && /\[\d+:\d+/.test(text);
@@ -412,5 +416,5 @@ export async function unbindMv() {
 export async function songForWorkshop(t: Track) {
   const [prep, song, lyr] = await Promise.all([prepare(t.id, 'std'), Lib!.song(t.id).catch(() => null), Lib!.lyrics(t.id).catch(() => null)]);
   // (the workshop works on the whole reading)
-  return { buffer: prep.buffer, analysis: (prep.later && await prep.later) || prep.analysis, song, lyrics: t.instrumental ? instrumentalLyrics() : lyr?.text || '', name: t.file };
+  return { buffer: prep.buffer, analysis: (prep.later && await prep.later) || prep.analysis, song, lyrics: t.instrumental ? '' : lyr?.text || '', name: t.file };
 }

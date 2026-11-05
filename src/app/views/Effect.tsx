@@ -20,6 +20,7 @@ import { MvLook } from './Settings';
 import { setSettings } from '../actions/settings';
 import s from './Effect.module.css';
 import { PerfHud } from './PerfHud';
+import { isTtml, ttmlToLrc } from '../../engine';
 
 const IDLE_MS = 2600;
 export function EffectView() {
@@ -162,8 +163,9 @@ export function LyricsTab() {
   const [text, setText] = useState(() => (p.hasLyrics ? session.spec.lyrics : '') || ''), [msg, setMsg] = useState('');
   const [q, setQ] = useState({ title: t ? t.title : '', artist: t ? t.artist : '' }), [res, setRes] = useState<Awaited<ReturnType<NonNullable<typeof Lib>['searchLyrics']>> | null>(null);
   const [busy, setBusy] = useState(false), [pick, setPick] = useState<number | null>(null), ta = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { setText((player.get().hasLyrics ? player.get().session?.spec.lyrics : '') || ''); }, [p.shownId]);
-  const use = async (src: string) => { const ok = await useLyrics(src); setText(src); setMsg(tx(ok ? 's.lyr.saved' : 'load.none')); };
+  // (TTML lyrics are edited as LRC: saved, the song reads its LRC from then on)
+  useEffect(() => { const x = (player.get().hasLyrics ? player.get().session?.spec.lyrics : '') || ''; setText(isTtml(x) ? ttmlToLrc(x) : x); }, [p.shownId]);
+  const use = async (src: string) => { const ok = await useLyrics(src); setText(isTtml(src) ? ttmlToLrc(src) : src); setMsg(tx(ok ? 's.lyr.saved' : 'load.none')); };
   const search = async () => { setBusy(true); setRes(null); setPick(null); try { setRes(await Lib!.searchLyrics({ ...q, album: t?.album, duration: t?.duration })); } catch { setMsg(tx('s.netFail')); } setBusy(false); };
   const end = session.musicEnd;
   return (
@@ -175,7 +177,7 @@ export function LyricsTab() {
         <Row>
           <Button kind="primary" size="sm" onClick={() => use(hasTimedLines(text) ? text : spreadPlain(text, end))}>{tx('s.lyr.saveLrc')}</Button>
           <Dropdown className={s.target} label={tx('s.lyr.target')} value={target} onChange={v => setSettings({ lyricsTarget: v as 'tag' | 'lrc' })} options={[['tag', tx('s.lyr.target.tag')], ['lrc', tx('s.lyr.target.lrc')]]} />
-          <Button size="sm" onClick={async () => { const x = await Lib!.importLyricsFile(); if (x) use(/\[\d+:\d+/.test(x) ? x : spreadPlain(x, end)); }}>{tx('s.lyr.import')}</Button>
+          <Button size="sm" onClick={async () => { const x = await Lib!.importLyricsFile(); if (x) use(isTtml(x) || /\[\d+:\d+/.test(x) ? x : spreadPlain(x, end)); }}>{tx('s.lyr.import')}</Button>
         </Row>
         {msg && <Note>{msg}</Note>}
         <Slider label={tx('s.lyr.offset')} min={-1500} max={1500} step={10} value={session.spec.lshift || 0} format={v => `${v > 0 ? '+' : ''}${Math.round(v)}`} onCommit={v => editSong(x => x.setTiming({ lshift: v }))} />

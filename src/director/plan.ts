@@ -5,7 +5,7 @@ import type { Style } from '../theme/style';
 import { measureKey, type Measurer, type WordBox } from '../text/metrics';
 import type { ScenePlan } from './types';
 import { REF_H } from './types';
-import { layout, layoutUnits, assignSections, dropShortFrames, PAGE_LINES } from './layout';
+import { layout, layoutUnits, assignSections, dropShortFrames, pageUnits, PAGE_UNITS } from './layout';
 import { planCamera } from './camera';
 import { lyricType } from './lyrictypes';
 import { curtainDown } from './curtains';
@@ -58,7 +58,7 @@ export function plan(inp: PlanInput): ScenePlan {
   const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle, inp.doc.marks || []);
   const drawOrder = [...lay.words].sort((a, b) => a.order - b.order);
   const out: ScenePlan = { doc, map, style, W, H, dur: inp.musicEnd + inp.endLen, endLen: inp.endLen, musicEnd: inp.musicEnd,
-    lines: lay.lines, words: lay.words, drawOrder, passages, camera, cues, titles, dmin: lay.dmin, hasSubs: doc.lines.some(L => L.subs.length > 0) };
+    lines: lay.lines, words: lay.words, drawOrder, passages, camera, cues, titles, dmin: lay.dmin, hasSubs: doc.lines.some(L => !!L.reads?.length || L.subs.length > 0) };
   planEntries(out);
   pickEmphasis(lay.lines);
   return out;
@@ -120,17 +120,18 @@ function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam:
       P.secEnd = tv; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, tv) };
     }
   }
-  // the page's cap, whatever the camera does: as a line starts, at most PAGE_LINES lines of its page are up (it among
-  // them); the oldest beyond that go — at once where the camera does not see them, else fading out over half a second
+  // the page's cap, whatever the camera does: as a line starts, its page holds at most PAGE_UNITS of its words and line
+  // breaks (it among them); the oldest lines beyond that go — at once where the camera does not see them, else fading
+  // out over half a second
   for (let i = 0; i < lines.length; i++) {
     const B = lines[i]; if (!B.words.length) continue; const t = B.words[0].show;
     const up = lines.slice(0, i).filter(P => P.sec === B.sec && P.words.length && P.secEnd - P.secIn > t + 1e-3);
-    let extra = up.length + 1 - PAGE_LINES;
+    let extra = up.reduce((a, P) => a + pageUnits(P), 0) + pageUnits(B) - PAGE_UNITS;
     for (const P of up) { if (extra <= 0) break;
       if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue;                    // (still being sung: it stays)
       const fade = seen(P, t) ? 0.5 : 0.01;
       // (it starts to go now; one already ending sooner keeps its end, fading from now to it)
-      P.secEnd = Math.min(P.secEnd, t + fade); P.secIn = Math.max(0.01, P.secEnd - t); P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) }; extra--; }
+      P.secEnd = Math.min(P.secEnd, t + fade); P.secIn = Math.max(0.01, P.secEnd - t); P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) }; extra -= pageUnits(P); }
   }
 }
 /** A lit word now and then: one line in every three or four, one of its words — a word as the segmenter (or the

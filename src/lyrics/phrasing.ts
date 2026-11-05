@@ -60,7 +60,7 @@ function phraseLine(L: RawLine, t1: number, map: Grid): RawLine {
   const pace = iois.length ? iois[iois.length >> 1] : 0;
   /** May the line be cut between a and b (b the word after a)? */
   const cut = (a: RawWord, b: RawWord, len: number, k: number) => {
-    if (!CJ.test(a.text) || !CJ.test(b.text) || a.harm || b.mark) return true;   // (only CJ joins; a harmony stays with its word, a chorus mark starts its own)
+    if (!CJ.test(a.text) || !CJ.test(b.text) || a.harm || b.mark || a.lift || b.lift) return true;   // (only CJ joins; a harmony stays with its word, a chorus mark starts its own, a word set apart by a rule stays apart)
     if (a.text === b.text) return true;                                             // (a word sung again is each time a hit of its own: the roller's repeats)
     if (len + b.text.length > PHRASE_MAX) return true;
     if (!timed) return breaths ? breaths.has(k) : a.text.length > 1 && b.text.length > 1;   // (untimed: where it breathes — else a lone character joins its neighbour)
@@ -75,7 +75,7 @@ function phraseLine(L: RawLine, t1: number, map: Grid): RawLine {
     const b = ws[k];
     if (cut(ws[k - 1], b, cur.text.length, k)) { out.push(cur); cur = copy(b); continue; }
     // joined: one word, its units one run (the last of them ends the word)
-    cur.text += b.text; if (b.box) cur.box = true;
+    cur.disp = (cur.disp ?? cur.text) + (ws[k - 1].gap ? ' ' : '') + (b.disp ?? b.text); cur.text += b.text; if (cur.disp === cur.text) delete cur.disp; cur.gap = b.gap; if (!b.gap) delete cur.gap; if (b.box) cur.box = true;
     if (cur.units && b.units) { cur.units[cur.units.length - 1] = { ...cur.units[cur.units.length - 1], sp: false }; cur.units.push(...b.units.map(u => ({ ...u }))); }
     if (b.harm) cur.harm = b.harm;
   }
