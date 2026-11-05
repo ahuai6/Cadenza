@@ -15,6 +15,20 @@ export interface AudioLike { numberOfChannels: number; sampleRate: number; lengt
 let base: string | null = null, drumsOn = true;
 /** Where the model files are (a URL ending in '/'), or null to switch the engine off. */
 export function setModelBase(url: string | null) { if (url !== base) { base = url; status = null; } }
+/** The networks run natively instead (the desktop app's electron/infer.cjs: ONNX Runtime on the machine's own GPU): one
+ *  Beat This! window (1500 frames × 128 mel bins → beat and downbeat logits) and one HTDemucs segment (`segment` samples
+ *  a channel, 44.1 kHz stereo → the drum and the vocal stems) a call. Everything around the passes stays the worker's. */
+export interface NativeRuntime {
+  label: string; segment: number;
+  beat(spect: Float32Array): Promise<{ beat: Float32Array; downbeat: Float32Array }>;
+  separate(left: Float32Array, right: Float32Array): Promise<{ left: Float32Array; right: Float32Array }[]>;
+  /** can it run now (its models there) */ ready(): Promise<boolean>;
+}
+let nativeRt: NativeRuntime | null = null;
+/** The native runtime to use, or null for the WebGPU kernels. */
+export function setNativeRuntime(rt: NativeRuntime | null) { nativeRt = rt; status = null; }
+/** Ask again whether the engine can run here (its models downloaded since, its device changed). */
+export function neuralRecheck() { status = null; }
 /** Whether the drum stem is separated too (the heavier half: ~350 MB of GPU memory while it runs). */
 export function setNeuralDrums(on: boolean) { drumsOn = on; }
 export const neuralDrums = () => drumsOn;
@@ -27,7 +41,11 @@ function getWorker(): Worker {
   if (idle) { clearTimeout(idle); idle = null; }
   if (worker) return worker;
   const w = new GpuWorker();
-  w.onmessage = (ev: MessageEvent<{ id: number; progress?: number; result?: unknown; error?: string }>) => {
+  w.onmessage = (ev: MessageEvent<{ id: number; progress?: number; result?: unknown; error?: string; rpc?: number; op?: 'beat' | 'separate'; args?: Record<string, Float32Array> }>) => {
+    // (a pass the worker asks of the native runtime: answered to it as a message of its own)
+    if (ev.data.rpc != null) { const { rpc, op, args } = ev.data, rt = nativeRt;
+      const job = !rt ? Promise.reject(new Error('no native runtime')) : op === 'beat' ? rt.beat(args!.spect) : rt.separate(args!.left, args!.right);
+      job.then(result => w.postMessage({ rpc, result }), e => w.postMessage({ rpc, error: String((e as Error)?.message ?? e) })); return; }
     const p = pending.get(ev.data.id); if (!p) return;
     if (ev.data.progress != null) { p.prog?.(ev.data.progress); return; }
     pending.delete(ev.data.id); if (!pending.size) armIdle();
@@ -45,9 +63,11 @@ function call<T>(msg: object, transfer: Transferable[] = [], prog?: (k: number) 
 
 /** Can the engine run here: a model base, WebGPU with an adapter, and the Beat This! file reachable. Asked once a
  *  session (the machine does not change); `reason` says why not. */
-let status: Promise<{ ok: boolean; device?: string; reason?: string }> | null = null;
+let status: Promise<{ ok: boolean; device?: string; reason?: string; native?: boolean }> | null = null;
 export function neuralStatus() {
   return (status ??= (async () => {
+    // (natively: its models downloaded is all it needs)
+    if (nativeRt) { try { if (await nativeRt.ready()) return { ok: true, device: nativeRt.label, native: true }; } catch { /* the WebGPU kernels then */ } }
     if (!base) return { ok: false, reason: 'no models here' };
     if (typeof navigator === 'undefined' || !('gpu' in navigator)) return { ok: false, reason: 'no WebGPU' };
     try { const r = await fetch(new URL('beat_this-wgsl.bin', base).href, { method: 'HEAD' }); if (!r.ok) return { ok: false, reason: `model missing (${r.status})` }; }
@@ -93,13 +113,15 @@ function turn(urgent: boolean, again = false): Promise<() => void> {
 const noop = () => {};
 const PREEMPTED = 'preempted by the song about to play';
 export async function neuralRhythm(buf: AudioLike, progress?: (k: number) => void, opts: NeuralOptions = {}): Promise<NeuralRhythm | null> {
-  const st = await neuralStatus(); if (!st.ok || !base) return null;
+  const st = await neuralStatus(); if (!st.ok) return null;
+  const native = nativeRt && st.native ? { label: nativeRt.label, segment: nativeRt.segment } : undefined;
+  if (!native && !base) return null;
   for (let again = false; ; again = true) {
     const release = await turn(!!opts.urgent, again);
     let tm: ReturnType<typeof setTimeout> | null = null; const me = running!;
     try {
       const [left, right] = await at441(buf); if (me.stopped) throw new Error(PREEMPTED);
-      const run = call<NeuralRhythm>({ kind: 'analyse', base, left, right, drums: opts.drums ?? drumsOn }, [left.buffer, right.buffer], progress);
+      const run = call<NeuralRhythm>({ kind: 'analyse', base, left, right, drums: opts.drums ?? drumsOn, native }, [left.buffer, right.buffer], progress);
       const stop = new Promise<never>((_, rej) => { me.onStop = () => rej(new Error(PREEMPTED)); });
       const limit = opts.timeoutMs ? [new Promise<never>((_, rej) => { tm = setTimeout(() => rej(new Error(`no answer in ${opts.timeoutMs} ms`)), opts.timeoutMs); })] : [];
       return await Promise.race([run, stop, ...limit]);

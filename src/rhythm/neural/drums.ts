@@ -32,10 +32,11 @@ export function segmentWindow(segment = HTDEMUCS_SEGMENT): Float32Array {
   return w;
 }
 /** The stems of a stereo song at 44.1 kHz (as many as `separate` hands back per segment, in its order), each as mono;
- *  null as soon as a segment cannot be separated or `go` says no. */
+ *  null as soon as a segment cannot be separated or `go` says no. `segment`: the length the separating network takes
+ *  (the WebGPU HTDemucs' 3.9 s, the native graph's 7.8 s). */
 export async function separateStems(left: Float32Array, right: Float32Array, separate: (l: Float32Array, r: Float32Array) => Promise<{ left: Float32Array; right: Float32Array }[] | null>,
-  progress?: (k: number) => void, go: () => boolean = () => true): Promise<Float32Array[] | null> {
-  const seg = HTDEMUCS_SEGMENT, total = left.length, win = segmentWindow(seg), starts = segmentStarts(total, seg);
+  progress?: (k: number) => void, go: () => boolean = () => true, segment = HTDEMUCS_SEGMENT): Promise<Float32Array[] | null> {
+  const seg = segment, total = left.length, win = segmentWindow(seg), starts = segmentStarts(total, seg);
   const weight = new Float32Array(total), inL = new Float32Array(seg), inR = new Float32Array(seg); let out: Float32Array[] | null = null;
   for (let k = 0; k < starts.length; k++) {
     if (!go()) return null;

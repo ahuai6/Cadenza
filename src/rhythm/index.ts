@@ -6,7 +6,7 @@ export { Signals, CONE, type RhythmSample, type ConeTuning } from './signals';
 export { accentClock } from './accentclock';
 export { analyze } from './analyze';
 export { loudness, balanceDb, type Loudness } from './loudness';
-export { setModelBase, setNeuralDrums, neuralDrums, neuralStatus, type NeuralRhythm, type NeuralOptions } from './neural';
+export { setModelBase, setNeuralDrums, setNativeRuntime, neuralRecheck, neuralDrums, neuralStatus, type NeuralRhythm, type NeuralOptions, type NativeRuntime } from './neural';
 export const rhythmEngine = () => engineSetting;
 
 import type { RhythmAnalysis } from './types';

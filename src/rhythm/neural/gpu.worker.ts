@@ -18,12 +18,21 @@ import type { NeuralRhythm } from './types';
 
 type Req =
   | { id: number; kind: 'probe' }
-  | { id: number; kind: 'analyse'; base: string; left: Float32Array; right: Float32Array; drums: boolean }
+  | { id: number; kind: 'analyse'; base: string; left: Float32Array; right: Float32Array; drums: boolean; native?: { label: string; segment: number } }
   | { id: number; kind: 'dispose' };
 
 let device: GPUDevice | null = null, label = '', f16 = false, lost: string | null = null;
 let beatThis: BeatThisWgsl | null = null, demucs: HtdemucsWgsl | null = null, demucsIdle: ReturnType<typeof setTimeout> | null = null;
 const post = (m: unknown, t: Transferable[] = []) => (self as unknown as Worker).postMessage(m, t);
+/* The networks run natively (desktop: electron/infer.cjs, through the page — rhythm/neural/index.ts): each pass asked of
+   the page, answered as a message of its own. Everything around the passes (the mel spectrogram, the windows, the
+   segments, what is read from the answers) is this worker's either way. */
+let nextRpc = 1; const rpcs = new Map<number, { res: (v: any) => void; rej: (e: Error) => void }>();
+function native<T>(op: 'beat' | 'separate', args: Record<string, Float32Array>): Promise<T> {
+  const rpc = nextRpc++; return new Promise<T>((res, rej) => { rpcs.set(rpc, { res, rej }); post({ rpc, op, args }); });
+}
+/** A Beat This! window as the native graph takes it: 1500 frames, a shorter one padded after its end. */
+const window1500 = (data: Float32Array) => { if (data.length === 1500 * 128) return data; const w = new Float32Array(1500 * 128); w.set(data); return w; };
 
 async function openDevice(): Promise<GPUDevice> {
   if (lost) throw new Error(lost);
@@ -39,18 +48,22 @@ async function openDevice(): Promise<GPUDevice> {
 }
 
 async function analyse(r: Extract<Req, { kind: 'analyse' }>): Promise<NeuralRhythm> {
-  const dev = await openDevice(), t0 = performance.now(), prog = (k: number) => post({ id: r.id, progress: k });
+  const nat = r.native, t0 = performance.now(), prog = (k: number) => post({ id: r.id, progress: k });
+  // (natively, the GPU here is only wanted for the percussive energy — and done without where there is none)
+  const dev = nat ? await openDevice().catch(() => null) : await openDevice(), who = nat ? nat.label : label;
   // the beats: Beat This! over the 22.05 kHz mono mix, in 30 s chunks
-  if (!beatThis) { const { weights, manifest } = await loadModel<BeatThisWgslManifest>(r.base, 'beat_this'); beatThis = await BeatThisWgsl.create(dev, weights, manifest, { f16: f16 ? 'storage' : undefined }); }
+  if (!nat && !beatThis) { const { weights, manifest } = await loadModel<BeatThisWgslManifest>(r.base, 'beat_this'); beatThis = await BeatThisWgsl.create(dev!, weights, manifest, { f16: f16 ? 'storage' : undefined }); }
   const n = r.left.length, mix = new Float32Array(n); for (let i = 0; i < n; i++) mix[i] = (r.left[i] + r.right[i]) / 2;
   const mel = melSpectrogram(halve(mix)); prog(0.1);
   const chunks = splitForModel(mel), preds = [];
-  for (let k = 0; k < chunks.length; k++) { const c = chunks[k], out = await beatThis.run(c.data, { slice: 'auto' }); preds.push({ start: c.start, frames: c.frames, beat: out.beat.slice(), downbeat: out.downbeat.slice() }); prog(0.1 + 0.25 * (k + 1) / chunks.length); }
+  for (let k = 0; k < chunks.length; k++) { const c = chunks[k];
+    const out = nat ? await native<{ beat: Float32Array; downbeat: Float32Array }>('beat', { spect: window1500(c.data) }) : await beatThis!.run(c.data, { slice: 'auto' });
+    preds.push({ start: c.start, frames: c.frames, beat: out.beat.slice(0, c.frames), downbeat: out.downbeat.slice(0, c.frames) }); prog(0.1 + 0.25 * (k + 1) / chunks.length); }
   const track = aggregateChunks(preds, mel.frames), grid = beatsFromLogits(track.beat, track.downbeat);
-  let energy = null; try { energy = await runPercussiveEnergy(dev, mel.data, mel.frames); } catch (e) { console.warn('[neural] percussive energy failed', e); }
+  let energy = null; if (dev) try { energy = await runPercussiveEnergy(dev, mel.data, mel.frames); } catch (e) { console.warn('[neural] percussive energy failed', e); }
   const A = computeBeatAccents(mel, grid.beats, grid.downbeats, energy, track.beat);
   const tBeats = performance.now() - t0; prog(0.4);
-  console.info(`[neural] beats: ${formatBeatMeter(A.meter, A.pulse)} | ${label} | ${tBeats.toFixed(0)} ms`);
+  console.info(`[neural] beats: ${formatBeatMeter(A.meter, A.pulse)} | ${who} | ${tBeats.toFixed(0)} ms`);
   // the drums: HTDemucs' drum stem, segment by segment, then the hits off its spectrogram
   let drums: NeuralRhythm['drums'] = null, drumless = false, drumsRun = false, voice: NeuralRhythm['voice'] = null; const t1 = performance.now();
   if (r.drums) {
@@ -58,8 +71,11 @@ async function analyse(r: Extract<Req, { kind: 'analyse' }>): Promise<NeuralRhyt
       if (demucsIdle) { clearTimeout(demucsIdle); demucsIdle = null; }
       // (the drums and the voice: two iSTFTs of the four; f16 GEMMs where the device has them — Folia: the same drum
       // hits, a tenth faster)
-      if (!demucs) { const { weights, manifest } = await loadModel<HtdemucsWgslManifest>(r.base, 'htdemucs'); demucs = await HtdemucsWgsl.create(dev, weights, manifest, { sources: [0, 3], f16 }); }
-      const D = demucs, st = await separateStems(r.left, r.right, async (l, rr) => (await D.run(l, rr, { slice: 'auto' })).stems, k => prog(0.4 + 0.58 * k));
+      // (natively: a longer segment, the native graph's own — its drum and vocal stems handed back)
+      let st: Float32Array[] | null;
+      if (nat) st = await separateStems(r.left, r.right, (l, rr) => native<{ left: Float32Array; right: Float32Array }[]>('separate', { left: l, right: rr }), k => prog(0.4 + 0.58 * k), undefined, nat.segment);
+      else { if (!demucs) { const { weights, manifest } = await loadModel<HtdemucsWgslManifest>(r.base, 'htdemucs'); demucs = await HtdemucsWgsl.create(dev!, weights, manifest, { sources: [0, 3], f16 }); }
+        const D = demucs; st = await separateStems(r.left, r.right, async (l, rr) => (await D.run(l, rr, { slice: 'auto' })).stems, k => prog(0.4 + 0.58 * k)); }
       const stem = st?.[0];
       // the voice: where it sings (the lyrics are cut where it breathes)
       if (st?.[1]) { const v = voiceLevel(st[1], mix); voice = v ? { rate: VOICE_RATE, v } : null; console.info(`[neural] voice: ${v ? `${v.length} frames` : 'none'}`); }
@@ -71,15 +87,17 @@ async function analyse(r: Extract<Req, { kind: 'analyse' }>): Promise<NeuralRhyt
       }
     } catch (e) { console.warn('[neural] drum stem failed', e); }
     // (HTDemucs holds ~350 MB on the GPU: let go a minute after the last song)
-    demucsIdle = setTimeout(() => { demucs?.destroy(); demucs = null; demucsIdle = null; }, 60_000);
+    if (!nat) demucsIdle = setTimeout(() => { demucs?.destroy(); demucs = null; demucsIdle = null; }, 60_000);
   }
   prog(1);
-  return { model: `beat_this final0 · ${label}`, beats: grid.beats.map(t => +t.toFixed(4)), downbeats: grid.downbeats.map(t => +t.toFixed(4)),
+  return { model: `beat_this final0 · ${who}`, beats: grid.beats.map(t => +t.toFixed(4)), downbeats: grid.downbeats.map(t => +t.toFixed(4)),
     impact: A.impact, low: A.low, mid: A.mid, high: A.high, rhythmic: A.rhythmic, pulse: A.pulse, confidence: A.confidence, trackScale: A.trackScale,
     group: A.meter.group, usual: A.meter.usual, drums, drumless, drumsRun, voice, ms: { beats: Math.round(tBeats), drums: Math.round(performance.now() - t1) } };
 }
 
-self.onmessage = async (ev: MessageEvent<Req>) => {
+self.onmessage = async (ev: MessageEvent<Req | { rpc: number; result?: unknown; error?: string }>) => {
+  // (a native pass answered)
+  if ('rpc' in ev.data) { const p = rpcs.get(ev.data.rpc); if (!p) return; rpcs.delete(ev.data.rpc); if (ev.data.error != null) p.rej(new Error(ev.data.error)); else p.res(ev.data.result); return; }
   const r = ev.data;
   try {
     if (r.kind === 'probe') { await openDevice(); post({ id: r.id, result: label }); return; }

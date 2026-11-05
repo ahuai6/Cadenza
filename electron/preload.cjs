@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld('cadenzaLib', {
   bindMv: id => L('lib:bindMv', id),
   onChanged: on('lib:changed'), onProgress: on('lib:progress'), onAnalysis: on('lib:analysis'), onWake: on('lib:wake'),
 });
+// the rhythm engine's networks run natively (electron/infer.cjs): their state, the models' download, one network pass
+contextBridge.exposeInMainWorld('cadenzaInfer', {
+  status: () => L('infer:status'), download: () => L('infer:download'), onProgress: on('infer:progress'), run: (op, args) => L('infer:run', op, args),
+});
 contextBridge.exposeInMainWorld('cadenzaAudio', {
   state: () => L('audio:state'), cmd: o => L('audio:cmd', o), onEvent: on('audio:ev'),
 });

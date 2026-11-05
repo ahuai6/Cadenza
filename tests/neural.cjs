@@ -19,7 +19,19 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const p = await browser.newPage(), errs = [], logs = [];
   p.on('pageerror', e => errs.push(e.message)); p.on('console', m => { if (/\[neural\]/.test(m.text())) { logs.push(m.text()); console.log('  ' + m.text()); } });
   await p.exposeFunction('report', s => console.log('  … ' + s));
+  // NATIVE=<models dir>: the networks run by the desktop app's native runtime (electron/infer.cjs, ONNX Runtime on the
+  // CPU here) instead of the WebGPU kernels — the same song, the same checks
+  const NATIVE = process.env.NATIVE; let nat = null;
+  if (NATIVE) {
+    const ops = require('../electron/infer.cjs'), init = ops.init({ modelsDir: NATIVE, prefer: 'cpu' }); nat = { ms: { beat: [], separate: [] } };
+    const timed = (k, f) => async (...a) => { await init; const t = Date.now(), r = await f(...a); nat.ms[k].push(Date.now() - t); return r; };
+    await p.exposeFunction('nativeBeat', timed('beat', async spect => { const r = await ops.beat({ spect: Float32Array.from(spect) }); return { beat: Array.from(r.beat), downbeat: Array.from(r.downbeat) }; }));
+    await p.exposeFunction('nativeSeparate', timed('separate', async (l, r) => (await ops.separate({ left: Float32Array.from(l), right: Float32Array.from(r) })).map(s => ({ left: Array.from(s.left), right: Array.from(s.right) }))));
+  }
   await p.goto(url + '/harness.html'); await p.waitForFunction(() => window.H);
+  if (NATIVE) await p.evaluate(() => H.rhythm.setNativeRuntime({ label: 'native cpu', segment: 343980, ready: async () => true,
+    beat: async spect => { const r = await window.nativeBeat(Array.from(spect)); return { beat: Float32Array.from(r.beat), downbeat: Float32Array.from(r.downbeat) }; },
+    separate: async (l, r) => (await window.nativeSeparate(Array.from(l), Array.from(r))).map(s => ({ left: Float32Array.from(s.left), right: Float32Array.from(s.right) })) }));
   const r = await p.evaluate(async ([drumSecs, skipDrums]) => {
     const BPM = 128, B = 60 / BPM, SR = 44100, DUR = 46, ctx = new OfflineAudioContext(2, SR * DUR, SR), INTRO = 4 * 4 * B;
     const noise = ctx.createBuffer(1, SR, SR); { const d = noise.getChannelData(0); let s = 7; for (let i = 0; i < d.length; i++) { s = (s * 16807) % 2147483647; d[i] = s / 1073741823 - 1; } }
@@ -67,6 +79,9 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   }, [+(process.env.DRUM_SECS || 8), !!process.env.SKIP_DRUMS]);
   console.log(JSON.stringify(r)); for (const l of logs) console.log('  ' + l);
   ok('neural: the engine can run here (WebGPU, models)', r.st && r.st.ok, JSON.stringify(r.st));
+  if (NATIVE) { const avg = a => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
+    ok('native: the networks ran natively (not the WebGPU kernels)', r.st && r.st.native && nat.ms.beat.length > 0 && (process.env.SKIP_DRUMS || nat.ms.separate.length > 0),
+      `beat windows ${nat.ms.beat.length} (avg ${avg(nat.ms.beat)} ms), segments ${nat.ms.separate.length} (avg ${avg(nat.ms.separate)} ms, first ${nat.ms.separate[0]} ms with the model's loading)`); }
   if (r.st && r.st.ok) {
     ok('neural: the analysis comes from the neural engine, through the same interface', r.engine === 'neural' && r.version >= 3);
     ok('neural: the tempo is the score\'s (128 BPM, within 1)', Math.abs(r.bpm - 128) <= 1 && Math.abs(r.gap - 60 / 128) < 0.01, `${r.bpm} BPM, beat ${r.gap?.toFixed(4)} s`);

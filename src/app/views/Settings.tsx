@@ -2,12 +2,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { tx, LANGS, currentLang, words, type Lang } from '../../i18n';
 import { UI_FONTS, applyUiFont } from '../uifont';
-import { D, Lib, type Settings } from '../bridge';
+import { D, Lib, Infer, type Settings } from '../bridge';
 import { settings, lib, useStore } from '../state';
 import { Icon } from '../ui/icons';
 import { Button, Seg, Toggle, Note, Slider, Dropdown } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
-import { neuralStatus } from '../../engine';
+import { neuralStatus, neuralRecheck } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
 import { askConfirm } from './Modals';
 import s from './Settings.module.css';
@@ -89,19 +89,48 @@ function DataGroup() {
 }
 // the rhythm engine: the neural one (on the GPU, where it can run) or the built-in analysis; what runs it, or why not
 function RhythmGroup({ st }: { st: Settings }) {
-  const [ns, setNs] = useState<{ ok: boolean; device?: string; reason?: string } | null>(null), eng = st.rhythmEngine === 'dsp' || st.rhythmEngine === 'neural' ? st.rhythmEngine : 'auto', auto = eng !== 'dsp';
-  useEffect(() => { let on = true; if (auto) neuralStatus().then(v => on && setNs(v)); return () => { on = false; }; }, [auto]);
+  const [ns, setNs] = useState<{ ok: boolean; device?: string; reason?: string; native?: boolean } | null>(null), eng = st.rhythmEngine === 'dsp' || st.rhythmEngine === 'neural' ? st.rhythmEngine : 'auto', auto = eng !== 'dsp';
+  const [tick, setTick] = useState(0), recheck = () => { neuralRecheck(); setTick(t => t + 1); };
+  useEffect(() => { let on = true; if (auto) neuralStatus().then(v => on && setNs(v)); return () => { on = false; }; }, [auto, tick, st.rhythmRuntime, st.rhythmDevice]);
   return (
     <Group title={tx('s.set.rhythm')} help={tx('s.set.rhythmHelp')}>
       <Field label={tx('s.set.engine')}><Seg size="sm" fit value={eng} onChange={v => setSettings({ rhythmEngine: v })} options={[['auto', tx('s.set.engine.auto')], ['neural', tx('s.set.engine.neural')], ['dsp', tx('s.set.engine.dsp')]]} /></Field>
       {auto && <Toggle label={tx('s.set.drums')} help={tx('s.set.drumsHelp')} on={st.rhythmDrums !== false} set={v => setSettings({ rhythmDrums: v })} />}
-      {auto && ns && <Note>{ns.ok ? tx('s.set.engine.on', { d: ns.device || 'GPU' }) : tx(eng === 'neural' ? 's.set.engine.offForced' : 's.set.engine.off', { r: ns.reason || '' })}</Note>}
+      {auto && Infer && <NativeRows st={st} onChange={recheck} />}
+      {auto && ns && <Note>{ns.ok ? tx('s.set.engine.on', { d: ns.native ? deviceName(ns.device) : ns.device || 'GPU' }) : tx(eng === 'neural' ? 's.set.engine.offForced' : 's.set.engine.off', { r: ns.reason || '' })}</Note>}
       {eng === 'neural' && <Note>{tx('s.set.engine.neuralHelp')}</Note>}
       <Note>{tx('s.set.engine.note')}</Note>
       <Field label={tx('s.set.stream')}><Seg size="sm" fit value={st.rhythmStream === 'full' ? 'full' : 'stream'} onChange={v => setSettings({ rhythmStream: v })} options={[['stream', tx('s.set.stream.on')], ['full', tx('s.set.stream.off')]]} /></Field>
       <Note>{tx('s.set.stream.note')}</Note>
     </Group>
   );
+}
+const EPS: Record<string, string> = { dml: 'DirectML', coreml: 'Core ML', cpu: 'CPU' };
+/** 'native dml' → "this computer (DirectML)"; before its first run the provider is not known yet. */
+function deviceName(d = '') { const ep = d.split(' ')[1]; return tx('s.set.native.dev', { ep: ep ? EPS[ep] || ep : tx('s.set.native.epAuto') }); }
+// the desktop app's own runtime for the networks (ONNX Runtime: DirectML on Windows, Core ML on macOS), in place of the
+// page's WebGPU kernels: which of the two, its models (downloaded on request) and the device it uses
+function NativeRows({ st, onChange }: { st: Settings; onChange: () => void }) {
+  const [is, setIs] = useState<Awaited<ReturnType<NonNullable<typeof Infer>['status']>> | null>(null), [prog, setProg] = useState<number | null>(null), [err, setErr] = useState('');
+  const look = () => Infer!.status().then(setIs).catch(() => setIs(null));
+  useEffect(() => { look(); return Infer!.onProgress(k => setProg(k)); }, []);
+  const rt = st.rhythmRuntime === 'webgpu' ? 'webgpu' : 'auto';
+  async function fetchModels() {
+    setErr(''); setProg(0);
+    const r = await Infer!.download(); setProg(null); await look();
+    if (r.ok) onChange(); else setErr(r.why || '');
+  }
+  if (!is?.runtime) return null;
+  const mb = Math.round(is.size / 1e6);
+  return <>
+    <Field label={tx('s.set.native')}><Seg size="sm" fit value={rt} onChange={v => setSettings({ rhythmRuntime: v })} options={[['auto', tx('s.set.native.auto')], ['webgpu', tx('s.set.native.webgpu')]]} /></Field>
+    {rt === 'auto' && (is.models
+      ? <Field label={tx('s.set.native.device')}><Seg size="sm" fit value={st.rhythmDevice === 'cpu' ? 'cpu' : 'auto'} onChange={v => setSettings({ rhythmDevice: v })} options={[['auto', tx('s.set.native.devAuto')], ['cpu', tx('s.set.native.devCpu')]]} /></Field>
+      : <Field label={tx('s.set.native.models')}>{prog != null || is.downloading
+          ? <span>{tx('s.set.native.loading', { pct: Math.round((prog ?? 0) * 100) })}</span>
+          : <Button size="sm" onClick={fetchModels}>{tx('s.set.native.get', { mb })}</Button>}</Field>)}
+    {rt === 'auto' && !is.models && <Note>{err ? tx('s.set.native.failed', { r: err }) : tx('s.set.native.help', { mb })}</Note>}
+  </>;
 }
 // the output: standard (the page's Web Audio) or Hi-Fi passthrough (the native player, WASAPI exclusive)
 function AudioGroup({ st }: { st: Settings }) {

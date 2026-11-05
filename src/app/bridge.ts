@@ -29,6 +29,7 @@ export interface Settings {
   mvDark: number; mvBlur: number; mvDesat: number; mvFit: boolean;
   /** which engine finds the beats ('auto': the neural one where it can run), and whether it separates the drums */
   rhythmEngine?: 'auto' | 'neural' | 'dsp'; rhythmDrums?: boolean;
+  /** where the neural networks run: natively when their models are there (auto), or always in WebGPU; natively on the GPU (auto) or the CPU */ rhythmRuntime?: 'auto' | 'webgpu'; rhythmDevice?: 'auto' | 'cpu';
   /** an unanalysed song: played at once on a reading of its opening, the full one taking over (stream), or after it (full) */
   rhythmStream?: 'stream' | 'full';
   /** the picture-quality mode (render/gfx.ts): as designed, optimised (cheap stand-ins for blurs and glass), or lite */
@@ -62,11 +63,19 @@ export interface LibApi {
   onAnalysis(f: (p: { done: number; total: number }) => void): Off; onWake(f: () => void): Off;
 }
 export interface AudioApi { state(): Promise<any>; cmd(o: Record<string, unknown>): Promise<boolean>; onEvent(f: (e: any) => void): Off }
+/** The rhythm engine's networks run natively (electron/infer.cjs): their state, the models' download, one pass. */
+export interface InferApi {
+  status(): Promise<{ runtime: boolean; models: boolean; ep: string | null; downloading: boolean; size: number }>;
+  download(): Promise<{ ok: boolean; why?: string }>; onProgress(f: (k: number) => void): Off;
+  run(op: 'beat', a: { spect: Float32Array }): Promise<{ beat: Float32Array; downbeat: Float32Array }>;
+  run(op: 'separate', a: { left: Float32Array; right: Float32Array }): Promise<{ left: Float32Array; right: Float32Array }[]>;
+}
 
 const W = (typeof window !== 'undefined' ? window : {}) as any;
 export const D: DesktopApi | null = W.cadenzaDesktop ?? null;
 export const Lib: LibApi | null = W.cadenzaLib ?? null;
 export const AudioOut: AudioApi | null = W.cadenzaAudio ?? null;
+export const Infer: InferApi | null = W.cadenzaInfer ?? null;
 export const desktop = !!D;
 
 export const coverUrl = (key: string | null | undefined, full = false) => (key ? `cadenza://${full ? 'cover' : 'thumb'}/${key}` : '');

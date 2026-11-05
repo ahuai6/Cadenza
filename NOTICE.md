@@ -47,3 +47,12 @@ Cadenza 以 **GNU Affero General Public License v3.0**（AGPL-3.0-only）發佈�
 | `htdemucs-wgsl.bin` | HTDemucs（四聲部） | MIT，Copyright (c) Meta Platforms, Inc. and affiliates. | https://github.com/facebookresearch/demucs |
 
 這兩個檔案是 Folia 從上游權重匯出的 WebGPU 格式。MIT 授權全文見 [`licenses/`](licenses)。
+
+### 本機加速模型（使用者在設定中按下載才取得，不隨安裝檔散布）
+
+| 檔案 | 模型 | 授權 | ONNX 匯出 |
+|---|---|---|---|
+| `beat_this.onnx` | Beat This!（final0） | MIT，Copyright (c) 2024 Institute of Computational Perception, JKU Linz, Austria | https://huggingface.co/musetric/beat-this-onnx（MIT） |
+| `htdemucs.onnx` | HTDemucs（四聲部，FP16 權重） | MIT，Copyright (c) Meta Platforms, Inc. and affiliates. | https://huggingface.co/StemSplitio/htdemucs-onnx（MIT） |
+
+執行環境 [ONNX Runtime](https://github.com/microsoft/onnxruntime)（`onnxruntime-node`，MIT，Copyright (c) Microsoft Corporation）隨桌面版附帶，Windows 版包含 DirectML（MIT，Copyright (c) Microsoft Corporation）。

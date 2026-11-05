@@ -6,6 +6,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const library = require('./library.cjs');
 const audio = require('./audio.cjs');
+const inferHost = require('./inferHost.cjs');
 
 app.setName('Cadenza');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -19,14 +20,14 @@ if (process.argv.includes('--reset-data')) { try { fs.rmSync(app.getPath('userDa
 protocol.registerSchemesAsPrivileged([library.scheme]);
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
-let win = null, tray = null, quitting = false, hifi = null;
+let win = null, tray = null, quitting = false, hifi = null, infer = null;
 const allowed = new Set();       // paths the user chose in a save dialog during this session: the only ones we write
 const open = new Map(); let nextId = 1;
 
 /* ---------- the app's own settings ---------- */
 const SETTINGS = () => path.join(app.getPath('userData'), 'settings.json');
 const DEFAULTS = { mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, theme: 'system', tone: 'paper', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
-  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, rhythmEngine: 'auto', rhythmDrums: true, rhythmStream: 'stream', gfx: 'default', uiFont: 'default', fxAspect: '16:9', lyricsTarget: 'tag' };
+  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, rhythmEngine: 'auto', rhythmRuntime: 'auto', rhythmDevice: 'auto', rhythmDrums: true, rhythmStream: 'stream', gfx: 'default', uiFont: 'default', fxAspect: '16:9', lyricsTarget: 'tag' };
 let settings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS(), 'utf8')) }; } catch (e) { /* first run */ }
 function applySettings() {
@@ -97,6 +98,7 @@ ipcMain.handle('settings:set', (_e, patch) => {
   try { fs.writeFileSync(SETTINGS(), JSON.stringify(settings)); } catch (e) { /* read-only profile */ }
   applySettings(); if (win) win.setBackgroundColor(bgColor());
   if (hifi && ['audioOut', 'audioMode', 'audioDevice'].some(k => k in (patch || {}))) hifi.apply();
+  if (infer && 'rhythmDevice' in (patch || {})) infer.restart();
   return { ...settings, platform: process.platform, version: app.getVersion() };
 });
 
@@ -125,6 +127,7 @@ app.whenReady().then(async () => {
   applySettings();
   await library.start(ipcMain, () => win, settings);
   hifi = audio.start(ipcMain, () => win, settings, library);
+  infer = inferHost.start(ipcMain, () => win, settings);
   createWindow();
   for (const [key, op] of [['MediaPlayPause', 'toggle'], ['MediaNextTrack', 'next'], ['MediaPreviousTrack', 'prev']]) { try { globalShortcut.register(key, () => win && win.webContents.send('media', op)); } catch (e) { /* taken by another app */ } }
 });

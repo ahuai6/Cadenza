@@ -367,6 +367,15 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- poster wall, settings, light theme ---------- */
   await win.getByRole('button', { name: '海報牆' }).click(); await W(900); await shot('wall');
   await win.getByRole('button', { name: '設定' }).click(); await W(600); await shot('settings');
+  // the native runtime for the rhythm engine's networks (ONNX Runtime in a utility process): its settings shown; with
+  // CADENZA_NATIVE_MODELS (the models already there) one Beat This! window really runs through it, on the CPU here
+  { const st = await C(() => window.cadenzaInfer.status()), have = !!process.env.CADENZA_NATIVE_MODELS;
+    const rows = { mode: await win.getByRole('radio', { name: '本機加速（自動）' }).count(), get: await win.getByRole('button', { name: /^下載（約 \d+ MB）$/ }).count(), dev: await win.getByRole('radio', { name: '僅 CPU' }).count() };
+    let run = null;
+    if (have) run = await C(async () => { const t = performance.now(), r = await window.cadenzaInfer.run('beat', { spect: new Float32Array(1500 * 128) }), s = await window.cadenzaInfer.status();
+      return { n: r.beat.length, m: r.downbeat.length, finite: [...r.beat].every(Number.isFinite), ep: s.ep, ms: Math.round(performance.now() - t) }; });
+    ok('settings: the native runtime is offered, its models fetched on request (or, when there, its device)', st.runtime && rows.mode === 1 && (have ? st.models && rows.dev === 1 : !st.models && rows.get === 1), JSON.stringify({ st, rows }));
+    if (have) ok('native: a Beat This! window runs in the utility process (CPU here)', run && run.n === 1500 && run.m === 1500 && run.finite && run.ep === 'cpu', JSON.stringify(run)); }
   // the rhythm engine: its setting, the status line (the device it runs on, or why not and that the built-in analysis
   // is used), and the models served to the page as cadenza://model/ (only the engine's files)
   { await W(800); probing = true; const r = await C(async () => { const head = async f => (await fetch('cadenza://model/' + f, { method: 'HEAD' }).catch(() => ({ status: 0 }))).status;

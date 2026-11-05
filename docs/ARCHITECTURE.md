@@ -87,6 +87,9 @@ accentClock(map, t): number                 // 漂浮物共用的時間：重拍
   - **每拍重音**：包括「感受到的拍」（6/8 拍或被數成兩倍速的慢歌會換算回來）、HPSS 律動門檻，以及模型拿不準的段落。
   - **鼓點**：HTDemucs 分出鼓聲後，分底鼓、軍鼓、鈸三類找出鼓點；沒有鼓的歌不給鼓點。
   - **執行方式**：在自己的 Worker 中執行，獨佔一個 GPU device，以 `auto` 切片提交，不搶歌詞繪製的幀。
+  - **本機加速**（桌面版，2.11）：兩個網路改由 ONNX Runtime 在獨立的 utility process 執行（`electron/infer.cjs`；Windows 用 DirectML，macOS 用 Core ML，其他或失敗時用 CPU）。只換「跑網路」這一步：梅爾頻譜、30 秒視窗（補到 1500 幀）、HTDemucs 分段、峰值選取、鼓點與人聲判讀都還在 Worker 裡，Worker 以 RPC（`{rpc, op, args}`）經頁面的 `NativeRuntime`（`src/app/engineConfig.ts` → `window.cadenzaInfer` → `infer:run`）呼叫主行程（`electron/inferHost.cjs`），一次一個請求，閒置兩分鐘後結束該行程。HTDemucs 分段長度用 ONNX 匯出版的 343980 樣本。
+  - **本機模型**：使用者在「設定 → 節奏引擎」按下載才取得（`beat_this.onnx`、`htdemucs.onnx`，約 356 MB，各自釘選上游 revision 並校驗 SHA-256，先寫 `.part` 再改名），存在 `userData/models/native`（測試可用 `CADENZA_NATIVE_MODELS` 指定）。首次載入時把最佳化後的圖存到 `cache/`（依執行提供者與 ORT 版本分檔），之後以 `graphOptimizationLevel: 'disabled'` 直接開啟，載入從數十秒降到不到一秒。
+  - **選擇**：設定 `rhythmRuntime`（`auto` 本機優先／`webgpu` 只用瀏覽器 GPU）與 `rhythmDevice`（`auto` GPU 優先／`cpu`）。模型未下載、平台沒有對應的二進位檔或啟動失敗時，自動回到 WebGPU 核心；`neuralStatus()` 的 `native` 標記決定 Worker 走哪條路。
 - **內建引擎**（`analyze.ts` 第 3–5 步）：沒有 WebGPU、沒有模型檔，或使用者在設定中選擇「內建」時使用。
 - **接合點**：`analyzeInBackground` 先取得神經網路的讀數（`NeuralRhythm`），再交給 `analyze()`：
   - 第 3–5 步改用它的拍點和逐小節強拍（`bars`）；

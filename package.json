@@ -1,7 +1,7 @@
 {
   "name": "cadenza",
   "productName": "Cadenza",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "description": "Cadenza: a personal music library whose songs play with lyrics that move to the music, exportable as lyric videos",
   "private": true,
   "type": "module",
@@ -32,7 +32,12 @@
     "files": [
       "electron/**",
       "dist-app/**",
-      "package.json"
+      "package.json",
+      "!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**"
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/bin/**"
     ],
     "win": {
       "target": [
@@ -90,7 +95,8 @@
   "license": "AGPL-3.0-only",
   "dependencies": {
     "music-metadata": "12.3.2",
-    "node-taglib-sharp": "6.0.3"
+    "node-taglib-sharp": "6.0.3",
+    "onnxruntime-node": "1.31.1"
   },
   "devDependencies": {
     "@fontsource-variable/caveat": "^5.3.0",
