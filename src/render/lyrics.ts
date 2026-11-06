@@ -6,6 +6,7 @@ import { clamp, D2R } from '../core/math';
 import { mix, rgba } from '../core/color';
 import { rnd } from '../core/rng';
 import { project, onScreen, depthFeel, type Projected } from '../director/project';
+import { harmBox } from '../director/layout';
 import { entryK } from '../director/entry';
 import { wordState, unitPose, wordPlacement, TIN_SPEC, type WordCtx, type WordState } from '../director/words';
 import type { PWord } from '../director/types';
@@ -26,21 +27,27 @@ export function wordCtx(f: RenderFrame): WordCtx {
 }
 /** Which words are on screen this frame, and how. Read by the lyric pass and by world effects (frames, stars, glyphs). */
 export function visibleWords(f: RenderFrame, card: boolean): VisWord[] {
-  const out: VisWord[] = [], c = wordCtx(f), { cam, fx, ov } = f.cam, W = f.W, H = f.H; let dmin = Infinity;
+  const out: VisWord[] = [], c = wordCtx(f), { cam, fx, ov } = f.cam, W = f.W, H = f.H;
   for (const S of f.plan.drawOrder) {
     if (f.t < S.show && ov <= 0) continue;
     const ws = wordState(S, f.t, ov, card, c); if (!ws) continue;
-    const ek = entryK(S, f.t), p = project(S.x + (ek ? S.entry!.dx * ek : 0), S.y + (ek ? S.entry!.dy * ek : 0), S.d, cam, fx, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + 60;
-    const seen = onScreen(p, half, W, H); if (CULL && !seen) continue;
-    const wa = f.wordAlpha ? f.wordAlpha(S.line.i, S.k) : 1;
-    out.push({ S, ws, p, o: ws.o * wa, glyphPx: EM * S.s * ws.sc * p.k }); if (seen && ws.o > 0.05 && S.d < dmin) dmin = S.d;
+    const ek = entryK(S, f.t), p = project(S.x + (ek ? S.entry!.dx * ek : 0), S.y + (ek ? S.entry!.dy * ek : 0), S.d, cam, fx, W, H);
+    // (what of a word can show reaches past its own box: its shadows — the wide one well below and out from the glyph —
+    // so a word just off the edge is drawn while its shadow is in sight, and no shadow appears all at once as the camera
+    // comes to it; and its harmony, which stays as long as its word does: one in sight keeps the word drawn)
+    const half = Math.hypot(S.lw, S.lh) * 0.5 * p.k * ws.sc + (Math.abs(ws.ox) + Math.abs(ws.oy)) * S.s * p.k + EM * S.s * ws.sc * p.k * 0.3 + 60;
+    if (CULL && !onScreen(p, half, W, H) && !harmSeen(S, cam, fx, W, H)) continue;
+    // depth fog: a word further back than the camera's own depth is a little fainter, by how far — measured from the
+    // camera (which follows the words smoothly), so no word coming into or out of sight changes another's light
+    const fog = clamp(1 - Math.max(0, S.d - cam.d) / (1300 * 4), 0.55, 1), wa = f.wordAlpha ? f.wordAlpha(S.line.i, S.k) : 1;
+    out.push({ S, ws, p, o: ws.o * fog * wa, glyphPx: EM * S.s * ws.sc * p.k });
   }
-  // depth fog: a word further back than the nearest one on screen now is a little fainter. (Measured from the song's
-  // nearest word instead, one word brought close anywhere in the song — the orbit's centre in 漂浮 — left nearly every
-  // other word at little more than half its light.)
-  // (only words actually on screen set it, culled or not: the picture is the same either way)
-  if (isFinite(dmin)) for (const v of out) v.o *= clamp(1 - (v.S.d - dmin) / (1300 * 4), 0.55, 1);
   return out;
+}
+/** Is a word's harmony in sight (its box, where it is drawn under the word)? */
+function harmSeen(S: PWord, cam: RenderFrame['cam']['cam'], fx: RenderFrame['cam']['fx'], W: number, H: number) {
+  const h = S.harm ? harmBox(S) : null; if (!h) return false;
+  const q = project(h.x, h.y, S.d, cam, fx, W, H); return onScreen(q, Math.hypot(h.lw, h.lh) * 0.5 * q.k + 60, W, H);
 }
 
 /** What the lyric pass blurs (face, colours, glyphs), so the glyph ladder can be baked before the song needs it. */

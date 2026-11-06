@@ -7,7 +7,7 @@ import { player, playIds, enqueue, setMode, shufflePick, setInstrumental, forget
 import { Icon } from '../ui/icons';
 import { Button, IconButton, Cover, Mosaic, Empty, Badge, Dropdown, Turn } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
-import { QualityTag } from '../ui/quality';
+import { QualityTag, quality } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
 import { askText, editMeta, exportTrack } from './Modals';
 import { sendToWorkshop } from './workshop/Workshop';
@@ -24,14 +24,12 @@ export function LibraryView() {
     <div className={s.libWrap}>
       <Turn k={detail ? detail.kind + ':' + detail.key : 'list'}>{detail ? <Detail detail={detail} idx={idx} search={search} /> : (
         <>
-          <header className={s.head}>
-            <span className="kicker">{[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}</span>
-            <h1 className="display">{tx(SECTIONS.find(x => x[0] === section)?.[1] || 's.library')}</h1>
-          </header>
+          {/* (the songs' and the favourites' heads carry their play buttons, on the right: they draw their own) */}
+          {section !== 'songs' && section !== 'favorites' && <ShelfHead kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')} title={tx(SECTIONS.find(x => x[0] === section)?.[1] || 's.library')} />}
           <Turn k={section}>
-            {section === 'favorites' && <Favorites idx={idx} search={search} />}
+            {section === 'favorites' && <Favorites idx={idx} search={search} kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')} />}
             {section === 'playlists' && <Playlists idx={idx} search={search} />}
-            {section === 'songs' && <Songs tracks={tracks} search={search} />}
+            {section === 'songs' && <Songs tracks={tracks} search={search} kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')} />}
             {section === 'albums' && <CardGrid items={idx.albums.filter(a => match(search, a.name, a.artist))} kind="album" />}
             {section === 'artists' && <CardGrid items={idx.artists.filter(a => match(search, a.name))} kind="artist" />}
             {section === 'genres' && <CardGrid items={idx.genres.filter(a => match(search, a.name))} kind="genre" />}
@@ -54,6 +52,10 @@ function shelfFacts(section: string, idx: ReturnType<typeof useIndex>, tracks: T
   if (section === 'playlists') return [tx('s.nPlaylists', { n: nPl })];
   return [];
 }
+/** A shelf's head: the line over its title and the title on the left, its actions on the right (on the title's baseline). */
+function ShelfHead({ kicker, title, actions }: { kicker: string; title: string; actions?: React.ReactNode }) {
+  return <header className={s.head}><div className={s.headText}><span className="kicker">{kicker}</span><h1 className="display">{title}</h1></div>{actions && <div className={s.headActs}>{actions}</div>}</header>;
+}
 function EmptyLibrary() {
   return <Empty title={tx('s.empty.lib')} help={tx('s.empty.libHelp')} icon="note">
     <Button kind="primary" icon="folder" onClick={() => Lib!.addFolder().then(v => lib.set(v))}>{tx('s.addFolder')}</Button></Empty>;
@@ -61,7 +63,7 @@ function EmptyLibrary() {
 
 /* ---------- songs ---------- */
 const SORTS: [string, string][] = [['added', 's.sort.added'], ['title', 's.sort.title'], ['artist', 's.sort.artist'], ['plays', 's.sort.plays']];
-function Songs({ tracks, search }: { tracks: Track[]; search: string }) {
+function Songs({ tracks, search, kicker }: { tracks: Track[]; search: string; kicker: string }) {
   const [sort, setSort] = useState(() => remember('sort', 'added'));
   const list = useMemo(() => {
     const f = tracks.filter(t => match(search, t.title, t.artist, t.album, (t.genre || []).join(' ')));
@@ -72,9 +74,9 @@ function Songs({ tracks, search }: { tracks: Track[]; search: string }) {
   }, [tracks, search, sort]);
   return (
     <>
+      <ShelfHead kicker={kicker} title={tx('s.songs')} actions={<PlayButtons ids={list.map(t => t.id)} />} />
       <div className={s.tools}>
         <span className={s.count}>{tx('s.tracks', { n: list.length })}</span>
-        <PlayButtons ids={list.map(t => t.id)} />
         <label className={s.sel}><span className="kicker">{tx('s.sort')}</span>
           <Dropdown label={tx('s.sort')} value={sort} onChange={v => { setSort(v); keep('sort', v); }} options={SORTS.map(([v, k]) => [v, tx(k)])} /></label>
       </div>
@@ -149,11 +151,11 @@ export const TrackList = memo(function TrackList({ tracks, numbered, menuExtra, 
 
 /* ---------- favourites and playlists ---------- */
 type Idx = ReturnType<typeof useIndex>;
-function Favorites({ idx, search }: { idx: Idx; search: string }) {
+function Favorites({ idx, search, kicker }: { idx: Idx; search: string; kicker: string }) {
   const favs = useStore(lib, x => x.favorites);
   const list = favs.map(id => idx.byId.get(id)).filter((t): t is Track => !!t && match(search, t.title, t.artist, t.album));
-  if (!favs.length) return <Empty title={tx('s.empty.fav')} help={tx('s.empty.favHelp')} icon="heart" />;
-  return <><div className={s.tools}><span className={s.count}>{tx('s.tracks', { n: list.length })}</span><PlayButtons ids={list.map(t => t.id)} /></div><TrackList tracks={list} /></>;
+  if (!favs.length) return <><ShelfHead kicker={kicker} title={tx('s.favorites')} /><Empty title={tx('s.empty.fav')} help={tx('s.empty.favHelp')} icon="heart" /></>;
+  return <><ShelfHead kicker={kicker} title={tx('s.favorites')} actions={<PlayButtons ids={list.map(t => t.id)} />} /><div className={s.tools}><span className={s.count}>{tx('s.tracks', { n: list.length })}</span></div><TrackList tracks={list} /></>;
 }
 function Playlists({ idx, search }: { idx: Idx; search: string }) {
   const pls = useStore(lib, x => x.playlists).filter(p => match(search, p.name));
@@ -198,6 +200,15 @@ function CardGrid({ items, kind }: { items: Idx['albums']; kind: 'album' | 'arti
     </div>
   );
 }
+/** An album's facts, in the column beside its tracks: its genres, how many of its songs have lyrics, when it was added,
+ *  and the formats it comes in. */
+function AlbumFacts({ tracks }: { tracks: Track[] }) {
+  const genres = [...new Set(tracks.flatMap(t => t.genre || []))].join(' · '), withLyr = tracks.filter(t => t.lrc || t.embedded || t.ttml).length;
+  const added = Math.min(...tracks.map(t => t.added || Infinity)), fmt = [...new Set(tracks.map(t => { const q = quality(t); return q ? q.fmt : ''; }).filter(Boolean))].join(' · ');
+  const rows: [string, string][] = [[tx('s.fact.genre'), genres], [tx('s.fact.lyrics'), tx('s.fact.lyricsN', { n: withLyr, total: tracks.length })],
+    [tx('s.fact.added'), isFinite(added) ? new Date(added).toLocaleDateString() : ''], [tx('s.fact.format'), fmt]];
+  return <aside className={s.facts}>{rows.filter(([, v]) => v).map(([k, v]) => <div key={k}><span className="kicker">{k}</span><span>{v}</span></div>)}</aside>;
+}
 // (the detail it shows is handed to it: while it leaves, after the store has moved on, it still shows its own)
 function Detail({ detail, idx, search }: { detail: NonNullable<ReturnType<typeof ui.get>['detail']>; idx: Idx; search: string }) {
   const pls = useStore(lib, x => x.playlists);
@@ -231,8 +242,12 @@ function Detail({ detail, idx, search }: { detail: NonNullable<ReturnType<typeof
           {detail.kind === 'playlist' && tracks.length > 1 && <small className="muted">{tx('s.dragHint')}</small>}
         </div>
       </header>
-      {shown.length ? <TrackList tracks={shown} numbered={numbered} menuExtra={extra} onReorder={detail.kind === 'playlist' && !search ? ids => Lib!.playlist('order', detail.key, ids) : null} />
-        : <Empty title={tx(detail.kind === 'playlist' ? 's.empty.pl' : 's.empty.results')} icon="lyrics" />}
+      {/* (an album: its tracks three quarters, its facts the last quarter — the grid of the page head above) */}
+      <div className={detail.kind === 'album' ? s.detailBody : undefined}>
+        {shown.length ? <TrackList tracks={shown} numbered={numbered} menuExtra={extra} onReorder={detail.kind === 'playlist' && !search ? ids => Lib!.playlist('order', detail.key, ids) : null} />
+          : <Empty title={tx(detail.kind === 'playlist' ? 's.empty.pl' : 's.empty.results')} icon="lyrics" />}
+        {detail.kind === 'album' && <AlbumFacts tracks={tracks} />}
+      </div>
     </div>
   );
 }

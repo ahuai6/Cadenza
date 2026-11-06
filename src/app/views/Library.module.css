@@ -1,7 +1,9 @@
 /* The library, set like a record collection's catalogue: a kicker and a large serif title, hairline-ruled tables,
    sharp-cornered covers, generous space between groups. */
 .libWrap { container-type: inline-size; }
-.head { display: grid; gap: 6px; padding-bottom: 22px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; padding-bottom: 22px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+.headText { display: grid; gap: 6px; min-width: 0; }
+.headActs { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
 .head h1, .detailHead h1 { margin: 0; font-size: clamp(44px, 5vw, 66px); line-height: 0.98; letter-spacing: -0.02em; }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 18px; }
 .count { color: var(--fg-3); font-size: 13px; margin-right: 10px; font-variant-numeric: tabular-nums; }
@@ -80,3 +82,9 @@
 /* the playing row, found: a soft glow that rises and fades */
 .row[data-flash="true"] { animation: found 1.5s var(--ease); }
 @keyframes found { 0% { box-shadow: inset 2px 0 0 transparent; } 18% { box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); } 100% { box-shadow: inset 2px 0 0 transparent; } }
+
+/* an album: its tracks and, beside them, its facts — three quarters and one (the page head's own split) */
+.detailBody { display: grid; grid-template-columns: minmax(0, 3fr) minmax(180px, 1fr); gap: 44px; align-items: start; }
+.facts { display: grid; gap: 18px; padding-top: 10px; font-size: 13px; line-height: 1.55; color: var(--fg-2); }
+.facts > div { display: grid; gap: 4px; }
+@container (max-width: 760px) { .detailBody { grid-template-columns: 1fr; } }

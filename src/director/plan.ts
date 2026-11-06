@@ -54,6 +54,7 @@ export function plan(inp: PlanInput): ScenePlan {
   fitFrames(camera, lay.words, W, H); cutJumps(camera);
   applySweeps(lay.lines, lay.sweeps, camera, W, H);
   if (lyricType(style.ltype).orbit) sweepUnseen(lay.lines, camera, W, H);
+  fadeOverlapped(lay.lines);
   applyCurtains(lay.lines, inp.doc.curtains || []);
   const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle, inp.doc.marks || []);
   const drawOrder = [...lay.words].sort((a, b) => a.order - b.order);
@@ -87,6 +88,25 @@ function sweepUnseen(lines: PLine[], cam: CameraPlan, W: number, H: number) {
     if (!P.words.length) continue;
     const from = Math.max(P.words[P.words.length - 1].end, Math.min(P.L.sung, P.L.end)) + 0.3, until = Math.min(P.secEnd, from + 60);
     for (let t = from; t < until; t += 0.05) if (!seenBy(cam, P, t, W, H)) { P.secEnd = t; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, t + 0.15) }; break; }
+  }
+}
+/** Old words under new ones: as each new word comes in, any line still up from before whose words it covers too much (a
+ *  third of the smaller box) starts to fade out at once, over a quarter second — never one still being sung. The page's
+ *  other ways of clearing (transitions, the cap of lines, the sweeps) leave the picture tidy in time; this is for the
+ *  moment one line lands on another before they do. */
+export const OVERLAP_FADE = 0.25, OVERLAP_SHARE = 0.3;
+const aabb = (S: { x: number; y: number; lw: number; lh: number; tilt: number }) => { const a = Math.abs(S.tilt) * Math.PI / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a)), w = S.lw * c + S.lh * s, h = S.lw * s + S.lh * c;
+  return { x0: S.x - w / 2, x1: S.x + w / 2, y0: S.y - h / 2, y1: S.y + h / 2, area: Math.max(1, S.lw * S.lh) }; };
+export function fadeOverlapped(lines: PLine[]) {
+  for (let i = 1; i < lines.length; i++) {
+    const B = lines[i]; if (!B.words.length) continue;
+    for (const S of B.words) { const t = S.show, a = aabb(S);
+      for (let j = 0; j < i; j++) { const P = lines[j];
+        if (!P.words.length || !(P.secEnd - P.secIn > t + 1e-3) || P.words[0].show > t) continue;     // (gone already, or not yet up)
+        if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue;                                          // (still being sung: it stays)
+        const hit = P.words.some(Q => { const b = aabb(Q), ix = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), iy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+          return ix > 0 && iy > 0 && ix * iy > OVERLAP_SHARE * Math.min(a.area, b.area); });
+        if (hit) { P.secEnd = Math.min(P.secEnd, t + OVERLAP_FADE); P.secIn = Math.max(0.01, P.secEnd - t); P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) }; } } }
   }
 }
 /** A curtain the lyrics ask for ('@N') clears the scene as it comes down: every line begun before it — its words and
