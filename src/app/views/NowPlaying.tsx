@@ -5,14 +5,14 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { tx } from '../../i18n';
 import { ui, useStore, trackOf, openMenu, lib } from '../state';
 import { Icon } from '../ui/icons';
-import { Button, IconButton, Cover, Swap, Badge } from '../ui/kit';
+import { IconButton, Cover, Swap, Badge } from '../ui/kit';
 import { Drive } from '../motion';
 import { engine } from '../playback/stage';
 import { player } from '../playback/player';
 import { refs, openFx, back } from '../layers';
 import { fontStack, subLines, type LyricLine as Line } from '../../engine';
 import { QualityTag } from '../ui/quality';
-import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, QueueButton } from './Player';
+import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, toggleQueue } from './Player';
 import { pickPlaylist, editMeta, npSettings } from './Modals';
 import s from './NowPlaying.module.css';
 
@@ -27,7 +27,7 @@ export function NowPlaying() {
   useStore(lib, x => x.tracks);
   const t = trackOf(shownId);
   const amb = useRef<HTMLDivElement>(null), root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null);
-  const layer = useStore(ui, x => x.layer);
+  const layer = useStore(ui, x => x.layer), queueOpen = useStore(ui, x => x.queue), qn = useStore(player, x => x.queue.length);
   useLayoutEffect(() => { refs.np = root.current; refs.npAmb = amb.current; refs.npCover = cover.current; refs.npParts = [top.current, info.current, right.current]; });
   useEffect(() => () => { refs.np = null; refs.npAmb = null; refs.npCover = null; refs.npParts = []; }, []);
   // the song's own light, for the glow under the cover and the tint of the shade at the edges (the engine's palette)
@@ -50,6 +50,8 @@ export function NowPlaying() {
     { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
   ]);
   const live = layer === 'np';
+  // above the title: the album, its year and the track's place on it
+  const kicker = [t.album, t.year, t.track ? tx('np.trackNo', { n: t.track }) : ''].filter(Boolean).join(' · ');
   return (
     <>
     {/* the cinema around the picture: a shade at the edges in the song's own dark, and a fine grain over the colour */}
@@ -57,10 +59,13 @@ export function NowPlaying() {
     <section data-test="np" className={s.np + ' on-picture'} ref={root} style={tone} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
       <header className={s.top} ref={top}>
         <div className={s.fade}><IconButton n="chevronDown" label={tx('s.collapse')} onClick={back} /></div>
-        {/* (nothing in the middle: the page itself says what is playing — its cover, title, artist and album on the left) */}
-        <div className={s.topMid} />
+        {/* what this page shows: its lyrics, the effect lyrics, or the queue over it (the page itself says what is playing) */}
+        <nav className={s.views + ' ' + s.fade} aria-label={tx('np.views')}>
+          <button type="button" aria-current="page">{tx('np.tab.lyrics')}</button>
+          <button type="button" onClick={openFx}><Icon n="sparkles" size={15} />{tx('s.fxLyrics')}</button>
+          <button type="button" data-queue-button aria-label={tx('s.queue')} aria-expanded={queueOpen} aria-pressed={queueOpen} onClick={e => toggleQueue(e.currentTarget)}>{tx('np.tab.queue')}{qn > 0 && <i>{qn}</i>}</button>
+        </nav>
         <div className={s.topR + ' ' + s.fade}>
-          <Button glass icon="sparkles" onClick={openFx}>{tx('s.fxLyrics')}</Button>
           <IconButton n="more" label={tx('s.more')} onClick={more} />
         </div>
       </header>
@@ -68,18 +73,26 @@ export function NowPlaying() {
         <div className={s.left}>
           <div className={s.cover} ref={cover} data-test="np-cover"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full eager /></Swap></div>
           <div className={s.info} ref={info}>
-            <div className={s.fade} style={{ display: 'grid', gap: 14 }}>
+            <div className={s.fade + ' ' + s.infoIn}>
               <div className={s.meta}>
-                <Swap k={t.id} dir={dir}><div><b className="display">{t.title}</b><small>{[t.artist || tx('s.unknownArtist'), t.album].filter(Boolean).join(' — ')}</small><HifiBadge /></div></Swap>
-                <Heart id={t.id} />
+                <Swap k={t.id} dir={dir}><div>
+                  {kicker && <span className={s.kicker}>{kicker}</span>}
+                  <b className={s.title}>{t.title}</b>
+                  <small>{t.artist || tx('s.unknownArtist')}</small>
+                  <HifiBadge />
+                </div></Swap>
+                <span className={s.heart}><Heart id={t.id} /></span>
               </div>
-              <div className={s.qrow}><QualityTag t={t} look="glass" />{album && <Badge>{tx('s.albumOn')}</Badge>}</div>
-              <Progress />
+              <div className={s.progWrap}>
+                <Progress />
+                <div className={s.qrow}><QualityTag t={t} look="glass" />{album && <Badge>{tx('s.albumOn')}</Badge>}</div>
+              </div>
               <div className={s.ctl}>
                 <div><ModeButton /></div>
                 <Transport big />
-                <div><Volume /><QueueButton /></div>
+                <div />
               </div>
+              <div className={s.volRow}><Volume /></div>
             </div>
           </div>
         </div>

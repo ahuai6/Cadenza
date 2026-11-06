@@ -56,6 +56,8 @@ const ICONS: Record<string, { fill?: boolean; d: ReactNode }> = {
   wave: { d: P('M4 11v2M8 8v8M12 5v14M16 9v6M20 11v2') },
   locate: { d: <><circle cx="12" cy="12" r="6.5" /><circle cx="12" cy="12" r="2.2" />{P('M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3')}</> },
   download: { d: P('M12 4.5v10M7.8 10.6L12 14.8l4.2-4.2M5 15.5v1.8A2.7 2.7 0 0 0 7.7 20h8.6a2.7 2.7 0 0 0 2.7-2.7v-1.8') },
+  type: { d: P('M5 19L11 5h2l6 14M8 13.5h8') },
+  motion: { d: P('M3 16.5c3-5.5 6-5.5 9 0s6 5.5 9 0M3 8.5c3-3.6 6-3.6 9 0s6 3.6 9 0') },
   palette: { d: <>{R(3.5, 3.5, 17, 17, 5)}{R(7, 7, 3.2, 3.2, 1.2)}{R(13.8, 7, 3.2, 3.2, 1.2)}{R(7, 13.8, 3.2, 3.2, 1.2)}</> },
 };
 ICONS.sliders = ICONS.settings;

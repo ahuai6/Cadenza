@@ -90,10 +90,18 @@ export function TextPane({ s: ss, edit }: PaneProps) {
   return (
     <Section title={tx('font')} note={custom ? tx('font.help') : undefined}>
       {custom && <div className={kit.field}><label>{tx('font')}</label><FontPicker label={tx('font')} value={st.font} text={ss.doc.lines.map(L => L.text).join('')} onChange={v => edit(x => x.setStyle('font', v))} /></div>}
-      <Slider label={tx('k.size')} min={KN.size.mn} max={KN.size.mx} step={KN.size.sp} value={st.k.size} format={fmtK} onCommit={v => edit(x => x.setKnob('size', v))} />
+      <Slider label={tx('k.size')} min={KN.size.mn} max={KN.size.mx} step={KN.size.sp} value={st.k.size} format={fmtK} home={1} onCommit={v => edit(x => x.setKnob('size', v))} />
       {custom && <Row><Button kind="ghost" size="sm" onClick={() => edit(x => { x.setStyle('font', presetStyle(x.style.from).font); x.setKnob('size', 1); })}>{tx('reset.font')}</Button></Row>}
     </Section>
   );
+}
+/** Each motion style drawn as the path its camera takes, small, on its card. */
+const GLYPHS: Record<string, string> = {
+  story: 'M2 14C10 14 14 4 22 4s12 10 20 10', waltz: 'M2 9c4-7 8-7 10 0s6 7 10 0 6-7 10 0 6 7 10 0', groove: 'M2 14h8l3-11 4 14 3-10h22',
+  close: 'M15 2h14v14H15zM3 6h5v6H3zM36 6h5v6h-5z', float: 'M15 9a7 7 0 1 0 14 0a7 7 0 1 0-14 0M6 13h.01M38 4h.01', stage: 'M8 7h28M12 12h20',
+};
+function MotionGlyph({ id }: { id: string }) {
+  return <svg width="44" height="18" viewBox="0 0 44 18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={GLYPHS[id] || GLYPHS.story} /></svg>;
 }
 const GROUPS = [...new Set(KNOBS.map(k => k[1]))];
 /** A knob's slider: its look follows the drag, what the plan reads of it is taken once it is let go. */
@@ -116,11 +124,23 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
     <>
       {!custom && <Note>{tx('th.locked')}</Note>}
       <fieldset disabled={!custom} className={s.set}>
-        <Section title={tx('mo.h')} note={tx('mo.help')}>
-          <Select label={tx('mo.style')} value={own ? 'u:' + own.id : cur} options={[...Object.keys(MOTIONS).map(id => [id, id === rec ? tx('mo.recTag', { name: name(id) }) : name(id)] as [string, string]), ...mine.map(m => ['u:' + m.id, tx('mo.mineTag', { name: m.name })] as [string, string])]} onChange={pick} />
+        <Section title={tx('mo.builtin')} note={tx('mo.help')}>
+          <div className={s.motions} role="radiogroup" aria-label={tx('mo.style')}>
+            {Object.keys(MOTIONS).map(id => (
+              <button key={id} type="button" role="radio" className={s.motion} aria-checked={!own && cur === id} onClick={() => pick(id)}>
+                <MotionGlyph id={id} />
+                <span>{name(id)}{id === rec && <em>{tx('mo.rec')}</em>}</span>
+              </button>))}
+          </div>
           <Note>{own ? tx('mo.mineFit', { name: name(own.motion.base) }) : tx('mo.' + cur + '.fit')}{!own && cur !== rec ? ' ' + tx('mo.recNote', { name: name(rec) }) : ''}</Note>
         </Section>
         <Section title={tx('mo.mine')} note={tx('mo.mineHelp')}>
+          {!!mine.length && <div className={s.motions} role="radiogroup" aria-label={tx('mo.mine')}>
+            {mine.map(m => (
+              <button key={m.id} type="button" role="radio" className={s.motion + ' ' + s.mine} aria-checked={own?.id === m.id} onClick={() => pick('u:' + m.id)}>
+                <span>{m.name}</span><small>{tx('mo.basedOn', { name: name(m.motion.base) })}</small>
+              </button>))}
+          </div>}
           <TextField label={tx('mo.name')} value={mName} placeholder={tx('mo.untitled')} onCommit={setMName} />
           <Row>
             <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>{tx(own ? 'mo.save' : 'mo.saveNew')}</Button>
@@ -129,7 +149,7 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
           </Row>
         </Section>
         <Section title={tx('mo.tune')} note={tx('help.knobs')} action={<Button kind="ghost" size="sm" onClick={resetTune}>{tx('reset.group')}</Button>}>
-          {MACROS.map(([k, mn, mx, sp]) => <Slider key={k} label={tx('km.' + k)} min={mn} max={mx} step={sp} value={st.k[k] ?? 1} format={fmtK} {...knob(edit, k)} />)}
+          {MACROS.map(([k, mn, mx, sp]) => <Slider key={k} label={tx('km.' + k)} min={mn} max={mx} step={sp} value={st.k[k] ?? 1} format={fmtK} home={1} {...knob(edit, k)} />)}
         </Section>
         <Section title={tx('adv.h')} note={adv ? tx('adv.help') : undefined} action={<Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv(v => !v)}>{tx(adv ? 'adv.hide' : 'adv.show')}</Button>}>
           {adv && <>
@@ -146,7 +166,7 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
             </Row>
             {GROUPS.map(g => (
               <Section key={g} title={tx(g)} action={<Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>{tx('reset.group')}</Button>} note={g === 'grp.triggers' ? tx('help.triggers') : undefined}>
-                {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => <Slider key={k} label={tx('k.' + k)} min={mn} max={mx} step={sp} value={st.k[k]} format={fmtK} {...knob(edit, k)} />)}
+                {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => <Slider key={k} label={tx('k.' + k)} min={mn} max={mx} step={sp} value={st.k[k]} format={fmtK} home={1} {...knob(edit, k)} />)}
               </Section>
             ))}
             <Row><Button size="sm" onClick={resetAll}>{tx('reset.all')}</Button></Row>

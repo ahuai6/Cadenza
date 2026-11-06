@@ -2,11 +2,11 @@
 // engine's (the hand-over from the now-playing page); these controls appear as it lands. The bottom bar rises whenever
 // the pointer moves and sinks after a still moment; the pointer itself hides with it and comes back on any movement.
 // The song's own settings slide in from the right edge.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import { D, Lib } from '../bridge';
 import { ui, settings, useStore, trackOf, toast, openMenu } from '../state';
-import { Button, IconButton, Seg, Row, Slider, Note, Badge, Section, Dropdown } from '../ui/kit';
+import { Button, IconButton, Row, Slider, Note, Badge, Section, Dropdown, Cover } from '../ui/kit';
 import { CueBar, cueKeyDown } from '../ui/cues';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
@@ -101,7 +101,7 @@ function MvPane() {
     </Section>
   );
 }
-const TABS: [string, string][] = [['theme', 's.sec.theme'], ['lyrics', 's.sec.lyrics'], ['bg', 's.sec.bg'], ['text', 's.sec.text'], ['motion', 's.sec.motion'], ['fx', 's.sec.fx'], ['export', 's.sec.export']];   // (the ending's card follows the song's own details, like its title)
+const TABS: [string, string, string][] = [['theme', 's.sec.theme', 'palette'], ['motion', 's.sec.motion', 'motion'], ['lyrics', 's.sec.lyrics', 'lyrics'], ['bg', 's.sec.bg', 'image'], ['text', 's.sec.text', 'type'], ['fx', 's.sec.fx', 'sparkles'], ['export', 's.sec.export', 'download']];   // (the ending's card follows the song's own details, like its title)
 function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   useStore(player, x => x.rev);
   const session = useStore(player, x => x.session)!, song = useStore(player, x => x.song), locked = !!song?.locked;
@@ -117,17 +117,23 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
     if (!inside.current && !composing.current && !typing() && document.hasFocus() && !ui.get().modal && !ui.get().menu && !document.querySelector('[data-colorpop]')) onClose(); }, 600); };   // (nor while a colour picker of its is open: its eyedropper roams the whole screen)
   useEffect(() => () => clearTimeout(leaveTm.current), []);
   const props = { s: session, edit: editSong, ctx: 'song' as const };
+  // (the panel is tinted by the song's own dark, as the play page is)
+  const tone = useMemo(() => { const A = session.ambient; if (!A) return {}; return { '--amb-base': A.base.map(x => Math.round(x)).join(',') } as React.CSSProperties; }, [session]);
   return (
-    <aside data-test="song-panel" className={s.panel + ' glass'} ref={el} data-open={open} aria-hidden={!open} inert={!open}
+    <aside data-test="song-panel" className={s.panel + ' glass'} ref={el} data-open={open} style={tone} aria-hidden={!open} inert={!open}
       onPointerLeave={e => { const r = el.current!.getBoundingClientRect(); if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return; inside.current = false; leave(); }}
       onPointerEnter={() => { inside.current = true; clearTimeout(leaveTm.current); }}
       onCompositionStart={() => { composing.current = true; clearTimeout(leaveTm.current); }} onCompositionEnd={() => { composing.current = false; if (!inside.current) leave(); }}
       onBlur={e => { if (!inside.current && !el.current!.contains(e.relatedTarget as Node)) leave(); }}>
+      {/* the sections down the left edge (the song's cover at their head), the one open beside them */}
+      <nav className={s.rail} role="tablist" aria-orientation="vertical" aria-label={tx('s.panel.song')}>
+        <span className={s.railCover}><Cover k={trackOf(player.get().shownId)?.cover} /></span>
+        {TABS.map(([k, l, ic]) => <button key={k} type="button" role="tab" aria-selected={tab === k} data-k={k} className={s.railTab} onClick={() => setTab(k)}><Icon n={ic as never} size={18} /><span>{tx(l)}</span></button>)}
+      </nav>
       <header className={s.phead}>
-        <div><b>{tx('s.panel.song')}</b><small>{tx('s.panel.bound')}</small></div>
+        <div><small className={s.pkick}>{tx('s.panel.song')}</small><b className={s.ptitle}>{tx(TABS.find(x => x[0] === tab)![1])}</b><small>{tx('s.panel.bound')}</small></div>
         <IconButton n={locked ? 'lock' : 'unlock'} pressed={locked} label={tx(locked ? 's.locked' : 's.lock')} onClick={() => { if (!locked) saveSong({ locked: true }); }} onDoubleClick={() => { if (locked) saveSong({ locked: false }); }} />
       </header>
-      <div className={s.tabs}><Seg role="tablist" fit size="sm" value={tab} onChange={setTab} options={TABS.map(([k, l]) => [k, tx(l)])} /></div>
       <div className={s.pbody} data-locked={locked}>
         {tab === 'theme' && <ThemePane {...props} />}
         {tab === 'lyrics' && <LyricsTab />}

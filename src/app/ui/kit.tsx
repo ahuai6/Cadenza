@@ -64,15 +64,19 @@ export function Check({ label, checked, onChange }: { label: string; checked: bo
 /** A slider. onChange: at every step while it is dragged (what can follow it live); onCommit: once it is let go (a
  *  release, a key's step) — what costs a rebuild goes there, so dragging never rebuilds at every step. While dragged it
  *  shows its own value, whatever the caller has taken of it so far. */
-export function Slider({ label, value, min, max, step, onChange, onCommit, format }: { label: string; value: number; min: number; max: number; step: number; onChange?: (v: number) => void; onCommit?: (v: number) => void; format?: (v: number) => string }) {
+/** home: the value the slider means "as it comes" (a knob's 1.00×): marked on the track, and the value shown in the
+ *  accent once it is moved off it. */
+export function Slider({ label, value, min, max, step, onChange, onCommit, format, home }: { label: string; value: number; min: number; max: number; step: number; onChange?: (v: number) => void; onCommit?: (v: number) => void; format?: (v: number) => string; home?: number }) {
   const id = useId(), [draft, setDraft] = useState<number | null>(null), v = draft ?? value ?? min, p = ((v - min) / Math.max(1e-9, max - min)) * 100;
+  const hp = home == null ? null : (home - min) / Math.max(1e-9, max - min), off = home != null && Math.abs(v - home) > step / 2;
   const el = useRef<HTMLInputElement>(null), commit = useRef(onCommit); commit.current = onCommit;
   // (the input's own 'change': fired once the thumb is let go, or a key has stepped it — never during a drag)
   useEffect(() => { const i = el.current; if (!i) return; const h = () => { commit.current?.(+i.value); setDraft(null); }; i.addEventListener('change', h); return () => i.removeEventListener('change', h); }, []);
   return (
-    <div className={s.slider}>
+    <div className={s.slider} data-off={off || undefined}>
       <label htmlFor={id} title={label}>{label}</label>
-      <input id={id} ref={el} className={s.range} type="range" min={min} max={max} step={step} value={v} style={{ ['--p' as string]: `${p}%` }} onChange={e => { const x = +e.target.value; setDraft(x); onChange?.(x); }} />
+      <span className={s.rw}>{hp != null && <i className={s.home} style={{ left: `calc(7px + (100% - 14px) * ${hp.toFixed(4)})` }} aria-hidden="true" />}
+      <input id={id} ref={el} className={s.range} type="range" min={min} max={max} step={step} value={v} style={{ ['--p' as string]: `${p}%` }} onChange={e => { const x = +e.target.value; setDraft(x); onChange?.(x); }} /></span>
       <output htmlFor={id}>{format ? format(v) : (+v).toFixed(2)}</output>
     </div>
   );

@@ -87,8 +87,10 @@ export function Heart({ id, size }: { id: string; size?: 'sm' | 'lg' }) {
 export function QueueButton({ glass }: { glass?: boolean }) {
   const open = useStore(ui, x => x.queue), n = useStore(player, x => x.queue.length);
   return <IconButton n="queue" glass={glass} label={tx('s.queue')} pressed={open} aria-expanded={open} count={n} data-queue-button
-    onClick={e => { queueAnchor = (e.currentTarget as HTMLElement).getBoundingClientRect(); ui.set({ queue: !open }); }} />;
+    onClick={e => toggleQueue(e.currentTarget as HTMLElement)} />;
 }
+/** Open or close the queue, anchored at the control that asked for it. */
+export function toggleQueue(at: HTMLElement) { queueAnchor = at.getBoundingClientRect(); ui.set({ queue: !ui.get().queue }); }
 let queueAnchor: DOMRect | null = null;
 
 /* ---------- the card at the bottom ---------- */

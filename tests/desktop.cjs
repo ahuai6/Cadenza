@@ -228,7 +228,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const saved = await C(id => window.cadenzaLib.song(id).then(s => ({ k: s && s.style && s.style.k && s.style.k.energy, custom: s && s.style && s.style.preset })), ids['晨光']);
   ok('song panel: editing makes a custom theme bound to the song and saves it', saved.k === 1.6 && saved.custom === 'custom', JSON.stringify(saved));
   { const r = await C(async () => { const s = window.__cadenza.player.get().session, look = { bg: s.style.bg, font: s.style.font, bgStyle: s.style.bgStyle }, was = s.style.motion || 'story';
-      const opts = [...document.querySelectorAll('[data-test=song-panel] [role=combobox]')].map(b => b.textContent);
+      const opts = [...document.querySelectorAll('[data-test=song-panel] [role=radio]')].map(b => b.textContent);
       window.__cadenza.api.editSong(x => x.applyMotion('float')); await s.flush(); const after = { cut: s.style.cut, ltype: s.style.ltype, bg: s.style.bg, font: s.style.font, bgStyle: s.style.bgStyle };
       window.__cadenza.api.editSong(x => x.applyMotion(was)); await s.flush();
       return { rec: s.recommended, opts: opts.slice(0, 2), same: after.bg === look.bg && after.font === look.font && after.bgStyle === look.bgStyle, after }; });
@@ -236,12 +236,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   // 我的風格: named and saved from the pane, shown as the chosen style, and taken in again after another one
   { const P = win.locator('[data-test=song-panel]'), f = P.getByLabel('風格名稱'); await f.fill('我的測試'); await f.press('Enter');
     await P.getByRole('button', { name: '存成我的風格' }).click();
-    const shown = await win.locator('[data-test=song-panel] [role=combobox]', { hasText: '（我的）' }).first().textContent({ timeout: 3000 }).catch(() => '');
+    const shown = await win.locator('[data-test=song-panel] [role=radio][aria-checked=true]', { hasText: '我的測試' }).first().textContent({ timeout: 3000 }).catch(() => '');
     const r = await C(async shown => { const s = window.__cadenza.player.get().session, list = JSON.parse(localStorage.getItem('cz-motions') || '[]'), e = list[0];
       window.__cadenza.api.editSong(x => { x.applyMotion('float'); x.setKnob('energy', 1); }); await s.flush(); const away = [s.style.cut, s.style.k.energy, s.style.motionId];
       window.__cadenza.api.editSong(x => x.applySavedMotion(e.motion, e.id, e.name)); await s.flush();
       return { n: list.length, name: e && e.name, shown, away, back: [s.style.cut, s.style.k.energy, s.style.motionName] }; }, shown);
-    ok('my styles: a motion saved under a name, shown as the chosen style, and taken in again (camera and knobs)', r.n === 1 && r.name === '我的測試' && r.shown.includes('我的測試') && r.away[2] === null && r.back[1] === 1.6 && r.back[2] === '我的測試', JSON.stringify(r)); }
+    ok('my styles: a motion saved under a name, shown as the chosen style, and taken in again (camera and knobs)', r.n === 1 && r.name === '我的測試' && r.shown.startsWith('我的測試') && r.away[2] === null && r.back[1] === 1.6 && r.back[2] === '我的測試', JSON.stringify(r)); }
   await shot('fx-panel-motion');
   await win.mouse.move(700, 450); await W(1200);
 
