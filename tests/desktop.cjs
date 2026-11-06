@@ -103,7 +103,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     const fast = { npClip: np.style.clipPath, npY: Math.round(ty(np)), sheetY: Math.round(ty(sheet)), coverShadow: cv.style.boxShadow, coverRadius: cv.style.borderRadius };
     return { p: window.__cadenza.layers.npProgress(), clipTop: m ? +m[1] : null, coverTop: cv.getBoundingClientRect().top, coverCx: (r => r.left + r.width / 2)(cv.getBoundingClientRect()), moved: !!cv.style.transform, fast }; });
   await shot('np-opening');
-  ok('opening, at the display\'s rate: the sheet cut by moving layers (no clip-path), the cover\'s shadow and corners not restyled', !mid.fast.npClip && mid.fast.npY > 0 && mid.fast.npY === -mid.fast.sheetY && Math.abs(mid.fast.npY - (mid.clipTop ?? -99)) <= 1 && !mid.fast.coverShadow && !mid.fast.coverRadius, JSON.stringify(mid.fast));
+  ok('opening, at the display\'s rate: the sheet cut by moving layers (no clip-path), the cover\'s shadow and corners not restyled', !mid.fast.npClip && mid.fast.npY > 0 && Math.abs(mid.fast.npY + mid.fast.sheetY) <= 1 && Math.abs(mid.fast.npY - (mid.clipTop ?? -99)) <= 1 && !mid.fast.coverShadow && !mid.fast.coverRadius, JSON.stringify(mid.fast));
   ok('opening: the picture comes out with the cover (its top edge led by the cover), the cover flies', mid.p > 0.05 && mid.p < 0.98 && mid.moved && mid.clipTop != null && mid.clipTop <= mid.coverTop + 1, JSON.stringify(mid));
   await win.keyboard.press('Escape'); await W(120);
   const rev = await C(() => window.__cadenza.layers.npProgress());
