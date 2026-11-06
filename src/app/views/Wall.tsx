@@ -61,15 +61,24 @@ function Gallery({ list, play }: { list: Track[]; play: (t: Track) => void }) {
   const [i, setI] = useState(() => Math.max(0, list.findIndex(t => t.id === player.get().id)));
   const pos = useRef(i), raf = useRef(0), box = useRef<HTMLDivElement>(null), els = useRef<(HTMLButtonElement | null)[]>([]), drag = useRef<{ x: number; s: number; on: boolean } | null>(null), dragged = useRef(0);
   const n = list.length, target = useRef(i);
-  const go = (k: number) => { target.current = Math.max(0, Math.min(n - 1, k)); setI(Math.round(target.current)); };
+  const wake = useRef(() => {});
+  const go = (k: number) => { target.current = Math.max(0, Math.min(n - 1, k)); setI(Math.round(target.current)); wake.current(); };
   useEffect(() => {
-    const step = () => { pos.current += (target.current - pos.current) * 0.14; if (Math.abs(target.current - pos.current) < 0.001) pos.current = target.current;
-      const w = box.current ? box.current.clientWidth : 1200;
+    // (eased by time, not by frames — the same pace at 60, 144 or 240 Hz — and resting once there: no frame is spent on
+    // a gallery that is not moving; a choice, a drag or a new size wakes it)
+    let last = 0;
+    const place = () => { const w = box.current ? box.current.clientWidth : 1200;
       els.current.forEach((el, k) => { if (!el) return; const d = k - pos.current, ad = Math.abs(d); if (ad > 9) { el.style.display = 'none'; return; } el.style.display = '';
         const x = Math.sign(d) * (Math.min(ad, 1) * w * 0.2 + Math.max(0, ad - 1) * w * 0.085), z = -Math.min(ad, 1) * 220 - Math.max(0, ad - 1) * 90, ry = -Math.sign(d) * Math.min(ad, 1) * 52;
-        el.style.transform = `translate3d(${x}px,0,${z}px) rotateY(${ry}deg)`; el.style.zIndex = String(100 - Math.round(ad * 10)); el.style.opacity = String(Math.max(0, 1 - Math.max(0, ad - 5) * 0.25)); });
-      raf.current = requestAnimationFrame(step); };
-    raf.current = requestAnimationFrame(step); return () => cancelAnimationFrame(raf.current);
+        el.style.transform = `translate3d(${x}px,0,${z}px) rotateY(${ry}deg)`; el.style.zIndex = String(100 - Math.round(ad * 10)); el.style.opacity = String(Math.max(0, 1 - Math.max(0, ad - 5) * 0.25)); }); };
+    const step = (now: number) => { const dt = Math.min(0.1, last ? (now - last) / 1000 : 1 / 60); last = now;
+      pos.current += (target.current - pos.current) * (1 - Math.pow(1 - 0.14, dt * 60));     // (14 % a 60 Hz frame, as before)
+      const rest = Math.abs(target.current - pos.current) < 0.001; if (rest) pos.current = target.current;
+      place(); raf.current = rest && !drag.current?.on ? 0 : requestAnimationFrame(step); };
+    wake.current = () => { if (!raf.current) { last = 0; raf.current = requestAnimationFrame(step); } };
+    place(); wake.current();
+    const ro = new ResizeObserver(() => wake.current()); if (box.current) ro.observe(box.current);
+    return () => { cancelAnimationFrame(raf.current); raf.current = 0; ro.disconnect(); wake.current = () => {}; };
   }, [n]);
   useEffect(() => { const k = (e: KeyboardEvent) => { if ((e.target as HTMLElement).closest('input,select,textarea') || ui.get().layer !== 'none') return; if (e.key === 'ArrowRight') go(target.current + 1); else if (e.key === 'ArrowLeft') go(target.current - 1); else if (e.key === 'Enter') play(list[Math.round(target.current)]); };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k); });
@@ -81,7 +90,7 @@ function Gallery({ list, play }: { list: Track[]; play: (t: Track) => void }) {
       onPointerDown={e => { if (e.button !== 0) return; drag.current = { x: e.clientX, s: target.current, on: false }; }}
       onPointerMove={e => { const d = drag.current; if (!d) return;
         if (!d.on && Math.abs(e.clientX - d.x) > 6) { d.on = true; e.currentTarget.setPointerCapture(e.pointerId); }
-        if (d.on) target.current = Math.max(0, Math.min(n - 1, d.s - (e.clientX - d.x) / 160)); }}
+        if (d.on) { target.current = Math.max(0, Math.min(n - 1, d.s - (e.clientX - d.x) / 160)); wake.current(); } }}
       onPointerUp={() => { const d = drag.current; drag.current = null; if (d?.on) { go(Math.round(target.current)); dragged.current = performance.now(); } }}
       onPointerCancel={() => { drag.current = null; }}
       onClickCapture={e => { if (performance.now() - dragged.current < 250) { e.stopPropagation(); e.preventDefault(); } }}>

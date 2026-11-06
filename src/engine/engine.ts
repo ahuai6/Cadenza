@@ -71,8 +71,10 @@ export class Engine extends Emitter<EngineEvents> {
       const j = this.scaleJob; if (!j || j.s !== this.session || !this.playing) { this.scaleJob = null; return; }
       const px = Math.round(this.box.h * this.baseDpr() * j.to) / j.s.plan.H, AHEAD = [0, 0.3, 0.6, 1, 1.5, 2.2];
       // (each slice makes glyphs for a few ms at most; a moment ahead is done once none of its glyphs is missing)
-      const t0 = performance.now(); while (j.i < AHEAD.length) { const left = dl ? dl.timeRemaining() - 2 : 6 - (performance.now() - t0); if (left < 2) break;
-        let done = true; try { done = withMakeBudget(left, () => this.lookAhead(j.s, this.t + AHEAD[j.i], px)); } catch { /* ignore */ } if (done) j.i++; else break; }
+      // (at least one small slice each call: at a high refresh rate the idle time between frames is a few ms at most, and
+      // asking for more than that left the switch waiting for ever)
+      const t0 = performance.now(); let n = 0; while (j.i < AHEAD.length) { const left = dl ? dl.timeRemaining() - 2 : 6 - (performance.now() - t0); if (left < 2 && n++) break;
+        let done = true; try { done = withMakeBudget(Math.max(2, left), () => this.lookAhead(j.s, this.t + AHEAD[j.i], px)); } catch { /* ignore */ } if (done) j.i++; else break; }
       if (j.i < AHEAD.length) { idle(step); return; }
       this.scaleJob = null; this.pscale = j.to; this.scaleAt = performance.now(); this.applyScale(); this.ema = 0;
     };
@@ -357,7 +359,7 @@ export class Engine extends Emitter<EngineEvents> {
      character in its lyrics (in the colours the lyric pass blurs), then one full frame drawn off screen at each moment
      that first uses something costly — each transition's blur, each glyph contour, the start of the words, and a frame
      half-way through the hand-over (its layer, the cover's layers) — so no transition is slow the first time it plays. */
-  private bake: { plan: unknown; steps: (() => boolean)[]; i: number; heavy: boolean[] } | null = null; private probeCv: HTMLCanvasElement | null = null;
+  private bake: { plan: unknown; steps: (() => boolean)[]; i: number; heavy: boolean[]; since: number } | null = null; private probeCv: HTMLCanvasElement | null = null;
   private startBake(s: Session) {
     const f0 = this.frameAt(0); if (!f0) return; const plan = s.plan, { lyricBake } = require_lyrics(), spec = lyricBake(f0);
     const glyphs = prewarmGlyphs(spec.font, spec.cols, spec.chars, [1, 2, 3, 4, 5], spec.grad), steps: (() => boolean)[] = [], heavy: boolean[] = [];
@@ -387,16 +389,22 @@ export class Engine extends Emitter<EngineEvents> {
       ...plan.cues.glass.slice(0, 1).flatMap(g => [g.t + 0.04, g.t + 0.15, g.t + 0.4, g.t + 0.9])];
     for (const T of [...new Set(times.map(x => Math.round(x * 10) / 10))].filter(x => x >= 0 && x < plan.dur)) { steps.push(() => { this.probe(s, T, false); return false; }); heavy.push(true); }
     steps.push(() => { this.probe(s, first + 0.3, true); return false; }); heavy.push(true);
-    this.bake = { plan, steps, i: 0, heavy }; idle(this.runBake);
+    this.bake = { plan, steps, i: 0, heavy, since: performance.now() }; idle(this.runBake);
   }
   private runBake = (dl?: { timeRemaining(): number }) => {
     const b = this.bake, s = this.session; if (!b || !s || b.plan !== s.plan) return;
     const t0 = performance.now(), budget = () => (dl ? dl.timeRemaining() : (this.playing ? 3 : 8) - (performance.now() - t0));
+    // a full frame only when there is room for one — room as long as a frame of this song takes here, not a 60 Hz frame:
+    // at 144 or 240 Hz the time between frames is never 16 ms, and the bake waited for it for ever (so the first blur and
+    // the first shatter were made in the frames that showed them, as if never baked); and one left waiting over a second
+    // and a half runs anyway, between two frames
+    const room = Math.min(16, Math.max(3, this.ema * 1.5)), overdue = performance.now() - b.since > 1500;
+    let n = 0;
     while (b.i < b.steps.length) {
-      if (b.heavy[b.i] && this.playing && budget() < 16) break;             // a full frame only when there is room for it
-      if (!b.heavy[b.i] && budget() < 1) break;
-      try { if (!b.steps[b.i]()) b.i++; } catch (e) { console.warn(e); b.i++; }
-      if (b.heavy[b.i - 1]) break;
+      if (b.heavy[b.i] && this.playing && budget() < room && !overdue) break;
+      if (!b.heavy[b.i] && budget() < 1 && n) break;                        // (one small slice at least, each call)
+      const h = b.heavy[b.i]; n++; try { if (!b.steps[b.i]()) b.i++; } catch (e) { console.warn(e); b.i++; }
+      if (h) { b.since = performance.now(); break; }
     }
     if (b.i < b.steps.length) idle(this.runBake); else this.probeCv = null;
   };

@@ -98,8 +98,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- the card opens into now playing: one progress, reversible at any moment ---------- */
   await win.locator('[data-test=card]').getByTitle('展開').first().click(); await W(140);
   const mid = await C(() => { const st = document.querySelector('[data-test=stage]'), cv = document.querySelector('[data-test=np-cover]'); const m = /inset\(([\d.]+)px/.exec(st.style.clipPath || '');
-    return { p: window.__cadenza.layers.npProgress(), clipTop: m ? +m[1] : null, coverTop: cv.getBoundingClientRect().top, coverCx: (r => r.left + r.width / 2)(cv.getBoundingClientRect()), moved: !!cv.style.transform }; });
+    const np = document.querySelector('[data-test=np]'), sheet = np.querySelector(':scope > [data-in]'), ty = el => new DOMMatrix(getComputedStyle(el).transform).m42;
+    // (the frame rate: the sheet is cut by moving layers, never by a clip-path or a cover style that repaints them each frame)
+    const fast = { npClip: np.style.clipPath, npY: Math.round(ty(np)), sheetY: Math.round(ty(sheet)), coverShadow: cv.style.boxShadow, coverRadius: cv.style.borderRadius };
+    return { p: window.__cadenza.layers.npProgress(), clipTop: m ? +m[1] : null, coverTop: cv.getBoundingClientRect().top, coverCx: (r => r.left + r.width / 2)(cv.getBoundingClientRect()), moved: !!cv.style.transform, fast }; });
   await shot('np-opening');
+  ok('opening, at the display\'s rate: the sheet cut by moving layers (no clip-path), the cover\'s shadow and corners not restyled', !mid.fast.npClip && mid.fast.npY > 0 && mid.fast.npY === -mid.fast.sheetY && Math.abs(mid.fast.npY - (mid.clipTop ?? -99)) <= 1 && !mid.fast.coverShadow && !mid.fast.coverRadius, JSON.stringify(mid.fast));
   ok('opening: the picture comes out with the cover (its top edge led by the cover), the cover flies', mid.p > 0.05 && mid.p < 0.98 && mid.moved && mid.clipTop != null && mid.clipTop <= mid.coverTop + 1, JSON.stringify(mid));
   await win.keyboard.press('Escape'); await W(120);
   const rev = await C(() => window.__cadenza.layers.npProgress());

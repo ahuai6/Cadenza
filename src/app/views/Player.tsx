@@ -18,14 +18,16 @@ import { Marquee } from '../ui/Marquee';
 import s from './Player.module.css';
 
 /* ---------- progress: written straight to the DOM on every tick ---------- */
+const txt = (el: HTMLElement | null, attr: string, v: string) => { if (!el) return; if (attr) { if (el.getAttribute(attr) !== v) el.setAttribute(attr, v); } else if (el.textContent !== v) el.textContent = v; };
 export function Progress({ className = '', times = true }: { className?: string; times?: boolean }) {
   const bar = useRef<HTMLDivElement>(null), cur = useRef<HTMLSpanElement>(null), tot = useRef<HTMLSpanElement>(null), drag = useRef(false);
   const end = () => player.get().session?.musicEnd || 0.01;
   useEffect(() => {
     const paint = (t: number) => { const d = end(), k = Math.min(1, Math.max(0, t / d));
-      bar.current?.style.setProperty('--k', k.toFixed(5)); bar.current?.setAttribute('aria-valuenow', String(Math.round(t)));
+      bar.current?.style.setProperty('--k', k.toFixed(5)); txt(bar.current, 'aria-valuenow', String(Math.round(t)));
       // (the ending after the music is not counted: the time stops at the song's length)
-      if (cur.current) cur.current.textContent = fmtTime(Math.min(t, d)); if (tot.current) tot.current.textContent = fmtTime(d); };
+      // (the times written only when they change — once a second —: a text written anew each frame is a layout each frame)
+      txt(cur.current, '', fmtTime(Math.min(t, d))); txt(tot.current, '', fmtTime(d)); };
     paint(engine.time);
     const a = engine.on('tick', p => paint(p.t)), b = player.subscribe((x, y) => { if (x.session !== y.session) paint(engine.time); });
     return () => { a(); b(); };

@@ -30,10 +30,9 @@ interface ShL { c: string; a: number; x: number; y: number; b: number; s: number
 const SH_RE = /(rgba?\([^)]*\))\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+(-?[\d.]+)px)?/g;
 const parseSh = (v: string): ShL[] => [...(v || '').matchAll(SH_RE)].map(m => { const n = (m[1].match(/-?[\d.]+/g) || []).map(Number);
   return { c: n.slice(0, 3).join(','), a: n[3] ?? 1, x: +m[2], y: +m[3], b: +m[4], s: +(m[5] || 0) }; });
-let miniSh: ShL[] = [], pageSh: ShL[] = [];
-/** the shadows crossed: the mini cover's at weight 1 - u, the page cover's at u (on screen: k undoes the element's scale) */
-const crossSh = (u: number, k: number, fade: number) => [...miniSh.map(l => [l, 1 - u] as const), ...pageSh.map(l => [l, u] as const)].filter(([, w]) => w > 0.001)
-  .map(([l, w]) => `${(l.x * k).toFixed(2)}px ${(l.y * k).toFixed(2)}px ${(l.b * k).toFixed(2)}px ${(l.s * k).toFixed(2)}px rgba(${l.c},${(l.a * w * fade).toFixed(3)})`).join(', ') || 'none';
+let miniSh: ShL[] = [];
+/** the mini cover's shadow, every layer of it, scaled by k (the flying cover's layer is drawn at the page cover's size) */
+const miniShadow = (k: number) => miniSh.map(l => `${(l.x * k).toFixed(2)}px ${(l.y * k).toFixed(2)}px ${(l.b * k).toFixed(2)}px ${(l.s * k).toFixed(2)}px rgba(${l.c},${l.a.toFixed(3)})`).join(', ') || 'none';
 const radiusOf = (el: Element) => { const v = parseFloat(getComputedStyle(el).borderTopLeftRadius); return Number.isFinite(v) ? v : 0; };
 const measure = () => {
   const { mini, npCover, card, stage } = refs;
@@ -42,11 +41,14 @@ const measure = () => {
   C = card && card.isConnected ? rectOf(card) : null;
   if (stage) { const keep = stage.style.clipPath; stage.style.clipPath = ''; R = rectOf(stage); stage.style.clipPath = keep; }
   // the resting corners, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
-  if (npCover) { const keep = npCover.style.borderRadius, ks = npCover.style.boxShadow; npCover.style.borderRadius = ''; npCover.style.boxShadow = '';
-    coverR = radiusOf(npCover); pageSh = parseSh(getComputedStyle(npCover).boxShadow); npCover.style.borderRadius = keep; npCover.style.boxShadow = ks; }
+  if (npCover) coverR = radiusOf(npCover);
   if (mini) miniR = radiusOf(mini) || 9;
-  // the mini cover's own shadow (y offset, blur, alpha), which the flying cover's shadow turns into
+  // the mini cover's own shadow, which the flying cover's turns into: drawn once on its own layer in the cover, at the
+  // size that is the mini cover's on screen when the flight starts (the layer is scaled with the cover)
   if (mini) miniSh = parseSh(getComputedStyle(mini).boxShadow);
+  const shM = npCover?.querySelector<HTMLElement>('[data-sh=mini]');
+  if (shM && A && B) { const k = B.width / Math.max(1, A.width), sh = miniShadow(k), rr = `${(miniR * k).toFixed(2)}px`;
+    if (shM.style.boxShadow !== sh) shM.style.boxShadow = sh; if (shM.style.borderRadius !== rr) shM.style.borderRadius = rr; }
 };
 function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;
@@ -62,12 +64,15 @@ function applyNp(p: number) {
     const x = from.left + (B.left - from.left) * u, y = from.top + (B.top - from.top) * u, w = from.width + (B.width - from.width) * u, sc = w / B.width;
     coverTop = y;
     npCover.style.transform = p >= 0.9995 ? '' : `translate(${(x - B.left).toFixed(2)}px, ${(y - B.top).toFixed(2)}px) scale(${sc.toFixed(4)})`;
-    const r = miniR + (coverR - miniR) * part(p, 0, 1); npCover.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
-    // its shadow: from the mini cover's to the page's as it flies (on screen; the element is scaled), so neither end jumps
-    // (closing, it fades out over the last stretch, the mini cover's own then fading in: see above)
-    // (at either end it is exactly that end's own shadow, so the hand-over to the mini cover's at the close is seamless)
-    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20;
-      npCover.style.boxShadow = crossSh(part(p, 0, 1), k, 1); }
+    // (its corners on the clip inside it — a clip that paints nothing: the picture, a layer of its own, is not drawn again)
+    const r = miniR + (coverR - miniR) * part(p, 0, 1), clip = npCover.querySelector<HTMLElement>('[data-clip]');
+    if (clip) clip.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
+    // its shadow: the mini cover's crossing into the page's as it flies — two shadows each drawn once (measure), in the
+    // cover's own transform, crossed by their opacity: at either end exactly that end's own shadow, so neither end jumps,
+    // and no frame of the flight repaints a shadow
+    const k = part(p, 0, 1), shM = npCover.querySelector<HTMLElement>('[data-sh=mini]'), shP = npCover.querySelector<HTMLElement>('[data-sh=page]');
+    if (shM) shM.style.opacity = p >= 0.9995 || !A ? '' : (1 - k).toFixed(3);
+    if (shP) shP.style.opacity = p >= 0.9995 || !A ? '' : k.toFixed(3);
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
   // the page: from the card's bottom edge upward over the area (its own box), sides and bottom following the top
@@ -91,23 +96,42 @@ function applyNp(p: number) {
   // (and the page's own content: nothing of it shows outside the sheet as it rises — its header never over the library)
   // (the page's own content is cut at the sheet's top only: the flying cover passes over the bar's edge on its way to the
   // bar's cover, and nothing else of the page shows there before it has faded in)
-  np.style.clipPath = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px 0 0 0 round ${rTop}px ${rTop}px 0 0)`;
-  const amb = refs.npAmb; if (amb) { amb.dataset.vis = String(on); amb.style.clipPath = clip; amb.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.3).toFixed(3); }
+  // (no clip-path on these two: changed each frame, it repainted the whole page — its blurred light too — every frame.
+  // Each is a box that cuts, moved down to the sheet's edge, around a layer moved back up by as much: the edge moves,
+  // nothing in them is drawn again)
+  const rest = p >= 0.9995, y = rest ? 0 : Math.max(0, top);
+  cutBox(np, y, rest ? null : 0, rTop);
+  const amb = refs.npAmb; if (amb) { amb.dataset.vis = String(on); cutBox(amb, y, rest ? null : Math.max(0, bottom), rTop); amb.style.opacity = rest ? '' : part(p, 0, 0.3).toFixed(3); }
   // while it rises, the page casts a soft shade up onto what it is covering: a wide falloff above its leading edge,
   // fading out at the sides, deepest mid-way through the move and gone once it has landed (or closed) — a sheet sliding
   // over the library, not a line drawn on it
   { const sh = edgeShade(), k2 = on && p < 0.9995 ? Math.sin(Math.PI * Math.min(1, p)) ** 0.8 : 0;
     if (k2 < 0.01) sh.style.display = 'none'; else { const h = Math.min(140, 40 + Rb.height * 0.12), L = Rb.left + Math.max(0, left), Wd = Rb.width - Math.max(0, left) - Math.max(0, right);
-      Object.assign(sh.style, { display: '', left: L.toFixed(1) + 'px', width: Math.max(0, Wd).toFixed(1) + 'px', top: (Rb.top + Math.max(0, top) - h + 2).toFixed(1) + 'px', height: h.toFixed(1) + 'px', opacity: (0.9 * k2).toFixed(3) }); } }
+      // (moved by a transform on a layer of its own, its box set only when the window changes: placed by top and left, each
+      // frame repainted the whole library under it — four or five full-window paints a frame while the sheet moved)
+      const box = `${L.toFixed(1)}|${Math.max(0, Wd).toFixed(1)}|${h.toFixed(1)}`;
+      if (sh.dataset.box !== box) { sh.dataset.box = box; Object.assign(sh.style, { left: L.toFixed(1) + 'px', width: Math.max(0, Wd).toFixed(1) + 'px', top: '0px', height: h.toFixed(1) + 'px' }); }
+      Object.assign(sh.style, { display: '', transform: `translate3d(0,${(Rb.top + Math.max(0, top) - h + 2).toFixed(1)}px,0)`, opacity: (0.9 * k2).toFixed(3) }); } }
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
   for (const el of refs.npParts) if (el) { el.style.opacity = String(q); el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`; }
   // (the parts with a fade of their own in the style — the cover's light — take this one through a variable, so both apply)
-  np.style.setProperty('--q', q.toFixed(3));
+  // (set on the light itself, not on the page — a variable changed on the page restyles everything in it each frame — and
+  // the light is a layer of its own, so a new opacity is not a repaint)
+  np.querySelectorAll<HTMLElement>('[data-q]').forEach(el => el.style.setProperty('--q', q.toFixed(3)));
+}
+/** A box cut to the sheet's shape: its top edge `y` down (a transform), its bottom `bottom` up from the window's (its
+ *  height; null: at rest, as laid out), its top corners rounded; the layer in it ([data-in]) moved back up by `y`. */
+function cutBox(el: HTMLElement, y: number, bottom: number | null, r: number) {
+  const inner = el.querySelector<HTMLElement>(':scope > [data-in]');
+  if (bottom === null) { el.style.transform = el.style.height = el.style.borderRadius = el.style.overflow = ''; if (inner) inner.style.transform = ''; return; }
+  el.style.transform = `translate3d(0,${y.toFixed(1)}px,0)`; el.style.height = `${Math.max(0, innerHeight - y - bottom).toFixed(1)}px`;
+  el.style.borderRadius = r ? `${r}px ${r}px 0 0` : ''; el.style.overflow = 'clip';
+  if (inner) inner.style.transform = `translate3d(0,${(-y).toFixed(1)}px,0)`;
 }
 let shadeEl: HTMLDivElement | null = null;
 function edgeShade() { if (shadeEl) return shadeEl; const d = document.createElement('div'); d.setAttribute('aria-hidden', 'true');
-  Object.assign(d.style, { position: 'fixed', zIndex: '39', pointerEvents: 'none', display: 'none',
+  Object.assign(d.style, { position: 'fixed', zIndex: '39', pointerEvents: 'none', display: 'none', willChange: 'transform, opacity',
     background: 'linear-gradient(to top, rgba(6,4,12,0.32), rgba(6,4,12,0.14) 35%, rgba(6,4,12,0.04) 70%, rgba(6,4,12,0))',
     WebkitMaskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)', maskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)' });
   document.body.appendChild(d); return (shadeEl = d); }

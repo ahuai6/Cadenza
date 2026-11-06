@@ -56,8 +56,11 @@ export function NowPlaying() {
   return (
     <>
     {/* the cinema around the picture: a shade at the edges in the song's own dark, and a fine grain over the colour */}
-    <div className={s.amb} ref={amb} style={tone} data-vis="false" aria-hidden="true" />
+    {/* (each as a box that cuts and a layer inside it moving the other way — layers.ts: the opening moves them, it never
+        repaints them) */}
+    <div className={s.amb} ref={amb} style={tone} data-vis="false" aria-hidden="true"><div className={s.ambIn} data-in /></div>
     <section data-test="np" className={s.np + ' on-picture'} ref={root} style={tone} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
+      <div className={s.sheet} data-in>
       <header className={s.top} ref={top}>
         <div className={s.fade}><IconButton n="chevronDown" label={tx('s.collapse')} onClick={back} /></div>
         {/* what this page shows: its lyrics, the effect lyrics, or the queue over it (the page itself says what is playing) */}
@@ -74,8 +77,13 @@ export function NowPlaying() {
         <div className={s.left}>
           {/* (the cover's own light spilling behind it: the left column's weight against the lyrics) */}
           <div className={s.coverBox}>
-            <div className={s.halo + ' ' + s.fade} ref={halo} aria-hidden="true"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full /></Swap></div>
-            <div className={s.cover} ref={cover} data-test="np-cover"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full eager /></Swap></div>
+            <div className={s.halo + ' ' + s.fade} ref={halo} data-q aria-hidden="true"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full /></Swap></div>
+            <div className={s.cover} ref={cover} data-test="np-cover">
+              {/* (its shadows — the mini cover's and its own — and its picture each on a layer of their own, in its
+                  transform: the opening crosses the shadows and rounds the clip, it never repaints the picture) */}
+              <i className={s.shM} data-sh="mini" aria-hidden="true" /><i className={s.shP} data-sh="page" aria-hidden="true" />
+              <div className={s.coverClip} data-clip><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full eager /></Swap></div>
+            </div>
           </div>
           <div className={s.info} ref={info}>
             <div className={s.fade + ' ' + s.infoIn}>
@@ -109,6 +117,7 @@ export function NowPlaying() {
           </div>
         </div>
       </div>
+      </div>
     </section>
     </>
   );
@@ -138,6 +147,11 @@ function liftAt(dt: number, dur: number) {
 /** A word lit character by character: any word of several characters that is not Latin (it can wrap onto two rows). */
 const byUnit = (w: Line['words'][number]) => !w.latin && w.units.length > 1;
 interface LS { el: HTMLElement; y: number; v: number; ty: number; at: number; next: number }
+/** A style written only when it changes: the sung line is painted every frame, but most of its words are sung already or
+ *  not yet — writing their same values again made the browser restyle them all each frame for nothing. */
+const wrote = new WeakMap<HTMLElement, Record<string, string>>();
+function put(el: HTMLElement, k: string, v: string) { let m = wrote.get(el); if (!m) wrote.set(el, m = {}); if (m[k] === v) return; m[k] = v;
+  if (k === 'translate') el.style.translate = v; else el.style.setProperty(k, v); }
 export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
   const box = useRef<HTMLDivElement>(null), lineEls = useRef<(HTMLElement | null)[]>([]), view = useStore(ui, x => x.npLyr);
   // the lyric face chosen for this page (or the interface's own)
@@ -176,10 +190,10 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   const mark = (idx: number) => lineEls.current.forEach((el, i) => { if (!el) return; const d = i - idx, whole = !lines[i]?.kar;
     // a line left before its last word had lifted all the way: its words go the rest of the way up (softly, by the
     // transition) and stay there, never held half-way — and it stays lit, as sung
-    if (d !== 0 && el.dataset.on === 'true') { leaves(el).forEach(w => { if (w.style.translate && !whole) w.style.translate = `0 ${w.dataset.h != null ? -LIFT * 0.6 : -LIFT}px`; if (!whole) w.style.setProperty('--p', '1'); });
-      if (whole) el.style.setProperty('--p', '1'); }
+    if (d !== 0 && el.dataset.on === 'true') { leaves(el).forEach(w => { if (w.style.translate && !whole) put(w, 'translate', `0 ${w.dataset.h != null ? -LIFT * 0.6 : -LIFT}px`); if (!whole) put(w, '--p', '1'); });
+      if (whole) put(el, '--p', '1'); }
     // (becoming current, a line timed as a whole starts from dark on the line itself, its parts holding nothing of their own)
-    if (d === 0 && whole) { leaves(el).forEach(w => { w.style.removeProperty('--p'); w.style.removeProperty('--gl'); }); el.style.setProperty('--p', '0'); el.style.setProperty('--gl', '0'); }
+    if (d === 0 && whole) { leaves(el).forEach(w => { w.style.removeProperty('--p'); w.style.removeProperty('--gl'); const m = wrote.get(w); if (m) { delete m['--p']; delete m['--gl']; } }); put(el, '--p', '0'); put(el, '--gl', '0'); }
     el.style.setProperty('--d', String(Math.min(5, Math.abs(d)))); el.dataset.on = String(d === 0); });
   const measure = () => {
     const S = st.current; lineEls.current.forEach(el => { if (el) el.style.transform = ''; });
@@ -207,13 +221,13 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       // a line timed only as a whole lights as a whole, at once, from the moment it is the current line (or its own time,
       // if that is sooner), as Apple Music does: one fill on the line — never dark while current, never faded in
       const t0w = Math.min(starts[i] ?? L.t, L.t);
-      if (!L.kar) { const on = p.t >= t0w ? 1 : 0; el.style.setProperty('--p', String(on)); el.style.setProperty('--gl', (0.6 * lvl * on).toFixed(3)); }
+      if (!L.kar) { const on = p.t >= t0w ? 1 : 0; put(el, '--p', String(on)); put(el, '--gl', (0.6 * lvl * on).toFixed(3)); }
       // each word: its fill (how far it is sung), its glow (only once it is all but sung) and its own lift as it is sung
       L.words.forEach((w, k) => { const e = ws[k]; if (!e) return;
         // (a word is all sung by the time the next one starts: with no gap, or a tiny one, it does not trail on under it)
         const nx = L.words[k + 1], end = nx && nx.t > w.t ? Math.min(w.end, nx.t) : w.end;
         const fill = (el: HTMLElement, t0: number, t1: number) => { const q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0))), gl = Math.min(1, Math.max(0, (q - 0.6) / 0.4));
-          el.style.setProperty('--p', q.toFixed(3)); el.style.setProperty('--gl', (gl * gl * lvl).toFixed(3)); el.style.translate = `0 ${(-LIFT * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; };
+          put(el, '--p', q.toFixed(3)); put(el, '--gl', (gl * gl * lvl).toFixed(3)); put(el, 'translate', `0 ${(-LIFT * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`); };
         // a word drawn character by character (one that may wrap onto the next row): each character fills in its own
         // time, so a second row lights up only once it is sung
         if (byUnit(w) && L.kar) { const us = e.querySelectorAll<HTMLElement>('[data-u]'), n = w.units.length, span = Math.max(0.08, w.end - w.t);
@@ -221,16 +235,16 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
           us.forEach((u, i) => fill(u, at(i), i + 1 < n ? at(i + 1) : end)); }
         // (a line timed only as a whole: lit on the line itself, above — its words do not lift one by one: that is a
         // word being sung, which a line timed as a whole has none of)
-        else if (!L.kar) { if (e.style.translate) e.style.translate = ''; }
+        else if (!L.kar) put(e, 'translate', '');
         else fill(e, w.t, end); });
       // the harmonies: each from its own first sound to its last (at least as long as the word it goes with)
       const hs = el.querySelectorAll<HTMLElement>('[data-h]');
       L.words.filter(w => w.harm).forEach((w, k) => { const e = hs[k], H = w.harm!; if (!e) return;
         // (a line timed only as a whole: its harmonies light with it, at once, as its words do)
-        if (!L.kar) { if (e.style.translate) e.style.translate = ''; return; }
+        if (!L.kar) { put(e, 'translate', ''); return; }
         const t0 = isFinite(H.t) ? H.t : w.t, last = H.units[H.units.length - 1]?.t ?? t0;
         const t1 = Math.max(t0 + 0.3, last + 0.25, w.end), q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0)));
-        e.style.setProperty('--p', q.toFixed(3)); e.style.translate = `0 ${(-LIFT * 0.6 * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; });
+        put(e, '--p', q.toFixed(3)); put(e, 'translate', `0 ${(-LIFT * 0.6 * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`); });
       }
     });
   }, [lines, live]);
