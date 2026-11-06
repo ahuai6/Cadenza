@@ -70,7 +70,7 @@ class Rec {
    *  (glyphs.ts sharpGlyph, strokeGlyph). */
   sdf(txt: string, G: number, paint: Paint, x: number, y: number, font = this._font, k = 1) {
     if (G >= SDF_MAX) return false;
-    const e = sdfGlyph(font, txt, sdfTier(G) as 0 | 1); if (!e) return true;      // (a pass ahead past its budget: made by its next slice)
+    const e = sdfGlyph(font, txt, sdfTier(G)); if (!e) return true;      // (a pass ahead past its budget: made by its next slice)
     const s = e.s * k, dw = e.width * s, dh = e.height * s;
     this.out.sdfQuad(e, paint, x - dw / 2, y - dh / 2, dw, dh, y, this.m, this.globalAlpha, G / EM * e.s);
     return true;
@@ -124,8 +124,16 @@ uniform sampler2D tex; in vec2 vUv; in float vA; in float vT; flat in vec4 vC0; 
 void main() {
   vec4 t = texture(tex, vUv);
   if (vS.x < 0.5) { o = t * vA; return; }
-  // the distance to the edge in device px, positive inside; a pixel's coverage is its share of a 1 px ramp across it
-  float d = (t.a * 255.0 - 128.0) / 127.0 * vS.y * vS.z;
+  // the distance to the edge in field px, positive inside, then in device px by how fast it changes from one pixel to the
+  // next on screen — whatever the glyph's transform does to it (its lean in depth, the frame's shear, a squash): a pixel's
+  // coverage is its share of a ramp exactly one device pixel wide across the edge. (A scale worked out on the CPU from
+  // the glyph's size missed those, and the ramp came out too sharp — jagged — or too soft.)
+  float df = (t.a * 255.0 - 128.0) / 127.0 * vS.y;
+  float w = length(vec2(dFdx(df), dFdy(df)));
+  // (where the field does not change across the pixel — far inside or out, or between two equal texels — the CPU's scale)
+  // (the ramp 1.3 px wide, not 1: what a glyph bitmap drawn a touch smaller than it was made shows — the canvas's own look,
+  // which a 1 px ramp edged too sharply on a slant; measured against the canvas, 1.3 is the closest)
+  float d = df / max(w, 0.25 / vS.z) / 1.3;
   float cov = vS.x > 2.5 ? clamp(d + vS.w + 0.5, 0.0, 1.0) - clamp(d + 0.5, 0.0, 1.0) : clamp(d + 0.5, 0.0, 1.0);
   float u = clamp(vT, 0.0, 1.0);
   vec4 c = vS.x > 1.5 && vS.x < 2.5 ? (u < 0.55 ? mix(vC0, vC1, u / 0.55) : mix(vC1, vC2, (u - 0.55) / 0.45)) : vC0;

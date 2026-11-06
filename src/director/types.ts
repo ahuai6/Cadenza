@@ -75,6 +75,7 @@ export interface Stop extends Pose {
   over: boolean;          // the ending pull-back
   rest: number;           // the pause after these words
   words: PWord[];
+  /** not visited: the camera reached it too late and went straight on to the next stop's framing (camera.ts) */ skipped?: boolean;
   roll?: number;          // the roller: reached by half a turn this way (−1 left, +1 right)
   rollD?: number;         // … taking this long (s)
   /** the follow: the axis the camera travels along these words' characters, and each step [t0, t1, dx, dy, ease] */

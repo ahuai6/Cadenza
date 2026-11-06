@@ -82,7 +82,9 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   const ph = rnd(L.i * 3.1 + S.k * 1.7) * 6.28;
   oy += Math.sin(t * 0.9 + ph) * c.float * 7;
   const frot = Math.sin(t * 0.6 + ph * 1.3) * c.float * 1.2;
-  return { o, pe, dimK, pastK, live, gk: ov > 0 ? 0 : (1 - dimK) * (1 - pastK), sc, ox, oy, frot, tin, dur, gapx };
+  // (the glow of a word being sung goes as the ending comes in, over the ending's own ramp — switched off in its first
+  // frame, it vanished in one step under the words that stay on)
+  return { o, pe, dimK, pastK, live, gk: (1 - dimK) * (1 - pastK) * (1 - ov), sc, ox, oy, frot, tin, dur, gapx };
 }
 
 export interface UnitPose {
@@ -100,11 +102,13 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
   if (ws.gapx) rx += ws.gapx * (ui - (n - 1) / 2);                 // (the spread exit: its characters apart, round the word's middle)
   if (c.float > 0) ry += Math.sin(t * 1.15 + ui * 0.7 + L.i) * c.float * 2.6;     // float: part of the rest pose
   let ua = 1, um = 1, dx = 0, dy = 0, ur = 0, uq = 1 - ws.pe, ghost = false, outline = 0;
-  if (S.w.timed && u.t != null && ov === 0) {   // (characters lit one by one only where the lyrics time them)
+  // (into the ending every part keeps its own state and goes over the ending's ramp: a part switched off in the ending's
+  // first frame — a just-sung outline, a ghost's fade, a glow — changed in one step under the words that stay on)
+  if (S.w.timed && u.t != null) {   // (characters lit one by one only where the lyrics time them)
     const lt = t - u.t;
     if (lt < 0) { if (c.future === 'hide' || trail) return null; ghost = true; uq = 0;
       // the ghost arrives with the word's entrance (as the word's own type would), then waits for its moment
-      if (ov === 0) { const pu = eOut(clamp((t - S.show - ui * 0.055) / ws.dur)), qq = 1 - pu; ua = eSine(clamp((t - S.show - ui * 0.055) / Math.max(0.1, c.enter * 0.9 * c.tempo)));
+      { const pu = eOut(clamp((t - S.show - ui * 0.055) / ws.dur)), qq = 1 - pu; ua = eSine(clamp((t - S.show - ui * 0.055) / Math.max(0.1, c.enter * 0.9 * c.tempo)));
         if (ws.tin === 'rise') { dy = 48 * qq; ur = (ui % 2 ? 6 : -6) * qq; }
         else if (ws.tin === 'pop') um = 1 + qq * (c.smooth ? 0.12 : 0.45) * c.motion;
         else if (ws.tin === 'track') dx = rx * 0.55 * qq;
@@ -117,13 +121,13 @@ export function unitPose(S: PWord, ui: number, t: number, ws: WordState, ov: num
       else if (ws.tin === 'track') dx = (u.ox >= 0 ? 1 : -1) * 24 * qq;
       else if (ws.tin === 'blur') um = 1 + 0.12 * qq;
       else dy = 30 * qq;
-      if (qq > 0.001 && c.future !== 'hide' && !trail) outline = 0.4 * qq;
+      if (qq > 0.001 && c.future !== 'hide' && !trail) outline = 0.4 * qq * (1 - ov);
     }
-  } else if (ov === 0 && t >= S.show) {
+  } else if (t >= S.show) {
     if (ws.tin === 'rise') { const pu = eOut(clamp((t - S.show - ui * 0.055) / ws.dur)), qq = 1 - pu; ua = pu; dy = 48 * qq; ur = (ui % 2 ? 6 : -6) * qq; uq = qq; }
     else if (ws.tin === 'track') { const pu = eOut(clamp((t - S.show - Math.abs(ui - (n - 1) / 2) * 0.03) / ws.dur)); ua = pu; dx = rx * 0.55 * (1 - pu); uq = 1 - pu; }
   }
-  if (ov > 0) uq = 0;
+  if (ov > 0) uq *= 1 - ov;                        // (a word not yet settled settles over the ending's ramp, not in one frame)
   return { rx, ry, dx, dy, um, ur, ua, uq, ghost, outline };
 }
 export { type PLine };

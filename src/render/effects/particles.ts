@@ -10,11 +10,14 @@ import { C2, dot } from './sprite';
 import { stagger, band, lifeFade, loop } from './drift';
 
 /* ---------- motes: specks of light drifting up (on the shared accent clock: they hang in the air on a hit) ---------- */
+// (into the song's last seconds they rise a little faster, up to about twice their pace: the extra is the speed-up's own
+// integral, added to their clock — a speed multiplied into the whole song's time raced them at many times their pace as
+// it grew, the further into the song the more: some thirty times at three minutes)
 // (spread by drift.ts: each in its own band across the frame, their rises staggered — never bunched; faded at the wrap)
 const MOTES = Array.from({ length: 170 }, (_, i) => ({ z: 0.2 + rnd(i * 9.3) * 0.8, s: 0.5 + rnd(i * 2.3), f: 0.5 + rnd(i * 4.4) * 2, p: rnd(i * 6.6) * 6.28, big: i % 7 === 0 }));
 register({ id: 'motes', label: 'fx.motes', layer: 'backdrop', kind: 'effect', z: 10, params: [{ key: 'amount', label: 'p.amount', kind: 'range', min: 0, max: 2, step: 0.05, def: 1 }],
   draw(g, f, a) { const E = a.bd.E, w = f.W, h = f.H, m = Math.min(w, h), t = accentClock(f.plan.map, f.t), P = f.P, D = dot(f.pal.accent), amt = +a.params.amount, brk = Math.max(0, f.t - (f.plan.musicEnd - 3.5)), n = Math.round(MOTES.length * clamp(amt / 2 * 2, 0, 1));
-    for (let i = 0; i < n; i++) { const d = MOTES[i], L = loop(t, 0.006 * d.s * (1 + brk * 0.15), stagger(i, n)), fade = lifeFade(L.u, 0.08, 0.08);
+    for (let i = 0; i < n; i++) { const d = MOTES[i], L = loop(t + 0.075 * brk * brk, 0.006 * d.s, stagger(i, n)), fade = lifeFade(L.u, 0.08, 0.08);
       const X = band(i, n, L.life) * (w + 2 * E) - E + a.bd.ox * d.z * 2 + Math.sin(t * 0.3 + d.p) * 20 * d.z, Y = (1 - L.u) * (h + 2 * E) - E + a.bd.oy * d.z * 2, tw = 0.55 + 0.45 * Math.sin(t * d.f + d.p);
       if (d.big) { const r = (10 + 30 * d.z) * (m / 720); g.globalAlpha = ((0.04 + 0.07 * d.z) * tw + P * 0.04) * Math.min(1, amt) * fade; g.drawImage(D, X - r, Y - r, r * 2, r * 2); }
       else { const r = (1.2 + 3.2 * d.z) * (m / 720); g.globalAlpha = Math.min(1, (0.2 + 0.5 * d.z) * tw + P * 0.3 * d.z) * Math.min(1, amt) * fade; g.drawImage(D, X - r * 2, Y - r * 2, r * 4, r * 4); } }

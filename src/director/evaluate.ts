@@ -30,12 +30,6 @@ export function driveAt(plan: ScenePlan, t: number): number {
   let v = 0; for (const d of [-1.2, -0.6, 0, 0.6, 1.2]) v += plan.map.level(t + d);
   return sstep(clamp((v / 5 - 0.45) / 0.35));
 }
-/** A stretch without words (0..1): from half a second after the words stop — not only once the camera has gone idle —
- *  until just before the next. */
-export function wordlessK(plan: ScenePlan, t: number) {
-  for (const I of plan.camera.idle) { const a = I.g + 0.5; if (t > a && t < I.b) return Math.min(sstep((t - a) / 1.5), sstep((I.b - t) / 0.7)); }
-  return 0;
-}
 /** How far a long pause has let the picture rest (0..1): it eases in slowly over the idle stretch (as slowly as the camera
  *  moves: the speed setting), and goes back at once under the blur of the passage that ends it — or, without one,
  *  just before the next words. A video backdrop rests upright, centred and unshaded. */
@@ -67,11 +61,14 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   const c = plan.camera, b = basePose(c, t), M = plan.style.m, W = plan.W;
   // the frame's own motion plays through a transition's blur, a little stronger under it (see holdAt)
   const trans = transK(plan.passages, t), hold = holdAt(plan, t);
-  const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t, idleK(plan, t)), calm = 1 - sstep(clamp((t - plan.musicEnd) / 0.8)), still = 1 - rs.still;
+  const centre = c.style === 'center', ik = centre ? 0 : idleK(plan, t), rs = sig.sample(t), calm = 1 - sstep(clamp((t - plan.musicEnd) / 0.8)), still = 1 - rs.still;
   // (calm: past the music's end the frame's own motion settles — over about as long as a last swing takes to die out,
   // never cut short)
-  // (the music's drive: a driving stretch without words floats less and shakes more — see driveAt)
-  const drive = driveAt(plan, t), wk = centre ? 0 : wordlessK(plan, t);
+  // (the music's drive: a driving stretch without words floats less — see driveAt)
+  // (the shake is one and the same everywhere — the opening, a stretch without words, the outro: the music's own hits at
+  // the style's own strength. It used to shake harder without words, read quieter music as sounding while idle and take
+  // weaker accents as impacts there: three ways the same beat moved the picture differently by where it fell)
+  const drive = driveAt(plan, t);
   const cam: Cam = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
   // handheld float
   const A = c.dyn.float * motion, hx = (Math.sin(t * 0.31) + 0.6 * Math.sin(t * 0.53 + 1.3)) * A * 16, hy = (Math.cos(t * 0.27) + 0.6 * Math.sin(t * 0.47 + 2.1)) * A * 12;
@@ -93,9 +90,8 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   cam.z *= settleAt(plan, t);
   // the frame's own motion: cone spring, impacts, beat sway, build lean-in (stronger under a transition's blur, above)
   const fx: Fx = { x: 0, y: 0, r: 0, z: 1 }, mo = motion * calm * still * hold;
-  // the beat-and-melody motion (its own knob); with no words to follow and the music driving, the beat shakes the frame
-  // harder — it is what the picture has left to answer (the words' own arrivals are gone)
-  const gv = (M.groove ?? 1) * (1 + 0.9 * wk * drive);
+  // the beat-and-melody motion (its own knob)
+  const gv = M.groove ?? 1;
   fx.z *= 1 + c.dyn.cone * rs.cone * mo * gv;
   fx.r += c.dyn.coneRoll * rs.coneRoll * mo * gv;
   // the beat sway: a slow roll on the half bar and the lyric plane rocking in depth (a slight shear) over the bar

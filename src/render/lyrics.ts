@@ -72,7 +72,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
   const g1 = rgba(pal.accent, 1), g2 = rgba(pal.flash, 1), inkC = rgba(o.ink as any, 1);
   const glowC = glowOf(st, pal), glowB = M.glow * 26 * f.px;
   const lean = clamp((M.depth ?? 1) * 0.6, 0, 1.4) * f.motion;
-  const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion * (f.cam.hold ?? 1), pulse = f.rs.pulse, fr = Math.floor(f.t * 12), lite = gfx() === 'lite', blurOn = ov <= 0 && f.motion > 0.5 && !lite;
+  const sk = f.cam.fx.sk && (Math.abs(f.cam.fx.sk[0]) + Math.abs(f.cam.fx.sk[1]) > 1e-4) ? f.cam.fx.sk : null, JT = (M.jitter ?? 0) * f.motion * (f.cam.hold ?? 1), pulse = f.rs.pulse, fr = Math.floor(f.t * 12), lite = gfx() === 'lite', blurOn = f.motion > 0.5 && !lite;   // (into the ending the blur goes with uq, over its ramp: words.ts)
   // the finish of a sharp glyph: lit from above (a soft gradient from the ink to a touch of the theme's light below, so the
   // type reads as translucent light rather than flat paint), a thin edge of thickness that leans against the camera's turn
   // (the plane of the words has depth), and a soft two-layer shadow (a contact shadow and a wide ambient one)
@@ -112,7 +112,9 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
       g.save(); g.translate(up.rx + up.dx + jx, up.ry + up.dy + jy); if (up.ur) g.rotate(up.ur * D2R); if (up.um !== 1) g.scale(up.um, up.um); if (u.rot) g.rotate(Math.PI / 2);
       const sp = sp0 * focusW(bpx);
       const Gpx = v.glyphPx * f.px * up.um;
-      if (sp > 0.4) { g.fillStyle = g1; g.globalAlpha = A * up.ua * 0.35; sharpGlyph(g, u.c, Gpx, null, sp, 0); g.fillStyle = g2; g.globalAlpha = A * up.ua * 0.25; sharpGlyph(g, u.c, Gpx, null, -sp, 0); }
+      // (the colour split comes in and goes as it opens and closes, over 0.4–1.2 px: at a fixed opacity from 0.4 px on, its
+      // two copies vanished in one frame as it closed — a coloured rim round the words gone at once)
+      if (sp > 0.4) { const sk2 = clamp((sp - 0.4) / 0.8); g.fillStyle = g1; g.globalAlpha = A * up.ua * 0.35 * sk2; sharpGlyph(g, u.c, Gpx, null, sp, 0); g.fillStyle = g2; g.globalAlpha = A * up.ua * 0.25 * sk2; sharpGlyph(g, u.c, Gpx, null, -sp, 0); }
       const gk2 = M.glow > 0 && !trail && !lite ? (1 - up.uq) ** 2 * ws.gk : 0;
       if (gk2 > 0.01) { g.fillStyle = glowC; g.globalAlpha = A * up.ua * gk2; blurGlyph(g, u.c, glowB * 0.5, Gpx); }
       const shK = trail || lite ? 0 : Math.max(0.35, M.shadow ?? 0), mt = g.getTransform(), det = mt.a * mt.d - mt.b * mt.c || 1;

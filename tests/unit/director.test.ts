@@ -592,3 +592,24 @@ describe('a line\'s harmony', () => {
     expect(P.lines[1].words.every(S => !S.harm)).toBe(true);
   });
 });
+
+describe('a camera held up', () => {
+  // a roll whose turn runs into the next line, which starts at once, and a line soon after: the camera, late, goes
+  // straight on to the words coming in when it lands — it never stops at words already sung on the way
+  const ts = (s: number) => `[${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}]`;
+  const kar = (t0: number, ws: [string, number][]) => ts(t0) + ws.map(([w, t]) => `<${ts(t).slice(1, -1)}>${w} `).join('');
+  const src = [ts(1) + 'the night is young', kar(4, [['go', 4], ['走吧', 4.6], ['走吧', 5.3], ['走吧', 6.0]]), kar(6.4, [['我們', 6.4], ['一起', 6.7], ['回家', 7.0]]), ts(7.5) + 'under the city lights tonight', ts(10) + 'we keep on going home', ts(14) + 'till the morning comes'].join('\n');
+  for (const cut of ['glide', 'waltz', 'close', 'hover'] as const) it(`goes straight on to the words of the moment, past the stops it is too late for (${cut})`, () => {
+    const P = make(cut, src), S = P.camera.stops, sk = S.filter(s => s.skipped);
+    expect(sk.length, 'the stop the roll held up is not visited').toBeGreaterThan(0);
+    // where the camera lands from a stop it skipped, it frames the words being sung then (the latest to have begun), not
+    // the skipped stop's own — sung while the camera was held up
+    const sig = new Signals(P.map);
+    for (const B of sk) {
+      expect(B.arrive, 'late for its words').toBeGreaterThan(B.t + 0.3);
+      const now = P.words.filter(S => S.w.t <= B.arrive + 0.15).pop()!, f = cameraAt(P, sig, B.arrive, 0), q = project(now.x, now.y, now.d, f.cam, NO_FX, P.W, P.H);
+      expect(q.sx > -P.W / 2 && q.sx < P.W / 2 && q.sy > -P.H / 2 && q.sy < P.H / 2, `${B.t}: the words of the moment (${now.w.text}) in frame`).toBe(true);
+      expect(B.words.includes(now), 'not its own words').toBe(false); }
+  });
+  it('an ordinary song is never skipped through', () => { for (const cut of styles) expect(make(cut).camera.stops.filter(s => s.skipped).length, cut).toBe(0); });
+});

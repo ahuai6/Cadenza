@@ -59,14 +59,26 @@ const put = (g: Ctx, e: Bm) => g.drawImage(e.bm, 0, 0, e.w, e.h, -e.w / 2 * e.s,
 
 /** Draw `txt` blurred by bpx device pixels at glyph em size G device pixels, centred at the context's origin (whose
  *  transform scales EM units to the glyph's size), at the context's current alpha. */
+/** Two layers of one glyph, one over the other, that together stand for a mix of them at opacity A, `k` of it the top one:
+ *  [the bottom one's opacity, the top one's]. The bottom at its share of A; the top at what keeps the glyph's body at A —
+ *  but never more than three times its share, so both change smoothly with A and with k, all the way to either layer
+ *  alone. (Keeping the body at exactly A asked the impossible of two layers at A = 1: there one of them had to be fully
+ *  opaque, and which one switched — the old rule put the bottom one fully under the top from the first sliver of k, and
+ *  let it fall to under half as soon as A dipped to 0.93: the glow and the shadow round a word shrank in one frame when
+ *  it began to fade, and popped where a blur crossed from one level to the next. Now the body may dip, smoothly, by up
+ *  to about 8 % in the middle of such a crossing at full opacity.) */
+export function layerPair(A: number, k: number): [number, number] {
+  const b = A * (1 - k), t = b >= 0.9999 ? 0 : Math.min(A * k / (1 - b), 3 * A * k);
+  return [b, Math.min(1, t)];
+}
 export function blurGlyph(g: Ctx, txt: string, bpx: number, G: number, grad?: InkGrad | null) {
   const font = g.font, col = g.fillStyle as string, A = g.globalAlpha;
   const L = clamp(Math.log2(Math.max(1e-3, bpx) * TOP / (B0 * Math.max(1, G))), 0, LEVELS - 1), k0 = Math.floor(L), f = L - k0;
-  if (f < 0.02 || k0 >= LEVELS - 1) { put(g, level(font, col, txt, k0, grad)); return; }
-  // between two levels: the blurrier under the sharper, so that together they keep the glyph's body at exactly A
-  const sA = A * (1 - f), bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));
+  if (f < 0.001 || k0 >= LEVELS - 1) { put(g, level(font, col, txt, k0, grad)); return; }
+  // between two levels: the blurrier under the sharper (layerPair: the sharper's share is 1 - f)
+  const [bA, sA] = layerPair(A, 1 - f);
   if (bA > 0.003) { g.globalAlpha = bA; put(g, level(font, col, txt, k0 + 1, grad)); }
-  g.globalAlpha = sA; put(g, level(font, col, txt, k0, grad)); g.globalAlpha = A;
+  if (sA > 0.003) { g.globalAlpha = sA; put(g, level(font, col, txt, k0, grad)); } g.globalAlpha = A;
 }
 /** Bake the levels a song will use for these glyphs ahead of time, a slice at a time (the strong blurs and shadows use
  *  the small levels; the large ones are made as glyphs come close). Returns a function that does the next slice and
@@ -89,10 +101,10 @@ export function prewarmSharp(font: string, items: [string, number][], fills: Pai
 }
 export function clearGlyphCache() { for (const o of CACHE.values()) (o.bm as ImageBitmap).close?.(); CACHE.clear(); PIX = 0; }
 
-/** The last 1.6 px of a focus pull: the sharp glyph takes over from the blurred one without the word ever dimming. Both
- *  are drawn straight onto the frame (no scratch canvas: at close-up sizes a per-glyph scratch cost more than the rest of
- *  the frame): the sharp glyph at its share of the opacity, and the blurred one under it at whatever keeps the glyph's
- *  body at exactly the word's opacity (source-over: a + b·(1 − a) = A). */
+/** The last 1.6 px of a focus pull: the sharp glyph takes over from the blurred one smoothly. Both are drawn straight
+ *  onto the frame (no scratch canvas: at close-up sizes a per-glyph scratch cost more than the rest of the frame), the
+ *  blurred one under the sharp one, their opacities by layerPair (the body kept at the word's opacity, but for a smooth
+ *  dip of a few per cent at full opacity — never a layer switched off in one frame). */
 /* Large sharp glyphs. Past a size the browser keeps no glyph cache and draws every glyph from its outline, on the CPU,
    for every layer (the face, its edge copies, its gradient) and every frame — a close-up of a short word (a number, a
    single word) made the whole picture fall behind. So past LARGE device pixels a glyph is drawn from a bitmap of
@@ -178,27 +190,30 @@ export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number,
   const w = focusW(bpx, G), sharpFill = () => { if (G >= LARGE || ALL_BITMAP) { sharpGlyph(g, ch, G, grad); return; } if (!sharp) { g.fillText(ch, 0, 0); return; } const c = g.fillStyle; g.fillStyle = sharp; g.fillText(ch, 0, 0); g.fillStyle = c; };
   if (w >= 1) { g.globalAlpha = A; sharpFill(); return; }
   if (w <= 0) { g.globalAlpha = A; blurGlyph(g, ch, bpx, G, grad); return; }
-  const sA = A * w, bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));
+  // (the blurred one under the sharp one, the sharp one's share w: layerPair — continuous to the end of the focus pull)
+  const [bA, sA] = layerPair(A, w);
   if (bA > 0.003) { g.globalAlpha = bA; blurGlyph(g, ch, bpx, G, grad); }
   g.globalAlpha = sA; sharpFill();
 }
 
 /* ---------- distance-field glyphs (the GPU lyric layer) ----------
-   On the GPU a sharp glyph is drawn from a field of distances to its edge, made once per character at one of two sizes
-   (an em of SDF_EM[0] px for glyphs seen under SDF_TIER px, SDF_EM[1] px above, up to SDF_MAX): its edge, its lit
+   On the GPU a sharp glyph is drawn from a field of distances to its edge, made once per character at one of three
+   sizes (an em of 48 px for glyphs seen under 72 px, 128 px under 400 px, 320 px up to SDF_MAX — never read more than
+   about 1.5 times smaller than it was made, where a field's corners start to shimmer): its edge, its lit
    gradient and its outline are worked out per pixel at whatever size it is seen. The bitmaps it replaces were made per
    size step (an eighth of an octave), per paint (the face, its edge colour, the unsung outline): a camera moving through
    a page of lyrics made a hundred of them a second — two to three thousand in half a minute at 1080p, many of them
    400–1200 px at 2160p — each drawn on the CPU and uploaded, in the frame that first needed it: the stutter. */
-export const SDF_EM = [128, 320] as const, SDF_TIER = 400, SDF_MAX = 900;
+export const SDF_EM = [48, 128, 320] as const, SDF_MAX = 900;
 /** the field's reach either side of the edge, in its own pixels (an outline and a pixel of edge fit well inside it) */
 export const SDF_SPREAD = 8;
 export interface Sdf { sdf: Uint8Array; width: number; height: number; /** EM units per field pixel */ s: number }
 const SDFS = new Map<string, Sdf>(); let SDF_PIX = 0; const SDF_CAP = 48e6;
-export const sdfTier = (G: number) => (G < SDF_TIER ? 0 : 1);
+export type SdfTier = 0 | 1 | 2;
+export const sdfTier = (G: number): SdfTier => (G < 72 ? 0 : G < 400 ? 1 : 2);
 /** The distance field of `txt` in `font` (any size: the face's own; its em is set here) at tier k; null past the budget
  *  of a pass drawn ahead (made by its next slice). */
-export function sdfGlyph(font: string, txt: string, k: 0 | 1): Sdf | null {
+export function sdfGlyph(font: string, txt: string, k: SdfTier): Sdf | null {
   const key = k + '|' + font + '|' + txt; let e = SDFS.get(key);
   if (e) { SDFS.delete(key); SDFS.set(key, e); return e; }
   if (late()) return null;
@@ -216,8 +231,8 @@ export function sdfGlyph(font: string, txt: string, k: 0 | 1): Sdf | null {
 /** Bake the distance fields a song's glyphs will be drawn from: [character, size seen] pairs, a slice at a time. */
 export function prewarmSdf(font: string, items: [string, number][]) {
   const ng = (makeCanvas(1, 1) as HTMLCanvasElement).getContext('2d')!; ng.font = font; font = ng.font;
-  const seen = new Set<string>(), todo: [string, 0 | 1][] = [];
-  for (const [c, G] of items) { if (G >= SDF_MAX) continue; const k = sdfTier(G) as 0 | 1, id = k + c; if (!seen.has(id)) { seen.add(id); todo.push([c, k]); } }
+  const seen = new Set<string>(), todo: [string, SdfTier][] = [];
+  for (const [c, G] of items) { if (G >= SDF_MAX) continue; const k = sdfTier(G), id = k + c; if (!seen.has(id)) { seen.add(id); todo.push([c, k]); } }
   let i = 0; return (budgetMs = 4) => { const t0 = performance.now(); while (i < todo.length && performance.now() - t0 < budgetMs) { const [c, k] = todo[i++]; sdfGlyph(font, c, k); } return i < todo.length; };
 }
 /* The distance to the edge for every pixel of an anti-aliased coverage mask (the alpha of RGBA `a`), positive inside,

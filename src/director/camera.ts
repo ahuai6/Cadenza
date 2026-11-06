@@ -280,6 +280,18 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     // own place on the drum — still upside down to the camera — and the roll turns the camera round to it
     const roll = B.roll && !B.cut ? B.roll : 0;
     if (roll) { const D = B.rollD ?? rollDur(M.speed); s = Math.max(A.arrive + 0.05, Math.min(s, Math.max(B.words[0].show - D, A.sungEnd - 0.12))); arrive = s + D; }
+    // a stop the camera can only reach too late — held up before it (a roller, a lyric frame held whole, the words before
+    // still being sung), arriving well after its words began and once they are sung or the next ones are already
+    // coming: it is not visited. The camera goes from here straight on to the next stop's framing, arriving when it
+    // could have arrived here; the move after it is then nothing. (It used to land here first, to make up the time —
+    // stopping somewhere the music had left, often off the way to where the words now were: hesitant, then hurried.)
+    // (a roll, a cut, or a quick run of words that keeps the camera a moment behind are not this: they are visited)
+    // (straight on to the words that are coming in by the time it lands — past every stop it is equally late for, none of
+    // them visited on the way; never past a cut or a roll)
+    { const C = stops[i + 1];
+      if (C && !C.cut && !roll && !B.cut && arrive > B.t + 0.3 && arrive >= Math.min(B.sungEnd - 0.1, C.t - 0.15)) {
+        let j = i + 1; while (stops[j + 1] && !stops[j + 1].cut && !stops[j + 1].roll && !stops[j].roll && stops[j + 1].t <= arrive + 0.15) j++;
+        const T = stops[j]; B.x = T.x; B.y = T.y; B.z = T.z; B.r = T.r; B.d = T.d; B.box = { ...T.box }; B.follow = []; B.drift = 0; B.skipped = true; } }
     B.arrive = arrive;
     // (a stop whose framing came out not a number — or a closeness not above zero — is framed as the stop before it was,
     // and noted with everything that made it: a NaN here became the whole picture stuck for a couple of seconds)

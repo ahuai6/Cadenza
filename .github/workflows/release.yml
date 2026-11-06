@@ -39,5 +39,9 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           v=${{ steps.v.outputs.version }}
-          gh release create "v$v" --target "$GITHUB_SHA" --title "Cadenza $v" --notes-file docs/RELEASE.md \
+          # (the notes: this version's own section of docs/RELEASE.md only — the file keeps every version, newest first;
+          # from its heading to the next version's, without the heading itself, the title says it)
+          awk -v h="## Cadenza $v" '$0 == h { on = 1; next } on && /^## Cadenza / { exit } on' docs/RELEASE.md | sed -e '/^---$/d' > notes.md
+          test -s notes.md || echo "Cadenza $v" > notes.md
+          gh release create "v$v" --target "$GITHUB_SHA" --title "Cadenza $v" --notes-file notes.md \
             "release/Cadenza-Setup-$v.exe" "release/Cadenza-Setup-$v.exe.blockmap" "release/Cadenza-$v-portable.exe"
