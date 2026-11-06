@@ -33,26 +33,26 @@
 .views button:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7); }
 .views i { font-style: normal; font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums; min-width: 17px; height: 17px; padding: 0 5px; box-sizing: border-box; display: grid; place-items: center; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.16); color: rgba(255, 255, 255, 0.85); }
 .topR { display: flex; gap: 6px; justify-self: end; }
-.main { position: absolute; inset: calc(var(--pad-t) + 64px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.86fr) minmax(340px, 1.14fr); gap: clamp(32px, 6vw, 120px); padding: 0 clamp(28px, 4vw, 80px) 40px var(--np-x); }
-/* (the cover's left edge is the player bar's cover's: the page opens straight up, the cover rising and growing in place) */
+.main { position: absolute; inset: calc(var(--pad-t) + 64px) 0 0 0; display: grid; grid-template-columns: minmax(calc(var(--np-cover) + 40px), 0.86fr) minmax(340px, 1.14fr); gap: clamp(32px, 6vw, 120px); padding: 0 clamp(28px, 4vw, 80px) 40px var(--np-x); }
+/* (the cover's centre line is the player bar's cover's: the page opens straight up, the cover rising and growing about it) */
 .left { display: grid; align-content: center; justify-items: start; gap: 40px; min-height: 0; }
 /* the cover: large, nearly square-cornered, lifted on a long shadow in its own colour */
-.cover { width: min(48vh, 32vw, 480px); aspect-ratio: 1; border-radius: var(--r-cover-np); overflow: hidden; transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform;
+.cover { width: var(--np-cover); aspect-ratio: 1; border-radius: var(--r-cover-np); overflow: hidden; transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 30px 80px -20px rgba(var(--amb, 0, 0, 0), 0.55), 0 40px 90px -30px rgba(0, 0, 0, 0.6); }
 .cover > span, .cover [data-swap] > span > span { width: 100%; height: 100%; --cover-r: 0; border-radius: 0; }
 .swapIn { position: absolute; inset: 0; animation: swap-in var(--t-reveal) var(--ease) both; }
 .meta > [data-swap] { min-width: 0; }
 .meta > [data-swap] > * > div { display: grid; gap: 4px; min-width: 0; }
 .np[data-fx="true"] .cover { visibility: hidden; }
-.info { width: min(48vh, 32vw, 480px); display: grid; }
+.info { width: var(--np-cover); display: grid; }
 .infoIn { display: grid; gap: 24px; }
 /* the song as a record sleeve's notes: a small-caps line (album, year, track), the title set large in the display face,
    the artist under it */
 .meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 16px; }
 .meta > div { display: grid; gap: 6px; min-width: 0; }
-.kicker { font: var(--kicker); letter-spacing: var(--kicker-track); text-transform: uppercase; color: rgba(255, 255, 255, 0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
-.title { font-family: var(--font-display); font-size: clamp(30px, 2.8vw, 42px); font-weight: 640; line-height: 1.06; letter-spacing: -0.012em; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.meta small { color: rgba(255, 255, 255, 0.72); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kicker { font: var(--kicker); letter-spacing: var(--kicker-track); text-transform: uppercase; color: rgba(255, 255, 255, 0.55); margin-bottom: 2px; }
+.title { font-family: var(--font-display); font-size: clamp(30px, 2.8vw, 42px); font-weight: 640; line-height: 1.06; letter-spacing: -0.012em; color: #fff; }
+.artist { color: rgba(255, 255, 255, 0.72); font-size: 15px; }
 .heart > * { width: 44px; height: 44px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.08); }
 .progWrap { display: grid; gap: 4px; }
 .ctl { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-top: -4px; }
@@ -100,8 +100,12 @@
 /* full screen: the lyrics sit a little further right (a better balance with the cover), and the page's controls fade
    away while the pointer rests, coming back as soon as it moves */
 :global(html[data-winfull="true"]) .right { margin-left: clamp(0px, 3vw, 56px); }
-.top > *, .info > * { transition: opacity var(--t-reveal) var(--ease); }
-.np[data-idle="true"] .top > *, .np[data-idle="true"] .info > * { opacity: 0; pointer-events: none; }
+/* (idle, the song's title and artist stay — the album line, the favourite, the progress and the controls rest out of sight;
+   the favourite's room goes to the title, so a title that scrolled for want of it may then simply stand) */
+.top > *, .progWrap, .ctl, .volRow, .meta .kicker { transition: opacity var(--t-reveal) var(--ease); }
+.heart { max-width: 64px; overflow: hidden; transition: opacity var(--t-reveal) var(--ease), max-width var(--t-slow) var(--ease), margin var(--t-slow) var(--ease); }
+.np[data-idle="true"] :is(.top > *, .progWrap, .ctl, .volRow, .meta .kicker) { opacity: 0; pointer-events: none; }
+.np[data-idle="true"] .heart { opacity: 0; max-width: 0; margin-left: -16px; pointer-events: none; }
 .np[data-idle="true"] { cursor: none; }
 
 /* the sound's label, centred just above the progress bar */

@@ -7,7 +7,7 @@
    layout makes room for it and the camera frames it without later corrections. */
 import { clamp, dirv, D2R, angDiff } from '../core/math';
 import { rnd } from '../core/rng';
-import type { LyricDoc } from '../lyrics/model';
+import type { LyricDoc, Line } from '../lyrics/model';
 import type { RhythmMap } from '../rhythm/map';
 import type { Style } from '../theme/style';
 import { EM, type Measurer } from '../text/metrics';
@@ -52,6 +52,16 @@ export function corners(S: { x: number; y: number; lw: number; lh: number; tilt:
 /** A word's harmony as drawn (render/lyrics.ts drawHarmony: at 0.52 of the word, right under it, its first character
  *  under the word's first), as a box of its own. */
 export const HARM_K = 0.52;
+/** A line's harmonies as one row (in singing order, a space between them), measured; null when it has none. */
+function lineHarm(L: Line, measure: Measurer) {
+  // (a harmony the segmenter left on each part of a word it split — the same text on words side by side — is one harmony,
+  // from the first of them)
+  const hs: NonNullable<Line['words'][number]['harm']>[] = [];
+  L.words.forEach((W, i) => { const H = W.harm; if (!H) return; const P = L.words[i - 1]?.harm; if (P && P.text === H.text) return; hs.push(H); });
+  if (!hs.length) return null;
+  const text = hs.map(H => H.text).join(' '), t = Math.min(...hs.map(H => H.t).filter(Number.isFinite), Infinity), hm = measure.word([...text], { vertical: false, rtl: L.rtl });
+  return { text, t: Number.isFinite(t) ? t : L.t, w0: hm.w0, h0: hm.h0 };
+}
 export function harmBox(S: { x: number; y: number; tilt: number; s?: number; w0?: number; h0?: number; harm?: { w0: number; h0: number } | null; line?: { L: { rtl?: boolean } } }) {
   const H = S.harm; if (!H || S.s == null || S.w0 == null || S.h0 == null) return null;
   const hw = H.w0 * HARM_K, hh = H.h0 * HARM_K, rtl = !!S.line?.L.rtl, ox = (rtl ? S.w0 / 2 - hw / 2 : -S.w0 / 2 + hw / 2) * S.s, oy = (S.h0 / 2 + hh * 0.75) * S.s, d = dirv(S.tilt), n = dirv(S.tilt + 90);
@@ -104,7 +114,10 @@ export function layout(inp: LayoutInput): LayoutResult {
       const pw: PWord = { w: Wd, line: P, k, x: 0, y: 0, tilt: 0, d: 0, s, lw: mb.w0 * s, lh: mb.h0 * s, w0: mb.w0, h0: mb.h0, vert,
         units: us.map((u, ui) => ({ c: u.c, t: u.t, ox: mb.units[ui].cx * s, oy: mb.units[ui].cy * s, w: mb.units[ui].w * s, h: mb.units[ui].h * s, rot: mb.units[ui].rot })),
         ang: 0, frame: null, order: 0, show, end: Wd.end, tin, seed: L.i * 101 + k * 7 + 1,
-        harm: Wd.harm ? (hm => ({ text: Wd.harm!.text, t: Wd.harm!.t, w0: hm.w0, h0: hm.h0 }))(measure.word(Wd.harm.units.map(u => u.c), { vertical: false, rtl: L.rtl })) : null };
+        // the line's harmony goes with the line's first word, its first character under the line's first (as it stands in the
+        // lyrics: the line's own backing voice, wherever in the line its brackets were) — all of a line's harmonies on one
+        // row, from the first of them to sound
+        harm: k === 0 ? lineHarm(L, measure) : null };
       P.words.push(pw); words.push(pw);
     }
     lines.push(P);

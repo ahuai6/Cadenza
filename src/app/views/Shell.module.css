@@ -4,7 +4,9 @@
 /* title bar: the window's own buttons, a drag region only where nothing is clickable; it continues the sidebar */
 .tb { position: relative; z-index: 80; display: grid; grid-template-columns: var(--side-w) 1fr auto; align-items: center; -webkit-app-region: drag; app-region: drag; transition: background var(--t-med) var(--ease), opacity var(--t-med) var(--ease); }
 .tb button, .tb input, .tb label { -webkit-app-region: no-drag; app-region: no-drag; }
-:global(html[data-winfull="true"]) .shell[data-layer="np"] .tb, .shell[data-layer="fx"] .tb { position: fixed; left: 0; right: 0; top: 0; height: var(--tb-h); }
+/* (over the effect lyrics the bar floats, out of the page's flow; over the play page it stays in place — the page covers the
+   window and the bar is above it anyway, and taking it out of the flow would lift the library under the rising sheet) */
+.shell[data-layer="fx"] .tb { position: fixed; left: 0; right: 0; top: 0; height: var(--tb-h); }
 /* full screen, the pointer still: the window's buttons fade away (any movement brings them back) */
 .shell[data-idle="true"] .tb { opacity: 0; pointer-events: none; transition: opacity var(--t-exit) var(--ease); }
 .shell[data-top="modal"] .tb, .shell[data-top="menu"] .tb { -webkit-app-region: no-drag; app-region: no-drag; }

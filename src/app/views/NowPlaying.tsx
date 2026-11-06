@@ -12,6 +12,7 @@ import { player } from '../playback/player';
 import { refs, openFx, back } from '../layers';
 import { fontStack, subLines, type LyricLine as Line } from '../../engine';
 import { QualityTag } from '../ui/quality';
+import { Marquee } from '../ui/Marquee';
 import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, toggleQueue } from './Player';
 import { pickPlaylist, editMeta, npSettings } from './Modals';
 import s from './NowPlaying.module.css';
@@ -76,9 +77,10 @@ export function NowPlaying() {
             <div className={s.fade + ' ' + s.infoIn}>
               <div className={s.meta}>
                 <Swap k={t.id} dir={dir}><div>
-                  {kicker && <span className={s.kicker}>{kicker}</span>}
-                  <b className={s.title}>{t.title}</b>
-                  <small>{t.artist || tx('s.unknownArtist')}</small>
+                  {/* (nothing ends in an ellipsis here: a long one scrolls) */}
+                  {kicker && <Marquee className={s.kicker}>{kicker}</Marquee>}
+                  <Marquee className={s.title}>{t.title}</Marquee>
+                  <Marquee className={s.artist}>{t.artist || tx('s.unknownArtist')}</Marquee>
                   <HifiBadge />
                 </div></Swap>
                 <span className={s.heart}><Heart id={t.id} /></span>

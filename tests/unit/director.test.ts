@@ -582,3 +582,13 @@ describe('the ending', () => {
     expect(gone).toBeGreaterThan(10); expect(up).toBeGreaterThan(0);
   });
 });
+
+describe('a line\'s harmony', () => {
+  it('is set under the line\'s first word (its first character under the line\'s first), wherever its brackets stood', () => {
+    const src = '[00:01.00]<00:01.00>走 <00:01.60>過 <00:02.20>這條街 <00:03.00>(這條街)<00:03.40>\n[00:05.00]<00:05.00>明天 <00:05.80>見<00:06.60>';
+    const P = make('glide', src), L0 = P.lines[0].words;
+    expect(L0[0].harm?.text).toBe('這條街');
+    expect(L0.slice(1).every(S => !S.harm)).toBe(true);
+    expect(P.lines[1].words.every(S => !S.harm)).toBe(true);
+  });
+});

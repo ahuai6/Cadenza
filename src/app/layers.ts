@@ -20,7 +20,9 @@ export const refs = {
 };
 
 /* ---------- none ⇄ np ---------- */
-let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9, cardR = 20;
+let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9;
+/** the window's own corner radius (Windows 11's, for a window neither maximised nor full screen) */
+const WIN_R = 8;
 /* the two covers' own shadows, every layer of each (colour, offset, blur, spread), as the page's styles draw them: the
    flying cover's shadow is the one fading into the other, so at either end it is exactly what the style there draws and
    nothing jumps when the style takes over */
@@ -42,7 +44,7 @@ const measure = () => {
   // the resting corners, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
   if (npCover) { const keep = npCover.style.borderRadius, ks = npCover.style.boxShadow; npCover.style.borderRadius = ''; npCover.style.boxShadow = '';
     coverR = radiusOf(npCover); pageSh = parseSh(getComputedStyle(npCover).boxShadow); npCover.style.borderRadius = keep; npCover.style.boxShadow = ks; }
-  if (mini) miniR = radiusOf(mini) || 9; if (card) cardR = radiusOf(card) || 20;
+  if (mini) miniR = radiusOf(mini) || 9;
   // the mini cover's own shadow (y offset, blur, alpha), which the flying cover's shadow turns into
   if (mini) miniSh = parseSh(getComputedStyle(mini).boxShadow);
 };
@@ -75,9 +77,11 @@ function applyNp(p: number) {
   let top = (c.top + c.height - Rb.top) * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - Rb.top - 26 * (1 - p));
   // (straight up: the page is as wide as the window from the start — the bar it rises out of runs the whole width)
   const left = 0, right = 0, bottom = (Rb.top + Rb.height - c.top - c.height) * (1 - bp);
-  // the corners: the card's all round, squaring off as the page reaches the window's edges (it covers the whole window)
-  const k = part(p, 0.55, 1), rTL = cardR * (1 - k), rO = cardR * (1 - k);
-  const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
+  // the corners: the rising edge is rounded as the window itself is (Windows 11 rounds a window's corners; a maximised or
+  // full-screen one is square), so the sheet reaches the top already the window's shape; the bottom is the window's own
+  // edge all along (the bar it rises from runs along it), square — the window's corners clip it as they clip everything
+  const W = ui.get().win, rTop = W.max || W.full ? 0 : WIN_R;
+  const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTop}px ${rTop}px 0 0)`;
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
   // (the play page's own shade and grain go with the picture: the same shape, the same fade)
   // (and the page's own content: nothing of it shows outside the sheet as it rises — its header never over the library)

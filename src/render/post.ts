@@ -117,7 +117,9 @@ export function drawCaptions(g: Ctx, f: RenderFrame, bottom: number, show: { sub
   let cur: (typeof f.plan.lines)[number] | null = null; for (const P of f.plan.lines) if (P.L.t <= f.t && (!cur || P.L.t >= cur.L.t)) cur = P;
   for (const P of cur ? [cur] : []) { const L = P.L, subs = subLines(show.subs ? L : { ...L, subs: [] }, show.reads); if (!subs.length) continue;
     const o = (f.t >= L.t ? clamp((f.t - L.t - 0.1) / 0.3) : 0) * (1 - clamp((f.t - L.end + 0.15) / 0.25)) * sstep(clamp((f.view.effect - 0.55) / 0.45)); if (o <= 0) continue;   // (in a hand-over: after the page's own lines have come down)
-    const base = Math.min(h, w * 1.2); let y = bottom + (1 - o) * 8;
+    // (a single line — no reading, or readings turned off — sits a little lower than the bottom of two: the block is
+    // anchored by where it reads as resting at the foot of the picture, not by its last line)
+    const base = Math.min(h, w * 1.2); let y = bottom + (1 - o) * 8 + (subs.length < 2 ? Math.max(12, base * 0.021) * 1.05 : 0);
     for (let k = subs.length - 1; k >= 0; k--) { const { s, kind } = subs[k], lat = isLatin(s), sz = Math.max(lat ? 11 : 12, base * (lat ? 0.019 : 0.021)) * capScale(kind), ls = sz * (lat ? 0.28 : 0.24);
       const font = lat ? `600 ${sz}px ${captionStack(s)}` : `500 ${sz}px ${captionStack(s)}`, sp = capSprite(lat ? s.toLowerCase() : s, font, sz, ls, w * 0.92, rgba(T, 1), rgba(f.pal.bg, 0.95), f.px);
       g.save(); g.globalAlpha = o * (lat ? 0.75 : 0.9) * capAlpha(kind); g.drawImage(sp.cv, w / 2 - sp.w / 2, y - sp.base, sp.w, sp.h); g.restore(); y -= sz * 1.75; } }

@@ -83,7 +83,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- the card opens into now playing: one progress, reversible at any moment ---------- */
   await win.locator('[data-test=card]').getByTitle('展開').first().click(); await W(140);
   const mid = await C(() => { const st = document.querySelector('[data-test=stage]'), cv = document.querySelector('[data-test=np-cover]'); const m = /inset\(([\d.]+)px/.exec(st.style.clipPath || '');
-    return { p: window.__cadenza.layers.npProgress(), clipTop: m ? +m[1] : null, coverTop: cv.getBoundingClientRect().top, coverLeft: cv.getBoundingClientRect().left, moved: !!cv.style.transform }; });
+    return { p: window.__cadenza.layers.npProgress(), clipTop: m ? +m[1] : null, coverTop: cv.getBoundingClientRect().top, coverCx: (r => r.left + r.width / 2)(cv.getBoundingClientRect()), moved: !!cv.style.transform }; });
   await shot('np-opening');
   ok('opening: the picture comes out with the cover (its top edge led by the cover), the cover flies', mid.p > 0.05 && mid.p < 0.98 && mid.moved && mid.clipTop != null && mid.clipTop <= mid.coverTop + 1, JSON.stringify(mid));
   await win.keyboard.press('Escape'); await W(120);
@@ -278,9 +278,11 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const veilLeft = await C(() => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60'); return v ? { shown: v.style.display !== 'none', f: v.style.backdropFilter } : null; });
   ok('transitions: blurs interrupted again and again leave no veil once settled', veilLeft && !veilLeft.shown, JSON.stringify(veilLeft));
   const npEdge = await C(() => { const r = document.querySelector('[data-test=stage]').getBoundingClientRect(), n = document.querySelector('[data-test=np]').getBoundingClientRect(), b = document.querySelector('[data-close]'), br = b && b.getBoundingClientRect(), hit = br && document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
-    return { coverLeft: Math.round(document.querySelector('[data-test=np-cover]').getBoundingClientRect().left), stage: [r.left, r.top, r.width, r.height].map(Math.round), np: [n.left, n.top, n.width, n.height].map(Math.round), win: [innerWidth, innerHeight], close: !!(hit && b.contains(hit)) }; });
+    return { mainTop: Math.round(document.querySelector('main[data-scroll]').getBoundingClientRect().top), coverCx: Math.round((r => r.left + r.width / 2)(document.querySelector('[data-test=np-cover]').getBoundingClientRect())), ellipsis: [...document.querySelectorAll('[data-test=np] *')].filter(e => getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth).length, stage: [r.left, r.top, r.width, r.height].map(Math.round), np: [n.left, n.top, n.width, n.height].map(Math.round), win: [innerWidth, innerHeight], close: !!(hit && b.contains(hit)) }; });
   // (the play page covers the whole window; the window's own buttons stay above it)
-  ok('now playing: it opens straight up — the cover in flight keeps the left edge it lands on', Math.abs(mid.coverLeft - npEdge.coverLeft) <= 2, JSON.stringify({ flying: mid.coverLeft, landed: npEdge.coverLeft }));
+  ok('now playing: it opens straight up — the cover in flight keeps the centre line it lands on (the bar\'s cover\'s)', Math.abs(mid.coverCx - npEdge.coverCx) <= 2, JSON.stringify({ flying: mid.coverCx, landed: npEdge.coverCx }));
+  ok('now playing: the library under it stays where it is (nothing under the sheet moves)', npEdge.mainTop === 44, JSON.stringify({ mainTop: npEdge.mainTop }));
+  ok('now playing: nothing on the page cut off with an ellipsis (long text scrolls)', npEdge.ellipsis === 0, JSON.stringify({ ellipsis: npEdge.ellipsis }));
   ok('now playing: the page covers the whole window, the window buttons above it', npEdge.stage.join() === `0,0,${npEdge.win.join()}` && npEdge.np.join() === npEdge.stage.join() && npEdge.close, JSON.stringify(npEdge));
   ok('now playing: no "now playing" label at the top (the page itself says it)', !(await C(() => [...document.querySelectorAll('.kicker')].some(k => k.textContent === '正在播放' && k.getClientRects().length))));
   await win.keyboard.press('Escape');
