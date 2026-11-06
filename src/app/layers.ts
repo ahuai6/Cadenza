@@ -54,8 +54,7 @@ function applyNp(p: number) {
   np.dataset.vis = String(on); stage.dataset.vis = String(on || engine.view === 'effect');
   // the mini cover back in the card: its own shadow comes in as it does on hover (the card's transition), from none —
   // the flying cover's shadow has faded out on its way down, so nothing jumps where the two hand over
-  if (mini) { const was = mini.style.visibility === 'hidden'; mini.style.visibility = on ? 'hidden' : '';
-    if (!on && was) { mini.style.boxShadow = 'none'; void mini.offsetWidth; requestAnimationFrame(() => { mini.style.boxShadow = ''; }); } }
+  if (mini) mini.style.visibility = on ? 'hidden' : '';
   // the cover: from the card to its place, its corners from the card's to the page's
   let coverTop = 0;
   if (npCover && B) {
@@ -66,17 +65,22 @@ function applyNp(p: number) {
     const r = miniR + (coverR - miniR) * part(p, 0, 1); npCover.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
     // its shadow: from the mini cover's to the page's as it flies (on screen; the element is scaled), so neither end jumps
     // (closing, it fades out over the last stretch, the mini cover's own then fading in: see above)
-    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20, fadeK = npDrive.target === 0 ? part(p, 0, 0.22) : 1;
-      npCover.style.boxShadow = crossSh(part(p, 0, 1), k, fadeK); }
+    // (at either end it is exactly that end's own shadow, so the hand-over to the mini cover's at the close is seamless)
+    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20;
+      npCover.style.boxShadow = crossSh(part(p, 0, 1), k, 1); }
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
   // the page: from the card's bottom edge upward over the area (its own box), sides and bottom following the top
   const Rb = R || rectOf(stage), c = C || { left: Rb.left + Rb.width * 0.1, top: Rb.top + Rb.height - 90, width: Rb.width * 0.8, height: 76 };
   // (every edge on the same spring as the cover: the page and the cover land together)
   const tp = p, bp = p;
-  let top = (c.top + c.height - Rb.top) * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - Rb.top - 26 * (1 - p));
+  // the sheet rises out of the bar's top edge (the bar stays itself under it until the sheet has nearly landed, then the
+  // sheet covers it too) and, closing, sinks back into that edge to nothing: it never lingers above the bar, nor lies over it
+  // as a veil at the end. Its top leads the flying cover a little — never below the bar's top edge
+  const barTop = c.top - Rb.top, barH = Rb.top + Rb.height - c.top;
+  let top = barTop * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, Math.max(barTop, coverTop - Rb.top - 26 * (1 - p)));
   // (straight up: the page is as wide as the window from the start — the bar it rises out of runs the whole width)
-  const left = 0, right = 0, bottom = (Rb.top + Rb.height - c.top - c.height) * (1 - bp);
+  const left = 0, right = 0, bottom = barH * (1 - part(bp, 0.3, 0.9));
   // the corners: the rising edge is rounded as the window itself is (Windows 11 rounds a window's corners; a maximised or
   // full-screen one is square), so the sheet reaches the top already the window's shape; the bottom is the window's own
   // edge all along (the bar it rises from runs along it), square — the window's corners clip it as they clip everything
@@ -85,7 +89,9 @@ function applyNp(p: number) {
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
   // (the play page's own shade and grain go with the picture: the same shape, the same fade)
   // (and the page's own content: nothing of it shows outside the sheet as it rises — its header never over the library)
-  np.style.clipPath = p >= 0.9995 ? '' : clip;
+  // (the page's own content is cut at the sheet's top only: the flying cover passes over the bar's edge on its way to the
+  // bar's cover, and nothing else of the page shows there before it has faded in)
+  np.style.clipPath = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px 0 0 0 round ${rTop}px ${rTop}px 0 0)`;
   const amb = refs.npAmb; if (amb) { amb.dataset.vis = String(on); amb.style.clipPath = clip; amb.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.3).toFixed(3); }
   // while it rises, the page casts a soft shade up onto what it is covering: a wide falloff above its leading edge,
   // fading out at the sides, deepest mid-way through the move and gone once it has landed (or closed) — a sheet sliding
@@ -96,6 +102,8 @@ function applyNp(p: number) {
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
   for (const el of refs.npParts) if (el) { el.style.opacity = String(q); el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`; }
+  // (the parts with a fade of their own in the style — the cover's light — take this one through a variable, so both apply)
+  np.style.setProperty('--q', q.toFixed(3));
 }
 let shadeEl: HTMLDivElement | null = null;
 function edgeShade() { if (shadeEl) return shadeEl; const d = document.createElement('div'); d.setAttribute('aria-hidden', 'true');

@@ -10,6 +10,7 @@
    large fields of colour never look flat. It takes the picture's shape and fade while the page opens (layers.ts) */
 .amb { position: fixed; inset: 0; z-index: 40; pointer-events: none; display: none;
   background:
+    radial-gradient(60vw 90vh at var(--np-cx) 55%, rgba(var(--amb, 120, 120, 120), 0.22), rgba(var(--amb, 120, 120, 120), 0.08) 45%, transparent 75%),
     radial-gradient(120% 90% at 30% 40%, transparent 42%, rgba(var(--amb-base, 10, 10, 12), 0.38) 78%, rgba(4, 4, 6, 0.62) 100%),
     linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 22%, transparent 70%, rgba(0, 0, 0, 0.34)); }
 .amb::after { content: ""; position: absolute; inset: 0; background-image: var(--grain); background-size: 160px; opacity: 0.07; mix-blend-mode: overlay; }
@@ -46,11 +47,12 @@
 /* the left column's weight: the cover's light — a large, deeply blurred copy of it behind it — and, across the page, a
    soft pool of its colour brightest about the cover's centre line, fading before the middle (the lyrics' side stays dark) */
 .coverBox { position: relative; }
-.halo { position: absolute; inset: -22%; z-index: -1; pointer-events: none; filter: blur(70px) saturate(1.5); opacity: calc(0.55 * (1 - min(1, var(--h) * 3.2))); transform: translateY(6%); }
+.halo { position: absolute; inset: -22%; z-index: -1; pointer-events: none; filter: blur(70px) saturate(1.5); opacity: calc(0.55 * var(--q, 1) * (1 - min(1, var(--h) * 3.2))); transform: translateY(6%); }
+/* (in the effect lyrics the page is behind the picture: its cover's light goes with it) */
+.np[data-fx="true"] .halo { visibility: hidden; }
 .halo [data-swap], .halo [data-swap] > span, .halo [data-swap] > span > span { width: 100%; height: 100%; }
 :global(html[data-gfx="lite"]) .halo { display: none; }
-.np::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: calc(1 - min(1, var(--h) * 3.2));
-  background: radial-gradient(60vw 90vh at var(--np-cx) 55%, rgba(var(--amb, 120, 120, 120), 0.22), rgba(var(--amb, 120, 120, 120), 0.08) 45%, transparent 75%); }
+
 .swapIn { position: absolute; inset: 0; animation: swap-in var(--t-reveal) var(--ease) both; }
 .meta > [data-swap] { min-width: 0; }
 .meta > [data-swap] > * > div { display: grid; gap: 4px; min-width: 0; }

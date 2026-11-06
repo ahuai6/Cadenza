@@ -4,8 +4,10 @@
 .q i { font-style: normal; font-weight: 600; opacity: 0.75; letter-spacing: 0.02em; }
 .q[data-q="std"] { --qc: #6f9e7f; } .q[data-q="hq"] { --qc: #6c8fb8; } .q[data-q="lossless"] { --qc: #9b7cb6; } .q[data-q="hires"] { --qc: #c79a45; }
 /* over the picture: frosted, quiet, the same for every tier */
-.q[data-look="glass"] { height: 22px; padding: 0 9px; border-radius: var(--r-2); font-size: 10.5px; color: rgba(255, 255, 255, 0.86); background: rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); }
+/* (no backdrop blur: over a sheet that is moving and changing its shape, a blur of what is behind re-samples every frame
+   and flickers; a translucent tint reads the same at rest) */
+.q[data-look="glass"] { height: 22px; padding: 0 9px; border-radius: var(--r-2); font-size: 10.5px; color: rgba(255, 255, 255, 0.86); background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); }
 /* in the lists: no box, a line of small capitals in the tier's ink */
 .qt { font: 650 10px var(--font-ui); letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; font-variant-numeric: tabular-nums; --qc: var(--fg-2); color: color-mix(in oklab, var(--qc) 80%, var(--fg)); }
 .qt[data-q="std"] { --qc: var(--fg-2); } .qt[data-q="hq"] { --qc: #6c8fb8; } .qt[data-q="lossless"] { --qc: #5fae7f; } .qt[data-q="hires"] { --qc: #d4a24c; }

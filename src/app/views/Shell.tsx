@@ -21,6 +21,7 @@ import { Stage, NowPlaying } from './NowPlaying';
 import { EffectView } from './Effect';
 import { ModalHost } from './Modals';
 import { WorkshopPage } from './workshop/Workshop';
+import { Guard } from '../ui/Guard';
 import s from './Shell.module.css';
 
 function resolveTheme(t: string) { return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
@@ -34,7 +35,7 @@ function useTheme() {
 
 export function Shell() {
   const page = useStore(ui, x => x.page), layer = useStore(ui, x => x.layer), modal = useStore(ui, x => !!x.modal), menu = useStore(ui, x => !!x.menu);
-  const hasTrack = useStore(player, x => !!x.id);
+  const hasTrack = useStore(player, x => !!x.id), songId = useStore(player, x => x.shownId || x.id);
   const lng = useStore(langStore, x => x.lang);
   const [ready, setReady] = useState(false);
   useTheme();
@@ -62,18 +63,21 @@ export function Shell() {
         <main data-scroll className={s.page} aria-hidden={layer !== 'none'} inert={layer !== 'none'}>
           {/* a page turns: the old one fades out, the new one rises in */}
           <Turn k={page} className={s.pageInner}>
+            <Guard name="page" k={page}>
             {page === 'library' && <LibraryView />}
             {page === 'wall' && <PosterWall />}
             {page === 'settings' && <SettingsView />}
             {page === 'workshop' && <WorkshopPage />}
+            </Guard>
           </Turn>
         </main>
       </div>
-      {page !== 'workshop' && hasTrack && <PlayerCard />}
+      {/* (each large part in a Guard: one failing shows nothing of itself until the next song — never a white window) */}
+      {page !== 'workshop' && hasTrack && <Guard name="player bar" k={songId}><PlayerCard /></Guard>}
       <Stage />
-      {hasTrack && <NowPlaying />}
-      {hasTrack && <EffectView />}
-      <QueuePanel />
+      {hasTrack && <Guard name="now playing" k={songId}><NowPlaying /></Guard>}
+      {hasTrack && <Guard name="effect lyrics" k={songId}><EffectView /></Guard>}
+      <Guard name="queue" k={songId}><QueuePanel /></Guard>
       <ModalHost />
       <ContextMenu />
       <Toast />

@@ -111,7 +111,7 @@ export function PlayerCard() {
         <button type="button" className={s.miniBtn} title={tx('s.expand')} aria-label={tx('s.expand')} onClick={openNp}>
           <span ref={mini} className={s.mini}><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} className={s.mini} /></Swap></span>
         </button>
-        <Swap k={t.id} dir={dir}><span className={s.text}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span></Swap>
+        <Swap k={t.id} dir={dir}><span className={s.text}><Marquee className={s.tTitle}>{t.title}</Marquee><Marquee className={s.tArtist}>{t.artist || tx('s.unknownArtist')}</Marquee></span></Swap>
       </div>
       </div>
       <div className={s.center}>
@@ -143,7 +143,8 @@ function BarLyric() {
     setI(at(engine.time)); let cur = at(engine.time);
     return engine.on('tick', p => { const k = at(p.t); if (k !== cur) { cur = k; setI(k); } });
   }, [lines]);
-  const text = i >= 0 && lines ? splitBrackets(lines[i].text).main.trim() : '';
+  // (the line index held is the last song's until the effect above has run for the new one: read it only if it is there)
+  const L = i >= 0 && lines ? lines[i] : undefined, text = L ? splitBrackets(L.text || '').main.trim() : '';
   return (
     <div className={s.barLyr} aria-live="off" data-test="bar-lyric">
       {text && <span key={i} className={s.barLine}><Marquee className={s.barMq}>{text}</Marquee></span>}
