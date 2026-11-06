@@ -80,6 +80,11 @@ function fitPass(P: NonNullable<CameraPlan['path']>, frames: Frame[], sung: PWor
       else far.until = Math.min(far.until ?? Infinity, t - DROP_EARLY);
       act.splice(act.indexOf(far), 1); r = fit(act);
     }
+    // (every frame dropped and no character being sung: nothing left to hold here — measured on nothing, the box ran
+    // from +∞ to −∞, the drawing back came out as log 0 and the shift as ∞·0, and that NaN was smoothed into two
+    // seconds of the camera's path: the picture stuck, the play page's backdrop black)
+    if (!act.length && !S0) continue;
+    if (!Number.isFinite(r.k) || r.k <= 0 || !Number.isFinite(r.sx) || !Number.isFinite(r.sy) || !Number.isFinite(r.kp)) continue;
     if (r.k >= 0.999 && Math.abs(r.sx) < 0.5 && Math.abs(r.sy) < 0.5) continue;
     worst = Math.max(worst, Math.abs(r.sx), Math.abs(r.sy), (1 - r.k) * W);
     // screen shift → camera shift: the screen is the world turned by -roll and scaled by k·z·kp
@@ -99,6 +104,6 @@ function fitPass(P: NonNullable<CameraPlan['path']>, frames: Frame[], sung: PWor
   const smooth = (a: Float32Array, f: number) => { let v = 0, w = 0; for (let k = -rad; k <= rad; k++) { const g = f + k; if (g < 0 || g >= n || sg[g] !== sg[f]) continue; v += a[g] * ker[k + rad]; w += ker[k + rad]; } return w > 0 ? v / w : 0; };
   const sz = new Float32Array(n), sx2 = new Float32Array(n), sy2 = new Float32Array(n);
   for (let f = 0; f < n; f++) { sz[f] = smooth(ez, f); sx2[f] = smooth(dx, f); sy2[f] = smooth(dy, f); }
-  for (let f = 0; f < n; f++) { P.lz[f] += sz[f]; P.x[f] += sx2[f]; P.y[f] += sy2[f]; }
+  for (let f = 0; f < n; f++) { if (Number.isFinite(sz[f] + sx2[f] + sy2[f])) { P.lz[f] += sz[f]; P.x[f] += sx2[f]; P.y[f] += sy2[f]; } }
   return true;
 }
