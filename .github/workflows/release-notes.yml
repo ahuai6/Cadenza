@@ -1,0 +1,24 @@
+# Rewrites the notes of existing releases to their own section of docs/RELEASE.md (from 2.17 on, the release workflow
+# published the whole file, every older version included). Started by hand only: Actions → release-notes → Run workflow.
+name: release-notes
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: Versions whose notes to rewrite (space separated)
+        default: "2.17.1 2.17.2 2.17.3 2.17.4 2.17.5 2.17.6 2.17.7 2.18.0 2.19.0 2.19.1 2.19.2 2.20.0 2.20.1 2.20.2 2.20.3 2.20.4 2.21.0 2.21.1 2.22.0"
+permissions:
+  contents: write
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - shell: bash
+        env: { GH_TOKEN: "${{ github.token }}", VERSIONS: "${{ inputs.versions }}" }
+        run: |
+          for v in $VERSIONS; do
+            awk -v h="## Cadenza $v" '$0 == h { on = 1; next } on && /^## Cadenza / { exit } on' docs/RELEASE.md | sed -e '/^---$/d' > notes.md
+            if [ ! -s notes.md ]; then echo "no section for $v: left as it is"; continue; fi
+            gh release edit "v$v" --notes-file notes.md && echo "v$v: $(wc -c < notes.md) bytes"
+          done
