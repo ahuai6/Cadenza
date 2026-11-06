@@ -29,7 +29,14 @@
   /* the first column ends where the cover begins: the cover's centre on --np-cx, the play page cover's */
   /* (two even sides about the transport, so it sits on the ½ line; the left side: the volume in the room before the cover,
      the cover's centre on the ¼ line) */
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, min(360px, 25vw)) minmax(0, 1fr); align-items: center; column-gap: 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--bar-mid) minmax(0, 1fr); align-items: center; column-gap: 0; padding: 0;
+  /* the transport column's width; the song's title has its own room, from where its text begins (right of the cover, whose
+     centre is --np-cx) to 12 px short of the progress track's left end (the column's edge, its 12 px padding, the 34 px time
+     and the 10 px gap) — it reaches into the column's top row, empty beside the centred buttons; the artist stops 12 px
+     short of the column (the time is on its row) */
+  --bar-mid: max(280px, min(360px, 25vw));
+  --bar-title-w: max(60px, calc(50vw - var(--bar-mid) / 2 - var(--np-cx) + 5px));
+  --bar-artist-w: max(60px, calc(50vw - var(--bar-mid) / 2 - var(--np-cx) - 51px));
   background: color-mix(in oklab, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.4); backdrop-filter: blur(22px) saturate(1.4); border-top: 1px solid var(--line);
 }
 /* the volume, in the room before the cover */
@@ -37,14 +44,16 @@
 .lead { flex: none; width: max(0px, calc(var(--np-cx) - 29px)); min-width: 0; display: flex; justify-content: center; padding: 0 clamp(14px, 2vw, 32px); box-sizing: border-box; }
 .lead > .vol { width: 100%; max-width: 200px; }
 .lead > .vol input { flex: 1; width: auto; min-width: 40px; }
-.id { flex: 1; display: flex; align-items: center; gap: 14px; min-width: 0; padding: 4px 16px 4px 4px; }
+.id { flex: none; display: flex; align-items: center; gap: 14px; padding: 4px 0 4px 4px; }
+.side { overflow: visible; }
 .miniBtn { flex: none; display: grid; padding: 0; line-height: 0; border-radius: var(--r-1); cursor: pointer; }   /* (exactly the cover's box: its resting place is where the flying cover lands) */
 .miniBtn:focus-visible { outline: none; box-shadow: var(--focus); }
 .mini { width: 50px; height: 50px; border-radius: var(--r-1); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); flex: none; display: block; transition: transform var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease); }
 .mini .mini { transition: none; box-shadow: none; }
 .miniBtn:hover > .mini { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3); }
 .miniBtn:active > .mini { transform: scale(0.97); }
-.text { display: grid; min-width: 0; gap: 1px; }
+.text { display: grid; gap: 1px; width: var(--bar-title-w); }
+.text > :last-child { width: var(--bar-artist-w); }
 /* (the song's title and artist never end in an ellipsis: too long, they scroll — Marquee) */
 .tTitle { font-weight: 620; font-size: 14.5px; }
 .tArtist { color: var(--fg-3); font-size: 12.5px; }
@@ -62,7 +71,7 @@
 .barMq { width: 100%; text-align: center; font-size: 13.5px; font-weight: 560; color: var(--fg-2); }
 .barMq[data-run] { text-align: left; }
 .end { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding-right: 22px; flex: none; }
-@media (max-width: 1100px) { .card { grid-template-columns: minmax(0, 1fr) minmax(260px, 420px) minmax(0, 1fr); } .lead > .vol input { display: none; } }
+@media (max-width: 1100px) { .lead > .vol input { display: none; } }
 
 /* the queue: rows on one grid with the header, so every edge lines up */
 .queue { position: fixed; z-index: 70; width: 392px; max-height: min(620px, calc(100vh - 140px)); display: grid; grid-template-rows: auto auto 1fr; border-radius: var(--r-xl); overflow: hidden;

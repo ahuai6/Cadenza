@@ -111,7 +111,7 @@ export function PlayerCard() {
         <button type="button" className={s.miniBtn} title={tx('s.expand')} aria-label={tx('s.expand')} onClick={openNp}>
           <span ref={mini} className={s.mini}><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} className={s.mini} /></Swap></span>
         </button>
-        <Swap k={t.id} dir={dir}><span className={s.text}><Marquee className={s.tTitle}>{t.title}</Marquee><Marquee className={s.tArtist}>{t.artist || tx('s.unknownArtist')}</Marquee></span></Swap>
+        <Swap k={t.id} dir={dir}><span className={s.text} data-test="bar-text"><Marquee className={s.tTitle}>{t.title}</Marquee><Marquee className={s.tArtist}>{t.artist || tx('s.unknownArtist')}</Marquee></span></Swap>
       </div>
       </div>
       <div className={s.center}>
