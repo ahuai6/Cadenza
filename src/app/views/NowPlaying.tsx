@@ -157,7 +157,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   const mark = (idx: number) => lineEls.current.forEach((el, i) => { if (!el) return; const d = i - idx, whole = !lines[i]?.kar;
     // a line left before its last word had lifted all the way: its words go the rest of the way up (softly, by the
     // transition) and stay there, never held half-way — and it stays lit, as sung
-    if (d !== 0 && el.dataset.on === 'true') { leaves(el).forEach(w => { if (w.style.translate) w.style.translate = `0 ${w.dataset.h != null ? -LIFT * 0.6 : -LIFT}px`; if (!whole) w.style.setProperty('--p', '1'); });
+    if (d !== 0 && el.dataset.on === 'true') { leaves(el).forEach(w => { if (w.style.translate && !whole) w.style.translate = `0 ${w.dataset.h != null ? -LIFT * 0.6 : -LIFT}px`; if (!whole) w.style.setProperty('--p', '1'); });
       if (whole) el.style.setProperty('--p', '1'); }
     // (becoming current, a line timed as a whole starts from dark on the line itself, its parts holding nothing of their own)
     if (d === 0 && whole) { leaves(el).forEach(w => { w.style.removeProperty('--p'); w.style.removeProperty('--gl'); }); el.style.setProperty('--p', '0'); el.style.setProperty('--gl', '0'); }
@@ -185,10 +185,10 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       function paint(i: number) {
       const L = lines[i], el = lineEls.current[i]; if (!L || !el) return;
       const ws = el.querySelectorAll<HTMLElement>('[data-w]'), lvl = p.rs ? p.rs.level : 0.5;
-      // a line timed only as a whole lights as a whole, from the moment it is the current line (or its own time, if that
-      // is sooner): one fill, eased over a quarter second, on the line — never dark while current and then lit in a jump
+      // a line timed only as a whole lights as a whole, at once, from the moment it is the current line (or its own time,
+      // if that is sooner), as Apple Music does: one fill on the line — never dark while current, never faded in
       const t0w = Math.min(starts[i] ?? L.t, L.t);
-      if (!L.kar) { const q = p.t < t0w ? 0 : Math.min(1, (p.t - t0w) / 0.25), e2 = q * q * (3 - 2 * q); el.style.setProperty('--p', e2.toFixed(3)); el.style.setProperty('--gl', (0.6 * lvl * e2).toFixed(3)); }
+      if (!L.kar) { const on = p.t >= t0w ? 1 : 0; el.style.setProperty('--p', String(on)); el.style.setProperty('--gl', (0.6 * lvl * on).toFixed(3)); }
       // each word: its fill (how far it is sung), its glow (only once it is all but sung) and its own lift as it is sung
       L.words.forEach((w, k) => { const e = ws[k]; if (!e) return;
         // (a word is all sung by the time the next one starts: with no gap, or a tiny one, it does not trail on under it)
@@ -200,14 +200,15 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         if (byUnit(w) && L.kar) { const us = e.querySelectorAll<HTMLElement>('[data-u]'), n = w.units.length, span = Math.max(0.08, w.end - w.t);
           const at = (i: number) => w.units[i]?.t ?? w.t + span * 0.85 * i / n;
           us.forEach((u, i) => fill(u, at(i), i + 1 < n ? at(i + 1) : end)); }
-        // (a line timed only as a whole: lit on the line itself, below; each word only lifts with it, as one)
-        else if (!L.kar) e.style.translate = `0 ${(-LIFT * liftAt(p.t - t0w, Math.max(0.3, L.sung - t0w))).toFixed(2)}px`;
+        // (a line timed only as a whole: lit on the line itself, above — its words do not lift one by one: that is a
+        // word being sung, which a line timed as a whole has none of)
+        else if (!L.kar) { if (e.style.translate) e.style.translate = ''; }
         else fill(e, w.t, end); });
       // the harmonies: each from its own first sound to its last (at least as long as the word it goes with)
       const hs = el.querySelectorAll<HTMLElement>('[data-h]');
       L.words.filter(w => w.harm).forEach((w, k) => { const e = hs[k], H = w.harm!; if (!e) return;
         // (a line timed only as a whole: its harmonies light with it, at once, as its words do)
-        if (!L.kar) { e.style.translate = `0 ${(-LIFT * 0.6 * liftAt(p.t - t0w, Math.max(0.3, L.sung - t0w))).toFixed(2)}px`; return; }
+        if (!L.kar) { if (e.style.translate) e.style.translate = ''; return; }
         const t0 = isFinite(H.t) ? H.t : w.t, last = H.units[H.units.length - 1]?.t ?? t0;
         const t1 = Math.max(t0 + 0.3, last + 0.25, w.end), q = Math.min(1, Math.max(0, (p.t - t0) / Math.max(0.08, t1 - t0)));
         e.style.setProperty('--p', q.toFixed(3)); e.style.translate = `0 ${(-LIFT * 0.6 * liftAt(p.t - t0, t1 - t0)).toFixed(2)}px`; });

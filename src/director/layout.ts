@@ -49,11 +49,12 @@ export function corners(S: { x: number; y: number; lw: number; lh: number; tilt:
   const d = dirv(S.tilt), n = dirv(S.tilt + 90), hw = S.lw / 2 + pad, hh = S.lh / 2 + pad;
   return ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as const).map(([a, b]) => [S.x + d[0] * hw * a + n[0] * hh * b, S.y + d[1] * hw * a + n[1] * hh * b]);
 }
-/** A word's harmony as drawn (render/lyrics.ts drawHarmony: at 0.52 of the word, its lower right), as a box of its own. */
+/** A word's harmony as drawn (render/lyrics.ts drawHarmony: at 0.52 of the word, right under it, its first character
+ *  under the word's first), as a box of its own. */
 export const HARM_K = 0.52;
-export function harmBox(S: { x: number; y: number; tilt: number; s?: number; w0?: number; h0?: number; harm?: { w0: number; h0: number } | null }) {
+export function harmBox(S: { x: number; y: number; tilt: number; s?: number; w0?: number; h0?: number; harm?: { w0: number; h0: number } | null; line?: { L: { rtl?: boolean } } }) {
   const H = S.harm; if (!H || S.s == null || S.w0 == null || S.h0 == null) return null;
-  const hw = H.w0 * HARM_K, hh = H.h0 * HARM_K, ox = (S.w0 / 2 * 0.55 + hw / 2) * S.s, oy = (S.h0 / 2 + hh * 0.3) * S.s, d = dirv(S.tilt), n = dirv(S.tilt + 90);
+  const hw = H.w0 * HARM_K, hh = H.h0 * HARM_K, rtl = !!S.line?.L.rtl, ox = (rtl ? S.w0 / 2 - hw / 2 : -S.w0 / 2 + hw / 2) * S.s, oy = (S.h0 / 2 + hh * 0.75) * S.s, d = dirv(S.tilt), n = dirv(S.tilt + 90);
   return { x: S.x + d[0] * ox + n[0] * oy, y: S.y + d[1] * ox + n[1] * oy, lw: hw * S.s, lh: hh * S.s, tilt: S.tilt };
 }
 /** The box round some words; with `harm`, their harmonies' boxes too. The camera aims at the words alone (a harmony,
@@ -161,8 +162,11 @@ export function layout(inp: LayoutInput): LayoutResult {
   const { scenes, rolls } = scenesOf(lines, map, M.speed), drum = new Map<number, [number, number]>();
   const placed: PWord[] = [], pad0 = gap * 0.4;
   const proj = (pts: [number, number][], ax: [number, number]) => { let a = 1e9, b = -1e9; for (const q of pts) { const v = q[0] * ax[0] + q[1] * ax[1]; if (v < a) a = v; if (v > b) b = v; } return [a, b]; };
-  const clash = (A: PWord, B: PWord) => {
-    const pa = padOf(A), pb = padOf(B);
+  // (a word with its harmony under it: neither may lie over another word or its harmony)
+  type Bx = { x: number; y: number; lw: number; lh: number; tilt: number };
+  const withHarm = (S: PWord, pd: number): [Bx, number][] => { const h = harmBox(S as Parameters<typeof harmBox>[0]); return h ? [[S, pd], [h, Math.min(pd, gap * 0.4)]] : [[S, pd]]; };
+  const clash = (A: PWord, B: PWord) => { for (const [a, pa] of withHarm(A, padOf(A))) for (const [b, pb] of withHarm(B, padOf(B))) if (clash1(a, b, pa, pb)) return true; return false; };
+  const clash1 = (A: Bx, B: Bx, pa: number, pb: number) => {
     if (Math.hypot(A.x - B.x, A.y - B.y) > (Math.hypot(A.lw + 2 * pa, A.lh + 2 * pa) + Math.hypot(B.lw + 2 * pb, B.lh + 2 * pb)) / 2 + pad0) return false;
     const a = corners(A, pa), b = corners(B, pb);
     for (const P of [a, b]) for (let e = 0; e < 2; e++) { const ex = P[e + 1][0] - P[e][0], ey = P[e + 1][1] - P[e][1], l = Math.hypot(ex, ey) || 1, nx = -ey / l, ny = ex / l;

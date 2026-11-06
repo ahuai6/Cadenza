@@ -139,13 +139,15 @@ export function paintLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], passes: Para
   if (!dry) Object.assign(GPU_STATS, { on: true }, L.stats);   // (a look ahead draws nothing: the frame's own counts stay)
 }
 const HARM = 0.52;   // a harmony's size against its word
-/** A harmony: small, at the word's lower right (the word upper left, the harmony lower right, sung together), in the
+/** A harmony: small, right under the word, its first character under the word's first (sung together), in the
  *  word's own frame — it turns, leans and enters with it. It comes in at its own moment (a faint ghost before, as the
  *  words do), lifting a little into place. One line of text: cheap. */
 function drawHarmony(g: Ctx, S: PWord, t: number, A: number, fc: { w: number | string; stack: string }, ink: string, shadow: string, future: 'dim' | 'hide') {
   const H = S.harm!, u = (t - H.t) / 0.35, on = u >= 0, k = on ? 1 - (1 - Math.min(1, u)) ** 3 : 0;
   const al = A * (on ? 0.35 + 0.55 * k : future === 'hide' ? 0 : 0.28); if (al < 0.01) return;
-  const hw = H.w0 * HARM, hh = H.h0 * HARM, x = S.w0 / 2 * 0.55 + hw / 2, y = S.h0 / 2 + hh * 0.3 + (1 - k) * hh * 0.35;
+  // (under the word, its first character under the word's first: left-aligned to the word — right-aligned for a word
+  // read right to left)
+  const hw = H.w0 * HARM, hh = H.h0 * HARM, rtl = !!S.line.L.rtl, x = rtl ? S.w0 / 2 - hw / 2 : -S.w0 / 2 + hw / 2, y = S.h0 / 2 + hh * 0.75 + (1 - k) * hh * 0.35;
   g.save(); g.font = `${fc.w} ${EM * HARM}px ${fc.stack}`; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.globalAlpha = al * 0.45; g.fillStyle = shadow; g.fillText(H.text, x + hh * 0.04, y + hh * 0.08);
   g.globalAlpha = al; g.fillStyle = ink; g.fillText(H.text, x, y); g.restore();
