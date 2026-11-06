@@ -1,6 +1,7 @@
 // The layers above the page and the moves between them, run from one place:
-//   none ⇄ np   the player card opens into the now-playing page, which takes the main area (the sidebar and title bar stay;
-//               in full screen it takes the whole screen). One spring progress drives every part: the page rises from
+//   none ⇄ np   the player bar opens into the now-playing page, which takes the whole window (the window's own buttons
+//               stay above it). The move is straight up: the bar runs the window's width and the page rises out of it,
+//               and the bar's cover and the page's share their left edge, so the cover only rises and grows. One spring progress drives every part: the page rises from
 //               the card's bottom edge and covers the area upward — its corners squaring off as it reaches the edges —
 //               while the cover flies from the card to its place (its shadow turning from the mini's into the page's);
 //               page and cover are on the one spring and land together, and the page's controls arrive last. Closing is the same progress running back, so a reversal mid-way simply turns.
@@ -19,8 +20,18 @@ export const refs = {
 };
 
 /* ---------- none ⇄ np ---------- */
-let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9, cardR = 20, pageR = 20, miniSh = { a: 0.25, oy: 2, blur: 8 };
-const PAGE_SH = { a: 0.45, oy: 24, blur: 70 };   // the page cover's own shadow (NowPlaying.module.css .cover)
+let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9, cardR = 20;
+/* the two covers' own shadows, every layer of each (colour, offset, blur, spread), as the page's styles draw them: the
+   flying cover's shadow is the one fading into the other, so at either end it is exactly what the style there draws and
+   nothing jumps when the style takes over */
+interface ShL { c: string; a: number; x: number; y: number; b: number; s: number }
+const SH_RE = /(rgba?\([^)]*\))\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+(-?[\d.]+)px)?/g;
+const parseSh = (v: string): ShL[] => [...(v || '').matchAll(SH_RE)].map(m => { const n = (m[1].match(/-?[\d.]+/g) || []).map(Number);
+  return { c: n.slice(0, 3).join(','), a: n[3] ?? 1, x: +m[2], y: +m[3], b: +m[4], s: +(m[5] || 0) }; });
+let miniSh: ShL[] = [], pageSh: ShL[] = [];
+/** the shadows crossed: the mini cover's at weight 1 - u, the page cover's at u (on screen: k undoes the element's scale) */
+const crossSh = (u: number, k: number, fade: number) => [...miniSh.map(l => [l, 1 - u] as const), ...pageSh.map(l => [l, u] as const)].filter(([, w]) => w > 0.001)
+  .map(([l, w]) => `${(l.x * k).toFixed(2)}px ${(l.y * k).toFixed(2)}px ${(l.b * k).toFixed(2)}px ${(l.s * k).toFixed(2)}px rgba(${l.c},${(l.a * w * fade).toFixed(3)})`).join(', ') || 'none';
 const radiusOf = (el: Element) => { const v = parseFloat(getComputedStyle(el).borderTopLeftRadius); return Number.isFinite(v) ? v : 0; };
 const measure = () => {
   const { mini, npCover, card, stage } = refs;
@@ -29,15 +40,11 @@ const measure = () => {
   C = card && card.isConnected ? rectOf(card) : null;
   if (stage) { const keep = stage.style.clipPath; stage.style.clipPath = ''; R = rectOf(stage); stage.style.clipPath = keep; }
   // the resting corners, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
-  if (npCover) { const keep = npCover.style.borderRadius; npCover.style.borderRadius = ''; coverR = radiusOf(npCover); npCover.style.borderRadius = keep; }
+  if (npCover) { const keep = npCover.style.borderRadius, ks = npCover.style.boxShadow; npCover.style.borderRadius = ''; npCover.style.boxShadow = '';
+    coverR = radiusOf(npCover); pageSh = parseSh(getComputedStyle(npCover).boxShadow); npCover.style.borderRadius = keep; npCover.style.boxShadow = ks; }
   if (mini) miniR = radiusOf(mini) || 9; if (card) cardR = radiusOf(card) || 20;
   // the mini cover's own shadow (y offset, blur, alpha), which the flying cover's shadow turns into
-  if (mini) { const m = /rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+))?\)\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px/.exec(getComputedStyle(mini).boxShadow || '');
-    miniSh = m ? { a: m[1] != null ? +m[1] : 1, oy: +m[3], blur: +m[4] } : { a: 0.25, oy: 2, blur: 8 }; }
-  // the area's edge is a 1 px line (an inset shadow moved in by a pixel); the picture one pixel inside meets that line
-  // all the way round the corner at the area's radius less 5 px (measured on the rendered corner: larger left a sliver of
-  // the page between them, smaller covered the line)
-  { const pg = document.querySelector('main[data-scroll]'); if (pg) pageR = Math.max(0, radiusOf(pg) - 5); }
+  if (mini) miniSh = parseSh(getComputedStyle(mini).boxShadow);
 };
 function applyNp(p: number) {
   const { stage, np, npCover, mini } = refs; if (!stage || !np) return;
@@ -57,20 +64,20 @@ function applyNp(p: number) {
     const r = miniR + (coverR - miniR) * part(p, 0, 1); npCover.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
     // its shadow: from the mini cover's to the page's as it flies (on screen; the element is scaled), so neither end jumps
     // (closing, it fades out over the last stretch, the mini cover's own then fading in: see above)
-    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20, u2 = part(p, 0, 1), fadeK = npDrive.target === 0 ? part(p, 0, 0.22) : 1;
-      npCover.style.boxShadow = `0 ${((miniSh.oy + (PAGE_SH.oy - miniSh.oy) * u2) * k).toFixed(2)}px ${((miniSh.blur + (PAGE_SH.blur - miniSh.blur) * u2) * k).toFixed(2)}px rgba(0,0,0,${((miniSh.a + (PAGE_SH.a - miniSh.a) * u2) * fadeK).toFixed(3)})`; }
+    if (p >= 0.9995 || !A) npCover.style.boxShadow = ''; else { const k = sc > 0.05 ? 1 / sc : 20, fadeK = npDrive.target === 0 ? part(p, 0, 0.22) : 1;
+      npCover.style.boxShadow = crossSh(part(p, 0, 1), k, fadeK); }
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
   // the page: from the card's bottom edge upward over the area (its own box), sides and bottom following the top
   const Rb = R || rectOf(stage), c = C || { left: Rb.left + Rb.width * 0.1, top: Rb.top + Rb.height - 90, width: Rb.width * 0.8, height: 76 };
   // (every edge on the same spring as the cover: the page and the cover land together)
-  const tp = p, sp = p, bp = p;
+  const tp = p, bp = p;
   let top = (c.top + c.height - Rb.top) * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, coverTop - Rb.top - 26 * (1 - p));
-  const left = (c.left - Rb.left) * (1 - sp), right = (Rb.left + Rb.width - c.left - c.width) * (1 - sp), bottom = (Rb.top + Rb.height - c.top - c.height) * (1 - bp);
-  // the corners: the card's all round, landing on the main area's own shape (its top-left corner rounded, like the page
-  // under it; in full screen, square)
-  const k = part(p, 0.55, 1), full = document.documentElement.dataset.winfull === 'true', rTL = cardR + ((full ? 0 : pageR) - cardR) * k, rO = cardR * (1 - k);
-  const clip = p >= 0.9995 ? (full ? '' : `inset(0 round ${pageR}px 0 0 0)`) : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
+  // (straight up: the page is as wide as the window from the start — the bar it rises out of runs the whole width)
+  const left = 0, right = 0, bottom = (Rb.top + Rb.height - c.top - c.height) * (1 - bp);
+  // the corners: the card's all round, squaring off as the page reaches the window's edges (it covers the whole window)
+  const k = part(p, 0.55, 1), rTL = cardR * (1 - k), rO = cardR * (1 - k);
+  const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTL.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px ${rO.toFixed(1)}px)`;
   stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
   // (the play page's own shade and grain go with the picture: the same shape, the same fade)
   // (and the page's own content: nothing of it shows outside the sheet as it rises — its header never over the library)

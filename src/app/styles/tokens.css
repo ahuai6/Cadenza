@@ -36,6 +36,8 @@
   --t-stagger-step: 16ms;
 
   --tb-h: 44px; --side-w: 232px; --card-h: 72px;
+  /* the left edge the covers share: the player bar's and the play page's, one above the other, so the page opens straight up */
+  --np-x: clamp(40px, 4.5vw, 72px);
   --kicker: 600 10.5px/1.2 var(--font-ui);
   --kicker-track: 0.14em;
 

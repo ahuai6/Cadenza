@@ -83,7 +83,7 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- the card opens into now playing: one progress, reversible at any moment ---------- */
   await win.locator('[data-test=card]').getByTitle('展開').first().click(); await W(140);
   const mid = await C(() => { const st = document.querySelector('[data-test=stage]'), cv = document.querySelector('[data-test=np-cover]'); const m = /inset\(([\d.]+)px/.exec(st.style.clipPath || '');
-    return { p: window.__cadenza.layers.npProgress(), clipTop: m ? +m[1] : null, coverTop: cv.getBoundingClientRect().top, moved: !!cv.style.transform }; });
+    return { p: window.__cadenza.layers.npProgress(), clipTop: m ? +m[1] : null, coverTop: cv.getBoundingClientRect().top, coverLeft: cv.getBoundingClientRect().left, moved: !!cv.style.transform }; });
   await shot('np-opening');
   ok('opening: the picture comes out with the cover (its top edge led by the cover), the cover flies', mid.p > 0.05 && mid.p < 0.98 && mid.moved && mid.clipTop != null && mid.clipTop <= mid.coverTop + 1, JSON.stringify(mid));
   await win.keyboard.press('Escape'); await W(120);
@@ -260,14 +260,16 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
     ok('MV shorter than the song: after it the song is as without one (no MV layer, no stand-in theme)', r.tout < r.dur && r.during && r.after === null && !r.stale, JSON.stringify(r)); }
   await shot('fx-mv');
   await C(() => window.__cadenza.api.setMvOn(false)); await W(1200);
-  // back to the page: the title bar's brand and search (above the blur) stay away until the page is under it again
+  // back to the page: the title bar's brand and search (above the blur) stay away — the play page covers the window, so
+  // they never come back over it
   const tbBack = C(() => new Promise(res => { const seen = []; const t0 = performance.now(); const tb = document.querySelector('[data-test=titlebar]'), brand = tb.children[0], mid = tb.children[1];
     const tick = () => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60'), b = v && v.style.display !== 'none' ? parseFloat((v.style.backdropFilter.match(/blur\(([\d.]+)/) || [0, 0])[1]) : 0;
       seen.push({ b, view: window.__cadenza.engine.view, o: Math.max(+getComputedStyle(brand).opacity * (getComputedStyle(brand).visibility === 'visible'), +getComputedStyle(mid).opacity * (getComputedStyle(mid).visibility === 'visible')) });
       if (performance.now() - t0 < 1100) requestAnimationFrame(tick); else res(seen); }; tick(); }));
   await win.keyboard.press('Escape');
   { const seen = await tbBack, early = seen.filter(x => x.view === 'effect' && x.o > 0.02), lateIn = seen.filter(x => x.view !== 'effect' && x.b > 18 && x.o > 0.6);
-    ok('back to now playing: the brand and search fade in with the blur clearing, never before the swap', !early.length && !lateIn.length && seen[seen.length - 1].o > 0.9, JSON.stringify({ early: early.length, lateIn: lateIn.length, last: seen[seen.length - 1] })); }
+    const shown = seen.filter(x => x.o > 0.02);
+    ok('back to now playing: the brand and search stay away over the play page (never shown on the way)', !early.length && !shown.length, JSON.stringify({ early: early.length, shown: shown.length, last: seen[seen.length - 1] })); }
   ok('effect lyrics: Esc hands back to now playing', await layerIs('np')); await W(300); await shot('np-back');
   // interrupted blurs: effect lyrics and back again faster than a blur takes, then settled — the veil must clear (an
   // interrupted blur used to leave the whole window blurred for good)
@@ -275,9 +277,11 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   await layerIs('np'); await W(1200);
   const veilLeft = await C(() => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60'); return v ? { shown: v.style.display !== 'none', f: v.style.backdropFilter } : null; });
   ok('transitions: blurs interrupted again and again leave no veil once settled', veilLeft && !veilLeft.shown, JSON.stringify(veilLeft));
-  const npEdge = await C(() => { const st = document.querySelector('[data-test=stage]').getBoundingClientRect(), pg = document.querySelector('main[data-scroll]').getBoundingClientRect(); return { dx: Math.round(st.left - pg.left), dy: Math.round(st.top - pg.top) }; });
-  // (the page area's own edge is the hairline beside the sidebar: the play page starts just inside it, flush with the top)
-  ok('now playing: the page covers the main area exactly, inside its edge line', npEdge.dx === 1 && npEdge.dy === 0, JSON.stringify(npEdge));
+  const npEdge = await C(() => { const r = document.querySelector('[data-test=stage]').getBoundingClientRect(), n = document.querySelector('[data-test=np]').getBoundingClientRect(), b = document.querySelector('[data-close]'), br = b && b.getBoundingClientRect(), hit = br && document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
+    return { coverLeft: Math.round(document.querySelector('[data-test=np-cover]').getBoundingClientRect().left), stage: [r.left, r.top, r.width, r.height].map(Math.round), np: [n.left, n.top, n.width, n.height].map(Math.round), win: [innerWidth, innerHeight], close: !!(hit && b.contains(hit)) }; });
+  // (the play page covers the whole window; the window's own buttons stay above it)
+  ok('now playing: it opens straight up — the cover in flight keeps the left edge it lands on', Math.abs(mid.coverLeft - npEdge.coverLeft) <= 2, JSON.stringify({ flying: mid.coverLeft, landed: npEdge.coverLeft }));
+  ok('now playing: the page covers the whole window, the window buttons above it', npEdge.stage.join() === `0,0,${npEdge.win.join()}` && npEdge.np.join() === npEdge.stage.join() && npEdge.close, JSON.stringify(npEdge));
   ok('now playing: no "now playing" label at the top (the page itself says it)', !(await C(() => [...document.querySelectorAll('.kicker')].some(k => k.textContent === '正在播放' && k.getClientRects().length))));
   await win.keyboard.press('Escape');
   ok('now playing: Esc closes into the card', await layerIs('none')); await W(300);

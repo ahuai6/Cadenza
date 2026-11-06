@@ -1,16 +1,14 @@
 /* the stage: the engine's picture, behind the now-playing page and under the effect controls */
-/* the page and its picture take the main area (the sidebar and the title bar stay); in full screen, and for the effect
-   lyrics, the whole window. In the main area they sit one pixel inside it, so the main area's own edge (its line and its
-   rounded corner, drawn by the page underneath) stays the page's edge: one edge, never a second one of our own */
+/* the page and its picture take the whole window (the window's own buttons stay above it, at the top) */
 .stage, .np { --pad-t: 0px; }
-.stage { position: fixed; inset: var(--tb-h) 0 0 calc(var(--side-w) + 1px); z-index: 40; background: #070707; visibility: hidden; contain: strict; }
+.stage { position: fixed; inset: 0; z-index: 40; background: #070707; visibility: hidden; contain: strict; }
 :global(html[data-winfull="true"]) .stage, :global(html[data-fxmode="true"]) .stage { inset: 0; }
 .stage[data-vis="true"] { visibility: visible; }
 :global(html[data-layer="none"]) .stage { pointer-events: none; }
 
 /* the cinema over the picture: the edges shaded toward the song's own dark, a soft top light, and a fine grain so the
    large fields of colour never look flat. It takes the picture's shape and fade while the page opens (layers.ts) */
-.amb { position: fixed; inset: var(--tb-h) 0 0 calc(var(--side-w) + 1px); z-index: 40; pointer-events: none; display: none;
+.amb { position: fixed; inset: 0; z-index: 40; pointer-events: none; display: none;
   background:
     radial-gradient(120% 90% at 30% 40%, transparent 42%, rgba(var(--amb-base, 10, 10, 12), 0.38) 78%, rgba(4, 4, 6, 0.62) 100%),
     linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 22%, transparent 70%, rgba(0, 0, 0, 0.34)); }
@@ -19,7 +17,7 @@
 :global(html[data-winfull="true"]) .amb { inset: 0; }
 :global(html[data-fxmode="true"]) .amb { display: none; }
 
-.np { position: fixed; inset: var(--tb-h) 0 0 calc(var(--side-w) + 1px); z-index: 41; display: none; --h: 0; }
+.np { position: fixed; inset: 0; z-index: 41; display: none; --h: 0; --pad-t: var(--tb-h); }
 :global(html[data-winfull="true"]) .np { inset: 0; --pad-t: var(--tb-h); }
 .np[data-vis="true"] { display: block; }
 .np[data-fx="true"] { pointer-events: none; }
@@ -35,8 +33,9 @@
 .views button:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7); }
 .views i { font-style: normal; font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums; min-width: 17px; height: 17px; padding: 0 5px; box-sizing: border-box; display: grid; place-items: center; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.16); color: rgba(255, 255, 255, 0.85); }
 .topR { display: flex; gap: 6px; justify-self: end; }
-.main { position: absolute; inset: calc(var(--pad-t) + 64px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.86fr) minmax(340px, 1.14fr); gap: clamp(32px, 6vw, 120px); padding: 0 clamp(28px, 4vw, 80px) 40px clamp(28px, 6vw, 120px); }
-.left { display: grid; align-content: center; justify-items: center; gap: 40px; min-height: 0; }
+.main { position: absolute; inset: calc(var(--pad-t) + 64px) 0 0 0; display: grid; grid-template-columns: minmax(300px, 0.86fr) minmax(340px, 1.14fr); gap: clamp(32px, 6vw, 120px); padding: 0 clamp(28px, 4vw, 80px) 40px var(--np-x); }
+/* (the cover's left edge is the player bar's cover's: the page opens straight up, the cover rising and growing in place) */
+.left { display: grid; align-content: center; justify-items: start; gap: 40px; min-height: 0; }
 /* the cover: large, nearly square-cornered, lifted on a long shadow in its own colour */
 .cover { width: min(48vh, 32vw, 480px); aspect-ratio: 1; border-radius: var(--r-cover-np); overflow: hidden; transform-origin: 0 0; background: rgba(255, 255, 255, 0.08); will-change: transform;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 30px 80px -20px rgba(var(--amb, 0, 0, 0), 0.55), 0 40px 90px -30px rgba(0, 0, 0, 0.6); }
@@ -67,7 +66,7 @@
 
 /* lyrics: every word floats on its own spring */
 .lyr { position: absolute; inset: 0; overflow: hidden; padding: 0 8px; }
-.line { display: block; width: 100%; padding: 12px 14px; margin: 0 0 6px; border-radius: var(--r-lg); text-align: left; color: #fff; font-size: calc(clamp(26px, 2.9vw, 44px) * var(--np-fs, 1)); font-weight: 760; line-height: 1.28; letter-spacing: -0.01em;
+.line { display: block; width: 100%; padding: 12px 14px; margin: 0 0 6px; border-radius: var(--r-lg); text-align: left; color: #fff; font-size: calc(clamp(24px, 2.55vw, 38px) * var(--np-fs, 1)); font-weight: 760; line-height: 1.28; letter-spacing: -0.01em;
   opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05); filter: blur(calc(min(var(--d, 1), 5) * 0.55px));
   transition: opacity var(--t-slow) var(--ease), filter var(--t-slow) var(--ease), background var(--t-fast) var(--ease); }
 :global(html[data-gfx="lite"]) .line { filter: none; }
