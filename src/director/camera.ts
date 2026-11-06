@@ -168,7 +168,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   /** Lays a stop's follow into the drifts (each step finished by `by`, when the camera leaves) and moves the stop to
    *  where it ends; returns when the last step lands. */
   const follow = (A: Stop, by: number) => { let end = A.arrive;
-    for (const [a0, b0, dx, dy, e] of A.follow || []) { if (Math.hypot(dx, dy) < 1e-3) continue;
+    for (const [a0, b0, dx, dy, e] of A.follow || []) { if (!Number.isFinite(dx + dy + a0 + b0)) { warnings.push(stopReport('follow step not finite', A, null, -1)); continue; } if (Math.hypot(dx, dy) < 1e-3) continue;
       // (from the arrival on: a follow never runs into the move bringing the camera here)
       // (a character sung before the camera landed is caught up right after it lands, never during the move in)
       const a = Math.max(A.arrive, Math.min(a0, by - 0.04, b0 - 0.04)), b = Math.max(a + 0.04, Math.min(b0 <= A.arrive ? a + 0.12 : b0, by));
@@ -181,7 +181,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   /* ---- timing ---- */
   // (each lyric frame and the stop that frames it)
   const frameStop = new Map<NonNullable<PWord['frame']>, number>(); stops.forEach((s, k) => s.words.forEach(w => { if (w.frame && w.frame.words[w.frame.words.length - 1] === w) frameStop.set(w.frame, k); }));
-  const lead = clamp(M.lead ?? 0.15, 0, 1.2), moves: Move[] = [], drifts: CameraPlan['drifts'] = [];
+  const lead = clamp(M.lead ?? 0.15, 0, 1.2), moves: Move[] = [], drifts: CameraPlan['drifts'] = [], warnings: string[] = [];
   const restSlow = (rest: number) => clamp((rest - 1) / 2);
   const intensity = (t: number) => clamp(0.35 + 0.65 * map.level(t));
   const start: Pose = { x: stops[0].x, y: stops[0].y, z: stops[0].z * (smooth ? 0.6 : 0.35), r: stops[0].r, d: stops[0].d };
@@ -254,7 +254,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       const fEnd = follow(A, s);
       // (the drift on begins once the last character is sung, never while the words are still waiting to be sung)
       { const h0 = Math.max(A.arrive, fEnd, lastSung(A)), h1 = Math.max(h0, s), ax = A.fax || A.dir;
-        if (A.drift > 0 && h1 - h0 > 0.2 && !A.over) { const dd = Math.min(A.drift, A.drift * (h1 - h0) / 2.5); drifts.push([h0, h1, ax[0] * dd, ax[1] * dd, smooth ? 'lin' : undefined]); A.x += ax[0] * dd; A.y += ax[1] * dd; } }
+        if (A.drift > 0 && Number.isFinite(A.drift) && h1 - h0 > 0.2 && !A.over) { const dd = Math.min(A.drift, A.drift * (h1 - h0) / 2.5); drifts.push([h0, h1, ax[0] * dd, ax[1] * dd, smooth ? 'lin' : undefined]); A.x += ax[0] * dd; A.y += ax[1] * dd; } }
       // too far or too fast for one move: a quick transition instead (when the pause allows one)
       const zm = Math.abs(B.z - A.z) > 1e-6 ? (B.z - A.z) / Math.log(B.z / A.z) : A.z, D = Math.hypot(B.x - A.x, B.y - A.y) * zm / W;   // apparent travel: the log-mean closeness
       // (only for a move far beyond what a camera can make, and only when the pause leaves room: a long move is better
@@ -271,6 +271,10 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     const roll = B.roll && !B.cut ? B.roll : 0;
     if (roll) { const D = B.rollD ?? rollDur(M.speed); s = Math.max(A.arrive + 0.05, Math.min(s, Math.max(B.words[0].show - D, A.sungEnd - 0.12))); arrive = s + D; }
     B.arrive = arrive;
+    // (a stop whose framing came out not a number — or a closeness not above zero — is framed as the stop before it was,
+    // and noted with everything that made it: a NaN here became the whole picture stuck for a couple of seconds)
+    if (!saneStop(B)) { warnings.push(stopReport('stop not finite', B, A, i)); B.x = Number.isFinite(B.box.x) ? B.box.x : A.x; B.y = Number.isFinite(B.box.y) ? B.box.y : A.y;
+      if (!(B.z > 0 && Number.isFinite(B.z))) B.z = A.z; if (!Number.isFinite(B.d)) B.d = A.d; if (!Number.isFinite(B.r)) B.r = A.r; B.follow = []; B.drift = 0; }
     const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy);
     let bow: [number, number] = [0, 0], bend = 0;
     if (smooth && !B.cut && L > 1) { const C = stops[i + 1], nx = -dy / L, ny = dx / L; let side = rnd(i * 3.7 + 1) < 0.5 ? -1 : 1, turn = 0;
@@ -302,7 +306,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     if (lastS.drift > 0 && go - h0 > 0.2 && !lastS.words[0].line.words.some(w => w.frame)) { const dd = Math.min(lastS.drift, lastS.drift * (go - h0) / 2.5); drifts.push([h0, go, ax[0] * dd, ax[1] * dd]); lastS.x += ax[0] * dd; lastS.y += ax[1] * dd; } }
 
   /* ---- cuts: the jump the base path makes at each transition (the backdrop does not follow these) ---- */
-  const plan: CameraPlan = { style: cut, start, stops, moves, drifts, cuts: [], idle: idleWindows(lines, inp.musicEnd),
+  const plan: CameraPlan = { style: cut, start, stops, moves, drifts, cuts: [], idle: idleWindows(lines, inp.musicEnd), ...(warnings.length ? { warnings } : {}),
     dyn: { cone: (cut === 'punch' ? 0.03 : waltz ? 0.026 : 0.016) * clamp(M.punch + 0.4, 0.2, 2), coneRoll: (cut === 'punch' ? 0.5 : waltz ? 1.1 : 0.35) * TK * clamp(M.shake + 0.3, 0, 2),
       float: (0.45 + (M.float ?? 0)), sway: M.sway } };
   for (const m of moves) if (m.ease === 'cut') plan.cuts.push({ t: m.s, dx: m.dx, dy: m.dy, dz: m.dz, dr: m.dr });
@@ -388,7 +392,11 @@ function smoothPath(c: CameraPlan, dur: number, style: string, sp: number, overS
   // (a sample on a cut belongs to the new passage, as its segment says: it is read just after the cut)
   // (the segment is decided at the very moment the sample is read, so a cut a hair after a sample's time never splits them)
   for (let f = 0, ci = 0; f < n; f++) { const t = f / RATE + 1e-6; while (ci < cuts.length && t >= cuts[ci]) ci++; seg[f] = ci;
-    const b = rawPose(c, t); X[f] = b.x; Y[f] = b.y; Z[f] = Math.log(b.z); R[f] = b.r; Dd[f] = b.d; }
+    const b = rawPose(c, t); X[f] = b.x; Y[f] = b.y; Z[f] = Math.log(b.z); R[f] = b.r; Dd[f] = b.d;
+    // (last line of defence: a sample that is not a number holds the one before — the smoothing would spread it over
+    // seconds — and is noted)
+    if (!Number.isFinite(X[f] + Y[f] + Z[f] + R[f] + Dd[f])) { const p = f ? f - 1 : f; if (!(c.warnings ||= []).some(w => w.startsWith('path'))) c.warnings.push(`path not finite from ${t.toFixed(2)} s: x ${b.x} y ${b.y} z ${b.z} r ${b.r} d ${b.d}`);
+      for (const A of [X, Y, Z, R, Dd]) if (!Number.isFinite(A[f])) A[f] = f ? A[p] : 0; } }
   const lo = new Int32Array(n), hi = new Int32Array(n);
   for (let f = 0; f < n; f++) lo[f] = f > 0 && seg[f - 1] === seg[f] ? lo[f - 1] : f;
   for (let f = n - 1; f >= 0; f--) hi[f] = f < n - 1 && seg[f + 1] === seg[f] ? hi[f + 1] : f;
@@ -437,4 +445,15 @@ export function cutJumps(plan: CameraPlan) {
   const Pp = plan.path; if (!Pp) return;
   for (const k of plan.cuts) { const f = Math.min(Pp.n - 1, Math.max(1, Math.ceil(k.t * Pp.rate - 1e-9)));
     k.dx = Pp.x[f] - Pp.x[f - 1]; k.dy = Pp.y[f] - Pp.y[f - 1]; k.dz = Pp.lz[f] - Pp.lz[f - 1]; k.dr = Pp.r[f] - Pp.r[f - 1]; }
+}
+
+/** Is a stop's framing all numbers, its closeness above zero? */
+function saneStop(s: Stop) { return Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.d) && Number.isFinite(s.r) && Number.isFinite(s.z) && s.z > 0; }
+/** A stop that came out wrong, with everything that made it (for the debug log: plan.camera.warnings). */
+function stopReport(what: string, B: Stop, A: Stop | null, i: number): string {
+  const r = (x: number) => (Number.isFinite(x) ? Math.round(x * 100) / 100 : String(x));
+  const w = (S: PWord) => ({ text: S.w.text, x: r(S.x), y: r(S.y), lw: r(S.lw), lh: r(S.lh), s: r(S.s), d: r(S.d), tilt: r(S.tilt), vert: !!S.vert, frame: !!S.frame, roll: S.roll || 0,
+    units: S.units.map(u => [u.c, r(u.ox), r(u.oy), r(u.w), r(u.h), u.t == null ? null : r(u.t)]) });
+  const st = (x: Stop) => ({ t: r(x.t), arrive: r(x.arrive), x: r(x.x), y: r(x.y), z: r(x.z), d: r(x.d), r: r(x.r), box: { x: r(x.box.x), y: r(x.box.y), w: r(x.box.w), h: r(x.box.h) }, drift: r(x.drift), hov: !!x.hov, cut: x.cut, follow: (x.follow || []).length });
+  try { return JSON.stringify({ what, i, B: st(B), A: A ? st(A) : null, words: B.words.map(w) }); } catch { return what; }
 }

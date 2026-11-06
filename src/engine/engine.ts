@@ -206,7 +206,7 @@ export class Engine extends Emitter<EngineEvents> {
   private debugSetup(s: Session) { const a = s.map.a;
     Object.assign(DEBUG.setup, { song: s.spec.song?.title, style: { look: s.style.preset, from: s.style.from, motion: s.style.motion, cut: s.style.cut, ltype: s.style.ltype, bg: s.style.bgStyle },
         render: { ...this.render }, canvas: [this.canvas.width, this.canvas.height], dpr: typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
-        analysis: { source: a.source, bpm: a.tempo?.bpm, beats: a.beats?.length, events: a.events?.length, rate: a.rate, accents: !!a.accents, repairs: s.map.repairs }, words: s.plan.words.length, lines: s.plan.lines.length, passages: s.plan.passages.map(p => +p.t.toFixed(2)) }); }
+        analysis: { source: a.source, bpm: a.tempo?.bpm, beats: a.beats?.length, events: a.events?.length, rate: a.rate, accents: !!a.accents, repairs: s.map.repairs }, planWarnings: s.plan.camera.warnings || [], words: s.plan.words.length, lines: s.plan.lines.length, passages: s.plan.passages.map(p => +p.t.toFixed(2)) }); }
   /* ---------- the frame ---------- */
   frameAt(t: number, opts: { offline?: boolean; px?: number } = {}, sess?: Session): RenderFrame | null {
     const s = sess || this.session; if (!s) return null; const plan = s.plan, motion = RM ? 0.25 : 1;
@@ -253,6 +253,8 @@ export class Engine extends Emitter<EngineEvents> {
     if (vis && this.dirty && due) { this.dirty = false; this.lastDraw = now; drew = true; try { this.draw(s); } catch (e) { console.warn(e); DEBUG.event('draw threw', String((e as Error)?.stack || e)); } }
     // (the debug log looks at the canvas from the frame loop itself — drawn this frame or not — and notes how many frames
     // were drawn: a picture that stops changing while nothing is drawn is a different fault from one drawn but not shown)
+    // (a plan put in place — a song, a replan, the full analysis arriving — and what came out wrong in it)
+    if (s.plan !== this.loggedPlan) { this.loggedPlan = s.plan; for (const w of s.plan.camera.warnings || []) { console.warn('[plan]', w); DEBUG.event('PLAN WARNING', w); } }
     if (DEBUG.on) { DEBUG.t = this.t; DEBUG.heartbeat(drew, this.playing, this.view, this.t, this.dirty); DEBUG.probe(this.canvas, this.playing, this.view, this.t); }
     if (s.staged) this.trySwap(s);
     if (!s.needsFlush && (!this.bake || this.bake.plan !== s.plan)) this.startBake(s);
@@ -285,7 +287,7 @@ export class Engine extends Emitter<EngineEvents> {
   }
   private warmedPass = new WeakSet<object>();
   /** the last frame whose numbers were all numbers (stood in for one that is not), how many were not, the last one's fields */
-  private goodCf: CamFrame | null = null; badFrames = 0; private lastBad = '';
+  private goodCf: CamFrame | null = null; badFrames = 0; private lastBad = ''; private loggedPlan: unknown = null;
   private rsCache: { t: number; v: RhythmSample } | null = null;
   private frameRs(s: Session) { if (this.rsCache && this.rsCache.t === this.t) return this.rsCache.v; const v = s.sig.sample(this.t); this.rsCache = { t: this.t, v }; return v; }
   private draw(s: Session) {

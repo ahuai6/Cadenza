@@ -38,7 +38,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // the camera's speed on screen (for the motion trail and the backdrop's slight lean-in when moving fast)
   const prev = cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam, cam = cf.cam;
   const vx = (cam.x - prev.x) * cam.z, vy = (cam.y - prev.y) * cam.z, vel = Math.hypot(vx, vy) + Math.abs(Math.log(cam.z / prev.z)) * W * 0.5 + Math.abs(cam.r - prev.r) * W / 90;
-  const mb = Math.min(12 * W / 1280, vel * 0.025) * f.motion;
+  const mb = Number.isFinite(vel) ? Math.min(12 * W / 1280, vel * 0.025) * f.motion : 0;   // (the moment before not a number: no motion lean — engine.ts guards the frame itself)
   /* ---- backdrop ---- */
   // a video backdrop: in a long pause it rests upright and centred (the camera's turn, push and drift let go of it), and
   // with 'less crop' it never turns at all (the words still do), so it can be drawn barely larger than the frame

@@ -92,6 +92,8 @@ export interface Move { s: number; a: number; dx: number; dy: number; dz: number
 
 export interface CameraPlan {
   style: string; start: Pose; stops: Stop[]; moves: Move[];
+  /** what came out wrong while planning and was put right (a stop not finite…), with its details: for the debug log */
+  warnings?: string[];
   /** drifts while holding, and the steps of a follow: [t0, t1, dx, dy, ease?] */
   drifts: [number, number, number, number, string?][];
   /** cut times (passages), with the jump the base path makes there (the backdrop's camera skips these) */
