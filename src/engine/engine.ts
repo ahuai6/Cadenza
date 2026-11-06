@@ -135,7 +135,7 @@ export class Engine extends Emitter<EngineEvents> {
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
   private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; setGlyphCacheFor(W, H); this.mark.resized = true; this.redrawNow(); } }
-  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); if (o.debug !== undefined && o.debug !== DEBUG.on) DEBUG.setOn(o.debug); PROFILE.on = !!this.render.stats;
+  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); if (o.debug !== undefined && o.debug !== DEBUG.on) { DEBUG.setOn(o.debug); if (o.debug && this.session) this.debugSetup(this.session); } PROFILE.on = !!this.render.stats;
     if (o.stats) Object.assign(this.perf, { fps: 0, frameMs: 0, drawMs: 0, layers: {} }), this.lastFrameAt = 0; if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
   /** A window rect (CSS px) in the picture's reference px. */
   toRef(r: WinRect) { const c = this.canvas.getBoundingClientRect(), s = this.session, H = s ? s.plan.H : 720, k = H / Math.max(1, c.height);
@@ -154,10 +154,7 @@ export class Engine extends Emitter<EngineEvents> {
    *  while the new song begins; the audio is not touched. */
   show(s: Session, o: { transition?: 'song' | 'album' | 'none'; at?: number; play?: boolean } = {}) {
     const was = this.playing; this.stopAudio(); this.carry = null; this.goodCf = null; this.badFrames = 0;
-    if (DEBUG.on) { const a = s.map.a; DEBUG.event('song shown', { title: s.spec.song?.title, at: o.at ?? 0 });
-      Object.assign(DEBUG.setup, { song: s.spec.song?.title, style: { look: s.style.preset, from: s.style.from, motion: s.style.motion, cut: s.style.cut, ltype: s.style.ltype, bg: s.style.bgStyle },
-        render: { ...this.render }, canvas: [this.canvas.width, this.canvas.height], dpr: typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
-        analysis: { source: a.source, bpm: a.tempo?.bpm, beats: a.beats?.length, events: a.events?.length, rate: a.rate, accents: !!a.accents, repairs: s.map.repairs }, words: s.plan.words.length, lines: s.plan.lines.length, passages: s.plan.passages.map(p => +p.t.toFixed(2)) }); }
+    if (DEBUG.on) { DEBUG.event('song shown', { title: s.spec.song?.title, at: o.at ?? 0 }); this.debugSetup(s); }
     if (o.transition === 'album' && this.session && this.view === 'effect') this.carry = { s: this.session, t0: this.t, at: performance.now() };
     else if (o.transition && o.transition !== 'none' && this.session && this.view !== 'hidden') { const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement; cv.getContext('2d')!.drawImage(this.canvas, 0, 0); this.fadeOut = { cv, t0: performance.now() }; }
     this.session = s; this.t = clamp(o.at ?? 0, 0, Math.max(0, s.dur - 0.01)); this.endedFired = false; this.musicEndFired = false;
@@ -205,6 +202,11 @@ export class Engine extends Emitter<EngineEvents> {
    *  ambient field and the cover's layers are then made before the page first opens. */
   warmPicture() { const s = this.session; if (!s || s.needsFlush || this.view !== 'hidden') return false; try { this.draw(s); } catch (e) { console.warn(e); } this.dirty = true; return true; }
 
+  /** The debug log's header: this song, its style, its analysis in short, the canvas and the render settings. */
+  private debugSetup(s: Session) { const a = s.map.a;
+    Object.assign(DEBUG.setup, { song: s.spec.song?.title, style: { look: s.style.preset, from: s.style.from, motion: s.style.motion, cut: s.style.cut, ltype: s.style.ltype, bg: s.style.bgStyle },
+        render: { ...this.render }, canvas: [this.canvas.width, this.canvas.height], dpr: typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
+        analysis: { source: a.source, bpm: a.tempo?.bpm, beats: a.beats?.length, events: a.events?.length, rate: a.rate, accents: !!a.accents, repairs: s.map.repairs }, words: s.plan.words.length, lines: s.plan.lines.length, passages: s.plan.passages.map(p => +p.t.toFixed(2)) }); }
   /* ---------- the frame ---------- */
   frameAt(t: number, opts: { offline?: boolean; px?: number } = {}, sess?: Session): RenderFrame | null {
     const s = sess || this.session; if (!s) return null; const plan = s.plan, motion = RM ? 0.25 : 1;
@@ -247,7 +249,11 @@ export class Engine extends Emitter<EngineEvents> {
     if (this.fadeOut || this.carry) this.dirty = true;
     if (this.view === 'ambient') this.dirty = true;        // the ambient field is alive even while paused
     const cap = this.render.fps > 0 ? 1000 / this.render.fps : 0, due = !cap || now - this.lastDraw >= cap - 1.5;
-    if (vis && this.dirty && due) { this.dirty = false; this.lastDraw = now; try { this.draw(s); } catch (e) { console.warn(e); } }
+    let drew = false;
+    if (vis && this.dirty && due) { this.dirty = false; this.lastDraw = now; drew = true; try { this.draw(s); } catch (e) { console.warn(e); DEBUG.event('draw threw', String((e as Error)?.stack || e)); } }
+    // (the debug log looks at the canvas from the frame loop itself — drawn this frame or not — and notes how many frames
+    // were drawn: a picture that stops changing while nothing is drawn is a different fault from one drawn but not shown)
+    if (DEBUG.on) { DEBUG.t = this.t; DEBUG.heartbeat(drew, this.playing, this.view, this.t, this.dirty); DEBUG.probe(this.canvas, this.playing, this.view, this.t); }
     if (s.staged) this.trySwap(s);
     if (!s.needsFlush && (!this.bake || this.bake.plan !== s.plan)) this.startBake(s);
     const f = this.playing ? this.frameRs(s) : null;
@@ -297,7 +303,7 @@ export class Engine extends Emitter<EngineEvents> {
     if (DEBUG.on) { const c = f.cam.cam, x = f.cam.fx, r = f.rs; DEBUG.t = this.t;
       DEBUG.frame({ w: Math.round(performance.now()), t: r3(this.t), v: this.view, ms: r3(performance.now() - t1), cw, ch, px: r3(f.px), cam: [c.x, c.y, c.z, c.r, c.d, c.yaw, c.pitch].map(r3), fx: [x.x, x.y, x.r, x.z].map(r3),
         rs: [r.level, r.loud, r.pulse, r.cone, r.coneRoll, r.sounding, r.bt].map(r3), gpu: [GPU_STATS.on ? 1 : 0, GPU_STATS.quads, GPU_STATS.uploads, GPU_STATS.draws ?? 0], ...(this.lastBad ? { bad: this.lastBad } : {}) });
-      DEBUG.probe(this.canvas, this.playing, this.view, this.t); }
+    }
     if (this.carry) { const el = (performance.now() - this.carry.at) / 1000; if (el >= CARRY || this.carry.s.needsFlush) this.carry = null; else this.drawCarry(this.carry, el); }
     // (a newer rhythm put in place without a blur to hide it: the picture as it was fades out over the new one)
     if (this.swapFade) { const u = (performance.now() - this.swapFade.at) / 1000 / this.swapFade.len; if (u >= 1) this.swapFade = null; else this.drawSwapFade(this.swapFade.s, u); }

@@ -29,6 +29,14 @@ class DebugLog {
     if (this.events.length > EVENTS) this.events.splice(0, this.events.length - EVENTS);
   }
   frame(f: DebugFrame) { if (!this.on) return; if (this.frames.length < FRAMES) this.frames.push(f); else { this.frames[this.fi] = f; this.fi = (this.fi + 1) % FRAMES; } }
+  private hb = { at: 0, raf: 0, drawn: 0 };
+  /** Every animation frame: once a second, how many came and how many were drawn (a loop that stopped, or one that runs
+   *  but no longer draws, shows here). */
+  heartbeat(drew: boolean, playing: boolean, view: string, t: number, dirty: boolean) {
+    const now = performance.now(), H = this.hb; H.raf++; if (drew) H.drawn++;
+    if (!H.at) H.at = now; if (now - H.at < 1000) return;
+    this.event('loop', { raf: H.raf, drawn: H.drawn, playing, view, t: +t.toFixed(2), dirty }); H.at = now; H.raf = 0; H.drawn = 0;
+  }
   /** What is on the canvas now (a few pixels read back, four times a second): brightness and a fingerprint, and whether it
    *  has stopped changing while the song plays (stuck) or gone dark (black). */
   probe(canvas: HTMLCanvasElement, playing: boolean, view: string, t: number) {

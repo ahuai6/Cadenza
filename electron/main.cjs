@@ -27,7 +27,7 @@ const open = new Map(); let nextId = 1;
 /* ---------- the app's own settings ---------- */
 const SETTINGS = () => path.join(app.getPath('userData'), 'settings.json');
 const DEFAULTS = { mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, theme: 'system', tone: 'paper', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
-  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, rhythmEngine: 'auto', rhythmRuntime: 'auto', rhythmDevice: 'auto', rhythmDrums: true, rhythmStream: 'stream', gfx: 'default', gpuLyrics: true, perfHud: false, uiFont: 'default', fxAspect: '16:9', lyricsTarget: 'tag' };
+  audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, rhythmEngine: 'auto', rhythmRuntime: 'auto', rhythmDevice: 'auto', rhythmDrums: true, rhythmStream: 'stream', gfx: 'default', gpuLyrics: true, perfHud: false, debugLog: false, uiFont: 'default', fxAspect: '16:9', lyricsTarget: 'tag' };
 let settings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS(), 'utf8')) }; } catch (e) { /* first run */ }
 function applySettings() {
