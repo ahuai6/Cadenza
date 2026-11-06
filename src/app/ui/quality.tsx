@@ -16,8 +16,14 @@ export function quality(t: Pick<Track, 'ext' | 'codec' | 'lossless' | 'sampleRat
   return { tier, fmt };
 }
 const detail = (t: Pick<Track, 'sampleRate' | 'bits'>) => (t.sampleRate ? `${+(t.sampleRate / 1000).toFixed(1)} kHz` : '') + (t.bits ? ` / ${t.bits}-bit` : '');
-/** look: 'solid' (a coloured label, in lists) or 'glass' (translucent, over the picture) */
-export function QualityTag({ t, look = 'solid' }: { t: Track; look?: 'solid' | 'glass' }) {
+/** The sound in a few characters: "24/96" for a lossless file (bits / kHz), "320K" for a lossy one. */
+const short = (t: Pick<Track, 'sampleRate' | 'bits' | 'bitrate'>, lossless: boolean) => lossless
+  ? (t.bits || t.sampleRate ? `${t.bits || 16}/${Math.round((t.sampleRate || 44100) / 1000)}` : '') : (t.bitrate ? `${Math.round(t.bitrate / 1000)}K` : '');
+/** look: 'solid' (a coloured label), 'glass' (translucent, over the picture) or 'text' (the lists: a line of small capitals in
+ *  the tier's ink — "FLAC · 24/96", "MP3 · 320K") */
+export function QualityTag({ t, look = 'solid' }: { t: Track; look?: 'solid' | 'glass' | 'text' }) {
   const q = quality(t); if (!q) return null;
+  if (look === 'text') { const d = short(t, q.tier === 'lossless' || q.tier === 'hires');
+    return <span className={s.qt} data-q={q.tier} title={tx('q.title', { tier: tx('q.' + q.tier), fmt: q.fmt, sr: detail(t), bits: '' })}>{q.fmt}{d ? ` · ${d}` : ''}</span>; }
   return <span className={s.q} data-q={q.tier} data-look={look} title={tx('q.title', { tier: tx('q.' + q.tier), fmt: q.fmt, sr: detail(t), bits: '' })}>{tx('q.' + q.tier)}<i>{q.fmt}</i></span>;
 }

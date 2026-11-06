@@ -150,7 +150,7 @@
 .menu button svg { color: var(--fg-3); }
 .menu button[data-danger] { color: var(--danger); } .menu button[data-danger] svg { color: var(--danger); }
 .menu hr { border: 0; height: 1px; background: var(--line); margin: 4px 10px; }
-.toast { position: fixed; left: 50%; bottom: calc(var(--card-h) + 28px); z-index: 115; transform: translate(-50%, 10px); opacity: 0; pointer-events: none; padding: 10px 16px; border-radius: var(--r-3); font-weight: 540; max-width: min(560px, 90vw); text-align: center;
+.toast { position: fixed; left: 50%; bottom: calc(var(--card-h) + 28px); z-index: 115; transform: translate(-50%, 10px); opacity: 0; pointer-events: none; padding: 10px 20px; border-radius: var(--r-pill); font-weight: 540; max-width: min(560px, 90vw); text-align: center;
   transition: opacity var(--t-out) var(--ease-in), transform var(--t-out) var(--ease-in); }
 .toast[data-on="true"] { opacity: 1; transform: translate(-50%, 0); transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease); }
 /* a turn between views: out quickly, then in */

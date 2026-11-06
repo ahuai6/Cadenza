@@ -1,5 +1,5 @@
 // The app's own settings: appearance, music folders, start at login and the tray, audio output, preview performance.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { tx, LANGS, currentLang, words, type Lang } from '../../i18n';
 import { UI_FONTS, applyUiFont } from '../uifont';
 import { D, Lib, Infer, type Settings } from '../bridge';
@@ -29,8 +29,10 @@ export function SettingsView() {
   useEffect(() => { D?.settings().then(v => settings.set(v)); }, []);
   const set = setSettings;
   return (
-    <div className={s.settings + ' stagger'}>
-      <header className={s.head}><span className="kicker">Cadenza</span><h1 className="display">{tx('s.settings')}</h1></header>
+    <div className={s.settings}>
+      <SettingsIndex />
+      <div className={s.doc + ' stagger'}>
+      <header className={s.head}><span className="kicker">Cadenza {st.version || ''}</span><h1 className="display">{tx('s.settings')}</h1></header>
       <Group title={tx('s.set.look')}>
         <Field label={tx('s.set.theme')}><Seg size="sm" fit value={st.theme} onChange={v => set({ theme: v })} options={[['system', tx('s.set.system')], ['light', tx('s.set.light')], ['dark', tx('s.set.dark')]]} /></Field>
         {st.theme !== 'dark' && <Field label={tx('s.set.tone')}><Seg size="sm" fit value={st.tone === 'white' ? 'white' : 'paper'} onChange={v => set({ tone: v })} options={[['paper', tx('s.set.tone.paper')], ['white', tx('s.set.tone.white')]]} /></Field>}
@@ -78,6 +80,7 @@ export function SettingsView() {
       </Group>
       <DataGroup />
       <Group title={tx('s.set.about')}><Note>{tx('s.set.aboutText', { v: st.version || '' })}</Note></Group>
+      </div>
     </div>
   );
 }
@@ -168,7 +171,26 @@ function AudioGroup({ st }: { st: Settings }) {
   );
 }
 // a group: its title and what it is for on the left, its controls on the right, a hairline above
-const Group = ({ title, help, children }: { title: string; help?: string; children: ReactNode }) => <section className={s.group}><header><h2>{title}</h2>{help && <Note>{help}</Note>}</header><div className={s.body}>{children}</div></section>;
+const Group = ({ title, help, children }: { title: string; help?: string; children: ReactNode }) => <section className={s.group} data-group><header><h2>{title}</h2>{help && <Note>{help}</Note>}</header><div className={s.body}>{children}</div></section>;
+/** The settings' parts, numbered, down the left: read from the page's own groups (a new group shows here by itself); the
+ *  one in view marked, a click scrolls to it. */
+function SettingsIndex() {
+  const [items, setItems] = useState<string[]>([]), [cur, setCur] = useState(0), box = useRef<HTMLElement>(null);
+  const groups = () => [...(box.current?.parentElement?.querySelectorAll<HTMLElement>('[data-group]') || [])];
+  useLayoutEffect(() => {
+    const read = () => setItems(groups().map(g => g.querySelector('h2')?.textContent || ''));
+    read(); const mo = new MutationObserver(read); if (box.current?.parentElement) mo.observe(box.current.parentElement, { childList: true, subtree: true, characterData: true });
+    const sc = box.current?.closest<HTMLElement>('[data-scroll]'); const onScroll = () => { const top = (sc?.getBoundingClientRect().top ?? 0) + 120; let k = 0; groups().forEach((g, i) => { if (g.getBoundingClientRect().top <= top) k = i; }); setCur(k); };
+    onScroll(); sc?.addEventListener('scroll', onScroll, { passive: true });
+    return () => { mo.disconnect(); sc?.removeEventListener('scroll', onScroll); };
+  }, []);
+  return (
+    <nav className={s.index} ref={box} aria-label={tx('s.settings')}>
+      <ol>{items.map((t, i) => <li key={i}><button type="button" aria-current={i === cur || undefined} onClick={() => groups()[i]?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })}>
+        <span>{String(i + 1).padStart(2, '0')}</span>{t}</button></li>)}</ol>
+    </nav>
+  );
+}
 const Field = ({ label, children }: { label: string; children: ReactNode }) => <div className={s.field}><span>{label}</span>{children}</div>;
 
 /** The debug log as a text file the listener saves (and sends): the setup, the events, the frames. */

@@ -1,13 +1,26 @@
 /* settings, as a document: each group a row — its title and purpose on the left, its controls on the right */
-.settings { display: grid; max-width: 1040px; }
+/* (third round) the parts numbered down a sticky index on the left; each part its number, its name set in the display
+   face, what it is for under it, and its rows ruled below */
+.settings { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; max-width: 1180px; }
+.index { position: sticky; top: 0; align-self: start; padding-top: 112px; }
+.index ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.index button { width: 100%; height: 32px; display: flex; align-items: center; gap: 12px; padding: 0 8px; margin-left: -8px; border-radius: var(--r-2); color: var(--fg-2); font-size: 13.5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
+.index button:hover { color: var(--fg); background: var(--hover); }
+.index button span { font: 600 10px var(--font-ui); letter-spacing: 0.1em; color: var(--fg-3); width: 18px; flex: none; font-variant-numeric: tabular-nums; }
+.index button[aria-current] { color: var(--fg); font-weight: 600; }
+.index button[aria-current] span { color: var(--accent-ink); }
+.doc { display: grid; min-width: 0; counter-reset: grp; }
 .head { display: grid; gap: 6px; padding-bottom: 22px; border-bottom: 1px solid var(--line-2); }
-.head h1 { margin: 0; font-size: clamp(36px, 4.2vw, 54px); line-height: 1.02; }
-.group { display: grid; grid-template-columns: minmax(180px, 280px) minmax(0, 1fr); gap: 12px 48px; padding: 26px 0; border-bottom: 1px solid var(--line); }
-.group > header { display: grid; align-content: start; gap: 8px; }
-.group h2 { margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 440; letter-spacing: -0.015em; }
+.head h1 { margin: 0; font-size: clamp(40px, 4.6vw, 60px); line-height: 1; }
+.group { display: grid; gap: 6px; padding: 40px 0 8px; scroll-margin-top: 20px; }
+.group > header { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 14px; row-gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--line-2); }
+.group > header::before { counter-increment: grp; content: counter(grp, decimal-leading-zero); font: 600 10.5px var(--font-ui); letter-spacing: 0.12em; color: var(--fg-3); }
+.group > header > :not(h2) { grid-column: 2; }
+.group h2 { margin: 0; font-family: var(--font-display); font-size: 28px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.15; }
 .body { display: grid; gap: 2px; min-width: 0; }
 .body > label + label, .body > .field + label, .body > label + .field, .body > .field + .field { border-top: 1px solid var(--line); }
-.field { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 48px; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; }
 .field > span { color: var(--fg); font-weight: 540; }
 .field > button[role="combobox"] { width: 260px; flex: none; }
 .segWrap { display: flex; }
@@ -15,4 +28,4 @@
 .folder { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; height: 44px; padding: 0 4px 0 2px; border-bottom: 1px solid var(--line); color: var(--fg-3); }
 .folder span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; color: var(--fg); font-family: var(--font-mono); font-size: 12.5px; }
 .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-@media (max-width: 900px) { .group { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .settings { grid-template-columns: 1fr; } .index { display: none; } }

@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tx, lang as langStore } from '../../i18n';
 import { D } from '../bridge';
-import { ui, lib, settings, useStore, keep, type Page } from '../state';
+import { ui, lib, settings, useStore, useIndex, keep, type Page } from '../state';
 import { Icon } from '../ui/icons';
 import { ContextMenu, Toast, Seg, Turn } from '../ui/kit';
 import { player } from '../playback/player';
@@ -112,6 +112,9 @@ function Sidebar() {
   // (without a progress event yet: the songs analysed by this version of the rhythm analysis — an older one is to be redone)
   if (an) { done = an.done; total = an.total; } else { const playable = tracks.filter(t => !t.protected); total = playable.length; done = playable.filter(t => t.analyzed === RHYTHM_VERSION).length; }
   const now = useStore(lib, x => x.analysisNow), forId = useStore(lib, x => x.analysisFor), shown = useStore(player, x => x.shownId);
+  // (how many each shelf holds, quietly at the end of its row)
+  const idx = useIndex(), pls = useStore(lib, x => x.playlists);
+  const counts: Record<string, number> = { favorites: favorites.length, playlists: pls.length, songs: tracks.length, albums: idx.albums.length, artists: idx.artists.length, genres: idx.genres.length };
   // (the song playing, read whole while it plays: said as that, not as the library's queue)
   const thisSong = !!forId && forId === shown;
   // the chosen place is marked by one bar that slides to it (from page to page and section to section)
@@ -128,7 +131,7 @@ function Sidebar() {
             {k === 'library' && <div className={s.sub}>
               {SECTIONS.map(([sk, sl, sic]) => (
                 <button key={sk} type="button" className={s.subi} aria-current={page === 'library' && !detail && section === sk ? 'page' : undefined}
-                  onClick={() => { ui.set({ page: 'library', section: sk, detail: null, layer: 'none', queue: false }); keep('section', sk); }}><Icon n={sic} size={15} /><span>{tx(sl)}</span></button>
+                  onClick={() => { ui.set({ page: 'library', section: sk, detail: null, layer: 'none', queue: false }); keep('section', sk); }}><Icon n={sic} size={15} /><span>{tx(sl)}</span>{counts[sk] ? <em aria-hidden="true">{counts[sk]}</em> : null}</button>
               ))}
             </div>}
           </div>

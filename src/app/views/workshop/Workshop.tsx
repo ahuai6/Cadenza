@@ -7,7 +7,7 @@ import type { Session } from '../../../engine';
 import { desktop, offerFile, pickSavePath, D, type Track } from '../../bridge';
 import { ui, useStore, toast } from '../../state';
 import { Icon } from '../../ui/icons';
-import { Button, IconButton, Seg, Section, Row, Check, TextField, Note, Slider, Dropdown } from '../../ui/kit';
+import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropdown } from '../../ui/kit';
 import { CueBar, cueKeyDown } from '../../ui/cues';
 import { yieldAudio, songForWorkshop } from '../../playback/player';
 import { storedStyle } from '../../../theme/style';
@@ -15,7 +15,7 @@ import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, EndPane, Export
 import { ws, engine, canvas, start, edit, applyLyrics, resetDemo, importAudio, clearAudio, importCover, clearCover, importVideo, clearVideo, setVideoOpt, importProject, projectData, queueImport } from '../../workshop/project';
 import s from './Workshop.module.css';
 
-const TABS: [string, string][] = [['lyrics', 'tab.lyrics'], ['look', 'tab.look'], ['motion', 'tab.motion'], ['fx', 'tab.fx'], ['end', 'tab.end']];
+const TABS: [string, string, string][] = [['lyrics', 'tab.lyrics', 'lyrics'], ['look', 'tab.look', 'palette'], ['motion', 'tab.motion', 'motion'], ['fx', 'tab.fx', 'sparkles'], ['end', 'tab.end', 'film']];
 const fmt = (x: number) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${(x % 60).toFixed(2).padStart(5, '0')}`;
 const wide = () => matchMedia('(min-width: 900px)').matches;
 
@@ -68,7 +68,13 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
         {exp && session && <div className={s.pop + ' glass'}><h2>{tx('x.open')}</h2><ExportPanel engine={engine} s={session} before={() => engine.pause()} /></div>}
       </main>
       <aside className={s.panel} aria-label={tx('settings')} inert={!panel}>
-        <div className={s.ptabs}><Seg role="tablist" size="sm" fit value={tab} onChange={setTab} options={TABS.map(([k, l]) => [k, tx(l)])} /><IconButton n="close" size="sm" label={tx('panel.hide')} onClick={() => setPanel(false)} /></div>
+        {/* (the same sheet as a song's panel: the parts down a rail, the open one's name set large, its parts numbered) */}
+        <nav className={s.rail} role="tablist" aria-orientation="vertical" aria-label={tx('settings')}>
+          {TABS.map(([k, l, ic]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={s.railTab} onClick={() => setTab(k)}><Icon n={ic as never} size={18} /><span>{tx(l)}</span></button>)}
+          <span className={s.railGap} />
+          <IconButton n="close" size="sm" label={tx('panel.hide')} onClick={() => setPanel(false)} />
+        </nav>
+        <header className={s.phead}><b>{tx(TABS.find(x => x[0] === tab)![1])}</b></header>
         <div className={s.pane} key={tab}>{props && <>
           {tab === 'lyrics' && <LyricsPane s={props.s} />}
           {tab === 'look' && <><ThemePane {...props} /><LookPane {...props} media={<MediaBox s={props.s} />} /><TextPane {...props} /></>}

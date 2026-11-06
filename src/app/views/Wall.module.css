@@ -1,12 +1,14 @@
-.wall { display: grid; gap: 18px; }
-.head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 22px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
-.title { display: grid; gap: 6px; margin-right: auto; }
-.head h1 { margin: 0; font-size: clamp(36px, 4.2vw, 54px); line-height: 1.02; }
+/* (third round) the wall runs edge to edge under one floating bar of glass: its title on the left, its choices on the right */
+.wall { display: grid; gap: 14px; margin: -30px -44px 0; }
+.head { position: sticky; top: 12px; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 12px 20px 0; padding: 10px 12px 10px 20px; border-radius: var(--r-3);
+  background: color-mix(in oklab, var(--bg) 70%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: inset 0 0 0 1px var(--line-2), var(--shadow-2); }
+.title { display: flex; align-items: baseline; gap: 14px; margin-right: auto; }
+.head h1 { margin: 0; font-size: 30px; line-height: 1.1; }
 .sel { display: flex; align-items: center; gap: 8px; color: var(--fg-3); font-size: 13px; }
 /* an inline label and its menu: the label stays on one line, the menu as wide as its choices */
 .sel > span { white-space: nowrap; flex: none; }
 .sel > button { width: 170px; height: 30px; }
-.help { color: var(--fg-3); font-size: 12.5px; flex-basis: 100%; }
+.help { display: none; }
 
 .poster { position: relative; display: block; overflow: hidden; padding: 0; border-radius: var(--r-1); background: var(--surface-2); aspect-ratio: 1; box-shadow: var(--shadow-1);
   animation: rise var(--t-reveal) var(--ease) backwards; transition: transform var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease); }
@@ -20,9 +22,10 @@
 .poster:hover .cap, .poster:focus-visible .cap { opacity: 1; transform: none; }
 .now { position: absolute; top: 10px; right: 10px; padding: 6px 7px; border-radius: var(--r-tag); background: rgba(0, 0, 0, 0.55); }
 @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-.mosaic { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); grid-auto-flow: dense; gap: 8px; }
-.mosaic .poster { border-radius: var(--r-1); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px; }
+.grid .poster, .mosaic .poster { border-radius: 0; box-shadow: none; }
+.mosaic { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); grid-auto-flow: dense; gap: 2px; }
+.gallery, .drift { margin: 0 44px; }
 
 .gallery { position: relative; height: calc(100vh - var(--tb-h) - 220px); min-height: 360px; perspective: 1400px; overflow: hidden; cursor: grab; touch-action: none; }
 .shelf { position: absolute; left: 50%; top: 44%; transform-style: preserve-3d; }

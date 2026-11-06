@@ -18,14 +18,14 @@ export const SECTIONS: [string, string, string][] = [['favorites', 's.favorites'
 export function LibraryView() {
   const loaded = useStore(lib, x => x.loaded), folders = useStore(lib, x => x.folders), tracks = useStore(lib, x => x.tracks), favorites = useStore(lib, x => x.favorites), idx = useIndex();
   const section = useStore(ui, x => x.section) || (favorites.length ? 'favorites' : 'songs');
-  const detail = useStore(ui, x => x.detail), search = useStore(ui, x => x.search).trim().toLowerCase();
+  const detail = useStore(ui, x => x.detail), search = useStore(ui, x => x.search).trim().toLowerCase(), pls = useStore(lib, x => x.playlists);
   if (loaded && !folders.length && !tracks.length) return <EmptyLibrary />;
   return (
     <div className={s.libWrap}>
       <Turn k={detail ? detail.kind + ':' + detail.key : 'list'}>{detail ? <Detail detail={detail} idx={idx} search={search} /> : (
         <>
           <header className={s.head}>
-            <span className="kicker">{tx('s.library')}</span>
+            <span className="kicker">{[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}</span>
             <h1 className="display">{tx(SECTIONS.find(x => x[0] === section)?.[1] || 's.library')}</h1>
           </header>
           <Turn k={section}>
@@ -40,6 +40,19 @@ export function LibraryView() {
       )}</Turn>
     </div>
   );
+}
+/** A length as hours and minutes ("14 小時 32 分"), or minutes alone under an hour. */
+export const durText = (sec: number) => { const m = Math.round(sec / 60); return m >= 60 ? tx('s.durHM', { h: Math.floor(m / 60), m: m % 60 }) : tx('s.durM', { m }); };
+/** What a shelf holds, for the line over its title: how many, and for songs how long. */
+function shelfFacts(section: string, idx: ReturnType<typeof useIndex>, tracks: Track[], favorites: string[], nPl: number): string[] {
+  const songs = (list: Track[]) => [tx('s.tracks', { n: list.length }), durText(list.reduce((a, t) => a + (t.duration || 0), 0))];
+  if (section === 'songs') return songs(tracks);
+  if (section === 'favorites') return songs(favorites.map(id => idx.byId.get(id)).filter((t): t is Track => !!t));
+  if (section === 'albums') return [tx('s.nAlbums', { n: idx.albums.length })];
+  if (section === 'artists') return [tx('s.nArtists', { n: idx.artists.length })];
+  if (section === 'genres') return [tx('s.nGenres', { n: idx.genres.length })];
+  if (section === 'playlists') return [tx('s.nPlaylists', { n: nPl })];
+  return [];
 }
 function EmptyLibrary() {
   return <Empty title={tx('s.empty.lib')} help={tx('s.empty.libHelp')} icon="note">
@@ -124,7 +137,7 @@ export const TrackList = memo(function TrackList({ tracks, numbered, menuExtra, 
           </span>
           <span className={s.main}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span>
           <span className={s.album}>{t.album}</span>
-          <span className={s.badges}>{t.protected ? <Badge k="warn"><Icon n="lock" size={11} />{tx('s.badge.protected')}</Badge> : <><QualityTag t={t} />{t.lrc || t.embedded || t.ttml || t.instrumental ? null : <Badge><Icon n="lyrics" size={11} />{tx('s.badge.noLyrics')}</Badge>}</>}</span>
+          <span className={s.badges}>{t.protected ? <Badge k="warn"><Icon n="lock" size={11} />{tx('s.badge.protected')}</Badge> : <><QualityTag t={t} look="text" />{t.lrc || t.embedded || t.ttml || t.instrumental ? null : <Badge><Icon n="lyrics" size={11} />{tx('s.badge.noLyrics')}</Badge>}</>}</span>
           {t.protected ? <span /> : <IconButton n="plus" size="sm" label={tx('s.queue.add')} className={s.hide + ' ' + s.qadd} onClick={() => enqueue([t.id])} />}
           <IconButton n="heart" size="sm" filled={on} on={on} data-fav="" className={s.hide} label={tx(on ? 's.unfav' : 's.fav')} onClick={() => Lib!.favorite(t.id, !on)} />
           <span className={s.time}>{fmtTime(t.duration)}</span>
@@ -188,24 +201,26 @@ function CardGrid({ items, kind }: { items: Idx['albums']; kind: 'album' | 'arti
 // (the detail it shows is handed to it: while it leaves, after the store has moved on, it still shows its own)
 function Detail({ detail, idx, search }: { detail: NonNullable<ReturnType<typeof ui.get>['detail']>; idx: Idx; search: string }) {
   const pls = useStore(lib, x => x.playlists);
-  let title = '', sub = '', cover: string | null = null, round = false, tracks: Track[] = [], extra: ((t: Track) => MenuItem) | undefined, numbered = false, mosaic: (string | null)[] | null = null;
+  let title = '', sub = '', year = '', cover: string | null = null, round = false, tracks: Track[] = [], extra: ((t: Track) => MenuItem) | undefined, numbered = false, mosaic: (string | null)[] | null = null;
   if (detail.kind === 'playlist') { const p = pls.find(x => x.id === detail.key); if (!p) return null;
     title = p.name; tracks = p.tracks.map(id => idx.byId.get(id)).filter((t): t is Track => !!t); mosaic = tracks.map(t => t.cover);
     extra = t => ({ label: tx('s.removeFromPl'), icon: 'close', run: () => Lib!.playlist('remove', p.id, [t.id]) }); }
   else { const g = (detail.kind === 'album' ? idx.albums : detail.kind === 'artist' ? idx.artists : idx.genres).find(x => x.key === detail.key); if (!g) return null;
     title = g.name || tx(detail.kind === 'album' ? 's.unknownAlbum' : detail.kind === 'artist' ? 's.unknownArtist' : 's.unknownGenre');
-    sub = detail.kind === 'album' ? [g.artist, g.year].filter(Boolean).join(' · ') : ''; cover = g.cover; round = detail.kind === 'artist'; tracks = g.tracks; numbered = detail.kind === 'album';
+    sub = detail.kind === 'album' ? g.artist || '' : ''; year = detail.kind === 'album' && g.year ? String(g.year) : ''; cover = g.cover; round = detail.kind === 'artist'; tracks = g.tracks; numbered = detail.kind === 'album';
     if (detail.kind === 'genre') mosaic = g.tracks.map(t => t.cover); }
   const shown = tracks.filter(t => match(search, t.title, t.artist, t.album)), dur = tracks.reduce((a, t) => a + (t.duration || 0), 0);
   return (
     <div className={s.detail}>
+      {/* (the cover's own colours, softly, behind the head of the page) */}
+      {cover && !round && <div className={s.glow} aria-hidden="true"><Cover k={cover} full /></div>}
       <div className={s.back}><Button kind="ghost" size="sm" icon="chevronLeft" onClick={() => ui.set({ detail: null })}>{tx('s.back')}</Button></div>
       <header className={s.detailHead}>
         {mosaic ? <Mosaic keys={mosaic} /> : <Cover k={cover} full round={round} />}
         <div>
-          <span className="kicker">{tx(({ album: 's.albums', artist: 's.artists', genre: 's.genres', playlist: 's.playlists' } as const)[detail.kind])}</span>
+          <span className="kicker">{[tx(({ album: 's.albums', artist: 's.artists', genre: 's.genres', playlist: 's.playlists' } as const)[detail.kind]), year, tx('s.tracks', { n: tracks.length }), durText(dur)].filter(Boolean).join(' · ')}</span>
           <h1 className="display">{title}</h1>
-          <p>{[sub, tx('s.tracks', { n: tracks.length }), fmtTime(dur)].filter(Boolean).join(' · ')}</p>
+          {sub && <p className={s.by}>{sub}</p>}
           <div className={s.ops}>
             <PlayButtons ids={tracks.map(t => t.id)} album={detail.kind === 'album'} />
             {detail.kind === 'playlist' && <>

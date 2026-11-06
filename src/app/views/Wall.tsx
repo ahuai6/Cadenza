@@ -29,7 +29,7 @@ export function PosterWall() {
   return (
     <div className={s.wall}>
       <header className={s.head}>
-        <div className={s.title}><span className="kicker">{tx('s.library')}</span><h1 className="display">{tx('s.wall')}</h1></div>
+        <div className={s.title} title={tx('s.wall.help')}><h1 className="display">{tx('s.wall')}</h1><span className="kicker">{[source === 'all' ? tx('s.wall.all') : source === 'fav' ? tx('s.favorites') : playlists.find(p => p.id === source)?.name || '', tx('s.tracks', { n: list.length })].filter(Boolean).join(' · ')}</span></div>
         <label className={s.sel}><span className="kicker">{tx('s.wall.source')}</span>
           <Dropdown label={tx('s.wall.source')} value={source} onChange={v => { ui.set({ wallSource: v }); keep('wallSource', v); }}
             options={[['all', tx('s.wall.all')], ['fav', tx('s.favorites')], ...playlists.map(p => [p.id, p.name] as [string, string])]} /></label>
