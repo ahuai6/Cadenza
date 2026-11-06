@@ -1,7 +1,7 @@
 // The three layers of a style (theme/style.ts): a look, a motion style and the knobs, taken in apart; the five tuning
 // knobs over the detailed ones; styles saved before the layers had names unchanged; and the style recommended for a song.
 import { describe, it, expect } from 'vitest';
-import { presetStyle, normalizeStyle, styleFromStored, storedStyle, withLook, withMotion, motionOf, knobbed, MOTIONS, MACROS, KNOBS, PRESETS } from '../../src/theme/style';
+import { presetStyle, normalizeStyle, styleFromStored, storedStyle, withLook, withMotion, motionPart, withSavedMotion, motionOf, knobbed, MOTIONS, MACROS, KNOBS, PRESETS } from '../../src/theme/style';
 import { recommendMotion } from '../../src/director/recommend';
 import { parse } from '../../src/lyrics/parse';
 import { buildLyrics } from '../../src/lyrics/model';
@@ -23,6 +23,16 @@ describe('looks and motion styles', () => {
     const a = withMotion({ ...custom(), k: { ...custom().k, force: 1.4, pace: 0.8 } }, 'groove'), b = withLook(a, 'vinyl');
     expect([b.cut, b.ltype, b.tin, b.tout, b.motion]).toEqual([a.cut, a.ltype, a.tin, a.tout, a.motion]); expect(b.m0).toEqual(a.m0); expect(b.k).toEqual(a.k);
     expect([b.bgStyle, b.font]).toEqual([PRESETS.vinyl.bgStyle, PRESETS.vinyl.font]); expect(b.fx).toEqual(PRESETS.vinyl.fx);
+  });
+  it('a saved motion style (我的風格) carries how the lyrics move and every knob but the size, never the look', () => {
+    const a = { ...withMotion(custom('gothic'), 'float'), trans: 'off' as const, future: 'hide' as const, k: { ...custom().k, force: 1.4, pace: 0.7, size: 1.3 } };
+    const m = JSON.parse(JSON.stringify(motionPart(a))), b = withSavedMotion({ ...custom('vinyl'), k: { ...custom().k, size: 0.8 } }, m, 'm1', 'Mine');
+    expect([b.cut, b.ltype, b.tin, b.tout, b.trans, b.future, b.motion]).toEqual([a.cut, a.ltype, a.tin, a.tout, 'off', 'hide', 'float']);
+    expect(b.m0).toEqual(a.m0); expect(b.k.force).toBe(1.4); expect(b.k.pace).toBe(0.7); expect(b.k.size).toBe(0.8);
+    expect([b.bgStyle, b.font]).toEqual([PRESETS.vinyl.bgStyle, PRESETS.vinyl.font]); expect([b.motionId, b.motionName]).toEqual(['m1', 'Mine']);
+    expect(b.m).toEqual(knobbed(b.m0, b.k));
+    // (a built-in style taken afterwards leaves the saved one)
+    expect(withMotion(b, 'story').motionId).toBeNull();
   });
   it('a style saved before the styles had names reads as the one its camera is, and moves exactly as it did', () => {
     const old = { ...storedStyle(custom('liquid')) } as any; delete old.motion; old.k = { ...old.k }; for (const [m] of MACROS) delete old.k[m];

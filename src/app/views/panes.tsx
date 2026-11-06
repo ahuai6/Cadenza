@@ -14,6 +14,7 @@ import { Button, Section, Row, Select, Slider, Check, TextField, Note, kit } fro
 import { ColorField } from '../ui/color';
 import { FontPicker } from '../ui/fonts';
 import { useThemes, saveTheme, deleteTheme } from '../themes';
+import { useMotions, saveMotion, deleteMotion } from '../motions';
 import { pauseAnalysis } from '../playback/analysis';
 import s from './panes.module.css';
 
@@ -101,7 +102,12 @@ const knob = (edit: Edit, k: string) => ({ onChange: (v: number) => edit(x => x.
  *  under 進階 (the camera, lyric type, entrance, exit and the detailed knobs the five multiply). */
 export function MotionPane({ s: ss, edit }: PaneProps) {
   const st = ss.style, custom = st.preset === 'custom', set = (k: string, v: unknown) => edit(x => x.setStyle(k, v)), [adv, setAdv] = useState(false);
-  const cur = motionOf(st), rec = ss.recommended, name = (id: string) => tx('mo.' + id);
+  const cur = motionOf(st), rec = ss.recommended, name = (id: string) => tx('mo.' + id), mine = useMotions();
+  const own = st.motionId ? mine.find(m => m.id === st.motionId) : undefined, [mName, setMName] = useState(st.motionName || '');
+  useEffect(() => { setMName(st.motionName || ''); }, [st.motionId, st.motionName]);
+  const pick = (v: string) => { const m = v.startsWith('u:') ? mine.find(e => 'u:' + e.id === v) : undefined; edit(x => (m ? x.applySavedMotion(m.motion, m.id, m.name) : x.applyMotion(v))); };
+  const saveMine = (asNew: boolean) => { const n = mName.trim() || tx('mo.untitled'), id = saveMotion(st, n, asNew); edit(x => { x.style.motionId = id; x.style.motionName = n; }); toast(tx('mo.saved', { name: n })); };
+  const delMine = () => { if (!own) return; deleteMotion(own.id); edit(x => { x.style.motionId = null; x.style.motionName = ''; }); toast(tx('mo.deleted', { name: own.name })); };
   const resetGroup = (g: string) => edit(x => { for (const [k, gg] of KNOBS) if (gg === g && k !== 'size') x.setKnob(k, 1); });
   const resetTune = () => edit(x => { for (const [k] of MACROS) x.setKnob(k, 1); });
   // (all back to the motion style as it comes: its own settings, every knob at 1)
@@ -111,8 +117,16 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
       {!custom && <Note>{tx('th.locked')}</Note>}
       <fieldset disabled={!custom} className={s.set}>
         <Section title={tx('mo.h')} note={tx('mo.help')}>
-          <Select label={tx('mo.style')} value={cur} options={Object.keys(MOTIONS).map(id => [id, id === rec ? tx('mo.recTag', { name: name(id) }) : name(id)])} onChange={v => edit(x => x.applyMotion(v))} />
-          <Note>{tx('mo.' + cur + '.fit')}{cur !== rec ? ' ' + tx('mo.recNote', { name: name(rec) }) : ''}</Note>
+          <Select label={tx('mo.style')} value={own ? 'u:' + own.id : cur} options={[...Object.keys(MOTIONS).map(id => [id, id === rec ? tx('mo.recTag', { name: name(id) }) : name(id)] as [string, string]), ...mine.map(m => ['u:' + m.id, tx('mo.mineTag', { name: m.name })] as [string, string])]} onChange={pick} />
+          <Note>{own ? tx('mo.mineFit', { name: name(own.motion.base) }) : tx('mo.' + cur + '.fit')}{!own && cur !== rec ? ' ' + tx('mo.recNote', { name: name(rec) }) : ''}</Note>
+        </Section>
+        <Section title={tx('mo.mine')} note={tx('mo.mineHelp')}>
+          <TextField label={tx('mo.name')} value={mName} placeholder={tx('mo.untitled')} onCommit={setMName} />
+          <Row>
+            <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>{tx(own ? 'mo.save' : 'mo.saveNew')}</Button>
+            {own && <Button size="sm" onClick={() => saveMine(true)}>{tx('mo.saveAs')}</Button>}
+            {own && <Button kind="ghost" size="sm" onClick={delMine}>{tx('mo.del')}</Button>}
+          </Row>
         </Section>
         <Section title={tx('mo.tune')} note={tx('help.knobs')} action={<Button kind="ghost" size="sm" onClick={resetTune}>{tx('reset.group')}</Button>}>
           {MACROS.map(([k, mn, mx, sp]) => <Slider key={k} label={tx('km.' + k)} min={mn} max={mx} step={sp} value={st.k[k] ?? 1} format={fmtK} {...knob(edit, k)} />)}

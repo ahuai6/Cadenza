@@ -10,7 +10,7 @@ import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis
 import { planCuesFor, recommendMotion, ASPECTS, type ScenePlan } from '../director';
 import { planSong, type MapOrigin } from './planner';
 import type { SongInfo } from '../director/titles';
-import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, withLook, withMotion, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style } from '../theme/style';
+import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, withLook, withMotion, withSavedMotion, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style, type SavedMotion } from '../theme/style';
 import { canvasMeasurer, EM } from '../text/metrics';
 import { fontStack, ensureFontSoon } from '../text/fonts';
 import { paletteOf, paletteFromImage, paletteVinyl, paletteForPreset, ambientFromImage, ambientFromName, type Palette, type Ambient } from '../render/palette';
@@ -214,6 +214,8 @@ export class Session {
   applyLook(id: string) { if (!this.custom) return false; this.style = withLook(this.style, id); this.style.edited = true;
     if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {}); this.colors(); this.dirty |= BUILD; return true; }
   /** A motion style (風格), the look and knobs kept. */
+  /** Take a saved custom motion style (我的風格): its motion and knobs, this style's look kept. */
+  applySavedMotion(m: SavedMotion, id: string, name: string) { if (!this.custom) return false; this.style = withSavedMotion(this.style, m, id, name); this.style.edited = true; this.dirty |= REPLAN; return true; }
   applyMotion(id: string) { if (!this.custom) return false; this.style = withMotion(this.style, id); this.style.edited = true; this.dirty |= REPLAN; return true; }
   /** The motion style that fits this song best (director/recommend.ts), offered beside the others. */
   get recommended(): string { return this.rec ??= recommendMotion({ doc: this.doc, map: this.map, analysis: this.analysis }); }

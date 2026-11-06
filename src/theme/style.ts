@@ -16,6 +16,8 @@ export interface Style {
   /** the motion style (風格, MOTIONS) the motion was taken from, kept as its name (what was tuned on top is the knobs'
    *  and the advanced settings') */
   motion?: string;
+  /** a saved custom motion style (我的風格) this style's motion was taken from: its id and name */
+  motionId?: string | null; motionName?: string;
   /** a custom theme changed since it was taken from a preset or a saved theme (only then is it an unsaved theme of its own) */
   edited?: boolean;
   bg: string; bg2: string; text: string; accent: string; flash: string;
@@ -88,7 +90,19 @@ export const motionOf = (s: Pick<Style, 'motion' | 'cut'>) => (s.motion && MOTIO
 /** A style with a motion style taken in: its camera, lyric type, entrance, exit and tuning; its look, its knobs and its
  *  project's settings as they were. */
 export function withMotion(st: Style, id: string): Style {
-  const r = MOTIONS[id] || MOTIONS[DEFAULT_MOTION], out: Style = { ...st, cut: r.cut, ltype: r.ltype, tin: r.tin, tout: r.tout, m0: clone(r.m0), motion: MOTIONS[id] ? id : DEFAULT_MOTION };
+  const r = MOTIONS[id] || MOTIONS[DEFAULT_MOTION], out: Style = { ...st, cut: r.cut, ltype: r.ltype, tin: r.tin, tout: r.tout, m0: clone(r.m0), motion: MOTIONS[id] ? id : DEFAULT_MOTION, motionId: null, motionName: '' };
+  out.m = knobbed(out.m0, out.k); return out;
+}
+/* ---- custom motion styles (我的風格): what of a style is its motion — the camera, the lyric type, the entrance and
+   exit, transitions and how unsung words show, the motion's tuning (m0) and every knob but the text size — saved under
+   a name, and put back on any style, its look kept. ---- */
+export interface SavedMotion { base: string; cut: CameraStyleId; ltype: string; tin: string; tout: string; trans: 'auto' | 'off'; future: 'dim' | 'hide'; m0: Motion; k: Record<string, number> }
+export function motionPart(st: Style): SavedMotion {
+  const k = { ...st.k }; delete k.size;
+  return { base: motionOf(st), cut: st.cut, ltype: st.ltype || 'flow', tin: st.tin, tout: st.tout, trans: st.trans || 'auto', future: st.future, m0: clone(st.m0), k };
+}
+export function withSavedMotion(st: Style, m: SavedMotion, id: string, name: string): Style {
+  const out: Style = { ...st, cut: m.cut, ltype: m.ltype, tin: m.tin, tout: m.tout, trans: m.trans, future: m.future, m0: { ...st.m0, ...clone(m.m0) }, k: { ...st.k, ...m.k, size: st.k.size ?? 1 }, motion: m.base, motionId: id, motionName: name };
   out.m = knobbed(out.m0, out.k); return out;
 }
 /** What a look (a preset) sets: its backdrop, colours, typeface, how the cover sits, and its effects. */
