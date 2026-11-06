@@ -6,6 +6,7 @@ export { VideoSource, MvSource } from './media';
 export { Handoff, type HandoffSpec, type HandoffLine, type HandoffCover, type WinRect } from './handoff';
 export { configure, type EngineConfig } from './config';
 export { PLAN_STATS } from './planner';
+export { DEBUG } from './debug';
 export { GPU_STATS } from '../render/lyrics';
 export type { PerfStats } from './engine';
 export { exportVideo, openFrameSource, estimate, exportSize, blobSink, type ExportOptions, type ExportResult, type Sink } from './export';

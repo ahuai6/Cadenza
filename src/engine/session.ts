@@ -117,7 +117,7 @@ export class Session {
     const fileEnd = buf ? (r.b != null ? Math.min(r.b, buf.duration) : buf.duration) : Infinity, last = parsed.lines[parsed.lines.length - 1];
     const musicEnd = buf ? Math.max(1, fileEnd - audioStart) : (last ? (last.stop ?? last.t + 3) + 1.6 : 10), dur = musicEnd + endLen;
     const origin: MapOrigin = this.analysis ? { analysis: this.analysis, offset: audioStart } : { grid: [Math.max(40, Math.min(240, sp.bpm || 120)), 0, dur + 2] };
-    const map = 'grid' in origin ? RhythmMap.grid(...origin.grid) : new RhythmMap(origin.analysis, origin.offset);
+    const map = 'grid' in origin ? RhythmMap.grid(...origin.grid) : new RhythmMap(origin.analysis, origin.offset); if (map.repairs.length) console.warn('[rhythm] analysis repaired as read:', map.repairs.join('; '));
     const doc = buildLyrics(parsed, map, musicEnd);
     const tp = performance.now(); const plan = await this.planOf(doc, map, origin, musicEnd, endLen); this.timings.plan = performance.now() - tp;
     Object.assign(this, { audioStart, endLen, musicEnd, dur, map, sig: new Signals(map), doc, plan, rec: null }); this.version++;
@@ -139,7 +139,7 @@ export class Session {
   staged: { analysis: RhythmAnalysis; map: RhythmMap; sig: Signals; doc: LyricDoc; plan: ScenePlan } | null = null;
   async stage(a: RhythmAnalysis): Promise<boolean> {
     if (!this.parsed || !isCurrent(a)) return false;
-    const map = new RhythmMap(a, this.audioStart), doc = buildLyrics(this.parsed, map, this.musicEnd);
+    const map = new RhythmMap(a, this.audioStart), doc = buildLyrics(this.parsed, map, this.musicEnd); if (map.repairs.length) console.warn('[rhythm] analysis repaired as read:', map.repairs.join('; '));
     const plan = await this.planOf(doc, map, { analysis: a, offset: this.audioStart }, this.musicEnd, this.endLen);
     // (an edit or a newer reading meanwhile has taken over: this one is not wanted any more)
     if (this.analysis?.partial !== true || this.parsed == null) return false;

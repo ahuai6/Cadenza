@@ -115,7 +115,7 @@ export class GpuLyrics {
     gl.useProgram(p); gl.uniform1i(gl.getUniformLocation(p, 'tex'), 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    (canvas as HTMLCanvasElement).addEventListener?.('webglcontextlost', (e: Event) => { e.preventDefault(); this.lost = true; });
+    (canvas as HTMLCanvasElement).addEventListener?.('webglcontextlost', (e: Event) => { e.preventDefault(); this.lost = true; console.warn('[gpu] WebGL lyric layer context lost: lyrics go back to the 2D canvas'); });
   }
   static create(): GpuLyrics | null {
     try {

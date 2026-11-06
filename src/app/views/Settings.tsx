@@ -7,7 +7,7 @@ import { settings, lib, useStore } from '../state';
 import { Icon } from '../ui/icons';
 import { Button, Seg, Toggle, Note, Slider, Dropdown } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
-import { neuralStatus, neuralRecheck } from '../../engine';
+import { neuralStatus, neuralRecheck, DEBUG } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
 import { askConfirm } from './Modals';
 import s from './Settings.module.css';
@@ -69,6 +69,8 @@ export function SettingsView() {
         <Toggle label={tx('s.set.prerender')} help={tx('s.set.prerenderHelp')} on={st.prerender !== false} set={v => set({ prerender: v })} />
         <Toggle label={tx('s.set.gpuLyrics')} help={tx('s.set.gpuLyricsHelp')} on={st.gpuLyrics !== false} set={v => set({ gpuLyrics: v })} />
         <Toggle label={tx('s.set.perfHud')} help={tx('s.set.perfHudHelp')} on={!!st.perfHud} set={v => set({ perfHud: v })} />
+        <Toggle label={tx('s.set.debugLog')} help={tx('s.set.debugLogHelp')} on={!!st.debugLog} set={v => set({ debugLog: v })} />
+        {st.debugLog && <div><Button size="sm" icon="download" onClick={() => saveDebugLog(st.version || '')}>{tx('s.set.debugExport')}</Button></div>}
       </Group>
       <DataGroup />
       <Group title={tx('s.set.about')}><Note>{tx('s.set.aboutText', { v: st.version || '' })}</Note></Group>
@@ -164,3 +166,11 @@ function AudioGroup({ st }: { st: Settings }) {
 // a group: its title and what it is for on the left, its controls on the right, a hairline above
 const Group = ({ title, help, children }: { title: string; help?: string; children: ReactNode }) => <section className={s.group}><header><h2>{title}</h2>{help && <Note>{help}</Note>}</header><div className={s.body}>{children}</div></section>;
 const Field = ({ label, children }: { label: string; children: ReactNode }) => <div className={s.field}><span>{label}</span>{children}</div>;
+
+/** The debug log as a text file the listener saves (and sends): the setup, the events, the frames. */
+function saveDebugLog(version: string) {
+  DEBUG.setup.version = version; DEBUG.setup.saved = new Date().toISOString();
+  const blob = new Blob([DEBUG.text()], { type: 'text/plain' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `cadenza-debug-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}

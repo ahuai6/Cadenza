@@ -36,6 +36,7 @@ export interface Settings {
   gfx?: 'default' | 'optimized' | 'lite';
   /** the lyric layer drawn on the GPU (default on) */ gpuLyrics?: boolean;
   /** the performance overlay over the effect lyrics */ perfHud?: boolean;
+  /** the detailed debug log (engine/debug.ts) */ debugLog?: boolean;
 }
 type Off = () => void;
 export interface DesktopApi {

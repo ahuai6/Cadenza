@@ -34,8 +34,12 @@ export class RhythmMap {
   /** bars one by one (the neural engine's), else every `meter` beats from the first downbeat */
   private barOf: BarIndexer;
 
-  constructor(a: RhythmAnalysis, offset = 0) {
-    this.a = a; this.offset = offset;
+  /** what was wrong with the analysis and put right as it was read (see repairAnalysis); empty for a sound one */
+  readonly repairs: string[];
+  constructor(a0: RhythmAnalysis, offset = 0) {
+    const { a, fixes } = repairAnalysis(a0); this.repairs = fixes;
+    this.a = a; this.offset = Number.isFinite(offset) ? offset : 0;
+    offset = this.offset;
     this.beats = Float64Array.from(a.beats, b => b - offset);
     this.events = a.events.map(e => ({ ...e, t: e.t - offset, push: e.push != null ? e.push - offset : undefined }));
     this.evT = Float64Array.from(this.events, e => e.t);
@@ -150,4 +154,32 @@ export class RhythmMap {
     }
     return out.sort((a, b) => a.t - b.t);
   }
+}
+
+/* An analysis as it is stored may carry a value that is not a number — a NaN written to JSON comes back as null, a beat
+   list stitched from two passes may step back — and every frame reads it: the beat's position, the loudness, the level.
+   One NaN there reached the frame's own transform, and a canvas silently ignores whatever is drawn with a NaN in it: the
+   picture stuck where it was, the play page's backdrop black, with no error and no slow frame. So an analysis is checked
+   as it is read and what is wrong put right (a sound one is returned as it is): beats finite and strictly increasing,
+   events and sections finite and in order, every series finite, tempo and meter sensible. */
+export function repairAnalysis(a: RhythmAnalysis): { a: RhythmAnalysis; fixes: string[] } {
+  const fixes: string[] = [], fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+  let out: RhythmAnalysis = a; const edit = () => (out === a ? (out = { ...a }) : out);
+  const B = a.beats || []; let beatsOk = true; for (let i = 0; i < B.length; i++) if (!fin(B[i]) || (i && B[i] <= B[i - 1] + 0.02)) { beatsOk = false; break; }
+  if (!beatsOk) { const nb: number[] = []; for (const b of B) if (fin(b) && (!nb.length || b > nb[nb.length - 1] + 0.02)) nb.push(b);
+    fixes.push(`beats: ${B.length - nb.length} not finite or out of order, dropped`); edit().beats = nb;
+    // (the per-beat readings no longer line up with the beats: dropped too)
+    if (a.accents) { edit().accents = undefined; fixes.push('accents dropped (beats changed)'); } }
+  const ev = a.events || []; if (ev.some((e, i) => !fin(e.t) || !fin(e.s) || (i && e.t < ev[i - 1].t))) {
+    const ne = ev.filter(e => fin(e.t) && fin(e.s)).sort((x, y) => x.t - y.t); fixes.push(`events: ${ev.length - ne.length} not finite, ${ne.length} kept, sorted`); edit().events = ne; }
+  const sec = a.sections || []; if (sec.some(x => !fin(x.t0) || !fin(x.t1) || !fin(x.energy))) { edit().sections = sec.filter(x => fin(x.t0) && fin(x.t1)).map(x => ({ ...x, energy: fin(x.energy) ? x.energy : 0.5 })); fixes.push('sections: non-finite fixed'); }
+  const series = (name: 'level' | 'loud' | 'odf') => { const S = a[name] as ArrayLike<number> | undefined; if (!S) return; let bad = 0; for (let i = 0; i < S.length; i++) if (!fin(S[i])) bad++;
+    if (bad) { const f = Array.from(S, (v, i) => (fin(v) ? v : i && fin(S[i - 1]) ? S[i - 1] : 0)); (edit() as any)[name] = f; fixes.push(`${name}: ${bad} not finite`); } };
+  series('level'); series('loud'); series('odf');
+  if (a.spec) { let bad = 0; const sp = a.spec.map(b => Array.from(b as ArrayLike<number>, v => (fin(v) ? v : (bad++, 0)))); if (bad) { edit().spec = sp; fixes.push(`spec: ${bad} not finite`); } }
+  if (!fin(a.rate) || a.rate <= 0) { edit().rate = 10; fixes.push('rate'); }
+  if (!a.tempo || !fin(a.tempo.bpm) || a.tempo.bpm < 30 || a.tempo.bpm > 300) { edit().tempo = { bpm: 120, confidence: 0 }; fixes.push('tempo'); }
+  if (!fin(a.meter) || a.meter < 2 || a.meter > 12) { edit().meter = 4; fixes.push('meter'); }
+  if (a.builds?.some(b => !fin(b[0]) || !fin(b[1]))) { edit().builds = a.builds.filter(b => fin(b[0]) && fin(b[1])); fixes.push('builds'); }
+  return { a: out, fixes };
 }

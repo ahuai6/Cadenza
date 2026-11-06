@@ -7,7 +7,7 @@
    - coming moments are drawn ahead into a tiny canvas while there is time to spare, so their glyphs are ready. */
 import { clamp, sstep } from '../core/math';
 import { Emitter } from '../core/emitter';
-import { cameraAt } from '../director/evaluate';
+import { cameraAt, type CamFrame } from '../director/evaluate';
 import { drawFrame, PROFILE } from '../render/renderer';
 import { setGpuLyrics } from '../render/gfx';
 import { MV_LOOK, type RenderFrame, type MvLook } from '../render/frame';
@@ -20,6 +20,7 @@ import type { Session } from './session';
 import { ssDown, ssFactor } from './ssaa';
 import { prewarmGlyphs, prewarmSharp, withMakeBudget, setGlyphCacheFor, STATS as GLYPHS } from '../render/glyphs';
 import { GPU_STATS } from '../render/lyrics';
+import { DEBUG, r3 } from './debug';
 import { EM } from '../text/metrics';
 
 const idle = (fn: (d?: { timeRemaining(): number }) => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(d => fn(d), { timeout: 400 }) : setTimeout(() => fn(), 30));
@@ -30,7 +31,8 @@ export interface Tick { t: number; dur: number; musicEnd: number; playing: boole
 export interface EngineEvents extends Record<string, unknown> { tick: Tick; change: void; musicend: Session; ended: Session; session: Session | null; frame: number }
 export interface RenderSettings { scale: 'auto' | number; fps: number; prerender: boolean;
   /** the lyric layer on the GPU where it can be (render/gpu.ts) */ gpu?: boolean;
-  /** measure where each frame's time goes (Engine.perf: the settings' performance overlay) */ stats?: boolean }
+  /** measure where each frame's time goes (Engine.perf: the settings' performance overlay) */ stats?: boolean;
+  /** the detailed debug log (engine/debug.ts) */ debug?: boolean }
 /** The live picture's own measures, while asked for (RenderSettings.stats): frames a second, the page's time per frame
  *  and per layer, smoothed; what the GPU lyric layer drew; the last plan. */
 export interface PerfStats { fps: number; frameMs: number; drawMs: number; layers: Record<string, number>; w: number; h: number }
@@ -133,7 +135,7 @@ export class Engine extends Emitter<EngineEvents> {
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
   private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; setGlyphCacheFor(W, H); this.mark.resized = true; this.redrawNow(); } }
-  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); PROFILE.on = !!this.render.stats;
+  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); if (o.debug !== undefined && o.debug !== DEBUG.on) DEBUG.setOn(o.debug); PROFILE.on = !!this.render.stats;
     if (o.stats) Object.assign(this.perf, { fps: 0, frameMs: 0, drawMs: 0, layers: {} }), this.lastFrameAt = 0; if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
   /** A window rect (CSS px) in the picture's reference px. */
   toRef(r: WinRect) { const c = this.canvas.getBoundingClientRect(), s = this.session, H = s ? s.plan.H : 720, k = H / Math.max(1, c.height);
@@ -151,7 +153,11 @@ export class Engine extends Emitter<EngineEvents> {
    *  the new one's (the same look) without a blur, and its last words stay on, drifting with its camera and fading,
    *  while the new song begins; the audio is not touched. */
   show(s: Session, o: { transition?: 'song' | 'album' | 'none'; at?: number; play?: boolean } = {}) {
-    const was = this.playing; this.stopAudio(); this.carry = null;
+    const was = this.playing; this.stopAudio(); this.carry = null; this.goodCf = null; this.badFrames = 0;
+    if (DEBUG.on) { const a = s.map.a; DEBUG.event('song shown', { title: s.spec.song?.title, at: o.at ?? 0 });
+      Object.assign(DEBUG.setup, { song: s.spec.song?.title, style: { look: s.style.preset, from: s.style.from, motion: s.style.motion, cut: s.style.cut, ltype: s.style.ltype, bg: s.style.bgStyle },
+        render: { ...this.render }, canvas: [this.canvas.width, this.canvas.height], dpr: typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
+        analysis: { source: a.source, bpm: a.tempo?.bpm, beats: a.beats?.length, events: a.events?.length, rate: a.rate, accents: !!a.accents, repairs: s.map.repairs }, words: s.plan.words.length, lines: s.plan.lines.length, passages: s.plan.passages.map(p => +p.t.toFixed(2)) }); }
     if (o.transition === 'album' && this.session && this.view === 'effect') this.carry = { s: this.session, t0: this.t, at: performance.now() };
     else if (o.transition && o.transition !== 'none' && this.session && this.view !== 'hidden') { const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement; cv.getContext('2d')!.drawImage(this.canvas, 0, 0); this.fadeOut = { cv, t0: performance.now() }; }
     this.session = s; this.t = clamp(o.at ?? 0, 0, Math.max(0, s.dur - 0.01)); this.endedFired = false; this.musicEndFired = false;
@@ -184,7 +190,7 @@ export class Engine extends Emitter<EngineEvents> {
   /* ---------- views ---------- */
   /** Change what is drawn. ambient ↔ effect runs the shared-element handoff (spec: where the page's elements are). */
   setView(v: View, spec: HandoffSpec = {}, o: { instant?: boolean } = {}): Promise<void> {
-    const prev = this.view; this.view = v; this.dirty = true;
+    const prev = this.view; this.view = v; this.dirty = true; DEBUG.event('view', { from: prev, to: v });
     if (o.instant) { this.handoff.jump(v === 'effect' ? 1 : 0); return Promise.resolve(); }
     if (v === 'hidden') { this.handoff.jump(0); return Promise.resolve(); }
     // coming out of hidden: draw now, so the stage never shows a stale picture for the frame it becomes visible
@@ -202,7 +208,12 @@ export class Engine extends Emitter<EngineEvents> {
   /* ---------- the frame ---------- */
   frameAt(t: number, opts: { offline?: boolean; px?: number } = {}, sess?: Session): RenderFrame | null {
     const s = sess || this.session; if (!s) return null; const plan = s.plan, motion = RM ? 0.25 : 1;
-    const cf = cameraAt(plan, s.sig, t, motion), rs = cf.rs, M = s.style.m;
+    let cf = cameraAt(plan, s.sig, t, motion);
+    // (a value that is not a number anywhere in the frame's camera, motion or rhythm sample: drawn with the last good
+    // frame's instead — a canvas silently ignores what is drawn with a NaN in it, the picture stuck or black — and noted)
+    const bad = nonFinite(cf); if (bad) { this.badFrames++; if (this.badFrames === 1 || DEBUG.on) { console.warn('[frame] not a number at', t.toFixed(3), bad); DEBUG.event('NON-FINITE frame values', { t: +t.toFixed(3), fields: bad }); }
+      cf = this.goodCf ? { ...this.goodCf, rs: { ...this.goodCf.rs } } : sanitize(cf); this.lastBad = bad; } else if (!sess && !opts.offline) { this.goodCf = cf; this.lastBad = ''; }
+    const rs = cf.rs, M = s.style.m;
     const mvEnd = this.mv.k > 0 ? this.mv.endK(t, s.audioStart) : 1;   // (an MV shorter than the song: fading out at its end, the song then as it is without one)
     const p = this.handoff.p, scene = opts.offline ? 1 : this.handoff.scene;
     return { plan, style: s.style, pal: s.pal, ambient: s.ambient, t, dt: 0, W: plan.W, H: plan.H, px: opts.px ?? this.canvas.height / plan.H,
@@ -267,6 +278,8 @@ export class Engine extends Emitter<EngineEvents> {
     this.emit('frame', now);
   }
   private warmedPass = new WeakSet<object>();
+  /** the last frame whose numbers were all numbers (stood in for one that is not), how many were not, the last one's fields */
+  private goodCf: CamFrame | null = null; badFrames = 0; private lastBad = '';
   private rsCache: { t: number; v: RhythmSample } | null = null;
   private frameRs(s: Session) { if (this.rsCache && this.rsCache.t === this.t) return this.rsCache.v; const v = s.sig.sample(this.t); this.rsCache = { t: this.t, v }; return v; }
   private draw(s: Session) {
@@ -274,13 +287,17 @@ export class Engine extends Emitter<EngineEvents> {
     const N = !this.playing ? ssFactor(s.style.aa, cw, ch) : 1, target = N > 1 ? this.ssCanvas(cw * N, ch * N) : null, tg = target ? target.getContext('2d')! : g;
     tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalAlpha = 1; tg.globalCompositeOperation = 'source-over';
     f.px = ch * N / s.plan.H;
-    const t0 = this.render.stats ? performance.now() : 0;
+    const t0 = this.render.stats ? performance.now() : 0, t1 = DEBUG.on ? performance.now() : 0;
     drawFrame(tg, f, { sig: s.sig, captions: true, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
     if (this.render.stats) { const P = this.perf, now = performance.now(), k = 0.1, dt = this.lastFrameAt ? now - this.lastFrameAt : 0; this.lastFrameAt = now;
       // (smoothed; each starts at its first reading)
       P.drawMs = P.drawMs ? P.drawMs + (now - t0 - P.drawMs) * k : now - t0; if (dt > 0 && dt < 1000) { P.frameMs = P.frameMs ? P.frameMs + (dt - P.frameMs) * k : dt; P.fps = 1000 / Math.max(1, P.frameMs); }
       for (const [n, v] of Object.entries(PROFILE.ms)) P.layers[n] = (P.layers[n] ?? v) + (v - (P.layers[n] ?? v)) * k; P.w = cw; P.h = ch; }
     if (target) ssDown(target, this.canvas, N);
+    if (DEBUG.on) { const c = f.cam.cam, x = f.cam.fx, r = f.rs; DEBUG.t = this.t;
+      DEBUG.frame({ w: Math.round(performance.now()), t: r3(this.t), v: this.view, ms: r3(performance.now() - t1), cw, ch, px: r3(f.px), cam: [c.x, c.y, c.z, c.r, c.d, c.yaw, c.pitch].map(r3), fx: [x.x, x.y, x.r, x.z].map(r3),
+        rs: [r.level, r.loud, r.pulse, r.cone, r.coneRoll, r.sounding, r.bt].map(r3), gpu: [GPU_STATS.on ? 1 : 0, GPU_STATS.quads, GPU_STATS.uploads, GPU_STATS.draws ?? 0], ...(this.lastBad ? { bad: this.lastBad } : {}) });
+      DEBUG.probe(this.canvas, this.playing, this.view, this.t); }
     if (this.carry) { const el = (performance.now() - this.carry.at) / 1000; if (el >= CARRY || this.carry.s.needsFlush) this.carry = null; else this.drawCarry(this.carry, el); }
     // (a newer rhythm put in place without a blur to hide it: the picture as it was fades out over the new one)
     if (this.swapFade) { const u = (performance.now() - this.swapFade.at) / 1000 / this.swapFade.len; if (u >= 1) this.swapFade = null; else this.drawSwapFade(this.swapFade.s, u); }
@@ -388,3 +405,19 @@ const require_handoff = () => handoffMod;
 const require_lyrics = () => lyricsMod;
 import * as glyphMod from '../render/effects/glyph';
 const require_glyph = () => glyphMod;
+
+/** The names of the frame's numbers that are not numbers (empty string: none). */
+function nonFinite(cf: CamFrame): string {
+  const out: string[] = [], chk = (pre: string, o: object | undefined) => { if (!o) return; for (const [k, v] of Object.entries(o)) { if (typeof v === 'number' && !Number.isFinite(v)) out.push(pre + k); else if (Array.isArray(v)) v.forEach((x, i) => { if (typeof x === 'number' && !Number.isFinite(x)) out.push(`${pre}${k}[${i}]`); }); } };
+  chk('cam.', cf.cam); chk('fx.', cf.fx); chk('cont.', cf.cont); chk('rs.', cf.rs);
+  for (const k of ['rest', 'hold', 'split', 'idle', 'trans', 'ov', 'calm'] as const) if (!Number.isFinite(cf[k])) out.push(k);
+  if (!Number.isFinite(cf.hand[0]) || !Number.isFinite(cf.hand[1])) out.push('hand');
+  return out.join(',');
+}
+/** A frame with every number that is not one put to rest (1 for a scale, 0 otherwise): for the first frame of a song. */
+function sanitize(cf: CamFrame): CamFrame {
+  const fix = <T extends object>(o: T, one: string[] = []): T => { const r: any = { ...o }; for (const [k, v] of Object.entries(r)) if (typeof v === 'number' && !Number.isFinite(v)) r[k] = one.includes(k) ? 1 : 0; return r; };
+  const n = (x: number, d = 0) => (Number.isFinite(x) ? x : d);
+  return { ...cf, cam: fix(cf.cam, ['z']), cont: fix(cf.cont, ['z']), fx: { ...fix(cf.fx, ['z']), sk: undefined }, rs: fix(cf.rs), hand: [n(cf.hand[0]), n(cf.hand[1])],
+    rest: n(cf.rest), hold: n(cf.hold, 1), split: n(cf.split), idle: n(cf.idle), trans: n(cf.trans), ov: n(cf.ov), calm: n(cf.calm, 1) };
+}
