@@ -67,6 +67,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const p1 = await C(() => { const s = window.__cadenza.player.get().session; return { title: s.spec.song.title, lines: s.doc.lines.length, beats: s.map.beats.length, audio: s.map.hasAudio, intro: s.plan.titles.intro && s.plan.titles.intro.kind }; });
   ok('play: the song plays with its lyrics, its analysed beats and an intro title', p1.title === '晨光' && p1.lines >= 6 && p1.beats > 20 && p1.audio && !!p1.intro, JSON.stringify(p1));
   await shot('playing');
+  // the bar's own line: the line being sung, its words alone; a line that fits stands centred in its room
+  { await win.waitForFunction(() => { const s = window.__cadenza.player.get().session; return s.doc.lines[0] && window.__cadenza.engine.time > s.doc.lines[0].t + 0.3; }, null, { timeout: 20000 }).catch(() => {});
+    const r = await C(() => { const s = window.__cadenza.player.get().session, t = window.__cadenza.engine.time, L = [...s.doc.lines].reverse().find(l => l.t - 0.15 <= t), box = document.querySelector('[data-test=bar-lyric]'), tx = box && box.textContent.trim();
+      const b = box && box.getBoundingClientRect(), inner = box && box.querySelector('span span span'), ir = inner && inner.getBoundingClientRect();
+      return { shown: tx, want: L && L.text, centred: ir && b ? Math.abs((ir.left + ir.width / 2) - (b.left + b.width / 2)) : null }; });
+    ok('player bar: the line being sung, centred in its room', !!r.shown && !!r.want && r.want.startsWith(r.shown) && (r.centred ?? 99) <= 3, JSON.stringify(r)); }
   const fonts = await C(async () => { await new Promise(r => setTimeout(r, 1500)); await document.fonts.ready;
     const sheets = [...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href), res = performance.getEntriesByType('resource').filter(e => /\.woff2|fonts\.g/.test(e.name) && !e.name.startsWith('file:'));
     return { local: sheets.filter(h => h.startsWith('file:') && /\/fonts\//.test(h)).length, remote: res.length + sheets.filter(h => !h.startsWith('file:')).length, loaded: [...new Set([...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '')))] }; });

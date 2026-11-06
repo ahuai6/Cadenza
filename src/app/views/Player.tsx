@@ -13,6 +13,8 @@ import { engine } from '../playback/stage';
 import { player, toggle, next, prev, setMode, setVolume, seekBy, MODES, MODE_ICON, playQueueAt, removeFromQueue, reorderQueue, clearQueue, type Mode } from '../playback/player';
 import { hifi, describe } from '../playback/hifi';
 import { refs, openNp } from '../layers';
+import { splitBrackets } from '../../engine';
+import { Marquee } from '../ui/Marquee';
 import s from './Player.module.css';
 
 /* ---------- progress: written straight to the DOM on every tick ---------- */
@@ -116,10 +118,35 @@ export function PlayerCard() {
         <Transport />
         <Progress />
       </div>
-      <div className={s.end}>
-        <QueueButton />
-        <Heart id={t.id} />
+      <div className={s.right}>
+        <BarLyric />
+        <div className={s.end}>
+          <QueueButton />
+          <Heart id={t.id} />
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** The line being sung, in the bar: its own words only (no harmony, translation or reading). A new line comes in as the
+ *  last goes (a short cross-fade, rising a little); one that fits stands centred in its room, one too long starts at the
+ *  left and scrolls to its end and back in stages (Marquee). Nothing when the song has no words. */
+function BarLyric() {
+  const session = useStore(player, x => x.session), has = useStore(player, x => x.hasLyrics), [i, setI] = useState(-1);
+  const lines = has && session ? session.doc.lines : null;
+  useEffect(() => {
+    if (!lines?.length) { setI(-1); return; }
+    const find = (t: number) => { let lo = 0, hi = lines.length - 1, r = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (lines[m].t - 0.15 <= t) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
+    // (a line is shown from its start until the next begins — or, after a long rest, until it has been sung)
+    const at = (t: number) => { const k = find(t), L = lines[k]; return k >= 0 && L && t <= Math.max(L.end, L.sung ?? L.end) + 4 ? k : -1; };
+    setI(at(engine.time)); let cur = at(engine.time);
+    return engine.on('tick', p => { const k = at(p.t); if (k !== cur) { cur = k; setI(k); } });
+  }, [lines]);
+  const text = i >= 0 && lines ? splitBrackets(lines[i].text).main.trim() : '';
+  return (
+    <div className={s.barLyr} aria-live="off" data-test="bar-lyric">
+      {text && <span key={i} className={s.barLine}><Marquee className={s.barMq}>{text}</Marquee></span>}
     </div>
   );
 }
