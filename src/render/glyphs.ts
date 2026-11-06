@@ -103,7 +103,7 @@ const LARGE = 150;
  *  which draws images only. */
 let ALL_BITMAP = false;
 export const setAllBitmap = (on: boolean) => { ALL_BITMAP = on; };
-type Paint = string | InkGrad | { stroke: string; w: number };
+export type Paint = string | InkGrad | { stroke: string; w: number };
 const paintKey = (f: Paint) => (typeof f === 'string' ? f : Array.isArray(f) ? f.join('>') : 'K' + f.stroke + '/' + f.w);
 /** The ladder of sizes a sharp bitmap is made at: an eighth of an octave up to 400 px, a quarter above (a close-up's
  *  glyphs change size all the time — its breathing, the entrances — and each new step was a new bitmap, made in the
@@ -155,13 +155,18 @@ export function sharpBm(font: string, txt: string, G: number, fill: Paint): Bm {
 }
 /** The outline of `txt` round its silhouette (line width w in EM units), from a bitmap. */
 export function strokeGlyph(g: Ctx, txt: string, G: number, w: number, x = 0, y = 0) {
+  if (viaSdf(g, txt, G, { stroke: g.strokeStyle as string, w }, x, y)) return;
   // (from a bitmap at every size: the silhouette's outline is made once per size step, see sharpBm)
   const e = sharpBm(g.font, txt, G, { stroke: g.strokeStyle as string, w });
   g.drawImage(e.bm, 0, 0, e.w, e.h, x - e.w / 2 * e.s, y - e.h / 2 * e.s, e.w * e.s, e.h * e.s);
 }
 /** Draw `txt` sharp at em size G device px, at (x, y) in the context's EM units: from the text below LARGE, from its
  *  bitmap above. fill: a colour, or the lit gradient (null: the context's fill colour). */
+/** On the GPU lyric layer, under SDF_MAX: drawn from the character's distance field (true when it was). */
+type SdfCtx = { sdf?: (txt: string, G: number, paint: Paint, x: number, y: number) => boolean };
+const viaSdf = (g: Ctx, txt: string, G: number, paint: Paint, x: number, y: number) => ALL_BITMAP && G < SDF_MAX && !!(g as unknown as SdfCtx).sdf?.(txt, G, paint, x, y);
 export function sharpGlyph(g: Ctx, txt: string, G: number, fill?: InkGrad | null, x = 0, y = 0) {
+  if (viaSdf(g, txt, G, fill || (g.fillStyle as string), x, y)) return;
   if (G < LARGE && !ALL_BITMAP) { if (fill) { const c = g.fillStyle, gr = g.createLinearGradient(x, y - EM * 0.55, x, y + EM * 0.6); gr.addColorStop(0, fill[0]); gr.addColorStop(0.55, fill[1]); gr.addColorStop(1, fill[2]); g.fillStyle = gr; g.fillText(txt, x, y); g.fillStyle = c; } else g.fillText(txt, x, y); return; }
   const e = sharpBm(g.font, txt, G, fill || (g.fillStyle as string));
   g.drawImage(e.bm, 0, 0, e.w, e.h, x - e.w / 2 * e.s, y - e.h / 2 * e.s, e.w * e.s, e.h * e.s);
@@ -176,4 +181,72 @@ export function drawFocus(g: Ctx, ch: string, bpx: number, G: number, A: number,
   const sA = A * w, bA = sA >= 0.999 ? 0 : Math.max(0, (A - sA) / (1 - sA));
   if (bA > 0.003) { g.globalAlpha = bA; blurGlyph(g, ch, bpx, G, grad); }
   g.globalAlpha = sA; sharpFill();
+}
+
+/* ---------- distance-field glyphs (the GPU lyric layer) ----------
+   On the GPU a sharp glyph is drawn from a field of distances to its edge, made once per character at one of two sizes
+   (an em of SDF_EM[0] px for glyphs seen under SDF_TIER px, SDF_EM[1] px above, up to SDF_MAX): its edge, its lit
+   gradient and its outline are worked out per pixel at whatever size it is seen. The bitmaps it replaces were made per
+   size step (an eighth of an octave), per paint (the face, its edge colour, the unsung outline): a camera moving through
+   a page of lyrics made a hundred of them a second — two to three thousand in half a minute at 1080p, many of them
+   400–1200 px at 2160p — each drawn on the CPU and uploaded, in the frame that first needed it: the stutter. */
+export const SDF_EM = [128, 320] as const, SDF_TIER = 400, SDF_MAX = 900;
+/** the field's reach either side of the edge, in its own pixels (an outline and a pixel of edge fit well inside it) */
+export const SDF_SPREAD = 8;
+export interface Sdf { sdf: Uint8Array; width: number; height: number; /** EM units per field pixel */ s: number }
+const SDFS = new Map<string, Sdf>(); let SDF_PIX = 0; const SDF_CAP = 48e6;
+export const sdfTier = (G: number) => (G < SDF_TIER ? 0 : 1);
+/** The distance field of `txt` in `font` (any size: the face's own; its em is set here) at tier k; null past the budget
+ *  of a pass drawn ahead (made by its next slice). */
+export function sdfGlyph(font: string, txt: string, k: 0 | 1): Sdf | null {
+  const key = k + '|' + font + '|' + txt; let e = SDFS.get(key);
+  if (e) { SDFS.delete(key); SDFS.set(key, e); return e; }
+  if (late()) return null;
+  STATS.miss++; STATS.keys?.push('sdf|' + k + '|' + txt);
+  const E = SDF_EM[k], q = E / EM; if (sg.font !== font) sg.font = font;
+  const wem = Math.max(1, sg.measureText(txt).width / EM), pad = SDF_SPREAD + 2, w = Math.ceil(Math.max(E, wem * E) + pad * 2), h = Math.ceil(E * 1.4 + pad * 2);
+  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h), c = oc.getContext('2d', CPU) as CanvasRenderingContext2D;
+  c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.setTransform(q, 0, 0, q, w / 2, h / 2); c.fillStyle = '#fff'; c.fillText(txt, 0, 0);
+  const a = c.getImageData(0, 0, w, h).data;
+  e = { sdf: distanceField(a, w, h, SDF_SPREAD), width: w, height: h, s: EM / E };
+  SDFS.set(key, e); SDF_PIX += w * h;
+  while (SDF_PIX > SDF_CAP && SDFS.size > 1) { const [k0, o] = SDFS.entries().next().value!; SDFS.delete(k0); SDF_PIX -= o.width * o.height; }
+  return e;
+}
+/** Bake the distance fields a song's glyphs will be drawn from: [character, size seen] pairs, a slice at a time. */
+export function prewarmSdf(font: string, items: [string, number][]) {
+  const ng = (makeCanvas(1, 1) as HTMLCanvasElement).getContext('2d')!; ng.font = font; font = ng.font;
+  const seen = new Set<string>(), todo: [string, 0 | 1][] = [];
+  for (const [c, G] of items) { if (G >= SDF_MAX) continue; const k = sdfTier(G) as 0 | 1, id = k + c; if (!seen.has(id)) { seen.add(id); todo.push([c, k]); } }
+  let i = 0; return (budgetMs = 4) => { const t0 = performance.now(); while (i < todo.length && performance.now() - t0 < budgetMs) { const [c, k] = todo[i++]; sdfGlyph(font, c, k); } return i < todo.length; };
+}
+/* The distance to the edge for every pixel of an anti-aliased coverage mask (the alpha of RGBA `a`), positive inside,
+   as bytes: 128 at the edge, ±127 at ±spread px. Two squared Euclidean distance transforms (to the nearest pixel outside,
+   to the nearest inside; Felzenszwalb & Huttenlocher's lower envelope of parabolas, a row then a column at a time), each
+   started from the partly covered pixels at their sub-pixel distance from the edge (half a pixel either side of 50 %). */
+const INF = 1e20;
+function distanceField(a: Uint8ClampedArray, w: number, h: number, spread: number): Uint8Array {
+  const n = w * h, inner = new Float64Array(n), outer = new Float64Array(n);
+  for (let i = 0; i < n; i++) { const v = a[i * 4 + 3] / 255;
+    if (v >= 1) { outer[i] = 0; inner[i] = INF; } else if (v <= 0) { outer[i] = INF; inner[i] = 0; }
+    else { const o = Math.max(0, 0.5 - v), d = Math.max(0, v - 0.5); outer[i] = o * o; inner[i] = d * d; } }
+  const L = Math.max(w, h), f = new Float64Array(L), d = new Float64Array(L), v = new Int32Array(L), z = new Float64Array(L + 1);
+  edt(outer, w, h, f, d, v, z); edt(inner, w, h, f, d, v, z);
+  const out = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) { const s = Math.sqrt(inner[i]) - Math.sqrt(outer[i]), b = Math.max(0, Math.min(255, Math.round(128 + s / spread * 127)));
+    out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = out[i * 4 + 3] = b; }
+  return out;
+}
+function edt(g: Float64Array, w: number, h: number, f: Float64Array, d: Float64Array, v: Int32Array, z: Float64Array) {
+  for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) f[y] = g[y * w + x]; edt1(f, h, d, v, z); for (let y = 0; y < h; y++) g[y * w + x] = d[y]; }
+  for (let y = 0; y < h; y++) { const o = y * w; for (let x = 0; x < w; x++) f[x] = g[o + x]; edt1(f, w, d, v, z); for (let x = 0; x < w; x++) g[o + x] = d[x]; }
+}
+function edt1(f: Float64Array, n: number, d: Float64Array, v: Int32Array, z: Float64Array) {
+  let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+  for (let q = 1; q < n; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+    k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+  }
+  k = 0; for (let q = 0; q < n; q++) { while (z[k + 1] < q) k++; const r = q - v[k]; d[q] = r * r + f[v[k]]; }
 }

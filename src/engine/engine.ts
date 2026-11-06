@@ -10,7 +10,7 @@ import { Emitter } from '../core/emitter';
 import { cameraAt, settleAt, type CamFrame } from '../director/evaluate';
 import { pathDiag, basePose } from '../director/camera';
 import { drawFrame, PROFILE } from '../render/renderer';
-import { setGpuLyrics } from '../render/gfx';
+import { setGpuLyrics, gpuLyrics } from '../render/gfx';
 import { MV_LOOK, type RenderFrame, type MvLook } from '../render/frame';
 import { makeCanvas } from '../render/palette';
 import type { RhythmSample } from '../rhythm/signals';
@@ -19,7 +19,7 @@ import { VideoSource, MvSource } from './media';
 import { Handoff, type HandoffSpec, type WinRect } from './handoff';
 import type { Session } from './session';
 import { ssDown, ssFactor } from './ssaa';
-import { prewarmGlyphs, prewarmSharp, withMakeBudget, setGlyphCacheFor, STATS as GLYPHS } from '../render/glyphs';
+import { prewarmGlyphs, prewarmSharp, prewarmSdf, SDF_MAX, withMakeBudget, setGlyphCacheFor, STATS as GLYPHS } from '../render/glyphs';
 import { GPU_STATS } from '../render/lyrics';
 import { DEBUG, r3 } from './debug';
 import { EM } from '../text/metrics';
@@ -375,10 +375,17 @@ export class Engine extends Emitter<EngineEvents> {
     { const seen = new Set<string>(), items: [string, number][] = [];
       for (const st of plan.camera.stops) for (const S of st.words) { const G = EM * S.s * st.z * pxK; if (G < 150) continue;
         for (const u of S.units) for (const g of [G, G * 1.12]) { const k = u.c + '|' + Math.round(Math.log2(g) * 4); if (!seen.has(k)) { seen.add(k); items.push([u.c, g]); } } }
-      if (items.length) { const sharp = prewarmSharp(spec.font, items.slice(0, 600), [spec.grad, spec.edge, { stroke: spec.ink, w: 2.4 }]); steps.push(() => sharp(3)); heavy.push(false); }
+      // (on the GPU lyric layer a sharp glyph under SDF_MAX is drawn from its distance field — one per character, whatever
+      // its size and paint: those are made instead; the bitmaps only for the closest close-ups)
+      const gpu = gpuLyrics(), bigItems = gpu ? items.filter(([, G]) => G >= SDF_MAX) : items;
+      // (every character of the song at the sizes it is seen, the small ones too: on the GPU those are fields as well)
+      if (gpu) { const all: [string, number][] = []; for (const st of plan.camera.stops) for (const S of st.words) { const G = EM * S.s * st.z * pxK; for (const u of S.units) all.push([u.c, G]); }
+        if (all.length) { const sdf = prewarmSdf(spec.font, all); steps.push(() => sdf(3)); heavy.push(false); } }
+      if (bigItems.length) { const sharp = prewarmSharp(spec.font, bigItems.slice(0, 600), [spec.grad, spec.edge, { stroke: spec.ink, w: 2.4 }]); steps.push(() => sharp(3)); heavy.push(false); }
       // (the emphasised words' own fill, at the same sizes)
       const em = new Set(spec.emph.chars), emItems = items.filter(([c]) => em.has(c));
-      if (emItems.length) { const sharpE = prewarmSharp(spec.font, emItems.slice(0, 200), [spec.emph.grad]); steps.push(() => sharpE(3)); heavy.push(false); } }
+      const emBig = gpu ? emItems.filter(([, G]) => G >= SDF_MAX) : emItems;
+      if (emBig.length) { const sharpE = prewarmSharp(spec.font, emBig.slice(0, 200), [spec.emph.grad]); steps.push(() => sharpE(3)); heavy.push(false); } }
     // the emphasised words' blur levels in the flash's colour
     if (spec.emph.chars.length) { const emG = prewarmGlyphs(spec.font, [], spec.emph.chars, [1, 2, 3, 4, 5], spec.emph.grad); steps.push(() => emG(3)); heavy.push(false); }
     // (the first transition at several depths of its blur: each depth works at its own size)

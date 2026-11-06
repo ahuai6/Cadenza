@@ -7,12 +7,13 @@
    What it saves: the 2D canvas records and replays each of those hundreds of image draws and state changes one by one
    on the page's thread; here they are a few numbers each in one buffer.
    Whenever WebGL2 is not there, or its context is lost, the lyric pass draws onto the frame as before. */
-import { setAllBitmap, sharpBm } from './glyphs';
+import { setAllBitmap, sharpBm, sdfGlyph, sdfTier, SDF_SPREAD, SDF_MAX, type Sdf, type Paint } from './glyphs';
 import { EM } from '../text/metrics';
 import { makeCanvas } from './palette';
 import type { Ctx } from './effects/registry';
 
-type Src = (ImageBitmap | HTMLCanvasElement | OffscreenCanvas) & { width: number; height: number };
+type Src = ((ImageBitmap | HTMLCanvasElement | OffscreenCanvas) & { width: number; height: number }) | Sdf;
+const isSdf = (s: Src): s is Sdf => 'sdf' in s;
 type M = [number, number, number, number, number, number];
 const mul = (m: M, a: number, b: number, c: number, d: number, e: number, f: number): M =>
   [m[0] * a + m[2] * b, m[1] * a + m[3] * b, m[0] * c + m[2] * d, m[1] * c + m[3] * d, m[0] * e + m[2] * f + m[4], m[1] * e + m[3] * f + m[5]];
@@ -32,6 +33,15 @@ const norm = (makeCanvas(1, 1) as HTMLCanvasElement).getContext('2d')!;
 const colours = new Map<string, string>(), fonts = new Map<string, string>();
 const normColour = (c: unknown) => { if (typeof c !== 'string') return c; let v = colours.get(c); if (v == null) { norm.fillStyle = '#000'; norm.fillStyle = c; v = norm.fillStyle as string; colours.set(c, v); } return v; };
 const normFont = (f: string) => { let v = fonts.get(f); if (v == null) { norm.font = f; v = norm.font; fonts.set(f, v); } return v; };
+/** A colour as a canvas reports it back ('#rrggbb' or 'rgba(r, g, b, a)'), premultiplied, 0..1. */
+const rgbaOf = new Map<string, [number, number, number, number]>();
+function premul(c: string): [number, number, number, number] {
+  let v = rgbaOf.get(c); if (v) return v;
+  let r = 0, g = 0, b = 0, a = 1; const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (m) { const n = parseInt(m[1], 16); r = (n >> 16) & 255; g = (n >> 8) & 255; b = n & 255; }
+  else { const k = (c.match(/-?[\d.]+/g) || []).map(Number); [r = 0, g = 0, b = 0] = k; a = k.length > 3 ? k[3] : 1; }
+  v = [r / 255 * a, g / 255 * a, b / 255 * a, a]; rgbaOf.set(c, v); return v;
+}
 const DUMMY_GRAD = { addColorStop() { /* (a sharp glyph's gradient is the bitmap's own here) */ } };
 class Rec {
   m: M = [1, 0, 0, 1, 0, 0]; globalAlpha = 1; private _fill: unknown = '#000'; private _stroke: unknown = '#000'; private _font = '10px sans-serif';
@@ -56,10 +66,20 @@ class Rec {
     else if (a.length === 4) this.out.quad(src, 0, 0, src.width, src.height, a[0], a[1], a[2], a[3], this.m, this.globalAlpha);
     else this.out.quad(src, 0, 0, src.width, src.height, a[0], a[1], src.width, src.height, this.m, this.globalAlpha);
   }
-  /** Text (a harmony): from its sharp bitmap, as the glyphs are — at the size it is seen. */
+  /** A sharp glyph (or its outline) from its distance field: the face's em in this context's EM units, seen G device px
+   *  (glyphs.ts sharpGlyph, strokeGlyph). */
+  sdf(txt: string, G: number, paint: Paint, x: number, y: number, font = this._font, k = 1) {
+    if (G >= SDF_MAX) return false;
+    const e = sdfGlyph(font, txt, sdfTier(G) as 0 | 1); if (!e) return true;      // (a pass ahead past its budget: made by its next slice)
+    const s = e.s * k, dw = e.width * s, dh = e.height * s;
+    this.out.sdfQuad(e, paint, x - dw / 2, y - dh / 2, dw, dh, y, this.m, this.globalAlpha, G / EM * e.s);
+    return true;
+  }
+  /** Text (a harmony): from its distance field (its sharp bitmap past SDF_MAX), as the glyphs are — at the size it is seen. */
   fillText(txt: string, x: number, y: number) {
     const px = +(this._font.match(/([\d.]+)px/)?.[1] ?? EM), k = px / EM, font = this._font.replace(/[\d.]+px/, `${EM}px`);
     const G = px * Math.sqrt(Math.abs(this.m[0] * this.m[3] - this.m[1] * this.m[2])); if (G < 0.5) return;
+    if (this.sdf(txt, G, typeof this._fill === 'string' ? this._fill : '#fff', x, y, font, k)) return;
     const e = sharpBm(font, txt, G, typeof this._fill === 'string' ? this._fill : '#fff'), s = e.s * k;
     this.out.quad(e.bm as Src, 0, 0, e.w, e.h, x - e.w / 2 * s, y - e.h / 2 * s, e.w * s, e.h * s, this.m, this.globalAlpha);
   }
@@ -79,22 +99,39 @@ function viaCanvas(src: Src): TexImageSource {
 const VS = `#version 300 es
 layout(location=0) in vec2 corner;
 layout(location=1) in vec4 m0;      // a, b, c, d
-layout(location=2) in vec4 m1;      // e, f, alpha, -
+layout(location=2) in vec4 m1;      // e, f, alpha, the glyph's centre y (a distance field's gradient)
 layout(location=3) in vec4 rect;    // dx, dy, dw, dh
 layout(location=4) in vec4 uv;      // u0, v0, u1, v1
+layout(location=5) in vec4 cA;      // a distance field's colours (premultiplied): the fill or the gradient's top, middle,
+layout(location=6) in vec4 cB;      // bottom
+layout(location=7) in vec4 cC;
+layout(location=8) in vec4 sdf;     // kind (0 an image, 1 a filled glyph, 2 one lit by its gradient, 3 its outline),
+                                    // field px either side of the edge, device px per field px, the outline's width
 uniform vec2 size;
-out vec2 vUv; out float vA;
+out vec2 vUv; out float vA; out float vT; flat out vec4 vC0; flat out vec4 vC1; flat out vec4 vC2; flat out vec4 vS;
 void main() {
   vec2 p = rect.xy + corner * rect.zw;
   vec2 q = vec2(m0.x * p.x + m0.z * p.y + m1.x, m0.y * p.x + m0.w * p.y + m1.y);
   gl_Position = vec4(q.x / size.x * 2.0 - 1.0, 1.0 - q.y / size.y * 2.0, 0.0, 1.0);
   vUv = mix(uv.xy, uv.zw, corner); vA = m1.z;
+  // (the lit gradient: top at -0.55 em, middle at 55 % of the way, bottom at 0.6 em — as the canvas draws it)
+  vT = (p.y - m1.w + 0.55 * ${EM}.0) / (1.15 * ${EM}.0);
+  vC0 = cA; vC1 = cB; vC2 = cC; vS = sdf;
 }`;
 const FS = `#version 300 es
-precision mediump float;
-uniform sampler2D tex; in vec2 vUv; in float vA; out vec4 o;
-void main() { o = texture(tex, vUv) * vA; }`;
-const F = 16;   // floats per quad
+precision highp float;
+uniform sampler2D tex; in vec2 vUv; in float vA; in float vT; flat in vec4 vC0; flat in vec4 vC1; flat in vec4 vC2; flat in vec4 vS; out vec4 o;
+void main() {
+  vec4 t = texture(tex, vUv);
+  if (vS.x < 0.5) { o = t * vA; return; }
+  // the distance to the edge in device px, positive inside; a pixel's coverage is its share of a 1 px ramp across it
+  float d = (t.a * 255.0 - 128.0) / 127.0 * vS.y * vS.z;
+  float cov = vS.x > 2.5 ? clamp(d + vS.w + 0.5, 0.0, 1.0) - clamp(d + 0.5, 0.0, 1.0) : clamp(d + 0.5, 0.0, 1.0);
+  float u = clamp(vT, 0.0, 1.0);
+  vec4 c = vS.x > 1.5 && vS.x < 2.5 ? (u < 0.55 ? mix(vC0, vC1, u / 0.55) : mix(vC1, vC2, (u - 0.55) / 0.45)) : vC0;
+  o = c * (cov * vA);
+}`;
+const F = 32;   // floats per quad
 
 export class GpuLyrics {
   readonly canvas: HTMLCanvasElement | OffscreenCanvas; readonly ctx: Ctx;
@@ -114,7 +151,7 @@ export class GpuLyrics {
     const corners = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, corners); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     this.buf = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
-    for (let i = 0; i < 4; i++) { gl.enableVertexAttribArray(1 + i); gl.vertexAttribPointer(1 + i, 4, gl.FLOAT, false, F * 4, i * 16); gl.vertexAttribDivisor(1 + i, 1); }
+    for (let i = 0; i < 8; i++) { gl.enableVertexAttribArray(1 + i); gl.vertexAttribPointer(1 + i, 4, gl.FLOAT, false, F * 4, i * 16); gl.vertexAttribDivisor(1 + i, 1); }
     gl.useProgram(p); gl.uniform1i(gl.getUniformLocation(p, 'tex'), 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
@@ -149,8 +186,7 @@ export class GpuLyrics {
     this.stats.uploads++;
     if (w > BIG || h > BIG) {
       const tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, tex); this.params();
-      const c = viaCanvas(src); if (c === UP) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, UP); }
-      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); this.own.push(tex); this.ownSize.set(tex, w * h * 4); this.ownBytes += w * h * 4;
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); this.upload(src, 0, 0); this.own.push(tex); this.ownSize.set(tex, w * h * 4); this.ownBytes += w * h * 4;
       while (this.own.length > 1 && (this.ownBytes > OWN_MAX || this.own.length > 48)) { this.flush(); const old = this.own.shift()!; this.ownBytes -= this.ownSize.get(old) ?? 0; this.ownSize.delete(old); for (const k of this.bigOf.get(old) ?? []) this.slots.delete(k); this.bigOf.delete(old); if (this.tex === old) this.tex = null; gl.deleteTexture(old); }   // (the oldest big one goes — what is waiting to be drawn with it first: it is made again if it is seen again)
       s = { tex, u0: 0, v0: 0, u1: 1, v1: 1, page: null }; this.slots.set(src, s); this.bigOf.set(tex, [src]); return s;
     }
@@ -167,8 +203,15 @@ export class GpuLyrics {
       const fb = (this.fbo ||= gl.createFramebuffer()!); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, old.tex, 0);
       const sc = gl.isEnabled(gl.SCISSOR_TEST); gl.disable(gl.SCISSOR_TEST); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); if (sc) gl.enable(gl.SCISSOR_TEST); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       at = this.place(w + GUT * 2, h + GUT * 2); if (!at) return null; } }
-    const [pg, x, y] = at; gl.bindTexture(gl.TEXTURE_2D, pg.tex); const c = viaCanvas(src); if (c === UP) gl.texSubImage2D(gl.TEXTURE_2D, 0, x + GUT, y + GUT, w, h, gl.RGBA, gl.UNSIGNED_BYTE, UP); else gl.texSubImage2D(gl.TEXTURE_2D, 0, x + GUT, y + GUT, gl.RGBA, gl.UNSIGNED_BYTE, c);
+    const [pg, x, y] = at; gl.bindTexture(gl.TEXTURE_2D, pg.tex); this.upload(src, x + GUT, y + GUT);
     s = { tex: pg.tex, u0: (x + GUT) / PAGE, v0: (y + GUT) / PAGE, u1: (x + GUT + w) / PAGE, v1: (y + GUT + h) / PAGE, page: pg }; this.slots.set(src, s); pg.srcs.push(src); return s;
+  }
+  /** Into the bound texture at (x, y): a bitmap (premultiplied, through a 2D canvas when it is an ImageBitmap) or a
+   *  distance field (its bytes as they are). */
+  private upload(src: Src, x: number, y: number) {
+    const gl = this.gl;
+    if (isSdf(src)) { gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, src.width, src.height, gl.RGBA, gl.UNSIGNED_BYTE, src.sdf); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true); return; }
+    const c = viaCanvas(src); if (c === UP) gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, src.width, src.height, gl.RGBA, gl.UNSIGNED_BYTE, UP); else gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, c);
   }
   private params() { const gl = this.gl; gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); }
   /** The pages beyond the usual number, unused for a couple of seconds of layers: let go. */
@@ -187,9 +230,10 @@ export class GpuLyrics {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, PAGE, PAGE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     const pg: Page = { tex, shelves: [{ y: 0, h, x: w }], top: h, srcs: [], used: this.frameNo }; this.pages.push(pg); return [pg, 0, 0];
   }
-  quad(src: Src, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number, m: M, alpha: number) {
-    if (alpha <= 0.002 || !dw || !dh) return;
-    const s = this.slot(src); if (!s) return; if (s.page) s.page.used = this.frameNo; if (this.dry) return;
+  /** (true when a quad was added: it is then the last in the buffer — a flush on the way may have emptied it before) */
+  quad(src: Src, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number, m: M, alpha: number): boolean {
+    if (alpha <= 0.002 || !dw || !dh) return false;
+    const s = this.slot(src); if (!s) return false; if (s.page) s.page.used = this.frameNo; if (this.dry) return false;
     // (the quads waiting are drawn with their own texture, bound as they are drawn: an upload meanwhile binds another)
     if (this.tex !== s.tex) { this.flush(); this.tex = s.tex; }
     if ((this.n + 1) * F > this.data.length) { if (this.n >= 16384) this.flush(); else { const d = new Float32Array(this.data.length * 2); d.set(this.data); this.data = d; } }
@@ -197,7 +241,19 @@ export class GpuLyrics {
     d[o] = m[0]; d[o + 1] = m[1]; d[o + 2] = m[2]; d[o + 3] = m[3]; d[o + 4] = m[4]; d[o + 5] = m[5]; d[o + 6] = Math.min(1, alpha); d[o + 7] = 0;
     d[o + 8] = dx; d[o + 9] = dy; d[o + 10] = dw; d[o + 11] = dh;
     d[o + 12] = s.u0 + sx / W * du; d[o + 13] = s.v0 + sy / H * dv; d[o + 14] = s.u0 + (sx + sw) / W * du; d[o + 15] = s.v0 + (sy + sh) / H * dv;
-    this.n++; this.stats.quads++;
+    d[o + 28] = 0;
+    this.n++; this.stats.quads++; return true;
+  }
+  /** A glyph from its distance field: filled (a colour or the lit gradient) or its outline. cy: its centre's y (EM
+   *  units), for the gradient; k: device px per field px. */
+  sdfQuad(e: Sdf, paint: Paint, dx: number, dy: number, dw: number, dh: number, cy: number, m: M, alpha: number, k: number) {
+    if (!this.quad(e, 0, 0, e.width, e.height, dx, dy, dw, dh, m, alpha)) return;
+    const o = (this.n - 1) * F, d = this.data; d[o + 7] = cy;
+    const set = (i: number, c: [number, number, number, number]) => { d[o + i] = c[0]; d[o + i + 1] = c[1]; d[o + i + 2] = c[2]; d[o + i + 3] = c[3]; };
+    if (typeof paint === 'string') { set(16, premul(paint)); d[o + 28] = 1; d[o + 31] = 0; }
+    else if (Array.isArray(paint)) { set(16, premul(paint[0])); set(20, premul(paint[1])); set(24, premul(paint[2])); d[o + 28] = 2; d[o + 31] = 0; }
+    else { set(16, premul(paint.stroke)); d[o + 28] = 3; d[o + 31] = Math.max(0.6, paint.w * k / e.s * 0.6); }   // (as sharpBm traces it: 0.6 of its width in EM units, in device px)
+    d[o + 29] = SDF_SPREAD; d[o + 30] = k;
   }
   private flush() {
     if (!this.n || this.dry) { this.n = 0; return; }

@@ -47,7 +47,22 @@ const CHECKS = {
         let big = 0, sum = 0; for (let i = 0; i < a.length; i += 4) { const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]); sum += d; if (d > 60) big++; }
         worst = Math.max(worst, big / (a.length / 4)); mean += sum / (a.length / 4) / 3; n++; }
       H.setGpuLyrics(true); out.push({ th, on, quads, worst: +(worst * 100).toFixed(3), mean: +(mean / n).toFixed(3), msOn: Math.round(msOn / n), msOff: Math.round(msOff / n) }); } return out; });
-    for (const x of r) ok(`gpu: the lyric layer on the GPU draws what the canvas does (${x.th})`, x.on && x.quads > 0 && x.worst < 0.5 && x.mean < 0.6, JSON.stringify(x));
+    // (since 2.22 the GPU layer draws its sharp glyphs from distance fields: their edges are worked out per pixel, the
+    // canvas's are rasterised — the thin outline of an unsung character differs by a fraction of a pixel along its whole
+    // length, about 1 % of the picture's pixels at most. A glyph drawn wrong — an outline drawn as a fill, a glyph from
+    // the wrong place in the atlas — is 3 % and more, and raises the mean past 1)
+    for (const x of r) ok(`gpu: the lyric layer on the GPU draws what the canvas does (${x.th})`, x.on && x.quads > 0 && x.worst < 2 && x.mean < 1, JSON.stringify(x));
+  },
+  // (2.22) on the GPU lyric layer the sharp glyphs come from distance fields, one per character: a camera moving through
+  // the lyrics for a few seconds makes no sharp bitmaps under SDF_MAX (each was made per size step and paint, in the
+  // frame that first needed it — the stutter), and each character's field at most once per tier
+  async sdf(p) {
+    const r = await p.evaluate(async () => { const ses = await H.open({ theme: 'liquid', cut: 'punch', coverUrl: 'cover.jpg' }); H.setGpuLyrics(true); H.glyphStats.keys = [];
+      const cv = document.createElement('canvas'); cv.width = 1920; cv.height = 1080; const g = cv.getContext('2d');
+      for (let i = 0; i < 180; i++) { const f = H.engine.frameAt(2 + i / 60, { px: 1.5 }); H.drawFrame(g, { ...f, vis: undefined }, { sig: ses.sig }); }
+      const k = H.glyphStats.keys; H.glyphStats.keys = undefined; const sdf = k.filter(x => x.startsWith('sdf|'));
+      return { on: H.lyrics.GPU_STATS.on, sharp: k.filter(x => x.startsWith('sharp|')).length, sdf: sdf.length, dup: sdf.length - new Set(sdf).size }; });
+    ok('sdf: the GPU layer draws its sharp glyphs from distance fields (no sharp bitmaps made, each field once)', r.on && r.sharp === 0 && r.sdf > 0 && r.dup === 0, JSON.stringify(r));
   },
   async perf(p) {
     const r = await p.evaluate(async () => { const out = {}; for (const th of ['liquid', 'gothic', 'cover']) { const ses = await H.open({ theme: th, coverUrl: 'cover.jpg' });

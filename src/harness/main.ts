@@ -4,7 +4,7 @@ import { DEMO_LYRICS, DEMO_SONG } from '../theme/demo';
 import { presetStyle, normalizeStyle } from '../theme/style';
 import * as director from '../director';
 import * as lyrics from '../render/lyrics';
-import { drawFrame } from '../render/renderer';
+import { drawFrame, PROFILE } from '../render/renderer';
 import { effects } from '../render/effects/registry';
 import { STATS as glyphStats } from '../render/glyphs';
 import * as rhythm from '../rhythm';
@@ -22,6 +22,6 @@ async function open(spec: Partial<SessionSpec> & { theme?: string; cut?: string;
   const s = await Session.open({ key: 'h', lyrics: spec.lyrics ?? DEMO_LYRICS, song: spec.song ?? DEMO_SONG, bpm: spec.bpm ?? 120, style, coverUrl: spec.coverUrl, audio: spec.audio, analysis: spec.analysis }, env);
   engine.show(s, { play: false }); await engine.setView('effect'); engine.handoff.jump(1); return s;
 }
-(window as any).H = { setGpuLyrics, fonts: { FONTS, fontStack, ensureFont }, exportVideo, openFrameSource, engine, open, director, lyrics, drawFrame, effects, Session, setCulling: lyrics.setCulling, glyphStats, rhythm, neuralRhythm, setGfx, gfx };
+(window as any).H = { PROFILE, GPU_STATS: lyrics.GPU_STATS, setGpuLyrics, fonts: { FONTS, fontStack, ensureFont }, exportVideo, openFrameSource, engine, open, director, lyrics, drawFrame, effects, Session, setCulling: lyrics.setCulling, glyphStats, rhythm, neuralRhythm, setGfx, gfx };
 // (the neural engine is off unless a test points it at its models: the other render tests stay on the built-in analysis)
 rhythm.setRhythmEngine('dsp');
