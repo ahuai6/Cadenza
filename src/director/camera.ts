@@ -420,7 +420,21 @@ export function basePose(c: CameraPlan, t: number): Pose & { tx: number; ty: num
   if (sg[f2] !== sg[f] && t >= (P.cutT[sg[f]] ?? Infinity)) return { x: P.x[f2], y: P.y[f2], z: Math.exp(P.lz[f2]), r: P.r[f2], d: P.d[f2], tx: 0, ty: 0 };
   if (sg[f0] !== sg[f]) f0 = f; if (sg[f2] !== sg[f]) f2 = f; if (sg[f3] !== sg[f2]) f3 = f2;
   const L = (a: Float32Array) => mcubic(a[f0], a[f], a[f2], a[f3], k);
-  return { x: L(P.x), y: L(P.y), z: Math.exp(L(P.lz)), r: L(P.r), d: L(P.d), tx: 0, ty: 0 };
+  const out = { x: L(P.x), y: L(P.y), z: Math.exp(L(P.lz)), r: L(P.r), d: L(P.d), tx: 0, ty: 0 };
+  // (not a number read off the smoothed path: the planned pose itself stands in — the camera goes on moving — and the
+  // engine notes the moment with pathDiag)
+  if (!Number.isFinite(out.x + out.y + out.z + out.r + out.d)) { const raw = rawPose(c, t); if (Number.isFinite(raw.x + raw.y + raw.z + raw.r + raw.d)) return raw; }
+  return out;
+}
+/** Everything about reading the camera at t (for the debug log, at a frame that came out not a number): where on the
+ *  path, the samples either side, the segment and cut, what is read off it, and the planned pose itself. */
+export function pathDiag(c: CameraPlan, t: number): Record<string, unknown> {
+  const P = c.path; if (!P) return { path: null, raw: rawPose(c, t) };
+  const u = clamp(t * P.rate, 0, P.n - 1), f = Math.floor(u), k = u - f, n1 = P.n - 1, sg = P.seg, pick = (a: Float32Array | Int32Array) => Array.from(a.slice(Math.max(0, f - 2), Math.min(P.n, f + 4)));
+  const f0 = Math.max(0, f - 1), f2 = Math.min(n1, f + 1), f3 = Math.min(n1, f + 2);
+  const L = (a: Float32Array) => mcubic(a[f0], a[f], a[f2], a[f3], k);
+  return { t, rate: P.rate, n: P.n, u, f, k, f0, f2, f3, seg: pick(P.seg), cutT: P.cutT, cutHere: P.cutT[sg[f]] ?? null, x: pick(P.x), y: pick(P.y), lz: pick(P.lz), r: pick(P.r), d: pick(P.d),
+    read: { x: L(P.x), y: L(P.y), lz: L(P.lz), r: L(P.r), d: L(P.d) }, raw: rawPose(c, t), cuts: c.cuts, xLen: P.x.length, lzLen: P.lz.length, xType: Object.prototype.toString.call(P.x) };
 }
 /** The planned camera at t, before smoothing: start + every move and drift so far, each through its own ease. */
 export function rawPose(c: CameraPlan, t: number): Pose & { tx: number; ty: number } {

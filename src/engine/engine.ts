@@ -7,7 +7,8 @@
    - coming moments are drawn ahead into a tiny canvas while there is time to spare, so their glyphs are ready. */
 import { clamp, sstep } from '../core/math';
 import { Emitter } from '../core/emitter';
-import { cameraAt, type CamFrame } from '../director/evaluate';
+import { cameraAt, settleAt, type CamFrame } from '../director/evaluate';
+import { pathDiag, basePose } from '../director/camera';
 import { drawFrame, PROFILE } from '../render/renderer';
 import { setGpuLyrics } from '../render/gfx';
 import { MV_LOOK, type RenderFrame, type MvLook } from '../render/frame';
@@ -213,7 +214,10 @@ export class Engine extends Emitter<EngineEvents> {
     let cf = cameraAt(plan, s.sig, t, motion);
     // (a value that is not a number anywhere in the frame's camera, motion or rhythm sample: drawn with the last good
     // frame's instead — a canvas silently ignores what is drawn with a NaN in it, the picture stuck or black — and noted)
-    const bad = nonFinite(cf); if (bad) { this.badFrames++; if (this.badFrames === 1 || DEBUG.on) { console.warn('[frame] not a number at', t.toFixed(3), bad); DEBUG.event('NON-FINITE frame values', { t: +t.toFixed(3), fields: bad }); }
+    const bad = nonFinite(cf); if (bad) { this.badFrames++;
+      // (the first frame of a run that is not a number: everything about how the camera was read, for the log)
+      if (!this.lastBad && !sess) { try { const d = { ...pathDiag(plan.camera, t), settle: settleAt(plan, t), base: basePose(plan.camera, t), cam: cf.cam, cont: cf.cont, fx: cf.fx, hand: cf.hand, idle: cf.idle, calm: cf.calm, trans: cf.trans, hold: cf.hold, fields: bad, passages: plan.passages.map(p => ({ t: p.t, inn: p.inn, out: p.out })) };
+        console.warn('[frame] NaN diagnosis', JSON.stringify(d)); DEBUG.event('NAN DIAGNOSIS', d); } catch (e) { DEBUG.event('NAN DIAGNOSIS failed', String(e)); } } if (this.badFrames === 1 || DEBUG.on) { console.warn('[frame] not a number at', t.toFixed(3), bad); DEBUG.event('NON-FINITE frame values', { t: +t.toFixed(3), fields: bad }); }
       cf = this.goodCf ? { ...this.goodCf, rs: { ...this.goodCf.rs } } : sanitize(cf); this.lastBad = bad; } else if (!sess && !opts.offline) { this.goodCf = cf; this.lastBad = ''; }
     const rs = cf.rs, M = s.style.m;
     const mvEnd = this.mv.k > 0 ? this.mv.endK(t, s.audioStart) : 1;   // (an MV shorter than the song: fading out at its end, the song then as it is without one)
