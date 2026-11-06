@@ -10,7 +10,7 @@
 .npBody textarea { width: 100%; min-height: 180px; }
 @keyframes rise { from { opacity: 0; transform: translateY(12px) scale(0.985); } }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-.head h2 { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.15; }
+.head h2 { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: var(--display-wm, 500); letter-spacing: -0.015em; line-height: 1.15; }
 .foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .help { margin: 0; color: var(--fg-2); font-size: 13px; line-height: 1.6; }
 .pick { display: grid; gap: 0; max-height: 360px; overflow: auto; }

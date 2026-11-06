@@ -4,9 +4,10 @@
 // them): the interface never shows one font and then swaps to another. At start this happens before the first paint.
 const CJK: Record<string, string[]> = { 'zh-Hant': ['Noto Sans TC', 'Noto Sans SC'], 'zh-Hans': ['Noto Sans SC', 'Noto Sans TC'], ja: ['Noto Sans JP', 'Noto Sans TC'], ko: ['Noto Sans KR', 'Noto Sans TC'] };
 const SYS = '"PingFang TC","PingFang SC","Hiragino Sans","Microsoft JhengHei","Microsoft YaHei","Yu Gothic","Malgun Gothic"';
-/** [Latin face (null: the bundled Instrument Sans), a face that covers CJK itself (before the Noto cut), serif CJK] */
-export const UI_FONTS: Record<string, { latin: string | null; cjk?: string; serif?: boolean }> = {
-  default: { latin: null }, grotesk: { latin: 'Space Grotesk' }, serif: { latin: 'Source Serif 4', serif: true },
+/** [Latin face (null: the bundled Instrument Sans), a face that covers CJK itself (before the Noto cut), serif CJK, the
+ *  titles' face: the interface's own (the default — clean, one family throughout) or 'fraunces' (the editorial serif)] */
+export const UI_FONTS: Record<string, { latin: string | null; cjk?: string; serif?: boolean; titles?: 'fraunces' }> = {
+  default: { latin: null }, editorial: { latin: null, titles: 'fraunces' }, grotesk: { latin: 'Space Grotesk' }, serif: { latin: 'Source Serif 4', serif: true },
   round: { latin: 'Chiron GoRound TC', cjk: 'Chiron GoRound TC' }, huninn: { latin: 'Huninn', cjk: 'Huninn' }, kai: { latin: 'LXGW WenKai TC', cjk: 'LXGW WenKai TC', serif: true },
 };
 const slug = (f: string) => f.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -30,5 +31,8 @@ export async function applyUiFont(lang: string, font = cur.font, words?: string)
   const root = document.documentElement.style;
   root.setProperty('--font-cjk', `${cjk.map(f => `"${f}"`).join(',')},${SYS}`);
   root.setProperty('--font-ui', `${U.latin ? `"${U.latin}",` : '"Instrument Sans Variable","Instrument Sans",'}${cjkStack},${SYS},${U.serif ? 'serif' : 'system-ui,sans-serif'}`);
+  // the titles: in the interface's own face, set heavier and a little tighter — or, editorial, in Fraunces as they were
+  if (U.titles === 'fraunces') { root.setProperty('--font-display', `"Fraunces Variable","Fraunces",${serifCjk.map(f => `"${f}"`).join(',')},serif`); root.setProperty('--display-w', '420'); root.setProperty('--display-wm', 'initial'); root.setProperty('--display-ls', '-0.02em'); }
+  else { root.setProperty('--font-display', 'var(--font-ui)'); root.setProperty('--display-w', U.serif ? '600' : '650'); root.setProperty('--display-wm', U.serif ? '600' : '620'); root.setProperty('--display-ls', '-0.025em'); }
   document.documentElement.lang = lang; cur = { lang, font };
 }

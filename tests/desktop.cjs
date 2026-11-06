@@ -278,9 +278,12 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   const veilLeft = await C(() => { const v = [...document.body.children].find(x => x.style && x.style.zIndex === '60'); return v ? { shown: v.style.display !== 'none', f: v.style.backdropFilter } : null; });
   ok('transitions: blurs interrupted again and again leave no veil once settled', veilLeft && !veilLeft.shown, JSON.stringify(veilLeft));
   const npEdge = await C(() => { const r = document.querySelector('[data-test=stage]').getBoundingClientRect(), n = document.querySelector('[data-test=np]').getBoundingClientRect(), b = document.querySelector('[data-close]'), br = b && b.getBoundingClientRect(), hit = br && document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
-    return { mainTop: Math.round(document.querySelector('main[data-scroll]').getBoundingClientRect().top), coverCx: Math.round((r => r.left + r.width / 2)(document.querySelector('[data-test=np-cover]').getBoundingClientRect())), ellipsis: [...document.querySelectorAll('[data-test=np] *')].filter(e => getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth).length, stage: [r.left, r.top, r.width, r.height].map(Math.round), np: [n.left, n.top, n.width, n.height].map(Math.round), win: [innerWidth, innerHeight], close: !!(hit && b.contains(hit)) }; });
+    return { lines: (() => { const W = innerWidth, ln = document.querySelector('[data-test=np] [data-test=line]').getBoundingClientRect(), card = document.querySelector('[data-test=card]'), mid = card.children[1].getBoundingClientRect(), mini = card.querySelector('[title*="展開"]').getBoundingClientRect();
+      return { W, lyricsX: Math.round(ln.left + 14), barMid: Math.round(mid.left + mid.width / 2), barCover: Math.round(mini.left + mini.width / 2), barTitle: Math.round(card.querySelector('b').getBoundingClientRect().width) }; })(), mainTop: Math.round(document.querySelector('main[data-scroll]').getBoundingClientRect().top), coverCx: Math.round((r => r.left + r.width / 2)(document.querySelector('[data-test=np-cover]').getBoundingClientRect())), ellipsis: [...document.querySelectorAll('[data-test=np] *')].filter(e => getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth).length, stage: [r.left, r.top, r.width, r.height].map(Math.round), np: [n.left, n.top, n.width, n.height].map(Math.round), win: [innerWidth, innerHeight], close: !!(hit && b.contains(hit)) }; });
   // (the play page covers the whole window; the window's own buttons stay above it)
   ok('now playing: it opens straight up — the cover in flight keeps the centre line it lands on (the bar\'s cover\'s)', Math.abs(mid.coverCx - npEdge.coverCx) <= 2, JSON.stringify({ flying: mid.coverCx, landed: npEdge.coverCx }));
+  { const L = npEdge.lines, q = L.W / 4, h = L.W / 2;
+    ok('layout lines: the play page cover on the ¼ line, its lyrics from the ½ line; the bar\'s cover on ¼, its transport on ½ (and its song\'s title shown)', Math.abs(npEdge.coverCx - q) <= 2 && Math.abs(L.lyricsX - h) <= 2 && Math.abs(L.barCover - q) <= 2 && Math.abs(L.barMid - h) <= 2 && L.barTitle >= 24, JSON.stringify({ ...L, coverCx: npEdge.coverCx })); }
   ok('now playing: the library under it stays where it is (nothing under the sheet moves)', npEdge.mainTop === 44, JSON.stringify({ mainTop: npEdge.mainTop }));
   ok('now playing: nothing on the page cut off with an ellipsis (long text scrolls)', npEdge.ellipsis === 0, JSON.stringify({ ellipsis: npEdge.ellipsis }));
   ok('now playing: the page covers the whole window, the window buttons above it', npEdge.stage.join() === `0,0,${npEdge.win.join()}` && npEdge.np.join() === npEdge.stage.join() && npEdge.close, JSON.stringify(npEdge));
@@ -403,6 +406,11 @@ let failed = 0; const ok = (name, pass, detail) => { if (!pass) failed++; consol
   /* ---------- poster wall, settings, light theme ---------- */
   await win.getByRole('button', { name: '海報牆' }).click(); await W(900); await shot('wall');
   await win.getByRole('button', { name: '設定' }).click(); await W(600); await shot('settings');
+  // the index: the last parts (which can never reach the top) are marked when picked, and at the very bottom
+  { const ix = win.locator('nav[aria-label="設定"] button'), n = await ix.count(); await ix.nth(n - 1).click(); await W(1200);
+    const r = await C(() => { const bs = [...document.querySelectorAll('nav[aria-label="設定"] button')]; return { n: bs.length, cur: bs.findIndex(b => b.hasAttribute('aria-current')) }; });
+    ok('settings index: the last part, picked, is the one marked (the page cannot scroll it to the top)', r.n >= 5 && r.cur === r.n - 1, JSON.stringify(r));
+    await ix.nth(0).click(); await W(1000); }
   // the native runtime for the rhythm engine's networks (ONNX Runtime in a utility process): its settings shown; with
   // CADENZA_NATIVE_MODELS (the models already there) one Beat This! window really runs through it, on the CPU here
   { const st = await C(() => window.cadenzaInfer.status()), have = !!process.env.CADENZA_NATIVE_MODELS;

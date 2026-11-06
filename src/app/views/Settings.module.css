@@ -1,7 +1,7 @@
 /* settings, as a document: each group a row — its title and purpose on the left, its controls on the right */
 /* (third round) the parts numbered down a sticky index on the left; each part its number, its name set in the display
    face, what it is for under it, and its rows ruled below */
-.settings { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; max-width: 1180px; }
+.settings { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(0, 3fr); gap: 56px; max-width: 1240px; }   /* (the index a quarter, the document three) */
 .index { position: sticky; top: 0; align-self: start; padding-top: 112px; }
 .index ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .index button { width: 100%; height: 32px; display: flex; align-items: center; gap: 12px; padding: 0 8px; margin-left: -8px; border-radius: var(--r-2); color: var(--fg-2); font-size: 13.5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -17,7 +17,7 @@
 .group > header { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 14px; row-gap: 6px; padding-bottom: 14px; border-bottom: 1px solid var(--line-2); }
 .group > header::before { counter-increment: grp; content: counter(grp, decimal-leading-zero); font: 600 10.5px var(--font-ui); letter-spacing: 0.12em; color: var(--fg-3); }
 .group > header > :not(h2) { grid-column: 2; }
-.group h2 { margin: 0; font-family: var(--font-display); font-size: 28px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.15; }
+.group h2 { margin: 0; font-family: var(--font-display); font-size: 28px; font-weight: var(--display-wm, 500); letter-spacing: -0.015em; line-height: 1.15; }
 .body { display: grid; gap: 2px; min-width: 0; }
 .body > label + label, .body > .field + label, .body > label + .field, .body > .field + .field { border-top: 1px solid var(--line); }
 .field { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; }

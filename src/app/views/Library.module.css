@@ -27,7 +27,7 @@
 .lead { position: relative; width: 40px; height: 40px; display: grid; place-items: center; color: var(--fg-3); font-size: 13px; font-variant-numeric: tabular-nums; }
 .lead > span:first-child { width: 40px; height: 40px; }
 /* (an album's track number, in the cover's place, in the display face) */
-.lead > .num { display: grid; place-items: center; font-family: var(--font-display); font-style: italic; font-size: 18px; font-weight: 400; color: var(--fg-3); }
+.lead > .num { display: grid; place-items: center; font-family: var(--font-display); font-style: italic; font-size: 18px; font-weight: var(--display-wm, 400); color: var(--fg-3); }
 .lead .playOver { position: absolute; inset: 0; display: grid; place-items: center; border-radius: var(--r-1); background: rgba(10, 10, 9, 0.5); color: #fff; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
 .row:hover .lead .playOver, .lead .playOver:focus-visible { opacity: 1; }
 /* the playing song: marked in the accent (its title and its live meter), no block of colour */
@@ -69,7 +69,8 @@
 :global(html[data-theme="light"]) .glow { opacity: 0.22; }
 .by { font-size: 17px; color: var(--fg) !important; }
 .back { margin: -10px 0 -10px -10px; }
-.detailHead { display: grid; grid-template-columns: clamp(200px, 24vw, 300px) 1fr; gap: 44px; align-items: end; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
+.detailHead { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 3fr); gap: 44px;   /* (the cover a quarter of the page's width) */
+  align-items: end; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
 .detailHead > span:first-child { width: 100%; height: auto; box-shadow: var(--shadow-2); }
 .detailHead > div { display: grid; gap: 10px; justify-items: start; min-width: 0; }
 .detailHead h1 { overflow-wrap: anywhere; font-size: clamp(48px, 6vw, 84px); line-height: 0.95; }

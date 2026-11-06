@@ -27,9 +27,9 @@ export function NowPlaying() {
   const album = useStore(player, x => !!x.album), dir = useStore(player, x => x.dir), shownId = useStore(player, x => x.shownId), hasLyrics = useStore(player, x => x.hasLyrics), session = useStore(player, x => x.session), instr = useStore(lib, () => !!trackOf(shownId)?.instrumental);
   useStore(lib, x => x.tracks);
   const t = trackOf(shownId);
-  const amb = useRef<HTMLDivElement>(null), root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null);
+  const amb = useRef<HTMLDivElement>(null), root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null), halo = useRef<HTMLDivElement>(null);
   const layer = useStore(ui, x => x.layer), queueOpen = useStore(ui, x => x.queue), qn = useStore(player, x => x.queue.length);
-  useLayoutEffect(() => { refs.np = root.current; refs.npAmb = amb.current; refs.npCover = cover.current; refs.npParts = [top.current, info.current, right.current]; });
+  useLayoutEffect(() => { refs.np = root.current; refs.npAmb = amb.current; refs.npCover = cover.current; refs.npParts = [top.current, info.current, right.current, halo.current]; });
   useEffect(() => () => { refs.np = null; refs.npAmb = null; refs.npCover = null; refs.npParts = []; }, []);
   // the song's own light, for the glow under the cover and the tint of the shade at the edges (the engine's palette)
   const tone = useMemo(() => { const A = session?.ambient; if (!A) return {}; const c = A.cols[0] || A.base, rgb = (v: number[]) => v.map(x => Math.round(x)).join(',');
@@ -72,7 +72,11 @@ export function NowPlaying() {
       </header>
       <div className={s.main}>
         <div className={s.left}>
-          <div className={s.cover} ref={cover} data-test="np-cover"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full eager /></Swap></div>
+          {/* (the cover's own light spilling behind it: the left column's weight against the lyrics) */}
+          <div className={s.coverBox}>
+            <div className={s.halo + ' ' + s.fade} ref={halo} aria-hidden="true"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full /></Swap></div>
+            <div className={s.cover} ref={cover} data-test="np-cover"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full eager /></Swap></div>
+          </div>
           <div className={s.info} ref={info}>
             <div className={s.fade + ' ' + s.infoIn}>
               <div className={s.meta}>

@@ -101,19 +101,24 @@ export function PlayerCard() {
   if (!t) return null;
   return (
     <div className={s.card} ref={card} data-test="card">
-      <button type="button" className={s.id} title={tx('s.expand')} onClick={openNp}>
-        <span ref={mini} className={s.mini}><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} className={s.mini} /></Swap></span>
+      {/* (the bar, left to right: the volume in the room before the cover — the cover sits on the play page cover's centre
+          line —, the cover, which opens the play page, and the song; the transport; the queue and the favourite) */}
+      <div className={s.side}>
+      <div className={s.lead}><Volume /></div>
+      <div className={s.id}>
+        <button type="button" className={s.miniBtn} title={tx('s.expand')} aria-label={tx('s.expand')} onClick={openNp}>
+          <span ref={mini} className={s.mini}><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} className={s.mini} /></Swap></span>
+        </button>
         <Swap k={t.id} dir={dir}><span className={s.text}><b>{t.title}</b><small>{t.artist || tx('s.unknownArtist')}</small></span></Swap>
-      </button>
+      </div>
+      </div>
       <div className={s.center}>
         <Transport />
         <Progress />
       </div>
       <div className={s.end}>
-        <Volume />
         <QueueButton />
         <Heart id={t.id} />
-        <IconButton n="chevronUp" label={tx('s.expand')} onClick={openNp} />
       </div>
     </div>
   );

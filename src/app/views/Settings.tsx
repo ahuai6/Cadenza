@@ -175,18 +175,25 @@ const Group = ({ title, help, children }: { title: string; help?: string; childr
 /** The settings' parts, numbered, down the left: read from the page's own groups (a new group shows here by itself); the
  *  one in view marked, a click scrolls to it. */
 function SettingsIndex() {
-  const [items, setItems] = useState<string[]>([]), [cur, setCur] = useState(0), box = useRef<HTMLElement>(null);
+  const [items, setItems] = useState<string[]>([]), [cur, setCur] = useState(0), box = useRef<HTMLElement>(null), pinned = useRef<number | null>(null);
   const groups = () => [...(box.current?.parentElement?.querySelectorAll<HTMLElement>('[data-group]') || [])];
   useLayoutEffect(() => {
     const read = () => setItems(groups().map(g => g.querySelector('h2')?.textContent || ''));
     read(); const mo = new MutationObserver(read); if (box.current?.parentElement) mo.observe(box.current.parentElement, { childList: true, subtree: true, characterData: true });
-    const sc = box.current?.closest<HTMLElement>('[data-scroll]'); const onScroll = () => { const top = (sc?.getBoundingClientRect().top ?? 0) + 120; let k = 0; groups().forEach((g, i) => { if (g.getBoundingClientRect().top <= top) k = i; }); setCur(k); };
+    // (the one whose heading has passed the top; at the very bottom — where the last ones can never reach the top — the
+    // last; and one picked from here stays marked until the page is scrolled by hand)
+    const sc = box.current?.closest<HTMLElement>('[data-scroll]');
+    const onScroll = () => { if (pinned.current != null) { setCur(pinned.current); return; }
+      const gs = groups(), top = (sc?.getBoundingClientRect().top ?? 0) + 120; let k = 0; gs.forEach((g, i) => { if (g.getBoundingClientRect().top <= top) k = i; });
+      if (sc && sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2) k = gs.length - 1; setCur(Math.max(0, k)); };
+    const byHand = () => { pinned.current = null; };
     onScroll(); sc?.addEventListener('scroll', onScroll, { passive: true });
-    return () => { mo.disconnect(); sc?.removeEventListener('scroll', onScroll); };
+    for (const e of ['wheel', 'keydown', 'pointerdown', 'touchstart'] as const) sc?.addEventListener(e, byHand, { passive: true });
+    return () => { mo.disconnect(); sc?.removeEventListener('scroll', onScroll); for (const e of ['wheel', 'keydown', 'pointerdown', 'touchstart'] as const) sc?.removeEventListener(e, byHand); };
   }, []);
   return (
     <nav className={s.index} ref={box} aria-label={tx('s.settings')}>
-      <ol>{items.map((t, i) => <li key={i}><button type="button" aria-current={i === cur || undefined} onClick={() => groups()[i]?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })}>
+      <ol>{items.map((t, i) => <li key={i}><button type="button" aria-current={i === cur || undefined} onClick={() => { pinned.current = i; setCur(i); groups()[i]?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }}>
         <span>{String(i + 1).padStart(2, '0')}</span>{t}</button></li>)}</ol>
     </nav>
   );

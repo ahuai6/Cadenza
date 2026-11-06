@@ -32,7 +32,7 @@
 .gpost { position: absolute; width: min(36vh, 320px); aspect-ratio: 1; left: 0; top: 0; translate: -50% -50%; border-radius: var(--r-1); overflow: hidden; padding: 0; background: var(--surface-2); box-shadow: var(--shadow-2); -webkit-box-reflect: below 6px linear-gradient(transparent 70%, rgba(255, 255, 255, 0.16)); }
 .gpost img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .gcap { position: absolute; left: 0; right: 0; bottom: 10px; display: grid; justify-items: center; gap: 4px; text-align: center; }
-.gcap b { font-family: var(--font-display); font-size: 24px; font-weight: 440; letter-spacing: -0.015em; }
+.gcap b { font-family: var(--font-display); font-size: 24px; font-weight: var(--display-wm, 440); letter-spacing: -0.015em; }
 .gcap small { color: var(--fg-3); margin-bottom: 6px; }
 
 .drift { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; height: calc(100vh - var(--tb-h) - 200px); min-height: 360px; overflow: hidden; mask-image: linear-gradient(transparent, #000 8%, #000 92%, transparent); }

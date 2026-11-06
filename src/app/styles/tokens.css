@@ -35,10 +35,13 @@
   --t-delay: 120ms;     /* chrome waits this long before coming back */
   --t-stagger-step: 16ms;
 
-  --tb-h: 44px; --side-w: 232px; --card-h: 72px;
+  --tb-h: 44px; --side-w: clamp(220px, 16.6667vw, 280px); --card-h: 72px;   /* (the sidebar: a sixth of the window) */
   /* the play page's cover: its size, its left edge and its centre line — the player bar's cover sits on the same centre
      line, so the page opens straight up, the cover rising and growing about its own centre */
-  --np-cover: min(48vh, 32vw, 480px); --np-x: clamp(56px, 7vw, 136px); --np-cx: calc(var(--np-x) + var(--np-cover) / 2);
+  --np-cover: min(48vh, 32vw, 480px); --np-cx: 25vw; --np-x: calc(var(--np-cx) - var(--np-cover) / 2);
+  /* (the layout's lines: the window halved and quartered. The play page's cover is centred on the ¼ line, its lyrics begin
+     on the ½ line and end as far from the right edge as the cover begins from the left; the player bar's cover sits on the
+     ¼ line and its transport on the ½ line — docs/DESIGN.md, 版面網格) */
   --kicker: 600 10.5px/1.2 var(--font-ui);
   --kicker-track: 0.14em;
 

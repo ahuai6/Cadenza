@@ -39,7 +39,7 @@
 .phead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 16px 14px 22px; border-bottom: 1px solid var(--line); }
 .phead > div { display: grid; gap: 5px; min-width: 0; }
 .pkick { font: var(--kicker); letter-spacing: var(--kicker-track); text-transform: uppercase; color: var(--fg-3) !important; }
-.ptitle { font-family: var(--font-display); font-size: 26px; font-weight: 560; line-height: 1.1; letter-spacing: -0.01em; }
+.ptitle { font-family: var(--font-display); font-size: 26px; font-weight: var(--display-wm, 560); line-height: 1.1; letter-spacing: -0.01em; }
 .phead small { color: var(--fg-2); font-size: 12px; line-height: 1.5; }
 .pbody { overflow: auto; padding: 4px 18px 18px 22px; position: relative; counter-reset: sec; }
 /* the parts of a section numbered 01, 02…, each heading in plain sentence case after its number */
