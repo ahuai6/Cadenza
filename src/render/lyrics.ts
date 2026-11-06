@@ -129,7 +129,7 @@ export function drawLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], o: { ink: num
  *  pass recorded and drawn as textured quads, set into the frame in one copy), else straight onto the frame.
  *  dry: only make (and upload) what these words will need — a look ahead, nothing drawn. */
 let GPU: GpuLyrics | null | undefined;
-export const GPU_STATS = { on: false, quads: 0, uploads: 0, draws: 0 };
+export const GPU_STATS = { on: false, quads: 0, uploads: 0, draws: 0, skipped: 0 };
 export function paintLyrics(g: Ctx, f: RenderFrame, vis: VisWord[], passes: Parameters<typeof drawLyrics>[3][], dry = false) {
   const L = gpuLyrics() ? (GPU === undefined ? (GPU = GpuLyrics.create()) : GPU) : null;
   if (!L || !L.alive()) { GPU_STATS.on = false; for (const o of passes) drawLyrics(g, f, vis, o); return; }   // (dry too: drawn on a scratch, for its bitmaps)

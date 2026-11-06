@@ -25,6 +25,9 @@ export function planEntries(plan: ScenePlan) {
   const ctx = (t: number): WordCtx => ({ enter: Math.max(0.05, M.enter), tempo: Math.sqrt(clamp(plan.map.beatLen(t) / 0.5, 0.5, 2)), float: M.float ?? 0, future: plan.style.future, smooth: plan.style.cut !== 'punch', punch: M.punch, motion: 1, drift: plan.style.tout === 'drift', spread: plan.style.tout === 'spread', held: plan.style.cut === 'center' });
   for (const S of plan.words) {
     S.entry = null;
+    // (a line timed only as a whole comes in whole, each word at its own place: the camera holds the line — no word is
+    // nudged in and left to glide back while the rest stand still; only its first, which leads it in as ever)
+    if (!S.line.L.kar && S.k > 0) continue;
     const t0 = S.show + 0.03, v0 = viewAt(plan, sig, t0);
     // the worst moment of the entrance (it may sweep in from aside): its first frame and two more as it settles
     let sx = 0, sy = 0, big = false;

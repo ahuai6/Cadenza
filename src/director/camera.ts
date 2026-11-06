@@ -61,7 +61,12 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       // group of its words, drifting a little on — never following along its characters, which would run it right
       // against the way the lines go, nor holding the whole line still (columns are travelled down as ever)
       const west = !!P.west && !hover && !P.scene && !ws.some(S => S.vert || S.roll || S.frame);
-      while (j < ws.length && (stops.length || P.i > 0 || grp.length > 1 || ws[j].w.group === S0.w.group)) {
+      // a line timed only as a whole is shown whole at once: the camera holds all of it from the moment it is there
+      // (when it fits a frame a little further back), over its middle, instead of travelling along words that are
+      // already up — which left the far ones cut off at the edge, or nudged in and gliding back to their places
+      const whole = k === 0 && !P.L.kar && !hover && !close && ws.length > 1 && !ws.some(S => S.vert || S.roll || S.frame) && (() => { const B = boxIn(ws, S0.tilt); return Math.min(W * 0.82 / B.w, H * 0.52 / B.h) >= z1 * 0.42; })();
+      if (whole) { grp.push(...ws.slice(1)); j = ws.length; }
+      while (!whole && j < ws.length && (stops.length || P.i > 0 || grp.length > 1 || ws[j].w.group === S0.w.group)) {
         const Q = ws[j], last = grp[grp.length - 1];
         const fused = Q.w.group === last.w.group;                                   // one gesture: always together
         const quick = Q.w.t - last.end < 0.2 || Q.w.t - last.w.t < 0.45;
@@ -84,12 +89,17 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       // (a lyric frame is small — a word or two — so it never pulls the camera closer than the words' own framing)
       // (the words' height sets the closeness; a group wider than the frame is not shrunk to fit: the camera follows the
       // singing along it, so it stays as close as one word would be framed)
-      let z = hover || west ? Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1) : Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, z1);
+      let z = hover || west || whole ? Math.min(Math.min(W * 0.8 / B.w, H * 0.5 / B.h) * T, W * (grp.length > 1 ? 0.7 : 0.78) / B.w, H * 0.6 / B.h, z1) : Math.min(H * 0.5 / B.h * T, H * 0.6 / B.h, z1);
       // (a column: its characters' size sets the closeness, as a row's height does — about three of them down the frame,
       // the rest travelled as they are sung — never the whole column shrunk to fit the frame's height)
       if (!hover && grp.every(S => S.vert)) { const cw = Math.max(1, ...grp.map(S => S.lw)); z = Math.min(H * 0.55 / cw * T, H * 0.63 / cw, H * 0.77 / clamp(B.h, cw * 2, cw * 3.2), W * 0.8 / B.w); }
       // (a framed word is shown whole, the camera pulling back for it — a column framed less far: it is long, not wide)
       if (F) z = Math.min(z, W * 0.8 / B.w, H * (grp.every(S => S.vert) ? 0.76 : 0.58) / B.h);
+      // the harmonies of these words: taken in by drawing back a little — at most 15 % — around the words' own centre,
+      // never by aiming at them; one that still does not fit runs off the edge (the words come first)
+      if (grp.some(S => S.harm)) { const Bh = boxIn(boxWords, S0.tilt, 0, true), d = dirv(S0.tilt), nn = dirv(S0.tilt + 90), dx = Bh.x - B.x, dy = Bh.y - B.y;
+        const eu = Math.abs(dx * d[0] + dy * d[1]) + Bh.w / 2, ev = Math.abs(dx * nn[0] + dy * nn[1]) + Bh.h / 2, zh = Math.min(W * 0.46 / Math.max(1, eu), H * 0.44 / Math.max(1, ev));
+        if (zh < z) z = Math.max(z * 0.85, zh); }
       // close up: a character about two fifths of the frame high (the one being sung always wholly in view)
       if (close && !F && !west) { const us = grp.flatMap(S => S.units), uh = us.map(u => u.h).sort((a, b) => a - b)[us.length >> 1] || B.h, uw = Math.max(...us.map(u => u.w), 1), uhm = Math.max(...us.map(u => u.h), 1);
         z = Math.min(H * 0.4 / uh * T, W * 0.5 / uw, H * 0.62 / uhm); }
@@ -99,7 +109,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       const pw = stops[stops.length - 1]?.words.at(-1), tStop = pw && pw.w.endGiven && pw.w.end > S0.w.t + 0.05 ? Math.min(pw.w.end, S0.w.t + 2) : S0.w.t;
       stops.push({ x: B.x, y: B.y, z, r: S0.tilt + (rnd(P.i * 41 + k * 6.1) - 0.5) * 6 * TK, d: grp.reduce((a, S) => a + S.d, 0) / grp.length,
         t: tStop, arrive: 0, leave: 0, sungEnd: last.end, box: { x: B.x, y: B.y, w: B.w, h: B.h, tilt: S0.tilt }, dir: [dv[0] * rd, dv[1] * rd], drift: 0,
-        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0, ...(S0.rollD ? { rollD: S0.rollD } : {}), ...(west ? { hov: true } : {}) });
+        cut: !!passByLine.get(P.i) && k === 0, over: false, rest: last.w.rest, words: grp, roll: S0.roll || 0, ...(S0.rollD ? { rollD: S0.rollD } : {}), ...(west ? { hov: true } : {}), ...(whole ? { hov: true, ...(west ? {} : { whole: true }) } : {}) });
       k = j;
     }
   }
@@ -126,7 +136,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   const track = (s: Stop) => {
     // hovering: the words framed whole, the camera over their middle with a little room ahead, drifting slowly that way
     // (a line heading back leans and drifts the way the lines go — leftward on the screen — not the way its characters read)
-    if (hover || s.hov) { const dv: [number, number] = s.hov ? [-1, 0] : s.dir; s.follow = []; s.fax = dv; s.head = s.words.map(ubox); s.ubox = unitBoxes(s.words);
+    if (hover || s.hov) { const dv: [number, number] = s.hov && !s.whole ? [-1, 0] : s.dir; s.follow = []; s.fax = dv; s.head = s.words.map(ubox); s.ubox = unitBoxes(s.words);
       if (s.words.some(w => w.frame && w.frame.words[w.frame.words.length - 1] === w)) { s.x = s.box.x; s.y = s.box.y; s.drift = 0; return; }
       const room = Math.max(0, W * SAFE_X / s.z - s.box.w / 2), ld = Math.min(room * 0.5, 0.1 * W / s.z);
       s.x = s.box.x + dv[0] * ld; s.y = s.box.y + dv[1] * ld; s.drift = Math.max(0, Math.min(room - ld, 0.045 * W / s.z * 2.5)); return; }

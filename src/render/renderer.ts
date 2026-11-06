@@ -27,7 +27,7 @@ const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
  *  frame rate). Collected only while on (the settings' performance overlay). */
 export const PROFILE = { on: false, ms: { backdrop: 0, world: 0, lyrics: 0, post: 0, screen: 0 } };
 const now = () => performance.now();
-export interface DrawOptions { captions?: boolean; captionBottom?: number; overlay?: (g: Ctx, f: RenderFrame) => void; /** drawn on the backdrop, under the words */ under?: (g: Ctx, f: RenderFrame) => void; sig: Signals }
+export interface DrawOptions { captions?: boolean; /** the captions' translations / readings shown (both unless false) */ capSubs?: boolean; capReads?: boolean; captionBottom?: number; overlay?: (g: Ctx, f: RenderFrame) => void; /** drawn on the backdrop, under the words */ under?: (g: Ctx, f: RenderFrame) => void; sig: Signals }
 
 export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const st = f.style, M = st.m, W = f.W, H = f.H, view = f.view.effect, cf = f.cam, PR = PROFILE.on ? PROFILE.ms : null; let tp = PR ? now() : 0;
@@ -38,7 +38,11 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // the camera's speed on screen (for the motion trail and the backdrop's slight lean-in when moving fast)
   const prev = cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam, cam = cf.cam;
   const vx = (cam.x - prev.x) * cam.z, vy = (cam.y - prev.y) * cam.z, vel = Math.hypot(vx, vy) + Math.abs(Math.log(cam.z / prev.z)) * W * 0.5 + Math.abs(cam.r - prev.r) * W / 90;
-  const mb = Number.isFinite(vel) ? Math.min(12 * W / 1280, vel * 0.025) * f.motion : 0;   // (the moment before not a number: no motion lean — engine.ts guards the frame itself)
+  // (a cut between the moment before and now is not a motion: across it the "speed" was the whole jump to the next
+  // passage, and for that one frame — the blur's peak — the backdrop leant in up to 15 % and the trail flared: the size
+  // twitch where the blur turns to clear)
+  const acrossCut = f.plan.camera.cuts.some(k => k.t > f.t - 1 / 60 - 1e-6 && k.t <= f.t + 1e-6);
+  const mb = Number.isFinite(vel) && !acrossCut ? Math.min(12 * W / 1280, vel * 0.025) * f.motion : 0;   // (the moment before not a number: no motion lean — engine.ts guards the frame itself)
   /* ---- backdrop ---- */
   // a video backdrop: in a long pause it rests upright and centred (the camera's turn, push and drift let go of it), and
   // with 'less crop' it never turns at all (the words still do), so it can be drawn barely larger than the frame
@@ -117,7 +121,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const trk = cf.trans * view; if (trk > 0.005) drawTransition(g, f, trk);
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   drawIdleDots(g, f);
-  if (o.captions !== false) drawCaptions(g, f, o.captionBottom ?? H * 0.9);
+  if (o.captions !== false) drawCaptions(g, f, o.captionBottom ?? H * 0.9, { subs: o.capSubs !== false, reads: o.capReads !== false });
   drawIntro(g, f);
   drawEndCard(g, f);
   const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6) * view; if (fo > 0) { g.fillStyle = rgba(f.pal.bg, fo); g.fillRect(0, 0, W, H); }

@@ -33,7 +33,8 @@ export interface EngineEvents extends Record<string, unknown> { tick: Tick; chan
 export interface RenderSettings { scale: 'auto' | number; fps: number; prerender: boolean;
   /** the lyric layer on the GPU where it can be (render/gpu.ts) */ gpu?: boolean;
   /** measure where each frame's time goes (Engine.perf: the settings' performance overlay) */ stats?: boolean;
-  /** the detailed debug log (engine/debug.ts) */ debug?: boolean }
+  /** the detailed debug log (engine/debug.ts) */ debug?: boolean;
+  /** the captions under the effect lyrics: translations, readings (both shown unless set false) */ capSubs?: boolean; capReads?: boolean }
 /** The live picture's own measures, while asked for (RenderSettings.stats): frames a second, the page's time per frame
  *  and per layer, smoothed; what the GPU lyric layer drew; the last plan. */
 export interface PerfStats { fps: number; frameMs: number; drawMs: number; layers: Record<string, number>; w: number; h: number }
@@ -136,7 +137,7 @@ export class Engine extends Emitter<EngineEvents> {
   viewAspect = () => this.box.w / Math.max(1, this.box.h);
   private baseDpr() { const d = Math.min(2, devicePixelRatio || 1); return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1)); }
   private applyScale() { this.dpr = this.baseDpr() * this.pscale; const W = Math.round(this.box.w * this.dpr), H = Math.round(this.box.h * this.dpr); if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; setGlyphCacheFor(W, H); this.mark.resized = true; this.redrawNow(); } }
-  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); if (o.gpu !== undefined) setGpuLyrics(o.gpu); if (o.debug !== undefined && o.debug !== DEBUG.on) { DEBUG.setOn(o.debug); if (o.debug && this.session) this.debugSetup(this.session); } PROFILE.on = !!this.render.stats;
+  setRender(o: Partial<RenderSettings>) { Object.assign(this.render, o); this.dirty = true; if (o.gpu !== undefined) setGpuLyrics(o.gpu); if (o.debug !== undefined && o.debug !== DEBUG.on) { DEBUG.setOn(o.debug); if (o.debug && this.session) this.debugSetup(this.session); } PROFILE.on = !!this.render.stats;
     if (o.stats) Object.assign(this.perf, { fps: 0, frameMs: 0, drawMs: 0, layers: {} }), this.lastFrameAt = 0; if (this.render.scale !== 'auto') this.pscale = 1; this.applyScale(); this.dirty = true; }
   /** A window rect (CSS px) in the picture's reference px. */
   toRef(r: WinRect) { const c = this.canvas.getBoundingClientRect(), s = this.session, H = s ? s.plan.H : 720, k = H / Math.max(1, c.height);
@@ -300,7 +301,7 @@ export class Engine extends Emitter<EngineEvents> {
     tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalAlpha = 1; tg.globalCompositeOperation = 'source-over';
     f.px = ch * N / s.plan.H;
     const t0 = this.render.stats ? performance.now() : 0, t1 = DEBUG.on ? performance.now() : 0;
-    drawFrame(tg, f, { sig: s.sig, captions: true, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
+    drawFrame(tg, f, { sig: s.sig, captions: true, capSubs: this.render.capSubs !== false, capReads: this.render.capReads !== false, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
     if (this.render.stats) { const P = this.perf, now = performance.now(), k = 0.1, dt = this.lastFrameAt ? now - this.lastFrameAt : 0; this.lastFrameAt = now;
       // (smoothed; each starts at its first reading)
       P.drawMs = P.drawMs ? P.drawMs + (now - t0 - P.drawMs) * k : now - t0; if (dt > 0 && dt < 1000) { P.frameMs = P.frameMs ? P.frameMs + (dt - P.frameMs) * k : dt; P.fps = 1000 / Math.max(1, P.frameMs); }

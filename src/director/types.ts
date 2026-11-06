@@ -69,6 +69,7 @@ export interface Stop extends Pose {
   box: { x: number; y: number; w: number; h: number; tilt: number };
   dir: [number, number];  // reading direction (unit)
   /** hovered over, as the hover style does (a line laid heading back: no follow along its characters) */ hov?: boolean;
+  /** a line timed only as a whole, held whole by this one stop (drifting along its own way, not leftward) */ whole?: boolean;
   drift: number;          // how far the camera drifts along `dir` while it holds (world units)
   cut: boolean;           // reached by a cut (a transition), not a move
   over: boolean;          // the ending pull-back

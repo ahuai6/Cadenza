@@ -64,6 +64,9 @@
 .wu { display: inline; }   /* a word of characters, each its own .w: it wraps between them */
 .line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * (100% + 0.6em))); -webkit-background-clip: text; background-clip: text; color: transparent;
   text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3)); }
+/* a line timed only as a whole: no sweep — the whole line brightens together, every word and character alike, by the
+   one fill the line holds */
+.line[data-on="true"][data-whole="true"] .w { background: none; -webkit-background-clip: border-box; background-clip: border-box; color: rgba(255, 255, 255, calc(0.42 + 0.58 * var(--p, 0))); }
 /* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
 .line .w { transition: translate var(--t-slow) var(--ease); }
 .line[data-on="true"] .w { transition: none; }

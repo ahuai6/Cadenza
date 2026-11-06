@@ -110,9 +110,12 @@ export function captionLayout(f: Pick<RenderFrame, 'W' | 'H'>, subs: (string | S
  *  (as a harmony is) smaller and softer still. */
 const capScale = (k: SubKind) => (k === 'harm' ? 0.84 : k === 'read' ? 0.92 : 1);
 const capAlpha = (k: SubKind) => (k === 'harm' ? 0.62 : k === 'read' ? 0.55 : 1);
-export function drawCaptions(g: Ctx, f: RenderFrame, bottom: number) {
-  if (f.cam.ov > 0 || !f.plan.hasSubs) return; const w = f.W, h = f.H, T = f.pal.text;
-  for (const P of f.plan.lines) { const L = P.L, subs = subLines(L); if (!subs.length) continue;
+export function drawCaptions(g: Ctx, f: RenderFrame, bottom: number, show: { subs: boolean; reads: boolean } = { subs: true, reads: true }) {
+  if (f.cam.ov > 0 || !f.plan.hasSubs || (!show.subs && !show.reads)) return; const w = f.W, h = f.H, T = f.pal.text;
+  // (one line's captions at a time: the line begun last — a line held up long, by a harmony that runs on, never stacks
+  // its captions over the next one's; the next one takes the place at once)
+  let cur: (typeof f.plan.lines)[number] | null = null; for (const P of f.plan.lines) if (P.L.t <= f.t && (!cur || P.L.t >= cur.L.t)) cur = P;
+  for (const P of cur ? [cur] : []) { const L = P.L, subs = subLines(show.subs ? L : { ...L, subs: [] }, show.reads); if (!subs.length) continue;
     const o = (f.t >= L.t ? clamp((f.t - L.t - 0.1) / 0.3) : 0) * (1 - clamp((f.t - L.end + 0.15) / 0.25)) * sstep(clamp((f.view.effect - 0.55) / 0.45)); if (o <= 0) continue;   // (in a hand-over: after the page's own lines have come down)
     const base = Math.min(h, w * 1.2); let y = bottom + (1 - o) * 8;
     for (let k = subs.length - 1; k >= 0; k--) { const { s, kind } = subs[k], lat = isLatin(s), sz = Math.max(lat ? 11 : 12, base * (lat ? 0.019 : 0.021)) * capScale(kind), ls = sz * (lat ? 0.28 : 0.24);

@@ -56,10 +56,11 @@ export function harmBox(S: { x: number; y: number; tilt: number; s?: number; w0?
   const hw = H.w0 * HARM_K, hh = H.h0 * HARM_K, ox = (S.w0 / 2 * 0.55 + hw / 2) * S.s, oy = (S.h0 / 2 + hh * 0.3) * S.s, d = dirv(S.tilt), n = dirv(S.tilt + 90);
   return { x: S.x + d[0] * ox + n[0] * oy, y: S.y + d[1] * ox + n[1] * oy, lw: hw * S.s, lh: hh * S.s, tilt: S.tilt };
 }
-/** The box round some words, as the camera frames them — their harmonies with them (a harmony is sung too). */
-export function boxIn(segs: { x: number; y: number; lw: number; lh: number; tilt: number }[], fa: number, pad = 0) {
+/** The box round some words; with `harm`, their harmonies' boxes too. The camera aims at the words alone (a harmony,
+ *  however long it runs, never draws it over or holds it there) and only draws back a little to take a harmony in. */
+export function boxIn(segs: { x: number; y: number; lw: number; lh: number; tilt: number }[], fa: number, pad = 0, harm = false) {
   const u = dirv(fa), v = dirv(fa + 90); let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
-  const all = segs.flatMap(S => { const h = harmBox(S as Parameters<typeof harmBox>[0]); return h ? [S, h] : [S]; });
+  const all = harm ? segs.flatMap(S => { const h = harmBox(S as Parameters<typeof harmBox>[0]); return h ? [S, h] : [S]; }) : segs;
   for (const S of all) for (const p of corners(S, pad)) { const a = p[0] * u[0] + p[1] * u[1], b = p[0] * v[0] + p[1] * v[1]; u0 = Math.min(u0, a); u1 = Math.max(u1, a); v0 = Math.min(v0, b); v1 = Math.max(v1, b); }
   const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2; return { x: u[0] * cu + v[0] * cv, y: u[1] * cu + v[1] * cv, w: u1 - u0, h: v1 - v0 };
 }

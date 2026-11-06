@@ -20,7 +20,10 @@ const mul = (m: M, a: number, b: number, c: number, d: number, e: number, f: num
 /* ---------- the atlas: shelves on 2048² pages; a bitmap too big for a shelf gets a texture of its own ---------- */
 // (BIG: past this a bitmap gets a texture of its own — the glyphs never do now (glyphs.ts caps them for this layer under
 // it), only an odd large image; OWN_MAX: the graphics memory those may hold, by size, not count)
-const PAGE = 2048, MAX_PAGES = 10, BIG = 1100, GUT = 2, OWN_MAX = 64e6;
+// (MAX_PAGES: the atlas's usual size; HARD_PAGES: what one frame may grow it to when it needs more than that at once —
+// a close-up at 2160p with every character in three layers — rather than leave glyphs out of the frame, which flickered:
+// a different few missing each frame. The extra pages go again once unused for a couple of seconds.)
+const PAGE = 2048, MAX_PAGES = 10, HARD_PAGES = 24, BIG = 1100, GUT = 2, OWN_MAX = 64e6;
 interface Slot { tex: WebGLTexture; u0: number; v0: number; u1: number; v1: number; page: Page | null }
 interface Page { tex: WebGLTexture; shelves: { y: number; h: number; x: number }[]; top: number; /** what is on it */ srcs: object[]; /** the layer it was last drawn from */ used: number }
 
@@ -100,7 +103,7 @@ export class GpuLyrics {
   private slots = new WeakMap<object, Slot>(); private pages: Page[] = []; private own: WebGLTexture[] = []; private ownSize = new Map<WebGLTexture, number>(); private ownBytes = 0; private bigOf = new Map<WebGLTexture, object[]>();
   private dry = false; lost = false; w = 0; h = 0;
   /** the live layers drawn so far (a look ahead counts as the layer before it: it never empties a page that one used) */ private frameNo = 0; private fbo: WebGLFramebuffer | null = null;
-  /** quads drawn and bitmaps uploaded in the last frame (for the profiler) */ stats = { quads: 0, uploads: 0, draws: 0 };
+  /** quads drawn and bitmaps uploaded in the last frame (for the profiler) */ stats = { quads: 0, uploads: 0, draws: 0, skipped: 0 };
   private constructor(canvas: HTMLCanvasElement | OffscreenCanvas, gl: WebGL2RenderingContext) {
     this.canvas = canvas; this.gl = gl; this.ctx = new Rec(this) as unknown as Ctx;
     const sh = (type: number, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || 'shader'); return s; };
@@ -128,7 +131,7 @@ export class GpuLyrics {
   alive() { if (!this.lost && this.gl.isContextLost()) this.lost = true; return !this.lost; }
   /** Start a layer of w × h device pixels (dry: make and upload what it needs, draw nothing — a look ahead). */
   begin(w: number, h: number, dry = false) {
-    const gl = this.gl; this.dry = dry; this.n = 0; if (!dry) this.frameNo++; this.stats = { quads: 0, uploads: 0, draws: 0 };
+    const gl = this.gl; this.dry = dry; this.n = 0; if (!dry) { this.frameNo++; this.trim(); } this.stats = { quads: 0, uploads: 0, draws: 0, skipped: 0 };
     if (!dry) {
       // (the canvas only grows: the live picture and an export of another size take turns on it, each drawn into its
       // top left corner — a canvas resized every frame would be made anew every frame)
@@ -155,23 +158,31 @@ export class GpuLyrics {
     // (all pages full: the page drawn from longest ago is emptied and filled again — its texture kept, nothing made anew;
     // never one this layer is drawing from: then the glyph waits for the next frame. Emptying every page at once and
     // refilling them made a close-up zooming along a long word allocate and upload the whole atlas every frame.)
-    if (!at) { const old = this.pages.filter(p => p.used !== this.frameNo).sort((a, b) => a.used - b.used)[0]; if (!old) return null;
+    if (!at) { const old = this.pages.filter(p => p.used !== this.frameNo).sort((a, b) => a.used - b.used)[0];
+      if (!old) { at = this.place(w + GUT * 2, h + GUT * 2, HARD_PAGES); if (!at) { this.stats.skipped++; return null; } }
+      else {
       this.flush(); for (const k of old.srcs) this.slots.delete(k); old.srcs = []; old.shelves = []; old.top = 0; if (this.tex === old.tex) this.tex = null;
       // (emptied for real: a glyph is uploaded over its own rectangle only, and what was round it before showed through
       // its gutter as stray lines)
       const fb = (this.fbo ||= gl.createFramebuffer()!); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, old.tex, 0);
       const sc = gl.isEnabled(gl.SCISSOR_TEST); gl.disable(gl.SCISSOR_TEST); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); if (sc) gl.enable(gl.SCISSOR_TEST); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      at = this.place(w + GUT * 2, h + GUT * 2); if (!at) return null; }
+      at = this.place(w + GUT * 2, h + GUT * 2); if (!at) return null; } }
     const [pg, x, y] = at; gl.bindTexture(gl.TEXTURE_2D, pg.tex); const c = viaCanvas(src); if (c === UP) gl.texSubImage2D(gl.TEXTURE_2D, 0, x + GUT, y + GUT, w, h, gl.RGBA, gl.UNSIGNED_BYTE, UP); else gl.texSubImage2D(gl.TEXTURE_2D, 0, x + GUT, y + GUT, gl.RGBA, gl.UNSIGNED_BYTE, c);
     s = { tex: pg.tex, u0: (x + GUT) / PAGE, v0: (y + GUT) / PAGE, u1: (x + GUT + w) / PAGE, v1: (y + GUT + h) / PAGE, page: pg }; this.slots.set(src, s); pg.srcs.push(src); return s;
   }
   private params() { const gl = this.gl; gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); }
-  private place(w: number, h: number): [Page, number, number] | null {
+  /** The pages beyond the usual number, unused for a couple of seconds of layers: let go. */
+  private trim() {
+    if (this.pages.length <= MAX_PAGES || this.frameNo % 30) return; const gl = this.gl;
+    for (let i = this.pages.length - 1; i >= 0 && this.pages.length > MAX_PAGES; i--) { const pg = this.pages[i]; if (this.frameNo - pg.used < 120) continue;
+      for (const k of pg.srcs) this.slots.delete(k); if (this.tex === pg.tex) this.tex = null; gl.deleteTexture(pg.tex); this.pages.splice(i, 1); }
+  }
+  private place(w: number, h: number, cap = MAX_PAGES): [Page, number, number] | null {
     for (const pg of this.pages) {
       for (const sh of pg.shelves) if (h <= sh.h && sh.h <= h * 1.5 + 8 && sh.x + w <= PAGE) { const x = sh.x; sh.x += w; return [pg, x, sh.y]; }
       if (pg.top + h <= PAGE) { const sh = { y: pg.top, h, x: w }; pg.shelves.push(sh); pg.top += h; return [pg, 0, sh.y]; }
     }
-    if (this.pages.length >= MAX_PAGES) return null;
+    if (this.pages.length >= cap) return null;
     const gl = this.gl, tex = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, tex); this.params();
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, PAGE, PAGE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     const pg: Page = { tex, shelves: [{ y: 0, h, x: w }], top: h, srcs: [], used: this.frameNo }; this.pages.push(pg); return [pg, 0, 0];

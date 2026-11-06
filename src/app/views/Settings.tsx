@@ -38,6 +38,10 @@ export function SettingsView() {
           onChange={async v => { await applyUiFont(currentLang(), v, words(currentLang())); set({ uiFont: v }); }} /></Field>
         <Field label={tx('s.set.lang')}><Dropdown label={tx('s.set.lang')} value={currentLang()} onChange={v => setLang(v as Lang)} options={LANGS.map(([v, n]) => [v, n])} /></Field>
       </Group>
+      <Group title={tx('s.set.fxCaps')} help={tx('s.set.fxCapsHelp')}>
+        <Toggle label={tx('s.set.fxCapSubs')} on={st.fxCapSubs !== false} set={v => set({ fxCapSubs: v })} />
+        <Toggle label={tx('s.set.fxCapReads')} on={st.fxCapReads !== false} set={v => set({ fxCapReads: v })} />
+      </Group>
       <Group title={tx('s.set.folders')} help={tx('s.set.watchHelp')}>
         <div className={s.folders}>
           {folders.map(f => (

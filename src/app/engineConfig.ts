@@ -8,7 +8,7 @@ import type { NativeRuntime } from '../engine';
 export function engineConfig(n: Partial<Settings>): EngineConfig {
   const gfx = n.gfx === 'optimized' || n.gfx === 'lite' ? n.gfx : 'default';
   return {
-    render: { scale: n.scale === 'auto' || n.scale == null ? 'auto' : +n.scale || 1, fps: +(n.fps ?? 0) || 0, prerender: n.prerender !== false, gpu: n.gpuLyrics !== false, stats: !!n.perfHud, debug: !!n.debugLog },
+    render: { scale: n.scale === 'auto' || n.scale == null ? 'auto' : +n.scale || 1, fps: +(n.fps ?? 0) || 0, prerender: n.prerender !== false, gpu: n.gpuLyrics !== false, stats: !!n.perfHud, debug: !!n.debugLog, capSubs: n.fxCapSubs !== false, capReads: n.fxCapReads !== false },
     gfx,
     mv: { dark: n.mvDark ?? 0.34, blur: n.mvBlur ?? 0.12, desat: n.mvDesat ?? 0, fit: !!n.mvFit },
     // (the desktop app serves the neural engine's models as cadenza://model/)
@@ -17,7 +17,7 @@ export function engineConfig(n: Partial<Settings>): EngineConfig {
   };
 }
 const KEYS: Record<keyof EngineConfig, (k: string) => boolean> = {
-  render: k => k === 'scale' || k === 'fps' || k === 'prerender' || k === 'gpuLyrics' || k === 'perfHud' || k === 'debugLog', gfx: k => k === 'gfx', mv: k => k.startsWith('mv'), rhythm: k => k === 'rhythmEngine' || k === 'rhythmDrums' || k === 'rhythmRuntime' || k === 'rhythmDevice',
+  render: k => k === 'scale' || k === 'fps' || k === 'prerender' || k === 'gpuLyrics' || k === 'perfHud' || k === 'debugLog' || k === 'fxCapSubs' || k === 'fxCapReads', gfx: k => k === 'gfx', mv: k => k.startsWith('mv'), rhythm: k => k === 'rhythmEngine' || k === 'rhythmDrums' || k === 'rhythmRuntime' || k === 'rhythmDevice',
 };
 /** Configure the engine from the settings: all of it, or (with the keys of a change) only the parts that change touches. */
 export function applyEngineConfig(n: Partial<Settings>, changed?: string[]) {

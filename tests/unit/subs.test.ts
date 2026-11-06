@@ -34,7 +34,7 @@ describe('sub-lines', () => {
 describe('the camera frames harmonies', () => {
   it('holds a word\'s harmony in its box', () => {
     const S = { x: 0, y: 0, lw: 100, lh: 40, tilt: 0, s: 1, w0: 100, h0: 40, harm: { w0: 160, h0: 40 } };
-    const h = harmBox(S)!, b = boxIn([S], 0), plain = boxIn([{ ...S, harm: null } as unknown as typeof S], 0);
+    const h = harmBox(S)!, b = boxIn([S], 0, 0, true), plain = boxIn([{ ...S, harm: null } as unknown as typeof S], 0, 0, true);
     expect(b.w).toBeGreaterThan(plain.w); expect(b.h).toBeGreaterThan(plain.h);
     // (every corner of the harmony inside the frame)
     expect(b.x + b.w / 2).toBeGreaterThanOrEqual(h.x + h.lw / 2 - 1e-6);

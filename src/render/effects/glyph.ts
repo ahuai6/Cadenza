@@ -71,8 +71,9 @@ function glyphSpot(sl: RenderFrame['plan']['cues']['glyphSlots'][number], f: Ren
       for (const S of P.words) { const p = project(S.x, S.y, S.d, cam, NO_FX, W, H), wr = Math.hypot(S.lw, S.lh) * 0.5 * p.k;
         SPOTS.forEach(([sx, sy], i) => { const d = Math.hypot(p.sx - sx * W, p.sy - sy * H); score[i] += Math.max(0, rad + wr - d); }); } } }
   let bi = sl.side ? 1 : 0; score.forEach((v, i) => { if (v < score[bi] - 1e-6) bi = i; });
-  // (the screen place, back into the world at the pane's depth, as the camera stands when it comes)
-  const b = basePose(plan.camera, sl.t), D = b.d + PANE_DEPTH, kp = FOCAL / (FOCAL + PANE_DEPTH), m = kp * b.z;
+  // (the screen place, back into the world at the pane's depth, as the backdrop's camera stands now — the camera that
+  // skips the cuts, as the rest of the backdrop does: a pane up across a transition never jumps at its blur's peak)
+  const b = f.cam.cont, D = b.d + PANE_DEPTH, kp = FOCAL / (FOCAL + PANE_DEPTH), m = kp * b.z;
   const qx = SPOTS[bi][0] * W, qy = SPOTS[bi][1] * H, c = Math.cos(b.r * D2R), sn = Math.sin(b.r * D2R);
   o = { X: b.x + (qx * c - qy * sn) / m, Y: b.y + (qx * sn + qy * c) / m, D, k: m, rot: -b.r }; SPOT.set(sl, o); return o;
 }
@@ -90,7 +91,7 @@ register({ id: 'glyph', label: 'fx.glyph', layer: 'backdrop', kind: 'effect', z:
       // There it floats on its own, as a pane of glass adrift in water would: it travels slowly across its place over its
       // whole time (each its own way), bobs and sways on a few slow waves that never line up, breathes, and turns a
       // little in depth (narrowing as it turns) — on the song's own time, not the beat
-      const tt = f.t, sp = glyphSpot(sl, f), pj = project(sp.X, sp.Y, sp.D, f.cam.cam, f.cam.fx, f.W, f.H), zk = clamp(pj.k / sp.k, 0.6, 1.8);
+      const tt = f.t, sp = glyphSpot(sl, f), pj = project(sp.X, sp.Y, sp.D, f.cam.cont, f.cam.fx, f.W, f.H), zk = clamp(pj.k / sp.k, 0.6, 1.8);
       const at = { x: pj.sx, y: pj.sy }, ph = P.i * 1.37, life = Math.max(2, sl.end + 1.8 - (sl.t - 0.2)), u = clamp((t - sl.t + 0.2) / life) - 0.5, da = rnd(P.i * 5.3) * 6.283;
       const br = 1 + 0.03 * Math.sin(tt * 0.47 + ph) + 0.015 * Math.sin(tt * 0.83 + ph * 1.9), size = f.H * 0.95 * (0.96 + 0.04 * fin) * br * zk;
       const ly = glyphPane(ch, fc.w, fc.stack); if (!ly) continue;
