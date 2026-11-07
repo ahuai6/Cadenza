@@ -14,7 +14,12 @@ export class AudioClock {
   private last = -Infinity; private lastAt = 0;
   playing = false;
   constructor(private getCtx: () => AudioContext) {}
-  private ac() { if (!this.ctx) { this.ctx = this.getCtx(); this.gainNode = this.ctx.createGain(); this.gainNode.connect(this.ctx.destination); } return this.ctx; }
+  /** where the song goes after its gain (volume, balance, fades): the output, or a host's own graph (the space's rooms) */
+  private out: AudioNode | null = null;
+  private ac() { if (!this.ctx) { this.ctx = this.getCtx(); this.gainNode = this.ctx.createGain(); this.gainNode.connect(this.out || this.ctx.destination); } return this.ctx; }
+  /** Send the song (after its gain) into `node` instead of the output; null sends it straight out again. The Hi-Fi
+   *  output is not affected: its sound never passes through the page. */
+  route(node: AudioNode | null) { this.out = node; if (!this.gainNode || !this.ctx) return; this.gainNode.disconnect(); this.gainNode.connect(node || this.ctx.destination); }
   setExternal(o: ExternalOut | null) { this.ext = o; }
   /** Make the audio context now (at launch, in idle time): the first play does not wait for it. */
   warm() { this.ac(); }

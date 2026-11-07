@@ -15,12 +15,12 @@ import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
 import type { SpaceBind, SpaceNow } from './bind';
 import { navePage, navePages, NAVE_SLOTS, LIST_SLOTS } from './data';
 import { CoverCache, CoverAtlas } from './covers';
+import AMBIENT from './ambient.ogg?url';
 
 export function createWorld(bind: SpaceBind): { dispose(): void } {
   const ac = new AbortController(); let alive = true;
   const opt = (o) => ({ ...(typeof o === 'object' ? o : { capture: !!o }), signal: ac.signal });
   const onW = (t, f, o) => window.addEventListener(t, f, opt(o)), onD = (t, f, o) => document.addEventListener(t, f, opt(o));
-  const AMBIENT = '';   // the background music arrives with step 4
   const SYS_RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const $ = (id) => document.getElementById(id);
   const rnd = (s) => { const x = Math.sin(s * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
@@ -34,7 +34,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   const RM = () => S.motion === 'reduced';
 
   /* ---------- the library, through bind.ts: songs by title (the crossing), albums sixteen to a page (the nave), playlists ---------- */
-  let LIB = bind.library(), SONGS = LIB.songs, navePg = 0, ALBUMS = navePage(LIB, 0), PLAYLISTS = LIB.playlists.slice(0, LIST_SLOTS);
+  let LIB = bind.library(), SONGS = LIB.songs, navePg = 0, ALBUMS = navePage(LIB, 0), listPg = 0, PLAYLISTS = LIB.playlists.slice(0, LIST_SLOTS);
   let songById = new Map(SONGS.map((s, i) => [s.id, i]));
   const covers = new CoverCache(512, 48), thumbs = new CoverCache(256, 96), atlas = new CoverAtlas(256);
   // the song playing, read from bind once a frame
@@ -444,6 +444,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
       const plq = own(label(grp, labelTex(pl.name, pl.note), big ? 2.2 : 1.7, big ? .6 : .46, 0, .35 + ah * .5 - art / 2 - .5, .1), true);
       im.userData = { kind: 'playlist', i: k }; pickables.push(im); listMeshes.push({ grp, plq, im, panel: pi }); }); }
   const listTone = [toon('#B2C0CF'), toon('#C9D2DA')];
+  const listPages = () => Math.max(1, Math.ceil(LIB.playlists.length / LIST_SLOTS));
+  function setListPage(pg) { const n = listPages(); pg = ((pg % n) + n) % n; if (pg === listPg && listMeshes.length) return; listPg = pg; PLAYLISTS = LIB.playlists.slice(pg * LIST_SLOTS, (pg + 1) * LIST_SLOTS); buildLists(); }
   buildLists();
 
   /* ---------- south chapel: each kind of setting is a small geometric sculpture on a plinth ---------- */
@@ -747,7 +749,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     fly(new V3(LISTS.c.x + d.x * 2.2, EYE, LISTS.c.z + d.z * 2.2), Math.atan2(-d.x, -d.z), .08);
     showFocus('歌單 · 北禮拜堂', pl.name, pl.note, () => play(pl.ids, 0));
     const ol = $('f-list'); ol.innerHTML = ''; pl.ids.slice(0, 8).forEach(id => { const sg = SONGS[songById.get(id)]; if (!sg) return; const li = document.createElement('li'); li.textContent = sg.title; ol.append(li); }); ol.hidden = false; }
-  let onPlay = null; function showFocus(eye, title, meta, fn) { setTimeout(freePointer, 0); $('f-eye').textContent = eye; $('f-title').textContent = title; $('f-meta').textContent = meta; onPlay = fn; $('f-list').hidden = true; $('focus').hidden = false; }
+  let onPlay = null; function showFocus(eye, title, meta, fn) { setTimeout(freePointer, 0); $('f-play').textContent = '播放'; $('f-eye').textContent = eye; $('f-title').textContent = title; $('f-meta').textContent = meta; onPlay = fn; $('f-list').hidden = true; $('focus').hidden = false; }
   let playing = false, songT = 0, seated = false;
   // Cadenza plays; the scene follows (the card, the cover, the lyrics change when the player says so, in frame())
   function play(ids, index) { bind.play(ids, index); hideCards(); setPlace('altar'); }
@@ -828,6 +830,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     if (e.key === 'Alt' && locked) { e.preventDefault(); document.exitPointerLock?.(); return; }
     if (e.code === 'KeyR') { rise = true; seated = false; flight = null; return; }
     if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'nave') { e.preventDefault(); hideCards(); setNavePage(navePg + (e.code === 'PageDown' ? 1 : -1)); return; }
+    if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'lists') { e.preventDefault(); hideCards(); setListPage(listPg + (e.code === 'PageDown' ? 1 : -1)); return; }
     if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'dome') { e.preventDefault(); tierGoal = Math.max(0, Math.min(TIERS - 1, Math.round(tierGoal) + (e.code === 'PageDown' ? 1 : -1))); return; }
     if (e.code === 'Space' && !(locked && immersive())) { e.preventDefault(); togglePlay(); return; }
     keys.add(e.code); if (['Space', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
@@ -841,7 +844,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   $('immersive').onchange = () => { if (!immersive()) document.exitPointerLock?.(); };
   $('q').addEventListener('input', () => { const q = $('q').value.trim(), ul = $('results'); ul.innerHTML = ''; if (!q) { ul.hidden = true; return; }
     const ql = q.toLowerCase(), has = (x) => x.t.toLowerCase().includes(ql) || x.s.toLowerCase().includes(ql);
-    const hits = [...PLAYLISTS.map((p, i) => ({ t: p.name, s: `歌單 · ${p.note}`, go: () => focusList(i) })), ...LIB.albums.map((a, j) => ({ t: a.title, s: `專輯 · ${a.artist}`, go: () => { setNavePage(Math.floor(j / NAVE_SLOTS)); focusAlbum(j % NAVE_SLOTS); } })), ...SONGS.map((s, i) => ({ t: s.title, s: `歌曲 · ${s.artist}`, go: () => focusSong(i) }))].filter(has).slice(0, 8);
+    const hits = [...LIB.playlists.map((p, j) => ({ t: p.name, s: `歌單 · ${p.note}`, go: () => { setListPage(Math.floor(j / LIST_SLOTS)); focusList(j % LIST_SLOTS); } })), ...LIB.albums.map((a, j) => ({ t: a.title, s: `專輯 · ${a.artist}`, go: () => { setNavePage(Math.floor(j / NAVE_SLOTS)); focusAlbum(j % NAVE_SLOTS); } })), ...SONGS.map((s, i) => ({ t: s.title, s: `歌曲 · ${s.artist}`, go: () => focusSong(i) }))].filter(has).slice(0, 8);
     hits.forEach(h => { const li = document.createElement('li'), b = document.createElement('button'); b.textContent = h.t; const sm = document.createElement('small'); sm.textContent = h.s; b.append(sm); b.onclick = () => { ul.hidden = true; $('q').value = ''; $('q').blur(); h.go(); }; li.append(b); ul.append(li); });
     ul.hidden = !hits.length; });
   $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { const b = $('results').querySelector('button'); if (b) b.click(); } });
@@ -889,8 +892,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     Object.assign(pan, { panningModel: 'HRTF', distanceModel: 'linear', refDistance: 1, maxDistance: 1e4, rolloffFactor: 0 });   // distance is ours (by path), the panner only places it
     input.connect(lp); lp.connect(g); g.connect(pan); pan.connect(au.dry); g.connect(send); send.connect(au.verbIn);
     return { s, input, lp, g, pan, send, want: 0 }; }
-  async function initAudio() { if (au.ctx) { au.ctx.resume?.(); return; } const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-    const ctx = new AC(); au.ctx = ctx;
+  async function initAudio() { if (au.ctx) { au.ctx.resume?.(); return; } const A = bind.audio();
+    const ctx = A.ctx; au.ctx = ctx; ctx.resume?.();
     au.master = ctx.createGain(); au.an = ctx.createAnalyser(); au.an.fftSize = 1024; au.bins = new Uint8Array(au.an.frequencyBinCount); au.master.connect(au.an); au.an.connect(ctx.destination);
     au.dry = ctx.createGain(); au.dry.connect(au.master); au.verbIn = ctx.createGain(); au.verbs = {};
     for (const r in RT60) { const cv = ctx.createConvolver(), gg = ctx.createGain(); gg.gain.value = 0; au.verbIn.connect(cv); cv.connect(gg); gg.connect(au.master); au.verbs[r] = { cv, g: gg }; }
@@ -899,8 +902,10 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     au.scene = ctx.createGain(); au.scene.gain.value = 0;            // the song as heard in the room
     au.chains = SPEAKERS.map(s => chain(ctx, s)); au.chains.forEach(c => au.scene.connect(c.input));
     au.pool = chain(ctx, SPEAKERS[1]); au.amb = ctx.createGain(); au.amb.gain.value = 0; au.amb.connect(au.pool.input);   // the room's own music lives in the pool
-    try { const url = AMBIENT; if (!url) throw new Error('no ambient yet'); const ab = await ctx.decodeAudioData(await (await fetch(url)).arrayBuffer());
-      au.buf = seamless(ab, ctx); const src = ctx.createBufferSource(); src.buffer = au.buf; src.loop = true; src.connect(au.amb); src.start(); au.ready = true;
+    // the song comes in here when the room plays it (Cadenza's engine sends it after its own gain: volume, balance, fades)
+    au.songIn = ctx.createGain(); au.songIn.connect(au.direct); au.songIn.connect(au.scene); au.ready = true; routeSong();
+    try { const ab = await ctx.decodeAudioData(await (await fetch(AMBIENT)).arrayBuffer());
+      au.buf = seamless(ab, ctx); const src = ctx.createBufferSource(); src.buffer = au.buf; src.loop = true; src.connect(au.amb); src.start(); au.ambSrc = src;
       // build the rooms' responses one at a time when the page is idle, so the picture never waits on them
       const rooms = Object.keys(RT60), next = () => { const r = rooms.shift(); if (!r) return; au.verbs[r].cv.buffer = makeIR(ctx, RT60[r]); later(next); }, later = (f) => window.requestIdleCallback ? window.requestIdleCallback(f, { timeout: 600 }) : setTimeout(f, 200); next();
       updateAmbient(); } catch (e) { au.failed = true; } }
@@ -909,17 +914,25 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   function stopSong(delay = 0) { const s = au.song; au.song = null; if (s) try { s.stop(au.ctx.currentTime + delay); } catch (e) {} }
   function aramp(p, v, sec) { const t = au.ctx.currentTime; p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + sec); }
   function updateAmbient() { if (!au.ready) return; const vol = +(S.musicVol ?? .6);
-    aramp(au.amb.gain, (!playing && S.music !== false) ? vol : 0, playing ? 1.2 : 3.5);
-    if (playing && !au.song) startSong(); if (!playing && au.song) { aramp(au.direct.gain, 0, .8); aramp(au.scene.gain, 0, .8); stopSong(.85); return; }
-    if (playing) { aramp(au.direct.gain, au.phones ? vol * 1.2 : 0, .6); aramp(au.scene.gain, au.phones ? 0 : vol * 1.4, .6); } }
+    aramp(au.amb.gain, (!playing && S.music !== false) ? vol : 0, playing ? 1.2 : 3.5); }
+  // headphones: the song leaves Cadenza exactly as it always does (the engine's own path, untouched); taking them off
+  // sends it into the room, the clean sound muffled away as the speakers come in. The Hi-Fi output never enters the page,
+  // so with it the headphones stay on.
+  let routed = false, unrouteAt = 0; const engineHifi = () => bind.audio().hifi;
+  function routeSong() { if (!au.ready) return; const A = bind.audio(); if (A.hifi && !au.phones) setPhones(true);
+    if (au.phones) { aramp(au.direct.gain, 1, .6); aramp(au.scene.gain, 0, .6); if (routed) { clearTimeout(unrouteAt); unrouteAt = setTimeout(() => { if (au.phones) { A.route(null); routed = false; } }, 700); } }
+    else { clearTimeout(unrouteAt); if (!routed) { au.direct.gain.value = 1; au.scene.gain.value = 0; A.route(au.songIn); routed = true; } aramp(au.direct.gain, 0, .8); aramp(au.scene.gain, 1.15, .8); } }
   // taking the headphones off: the clean sound is muffled away while the room fades in; only the audio does this
   function setPhones(on) { au.phones = on; const b = $('hp'); b.setAttribute('aria-pressed', String(on)); b.textContent = on ? '已戴耳機' : '已摘下耳機'; b.title = on ? '點一下摘下耳機，聽房間裡的聲音' : '點一下戴回耳機';
-    if (!au.ready) return; const t = au.ctx.currentTime, f = au.directLP.frequency; f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.exponentialRampToValueAtTime(on ? 20000 : 700, t + .6); updateAmbient(); }
-  $('hp').onclick = () => { initAudio(); setPhones(!au.phones); };
+    if (!au.ready) return; const t = au.ctx.currentTime, f = au.directLP.frequency; f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.exponentialRampToValueAtTime(on ? 20000 : 700, t + .6); routeSong(); }
+  $('hp').onclick = () => { initAudio();
+    if (au.phones && bind.audio().hifi) { showFocus('聲音 · Hi-Fi', 'Hi-Fi 輸出時只能用耳機聽', 'Hi-Fi 輸出直接送到音效卡、不經過場景，所以房間音響無法使用。要改用標準輸出嗎？', async () => { hideCards(); await bind.audio().useStandard(); });
+      $('f-play').textContent = '改用標準輸出'; return; }
+    setPhones(!au.phones); };
   onW('pointerdown', initAudio); onW('keydown', initAudio);
   // every frame: place the listener, route each speaker through the doorways, keep only the two nearest awake
   const _f = new V3(), _u = new V3();
-  function audioTick(dt) { if (!au.ready) return; const ctx = au.ctx, t = ctx.currentTime, L = camera.position, lsn = ctx.listener;
+  function audioTick(dt) { if (!au.ready) return; if (!au.phones && engineHifi()) setPhones(true); const ctx = au.ctx, t = ctx.currentTime, L = camera.position, lsn = ctx.listener;
     _f.set(0, 0, -1).applyQuaternion(camera.quaternion); _u.set(0, 1, 0).applyQuaternion(camera.quaternion);
     if (lsn.positionX) { for (const [p, v] of [[lsn.positionX, L.x], [lsn.positionY, L.y], [lsn.positionZ, L.z], [lsn.forwardX, _f.x], [lsn.forwardY, _f.y], [lsn.forwardZ, _f.z], [lsn.upX, _u.x], [lsn.upY, _u.y], [lsn.upZ, _u.z]]) p.setTargetAtTime(v, t, .03); }
     else { lsn.setPosition(L.x, L.y, L.z); lsn.setOrientation(_f.x, _f.y, _f.z, _u.x, _u.y, _u.z); }
@@ -1078,8 +1091,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });
   start();
   // a changed library rebuilds the rooms that show it (gathered by bind.ts)
-  const offLibrary = bind.onLibrary((l) => { LIB = l; SONGS = l.songs; songById = new Map(SONGS.map((sg, i) => [sg.id, i])); PLAYLISTS = l.playlists.slice(0, LIST_SLOTS);
+  const offLibrary = bind.onLibrary((l) => { LIB = l; SONGS = l.songs; songById = new Map(SONGS.map((sg, i) => [sg.id, i])); listPg = Math.min(listPg, Math.max(1, Math.ceil(l.playlists.length / LIST_SLOTS)) - 1); PLAYLISTS = l.playlists.slice(listPg * LIST_SLOTS, (listPg + 1) * LIST_SLOTS);
     navePg = Math.min(navePg, navePages(l) - 1); ALBUMS = navePage(l, navePg); hideCards(); buildNave(); buildBowl(); buildLists(); layoutBowl(); });
 
-  return { dispose() { alive = false; ac.abort(); offLibrary(); covers.dispose(); thumbs.dispose(); atlas.dispose(); try { au.ctx?.close(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
+  return { dispose() { alive = false; ac.abort(); offLibrary(); covers.dispose(); thumbs.dispose(); atlas.dispose(); try { clearTimeout(unrouteAt); if (routed) bind.audio().route(null); au.ambSrc?.stop(); au.master?.disconnect(); au.songIn?.disconnect(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
 }

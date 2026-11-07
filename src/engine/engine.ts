@@ -109,6 +109,8 @@ export class Engine extends Emitter<EngineEvents> {
     this.handoff.toRef = r => this.toRef(r);
     this.raf = requestAnimationFrame(n => this.frame(n));
   }
+  /** Where the song's sound goes (AudioClock.route): a host's own audio graph, or null for straight out. */
+  audioRoute(node: AudioNode | null) { this.clock.route(node); }
   destroy() { cancelAnimationFrame(this.raf); this.ro?.disconnect(); this.clock.stop(); this.video.close(); this.mv.close(); }
 
   /* ---------- mounting and size ---------- */

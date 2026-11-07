@@ -4,8 +4,9 @@
 // that adds songs one by one rebuilds the rooms once.
 import { lib, trackOf } from '../state';
 import { coverUrl } from '../bridge';
-import { player, playIds, toggle, next, prev } from '../playback/player';
-import { engine } from '../playback/stage';
+import { player, playIds, toggle, next, prev, switchOutput } from '../playback/player';
+import { setSettings } from '../actions/settings';
+import { engine, audioContext } from '../playback/stage';
 import { fromLibrary, type SpaceLibrary } from './data';
 
 export interface NowLine { t: number; end: number; sung: number; text: string }
@@ -22,6 +23,8 @@ export interface SpaceBind {
   toggle(): void; next(): void; prev(): void;
   /** a cover's address: the small one (walls, collages) or the full one (the nave's frames, the sanctuary) */
   cover(key: string | null, full?: boolean): string | null;
+  /** the page's audio (Cadenza's one context); where the song goes; whether the Hi-Fi output plays it (outside the page) */
+  audio(): { ctx: AudioContext; route(node: AudioNode | null): void; hifi: boolean; useStandard(): Promise<void> };
 }
 
 export function createBind(): SpaceBind {
@@ -42,5 +45,7 @@ export function createBind(): SpaceBind {
     play(ids, index = 0) { if (ids.length) playIds(ids, index).catch(() => {}); },
     toggle, next: () => { next().catch(() => {}); }, prev: () => { prev().catch(() => {}); },
     cover: (key, full = false) => coverUrl(key, full) || null,
+    audio: () => ({ ctx: audioContext(), route: (n) => engine.audioRoute(n), hifi: !!engine.clock.external,
+      useStandard: async () => { await setSettings({ audioOut: 'standard' }); await switchOutput(); } }),
   };
 }
