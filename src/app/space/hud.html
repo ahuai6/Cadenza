@@ -1,0 +1,53 @@
+<canvas id="world" aria-label="Cadenza 聖堂：一座用米色、墨線與色塊搭成的教堂風格空間。中殿是專輯，中堂是全部歌曲，兩側小禮拜堂是歌單與設定，盡頭的聖所是播放中"></canvas>
+<div class="veil" id="veil"></div>
+<div class="loading" id="loading">正在點亮聖堂…</div>
+
+<div class="hud top">
+  <div class="mark">Cadenza<small>聖堂</small></div>
+  <nav class="places card" aria-label="地點">
+    <button id="go-nave" aria-pressed="true">中殿<small>專輯</small></button>
+    <button id="go-dome" aria-pressed="false">中堂<small>全部歌曲</small></button>
+    <button id="go-lists" aria-pressed="false">北禮拜堂<small>歌單</small></button>
+    <button id="go-altar" aria-pressed="false">聖所<small>播放中</small></button>
+    <button id="go-settings" aria-pressed="false">南禮拜堂<small>設定</small></button>
+  </nav>
+  <div class="search card">
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+    <input id="q" type="search" placeholder="找歌曲、專輯或歌單" aria-label="搜尋歌曲、專輯或歌單" autocomplete="off">
+    <kbd>/</kbd>
+    <ul class="results card" id="results" hidden></ul>
+  </div>
+</div>
+
+<div class="hud sign" id="sign"><i>The Nave</i><b>中殿 · 專輯</b><u></u></div>
+
+<div class="hud guide card" aria-label="操作">
+  <b>導覽</b>
+  <div>按住右鍵拖曳環顧 · WASD 行走 · E／Q 升降</div>
+  <div>中堂：滾輪或 PageUp／PageDown 滑動歌曲牆 · 點沙發坐下</div>
+  <div>空白鍵 播放／暫停 · R 回到站立高度 · / 搜尋</div>
+  <label for="immersive"><input type="checkbox" id="immersive"> 沉浸模式（點畫面鎖定視角，Alt 放開，空白／Shift 升降）</label>
+</div>
+
+<div class="hud focus card" id="focus" hidden>
+  <div class="eyebrow" id="f-eye">專輯</div>
+  <h2 id="f-title">晨光</h2>
+  <p id="f-meta">示範樂團</p>
+  <ol id="f-list" hidden></ol>
+  <div class="row"><button class="btn solid" id="f-play">播放</button><button class="btn" id="f-close">繼續參觀</button></div>
+</div>
+
+<section class="hud ledger card" id="ledger" hidden aria-labelledby="l-title">
+  <header><div><i id="l-eye">Appearance</i><h2 id="l-title">外觀</h2></div><button class="btn" id="l-close" aria-label="關閉設定">✕</button></header>
+  <div id="l-body"></div>
+</section>
+
+<div class="hud tip card" id="tip" hidden></div>
+<div class="hud reticle" id="reticle" hidden></div>
+
+<div class="hud player card" aria-label="播放列">
+  <button class="btn solid" id="pp" aria-label="播放">▶</button>
+  <div class="t"><b id="p-title">清晨的光</b><span id="p-sub">示範樂團 · 晨光</span><div class="bar"><i id="p-bar"></i></div></div>
+  <button class="btn hp" id="hp" aria-pressed="true" title="點一下摘下耳機，聽房間裡的聲音">已戴耳機</button>
+  <button class="btn" id="p-go" aria-label="前往聖所">聖所 →</button>
+</div>

@@ -48,6 +48,13 @@ describe('architecture', () => {
       .filter(([, t]) => viewish(t)).map(([f, t]) => `${f} → ${t}`);
     expect(bad).toEqual([]);
   });
+  it('the two appearances (the classic views and the space) never reach into each other', () => {
+    const under = (r: string, d: string) => r.startsWith(`app${sep}${d}${sep}`);
+    const bad = files.map(f => relative(SRC, f)).filter(r => under(r, 'space') || under(r, 'views'))
+      .flatMap(r => [...readFileSync(join(SRC, r), 'utf8').matchAll(/(?:from|import\()\s*'(\.[^'?]+)/g)].map(m => [r, relative(SRC, resolve(dirname(join(SRC, r)), m[1]))]))
+      .filter(([f, t]) => (under(f, 'space') && under(t, 'views')) || (under(f, 'views') && under(t, 'space'))).map(([f, t]) => `${f} → ${t}`);
+    expect(bad).toEqual([]);
+  });
   it('the interface reaches the engine only through its index', () => {
     const bad = imports.filter(x => x.from === 'app' && x.to === 'engine' && x.target !== 'engine').map(x => `${x.file} → ${x.target}`);
     expect(bad).toEqual([]);

@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('cadenzaDesktop', {
   onMedia: on('media'),
   settings: () => L('settings:get'),
   setSettings: patch => L('settings:set', patch),
+  relaunch: () => L('app:relaunch'),
 });
 contextBridge.exposeInMainWorld('cadenzaLib', {
   get: () => L('lib:get'), addFolder: () => L('lib:addFolder'), removeFolder: d => L('lib:removeFolder', d), rescan: () => L('lib:rescan'),

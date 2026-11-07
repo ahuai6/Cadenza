@@ -57,6 +57,11 @@ export function SettingsView() {
         </div>
         <Toggle label={tx('s.set.scanOnLaunch')} on={st.scanOnLaunch} set={v => set({ scanOnLaunch: v })} />
       </Group>
+      <Group title={tx('s.set.uiMode')}>
+        <Field label={tx('s.set.uiMode.pick')}><Seg size="sm" fit value={st.ui === 'space' ? 'space' : 'classic'} onChange={v => set({ ui: v })} options={[['classic', tx('s.set.uiMode.classic')], ['space', tx('s.set.uiMode.space')]]} /></Field>
+        <Note>{tx('s.set.uiMode.help')}</Note>
+        <div><Button size="sm" icon="refresh" onClick={() => D?.relaunch()}>{tx('s.set.uiMode.restart')}</Button></div>
+      </Group>
       <Group title={tx('s.set.system2')}>
         {st.platform !== 'linux' && <Toggle label={tx('s.set.openAtLogin')} on={st.openAtLogin} set={v => set({ openAtLogin: v })} />}
         <Toggle label={tx('s.set.tray')} on={st.closeToTray} set={v => set({ closeToTray: v })} />

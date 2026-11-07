@@ -38,6 +38,11 @@ export interface Settings {
   /** the performance overlay over the effect lyrics */ perfHud?: boolean;
   /** the detailed debug log (engine/debug.ts) */ debugLog?: boolean;
   /** the effect lyrics' captions: translations shown, readings shown */ fxCapSubs?: boolean; fxCapReads?: boolean;
+  /** the interface: the classic pages, or the space (a cathedral to walk through); read once at start */ ui?: 'classic' | 'space';
+  /** the space's own: light beams, scene lyrics follow the view, the background music and its volume, immersive (pointer lock) */
+  spaceBeams?: boolean; spaceFollow?: boolean; spaceAmbient?: boolean; spaceAmbientVol?: number; spaceImmersive?: boolean;
+  /** the space's colour: from the playing song's cover, or one fixed colour; beams lighting on the accents; the scene's soft pulse */
+  spaceTint?: 'cover' | 'fixed'; spaceTintColor?: string; spaceBeatBeams?: boolean; spacePulse?: boolean;
 }
 type Off = () => void;
 export interface DesktopApi {
@@ -47,6 +52,7 @@ export interface DesktopApi {
   platform: string; win(op: 'min' | 'max' | 'close' | 'full'): Promise<{ max: boolean; full: boolean } | null>;
   onWin(f: (s: { max: boolean; full: boolean }) => void): Off; onMedia(f: (op: 'toggle' | 'next' | 'prev') => void): Off;
   settings(): Promise<Settings>; setSettings(p: Partial<Settings>): Promise<Settings>;
+  /** restart the app (the interface mode takes effect at start) */ relaunch(): Promise<void>;
 }
 export interface LibApi {
   get(): Promise<LibView>; addFolder(): Promise<LibView>; removeFolder(d: string): Promise<LibView>; rescan(): Promise<boolean>;
