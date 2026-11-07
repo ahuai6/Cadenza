@@ -1,0 +1,37 @@
+# Builds the Windows apps from a preview branch (the space mode while it is tried out) on a Windows runner and keeps them
+# as the run's downloadable artifacts (Actions → preview → the run → Artifacts): nothing is published as a release.
+name: preview
+on:
+  push:
+    branches: [space-mode]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 26 }
+      - shell: bash
+        run: |
+          npm ci
+          npx tsc --noEmit -p .
+          npx vitest run
+          npm run build:app
+          node scripts/models.mjs
+          cargo build --release --manifest-path native/cadenza-audio/Cargo.toml
+          mkdir -p native/cadenza-audio/target/x86_64-pc-windows-gnu/release
+          cp native/cadenza-audio/target/release/cadenza-audio.exe native/cadenza-audio/target/x86_64-pc-windows-gnu/release/
+          npx electron-builder --win --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cadenza-space-preview-portable
+          path: release/*-portable.exe
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cadenza-space-preview-setup
+          path: release/Cadenza-Setup-*.exe
+          retention-days: 30
