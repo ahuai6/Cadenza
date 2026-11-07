@@ -57,7 +57,7 @@ const W: Record<string, Row> = {
   'beams': ['光束', '光束', 'Light beams', '光線', '빛줄기', 'Haces de luz'],
   'beatBeams': ['重音時光束加亮', '重音时光束加亮', 'Beams brighten on accents', 'アクセントで光線が明るく', '강세에 빛줄기 밝아짐', 'Los haces brillan en los acentos'],
   'pulse': ['場景隨節拍輕微明暗', '场景随节拍轻微明暗', 'The room breathes with the beat', '空間が拍に合わせてわずかに明滅', '공간이 박자에 맞춰 살짝 밝아짐', 'La sala respira con el pulso'],
-  'pulse.help': ['亮度變化最多 4%，遠低於光敏性癲癇以 10% 計的閃光', '亮度变化最多 4%，远低于光敏性癫痫以 10% 计的闪光', 'At most 4 % brighter, well under the 10 % a flash counts as for photosensitivity', '明るさの変化は最大 4%。光過敏の目安（10%）を大きく下回ります', '밝기 변화는 최대 4%로, 광과민성 기준인 10%보다 훨씬 낮습니다', 'Como mucho un 4 % más de brillo, muy por debajo del 10 % que cuenta como destello'],
+  'pulse.help': ['亮度變化最多 8%，遠低於光敏性癲癇以 10% 計的閃光', '亮度变化最多 8%，远低于光敏性癫痫以 10% 计的闪光', 'At most 8 % brighter, well under the 10 % a flash counts as for photosensitivity', '明るさの変化は最大 8%。光過敏の目安（10%）を大きく下回ります', '밝기 변화는 최대 8%로, 광과민성 기준인 10%보다 훨씬 낮습니다', 'Como mucho un 8 % más de brillo, muy por debajo del 10 % que cuenta como destello'],
   'tint': ['色調', '色调', 'Colour', '色調', '색조', 'Color'], 'tint.cover': ['跟隨封面', '跟随封面', 'From the cover', 'ジャケットに合わせる', '표지 색 따르기', 'Según la portada'], 'tint.fixed': ['固定色彩', '固定色彩', 'Fixed colour', '固定色', '고정 색', 'Color fijo'],
   'tint.help': ['整個空間的氛圍跟著播放中歌曲的封面變色，連光束和光點也一起', '整个空间的氛围跟着播放中歌曲的封面变色，连光束和光点也一起', 'The whole room takes the playing song\'s cover colour, beams and motes too', '空間全体が再生中の曲のジャケットの色に染まる。光線や光の粒も', '공간 전체가 재생 중인 곡의 표지 색으로 물듭니다. 빛줄기와 빛 알갱이까지', 'Toda la sala toma el color de la portada, haces y motas incluidos'],
   'tint.pick': ['選擇顏色', '选择颜色', 'Pick a colour', '色を選ぶ', '색 고르기', 'Elegir color'],

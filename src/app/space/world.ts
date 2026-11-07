@@ -87,19 +87,35 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const textTex = (w, h, draw) => { const c = mk(w, h); draw(c.getContext('2d'), w, h); return tex(c); };
   const MORANDI = [['#c9b8a8', '#9aa597', '#e6ddd0'], ['#a9b4bc', '#d3c4b4', '#7d8a93'], ['#b99a8d', '#e4d8c8', '#8e9a8a'], ['#cfc2ae', '#a39486', '#e9e2d6'], ['#9fa8a0', '#c7b5a6', '#dcd3c3'], ['#b3a3ab', '#d8cdbf', '#8f8a7d'], ['#c4a99a', '#a9b0a3', '#ece4d8'], ['#a7a49a', '#d6c2b4', '#80878a']];
   const labelTex = (title, sub, w = 512) => textTex(w, 140, (g, W, h) => { g.fillStyle = C.ink; g.font = '500 46px "Noto Serif TC", serif'; g.fillText(title, 8, 56); g.fillStyle = '#7a6f63'; g.font = 'italic 400 30px "Source Serif 4", serif'; g.fillText(sub, 8, 108); });
-  const lyricTex = (t) => textTex(1600, 180, (g, w, h) => { g.font = '700 118px "Noto Serif TC", serif'; g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillStyle = C.ink; g.fillText(t, w / 2, h / 2); });
+  // the lyrics' face: a plain sans (the house serif is for names and signs)
+  const LYRIC_FONT = '"Noto Sans TC", "Noto Sans", "Noto Sans SC", "Noto Sans JP", sans-serif';
+  // a line on the sanctuary's paper: one row when it fits, smaller if a little long, two rows (broken at a space where it can) if longer
+  const lyricTex = (t) => textTex(1600, 180, (g, w, h) => { g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillStyle = C.ink; const maxW = w - 80;
+    const fits = (px) => { g.font = `600 ${px}px ${LYRIC_FONT}`; return g.measureText(t).width <= maxW; };
+    for (const px of [108, 96, 86]) if (fits(px)) { g.fillText(t, w / 2, h / 2); return; }
+    const cs = [...t], mid = cs.length / 2; let cut = Math.round(mid); for (let d = 0; d < cs.length / 3; d++) { if (cs[Math.round(mid + d)] === ' ') { cut = Math.round(mid + d); break; } if (cs[Math.round(mid - d)] === ' ') { cut = Math.round(mid - d); break; } }
+    const rows = [cs.slice(0, cut).join('').trim(), cs.slice(cut).join('').trim()]; let px = 74; g.font = `600 ${px}px ${LYRIC_FONT}`;
+    while (px > 30 && Math.max(...rows.map(r => g.measureText(r).width)) > maxW) { px -= 4; g.font = `600 ${px}px ${LYRIC_FONT}`; }
+    g.fillText(rows[0], w / 2, h / 2 - px * .55); g.fillText(rows[1], w / 2, h / 2 + px * .55); });
   const titleTex = (zh, en) => textTex(1024, 260, (g, w, h) => { g.textAlign = 'center'; g.fillStyle = C.ink; g.font = '700 132px "Noto Serif TC", serif'; g.fillText(zh, w / 2, 140); g.fillStyle = '#7a6f63'; g.font = 'italic 400 56px "Source Serif 4", serif'; g.fillText(en, w / 2, 222); });
   // a window is a small composition of flat shapes, never leaded glass
   function glassTex(seed, cols) { const W = 256, H = 512, c = mk(W, H), g = c.getContext('2d'); g.fillStyle = '#FBF1DF'; g.fillRect(0, 0, W, H);
     const pick = (k) => cols[Math.floor(rnd(seed * 7 + k) * cols.length)];
     for (let k = 0; k < 5; k++) { const kind = Math.floor(rnd(seed * 3 + k * 11) * 4), x = rnd(seed + k * 5.1) * W, y = 60 + rnd(seed * 2 + k * 3.7) * (H - 60), r = 50 + rnd(seed + k) * 90; g.fillStyle = pick(k);
       g.beginPath(); if (kind === 0) g.arc(x, y, r, 0, 7); else if (kind === 1) { g.arc(x, y, r, Math.PI, 0); g.closePath(); } else if (kind === 2) { g.moveTo(x, y); g.arc(x, y, r * 1.3, 0, Math.PI / 2); g.closePath(); } else g.rect(x - r / 2, y - r / 2, r, r * 1.4); g.fill(); }
+    // the wooden frame: a border, a centre mullion and two transoms, cut out of the glass (its alpha marks the wood)
+    g.globalCompositeOperation = 'destination-out'; g.strokeStyle = '#000'; g.lineWidth = 14; g.strokeRect(7, 7, W - 14, H - 14);
+    g.fillRect(W / 2 - 7, 0, 14, H); for (const y of [H * .36, H * .68]) g.fillRect(0, y - 6, W, 12); g.globalCompositeOperation = 'source-over';
     return tex(c); }
   function roseTex() { const N = 1024, c = mk(N, N), g = c.getContext('2d'), m = N / 2; g.fillStyle = '#FBF1DF'; g.fillRect(0, 0, N, N);
     const cols = [C.clay, C.kraft, C.olive, C.mist, '#FBF1DF'];
     for (let s = 0; s < 12; s++) { const a0 = s / 12 * Math.PI * 2; g.fillStyle = cols[s % 4]; g.beginPath(); g.moveTo(m, m); g.arc(m, m, 500, a0, a0 + Math.PI / 12); g.closePath(); g.fill(); }
     for (const [r, k] of [[330, 4], [250, 2], [170, 0], [90, 4], [40, 1]]) { g.fillStyle = cols[k]; g.beginPath(); g.arc(m, m, r, 0, 7); g.fill(); }
     for (let s = 0; s < 6; s++) { const a = s / 6 * Math.PI * 2; g.fillStyle = cols[(s + 1) % 4]; g.beginPath(); g.arc(m + Math.cos(a) * 250, m + Math.sin(a) * 250, 62, 0, 7); g.fill(); }
+    // the rose's tracery: spokes and two rings of wood
+    g.globalCompositeOperation = 'destination-out'; g.strokeStyle = '#000'; g.lineWidth = 18;
+    for (let s = 0; s < 12; s++) { const a = s / 12 * Math.PI * 2; g.beginPath(); g.moveTo(m + Math.cos(a) * 95, m + Math.sin(a) * 95); g.lineTo(m + Math.cos(a) * 505, m + Math.sin(a) * 505); g.stroke(); }
+    for (const r of [95, 335, 505]) { g.beginPath(); g.arc(m, m, r, 0, 7); g.stroke(); } g.globalCompositeOperation = 'source-over';
     return tex(c); }
 
   const softTex = (rgb, a0) => textTex(256, 256, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); r.addColorStop(0, `rgba(${rgb},${a0})`); r.addColorStop(.55, `rgba(${rgb},${a0 * .45})`); r.addColorStop(1, `rgba(${rgb},0)`); g.fillStyle = r; g.fillRect(0, 0, w, h); });
@@ -142,8 +158,10 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const glassFlare = (size) => Math.max(.3, Math.min(1, 1.25 - .12 * size));
   const glassMat = (map, size = 3) => new THREE.ShaderMaterial({ side: THREE.DoubleSide, uniforms: { map: { value: map }, warm: { value: new THREE.Color(C.apricot) }, base: { value: glassBase(size) }, flare: { value: glassFlare(size) } },
     vertexShader: `#include <common>\n#include <logdepthbuf_pars_vertex>\nvarying vec2 vUv; varying vec3 vW, vN; void main(){ vUv = uv; vW = (modelMatrix*vec4(position,1.)).xyz; vN = normalize(mat3(modelMatrix)*vec3(0.,0.,1.)); gl_Position = projectionMatrix*viewMatrix*vec4(vW,1.);\n#include <logdepthbuf_vertex>\n}`,
-    fragmentShader: `#include <common>\n#include <logdepthbuf_pars_fragment>\nuniform sampler2D map; uniform vec3 warm; uniform float base, flare; varying vec2 vUv; varying vec3 vW, vN; void main(){\n#include <logdepthbuf_fragment>\n float f = abs(dot(normalize(cameraPosition-vW), vN)); vec3 c = texture2D(map, vUv).rgb;
-      c = mix(mix(c, vec3(1.), .3), warm, .2) * (base + 2.8*flare*pow(f, 4.)) + warm * pow(f, 8.) * smoothstep(.75, .1, length(vUv-vec2(.5,.45))) * 1.6 * flare; gl_FragColor = vec4(c, 1.); }` });
+    fragmentShader: `#include <common>\n#include <logdepthbuf_pars_fragment>\nuniform sampler2D map; uniform vec3 warm; uniform float base, flare; varying vec2 vUv; varying vec3 vW, vN; void main(){\n#include <logdepthbuf_fragment>\n float f = abs(dot(normalize(cameraPosition-vW), vN)); vec4 tx = texture2D(map, vUv); vec3 c = tx.rgb;
+      c = mix(mix(c, vec3(1.), .3), warm, .2) * (base + 2.8*flare*pow(f, 4.)) + warm * pow(f, 8.) * smoothstep(.75, .1, length(vUv-vec2(.5,.45))) * 1.6 * flare;
+      // the frame (where the texture is clear): dark wood, a little lit, never fully burnt out by the glare
+      c = mix(c, vec3(.26, .19, .13) * (.6 + .4 * base), (1. - tx.a) * .9); gl_FragColor = vec4(c, 1.); }` });
   const glares = [];
   const glare = (parent, x, y, z, size) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, color: new THREE.Color(1.6, 1.3, .9), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })); s.scale.setScalar(size); s.position.set(x, y, z); s.renderOrder = 7; parent.add(s); noLine.push(s); glares.push(s); return s; };
   function glassIn(panel, w, cols, seed, focal) { const pts = archPts(w.w, w.h), g = new THREE.ShapeGeometry(new THREE.Shape(pts), 20), uv = g.attributes.uv, p = g.attributes.position;
@@ -340,7 +358,8 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     MAT.floor.customProgramCacheKey = () => 'floorAO'; }
   // albums in the nave
   /* ---------- albums in the nave: one even row, thin ink frames ---------- */
-  let renderErrors = 0;
+  let renderErrors = 0, subsKey = '';
+  let fakeNow = null;   // (tests: a song without the player)
   let lastRailKey = '', bowlDirty = true;   // the wall is laid out again when it moves, its hover changes or it is rebuilt
   let shadowDirty = true;   // the shadow map is redrawn only when something that casts a shadow has changed
   const pickables = [], albumMeshes = [];
@@ -953,9 +972,13 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     const hit = e > (au.avg || 0) * 1.25 + 8 && e > 70 && now - (au.last || 0) > 450; au.avg = (au.avg || 0) * .96 + e * .04; if (hit) au.last = now; return hit; }
 
   /* ---------- scene lyrics: lines peel off the sanctuary wall and hang in the air in front of you; then they bleach, tip over and fall ---------- */
-  const CH = .5;                                                        // character height in metres
+  const CH = .72;                                                       // character height in metres
   const glyphCache = new Map();
-  const glyphTex = (ch) => { if (!glyphCache.has(ch)) glyphCache.set(ch, textTex(128, 128, (g, w, h) => { g.font = '700 104px "Noto Serif TC", serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText(ch, w / 2, h / 2 + 6); })); return glyphCache.get(ch); };
+  // (kept most-recently-used first out, at most 600: a library sung in many scripts must not keep a texture per character
+  // it ever showed; the glyphs in the air are always the newest)
+  const glyphTex = (ch) => { const hit = glyphCache.get(ch); if (hit) { glyphCache.delete(ch); glyphCache.set(ch, hit); return hit; }
+    if (glyphCache.size >= 600) { const [k, v] = glyphCache.entries().next().value; v.dispose(); glyphCache.delete(k); }
+    if (!glyphCache.has(ch)) glyphCache.set(ch, textTex(128, 128, (g, w, h) => { let px = 92; g.font = `600 ${px}px ${LYRIC_FONT}`; while (px > 40 && g.measureText(ch).width > 116) { px -= 6; g.font = `600 ${px}px ${LYRIC_FONT}`; } g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText(ch, w / 2, h / 2 + 6); })); return glyphCache.get(ch); };
   const scene3 = { on: false, lines: [], lastIdx: -1, lastPos: null, wallFade: 1 };
   // a line gone: out of the scene, out of the ink pass's list, its materials and cards freed (the glyphs' textures are kept, per character)
   function dropLine(l) { scene.remove(l.g); const gone = new Set(l.glyphs.map(gl => gl.card)); for (let k = noLine.length - 1; k >= 0; k--) if (gone.has(noLine[k])) noLine.splice(k, 1);
@@ -968,7 +991,13 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   function seen(from, to) { if (!landables) restHeight(0, 1, 0); const d = to.clone().sub(from), L = d.length(); sightRay.set(from, d.normalize()); sightRay.far = L - .3; return sightRay.intersectObjects(landables, false).length === 0; }
   const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
   // where to put a line: in the half-sphere you face, preferring your eye level and the middle of the view when there is room
-  function placeLine(width) { camera.updateMatrixWorld(true);   // read the view as it is right now, never as it was last frame
+  // a line's outline on screen now: its four corners projected (a line faces the way it was turned when it appeared)
+  const _q = new V3();
+  function screenRect(pos, yaw, w, h) { const sx = Math.cos(yaw), sz = -Math.sin(yaw); let x0 = 9, x1 = -9, y0 = 9, y1 = -9;
+    for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { _q.set(pos.x + sx * a * w / 2, pos.y + b * h / 2, pos.z + sz * a * w / 2).project(camera); x0 = Math.min(x0, _q.x); x1 = Math.max(x1, _q.x); y0 = Math.min(y0, _q.y); y1 = Math.max(y1, _q.y); }
+    return [x0, x1, y0, y1]; }
+  const overlaps = (a, b, m = .06) => a[0] < b[1] + m && b[0] < a[1] + m && a[2] < b[3] + m && b[2] < a[3] + m;
+  function placeLine(width, height = CH) { camera.updateMatrixWorld(true);   // read the view as it is right now, never as it was last frame
     const cam = camera.getWorldPosition(new V3()), view = camera.getWorldDirection(new V3()), yaw = Math.atan2(-view.x, -view.z), pitch = Math.asin(Math.max(-1, Math.min(1, view.y))); let best = null, bestScore = -1e9;
     const sp = Math.hypot(me.vel.x, me.vel.z), lead = new V3(me.vel.x, 0, me.vel.z).multiplyScalar(Math.min(1.2, .9));
     for (let k = 0; k < 64; k++) { const a = yaw + Math.max(-1.45, Math.min(1.45, gauss() * .5 * (1 - Math.min(.45, sp * .08)))), el = Math.max(-.4, Math.min(.9, pitch + gauss() * .18)), d = 3.2 + Math.min(3.5, sp * .9) + Math.random() * 4.3;
@@ -980,17 +1009,34 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
       let score = -Math.abs(p.y - cam.y) * .8 - Math.max(0, off - .25) * 1.6;
       // must be seen: on screen, and nothing (sofa back, wall, a vase) between your eyes and the line's middle and ends
       const ndc = p.clone().project(camera); if (ndc.z > 1 || Math.abs(ndc.x) > .82 || ndc.y > .78 || ndc.y < -.6) score -= 20;
+      const toCamYaw = Math.atan2(cam.x - p.x, cam.z - p.z), rect = screenRect(p, toCamYaw, width, height);
+      if (rect[0] < -.95 || rect[1] > .95 || rect[2] < -.72 || rect[3] > .84) continue;                                                  // the whole line on screen, clear of the HUD
+      if (scene3.lines.some(l => !l.falling && overlaps(rect, screenRect(l.pos, l.yaw, l.width, l.height)))) continue;                    // never over another line
       if (!seen(cam, p) || !seen(cam, p.clone().add(side)) || !seen(cam, p.clone().sub(side))) score -= 40;
       if (scene3.lastPos) { const dl = p.distanceTo(scene3.lastPos); if (dl < 1.2 + width * .5) continue; score -= Math.abs(dl - (2.4 + width * .4)) * .5; }
-      scene3.lines.forEach(l => { if (!l.falling && l.pos.distanceTo(p) < width * .6 + 1) score -= 4; });
-      if (score > bestScore) { bestScore = score; best = p; } }
+            if (score > bestScore) { bestScore = score; best = p; } }
     return best || cam.clone().add(new V3(-Math.sin(yaw), .2, -Math.cos(yaw)).multiplyScalar(4)); }
-  function spawnLine(text, idx) { const chars = [...text], width = chars.length * CH * .92, pos = placeLine(width), g = new THREE.Group();
+  // a line's rows: as many characters as fit across about three quarters of the screen at the distance lines float at
+  const ROW = CH * 1.18;
+  // each character takes its own width (a Latin letter is narrow, a CJK character square), measured in the lyric face
+  const advCtx = mk(8, 8).getContext('2d'), advCache = new Map();
+  const advOf = (ch) => { let a = advCache.get(ch); if (a == null) { advCtx.font = `600 92px ${LYRIC_FONT}`; a = (Math.max(ch === ' ' ? 26 : 30, advCtx.measureText(ch).width) / 128 + .05) * CH; advCache.set(ch, a); } return a; };
+  const widthOf = (cs) => cs.reduce((w, ch) => w + advOf(ch), 0);
+  // a line's rows: as wide as fits across about two thirds of the screen at the nearest distance lines float at
+  function rowsOf(text) { const fovY = camera.fov * Math.PI / 180, wide = 2 * 3.4 * Math.tan(fovY / 2) * camera.aspect * .62;
+    const cs = [...text.trim()], rows = []; let i = 0;
+    while (i < cs.length) { let end = i, w = 0; while (end < cs.length && (w + advOf(cs[end]) <= wide || end === i)) { w += advOf(cs[end]); end++; }
+      if (end < cs.length) { const sp = cs.lastIndexOf(' ', end); if (sp > i && widthOf(cs.slice(i, sp)) > wide * .5) end = sp; }   // break at a space when there is one late enough
+      rows.push(cs.slice(i, end)); i = end; while (cs[i] === ' ') i++; }
+    return rows.length ? rows : [[]]; }
+  function spawnLine(text, idx) { const rows = rowsOf(text), width = Math.max(...rows.map(widthOf)), height = rows.length * ROW, pos = placeLine(width, height), g = new THREE.Group();
     const toCam = new V3().subVectors(camera.position, pos); g.position.copy(pos); g.rotation.set(0, Math.atan2(toCam.x, toCam.z), 0); scene.add(g);   // turns to you once, then stays put
-    const glyphs = chars.map((ch, k) => { const gl = glyph(ch); gl.pivot.position.set((k - (chars.length - 1) / 2) * CH * .92, -CH / 2, 0); g.add(gl.pivot); return gl; });
+    const glyphs = [];
+    rows.forEach((row, r) => { let x = -widthOf(row) / 2; const y = -CH / 2 + ((rows.length - 1) / 2 - r) * ROW;
+      for (const ch of row) { const a = advOf(ch); if (ch !== ' ') { const gl = glyph(ch); gl.pivot.position.set(x + a / 2, y, 0); g.add(gl.pivot); glyphs.push(gl); } x += a; } });
     // the first line peels off the sanctuary's paper and flies here
     let from = null; if (scene3.lastIdx < 0 || scene3.lines.length === 0) { from = new V3(); lyricMeshes[0].m.getWorldPosition(from); }
-    const line = { g, glyphs, pos, idx, t0: performance.now(), from, falling: false, fallT: 0 }; scene3.lines.push(line); scene3.lastPos = pos; scene3.lastIdx = idx;
+    const line = { g, glyphs, pos, idx, t0: performance.now(), from, falling: false, fallT: 0, width, height, yaw: g.rotation.y }; scene3.lines.push(line); scene3.lastPos = pos; scene3.lastIdx = idx;
     if (S.follow) followTo = Math.atan2(-(pos.x - camera.position.x), -(pos.z - camera.position.z));
     return line; }
   let followTo = null;
@@ -1004,13 +1050,15 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     line.glyphs.forEach((gl, k) => { gl.delay = k * .05 + Math.random() * .04; gl.dir = Math.random() < .5 ? 1 : -1;
       const pw = gl.pivot.getWorldPosition(new V3()), tip = pw.clone().addScaledVector(fz, gl.dir * CH), mid = pw.clone().addScaledVector(fz, gl.dir * CH / 2);
       let rest = Math.max(...[pw, mid, tip].map(p => restHeight(p.x, pw.y, p.z))); const near = landed.filter(q => Math.hypot(q.x - mid.x, q.z - mid.z) < CH * .7 && Math.abs(q.y - rest) < .1).length;   // stack on glyphs already lying here
-      gl.floor = rest + .02 + near * .012; landed.push({ x: mid.x, z: mid.z, y: gl.floor, t: performance.now() }); if (landed.length > 60) landed.shift(); gl.vy = .7 + Math.random() * .5; gl.y = line.pos.y - CH / 2; gl.ang = 0; gl.av = 0; gl.roll = 0; gl.rv = (Math.random() < .5 ? -1 : 1) * (1.6 + Math.random() * 2.2); gl.landed = 0; }); }
+      gl.floor = rest + .02 + near * .012; landed.push({ x: mid.x, z: mid.z, y: gl.floor, t: performance.now() }); if (landed.length > 60) landed.shift(); gl.vy = .7 + Math.random() * .5; gl.y = line.pos.y + gl.pivot.position.y; gl.ang = 0; gl.av = 0; gl.roll = 0; gl.rv = (Math.random() < .5 ? -1 : 1) * (1.6 + Math.random() * 2.2); gl.landed = 0; }); }
   function lyricsTick(now, dt) {
     const want = playing && (room === 'altar' || scene3.on);   // starts in the sanctuary, then follows you anywhere while the song plays
     if (want && !scene3.on) { scene3.on = true; scene3.lastIdx = -1; }
     if (!playing && scene3.on) { scene3.on = false; scene3.lines.forEach(fall); }
     scene3.wallFade += ((scene3.on ? 0 : 1) - scene3.wallFade) * Math.min(1, dt * 3);   // the paper empties while its words are out in the room
-    if (scene3.on) { const idx = curLine; if (idx >= 0 && idx !== scene3.lastIdx) { scene3.lines.forEach(l => { if (!l.falling && now - l.t0 > 2600) l.leave = now + 1200; }); spawnLine(NOW.lines[idx].text, idx); } }
+    if (scene3.on) { const t = NOW.t, L = NOW.lines;
+      scene3.lines.forEach(l => { if (l.falling) return; const next = L[l.idx + 1], mine = L[l.idx]; if ((next && t >= next.t - .6) || (mine && t > mine.end + .4)) fall(l); });
+      const idx = curLine; if (idx >= 0 && idx !== scene3.lastIdx && L[idx]?.text.trim()) spawnLine(L[idx].text, idx); }
     if (followTo != null) { me.yaw += (wrapTo(me.yaw, followTo) - me.yaw) * Math.min(1, dt * 1.5); if (Math.abs(wrapTo(me.yaw, followTo) - me.yaw) < .01) followTo = null; }
     const air = scene3.lines.filter(l => !l.falling); while (air.length > 4) fall(air.shift());
     for (let i = scene3.lines.length - 1; i >= 0; i--) { const l = scene3.lines[i], age = (now - l.t0) / 1000;
@@ -1073,12 +1121,14 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const fwd = new V3(), right = new V3(), acc = new V3(), tng = new V3(), gp = new V3(), gd = new V3(), camDir = new V3();
   function frame(now) {
     if (!alive) return; requestAnimationFrame(frame); const dt = Math.max(0, Math.min(.05, (now - last) / 1000)); last = now;   // (the first frame can be stamped before the loop began)
-    NOW = bind.now(); songT = NOW.t; $('p-bar').style.width = `${NOW.dur ? Math.min(100, NOW.t / NOW.dur * 100) : 0}%`;
+    NOW = fakeNow ? { ...fakeNow, t: (performance.now() - fakeNow.t0) / 1000 * (fakeNow.rate || 1) } : bind.now(); songT = NOW.t; $('p-bar').style.width = `${NOW.dur ? Math.min(100, NOW.t / NOW.dur * 100) : 0}%`;
     if (NOW.playing !== playing) { playing = NOW.playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', ts(playing ? 'pause' : 'play')); updateAmbient(); }
     if (NOW.id !== nowId) { nowId = NOW.id; $('p-title').textContent = NOW.title || ts('nothing'); $('p-sub').textContent = [NOW.artist, NOW.album].filter(Boolean).join(' · ');
       altarArt.material.map = covers.get(NOW.coverFull, NOW.id || 'none'); altarArt.material.needsUpdate = true;
       lineTex.forEach(t => t.dispose()); lineTex.clear(); lyricMeshes.forEach(L => { L.idx = -1; L.m.visible = false; }); scene3.lastIdx = -1; }
     curLine = lineAt(NOW.t);
+    { const L = curLine >= 0 ? NOW.lines[curLine] : null, sub = L && S.capSubs ? L.subs.join(' / ') : '', rd = L && S.capReads ? L.reads.join(' / ') : '', key = sub + '|' + rd;
+      if (key !== subsKey) { subsKey = key; $('sub-t').textContent = sub; $('sub-r').textContent = rd; $('subs').toggleAttribute('data-empty', !sub && !rd); } }
     if (flight) { const u = Math.max(0, Math.min(1, (now - flight.t0) / flight.dur)), k = ease(u);
       if (flight.curve) { flight.curve.getPointAt(k, me.pos); flight.curve.getTangentAt(Math.min(1, k + .03), tng); const ty = Math.atan2(-tng.x, -tng.z);
         const yw = wrapTo(flight.y0, ty), endw = sstep(.72, 1, k), startw = sstep(0, .14, k); let y = flight.y0 + (yw - flight.y0) * startw; y = y + (wrapTo(y, flight.yaw) - y) * endw;
@@ -1107,11 +1157,13 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     // the beams: always lit; an accent lifts them (up within ~80 ms, back over ~half a second), nothing else moves them
     const swellIn = R && P.beatBeams && !RM() ? R.dip : 0; swell = swellIn > swell ? swell + (swellIn - swell) * Math.min(1, dt / .03) : swell * Math.exp(-dt / .22);
     // the scene breathes with every event: at most 4 % brighter, deeper on the heavy ones (well under a flash's 10 %)
-    dream.pulse = R && P.pulse && !RM() ? Math.min(.04, .022 * R.pulse + .018 * swell) : 0;
+    dream.pulse = R && P.pulse && !RM() ? Math.min(.08, .045 * R.pulse + .035 * swell) : 0;
     tintTick(dt);
-    shafts.mat.uniforms.gain.value = .145 * (S.beams ? 1 : 0) * (1 + .35 * swell);
+    // the clear-sky panels brighten with the accents as the beams do
+    for (const d of domes) if (d.sky?.material?.color) d.sky.material.color.setScalar(1.05 * (1 + .35 * swell));
+    shafts.mat.uniforms.gain.value = .145 * (S.beams ? 1 : 0) * (1 + .9 * swell + (R && P.beatBeams && !RM() ? .18 * R.pulse : 0));
     // the floor of the crossing: ripples spread out every 8 s; pools follow the beat and breathe on their own phase
-    lightPools.forEach((m, k) => { const t = now / 1000, j = Math.floor(k / 2); m.material.opacity = (k % 2 ? .3 : .55) * (1 + .35 * swell) * (1 + .08 * Math.sin(t * .19 + j * 2.3) * Math.sin(t * .29 + j * 5.1)); });
+    lightPools.forEach((m, k) => { const t = now / 1000, j = Math.floor(k / 2); m.material.opacity = (k % 2 ? .3 : .55) * (1 + .8 * swell) * (1 + .08 * Math.sin(t * .19 + j * 2.3) * Math.sin(t * .29 + j * 5.1)); });
     ripples.forEach((m, k) => { const u = ((now / 1000) / 8 + k / 3) % 1; m.scale.setScalar(3.1 + u * 2.6); m.material.opacity = Math.sin(Math.PI * u) * .55; });
     // accents slow the dust down (like the effect lyrics' slow-motion on heavy beats), then it eases back to speed
     if (R) { const step = lastClock == null ? 0 : R.clock - lastClock; lastClock = R.clock; motion += Math.max(0, Math.min(dt * 1.5, step)); accent = RM() ? 0 : R.dip; }
@@ -1125,7 +1177,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     // one bad frame (a texture the GPU refuses, say) must not stop the picture: it is reported, the next frame tries again
     try { composer.render(); renderErrors = 0; } catch (e) { if (renderErrors++ < 3) console.error('[space] frame', e); }
   }
-  window.__cad = { tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
+  window.__cad = { fakeNow: (o) => { fakeNow = o ? { ...o, t0: performance.now() } : null; }, tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
     for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
   const start = () => { apply(); buildBeams(); resize(); layoutBowl(); $('loading').style.opacity = 0; setTimeout(() => $('loading').hidden = true, 800); requestAnimationFrame(frame); };
   stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });

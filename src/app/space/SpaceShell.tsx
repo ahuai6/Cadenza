@@ -15,7 +15,7 @@ import './space.css';
 import s from './SpaceShell.module.css';
 
 // every face the scene's textures and the HUD draw with, loaded before the first texture is drawn
-const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設定播放中清晨的光'], ['notosans', '聖堂中殿全部歌曲'], ['tiempos', 'The Nave Crossing']];
+const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設定播放中清晨的光'], ['notosans', '聖堂中殿全部歌曲'], ['sansmed', '聖堂中殿全部歌曲清晨的光落在窗邊 Morning light'], ['tiempos', 'The Nave Crossing']];
 
 export function SpaceShell() {
   const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }), [gen, setGen] = useState(0);

@@ -11,7 +11,7 @@ import { accentClock } from '../../engine';
 import { ts } from './i18n';
 import { fromLibrary, rhythmAt, type SpaceLibrary, type SpaceRhythm } from './data';
 
-export interface NowLine { t: number; end: number; sung: number; text: string }
+export interface NowLine { t: number; end: number; sung: number; text: string; /** translations, readings (romanisation, kana) */ subs: string[]; reads: string[] }
 export interface SpaceNow {
   id: string | null; title: string; artist: string; album: string; cover: string | null; coverFull: string | null;
   playing: boolean; t: number; dur: number; lines: NowLine[];
@@ -38,12 +38,12 @@ export interface SpaceBind {
   onPrefs(f: (p: SpacePrefs) => void): () => void;
 }
 /** The space's settings in the scene's terms. */
-export interface SpacePrefs { beams: boolean; beatBeams: boolean; pulse: boolean; dream: boolean; line: 'thin' | 'mid' | 'bold'; shadow: 'high' | 'mid' | 'low'; res: number;
+export interface SpacePrefs { capSubs: boolean; capReads: boolean; beams: boolean; beatBeams: boolean; pulse: boolean; dream: boolean; line: 'thin' | 'mid' | 'bold'; shadow: 'high' | 'mid' | 'low'; res: number;
   walk: number; look: number; lyric: 's' | 'm' | 'l'; follow: boolean; music: boolean; musicVol: number; immersive: boolean; motion: 'full' | 'reduced'; gfx: 'default' | 'optimized' | 'lite' }
 
 const SYS_REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 function prefsOf(st: Settings): SpacePrefs {
-  return { beams: st.spaceBeams !== false, beatBeams: st.spaceBeatBeams !== false, pulse: st.spacePulse !== false, dream: st.spaceDream !== false, line: st.spaceLine || 'mid', shadow: st.spaceShadow || 'high',
+  return { capSubs: st.fxCapSubs !== false, capReads: st.fxCapReads !== false, beams: st.spaceBeams !== false, beatBeams: st.spaceBeatBeams !== false, pulse: st.spacePulse !== false, dream: st.spaceDream !== false, line: st.spaceLine || 'mid', shadow: st.spaceShadow || 'high',
     res: st.spaceScale || 1, walk: st.spaceWalk || 1, look: st.spaceLook || 1, lyric: st.spaceLyric || 'm', follow: !!st.spaceFollow, music: st.spaceAmbient !== false, musicVol: st.spaceAmbientVol ?? 0.6,
     immersive: !!st.spaceImmersive, motion: st.spaceReduced || SYS_REDUCED ? 'reduced' : 'full', gfx: st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default' };
 }
@@ -64,7 +64,7 @@ export function createBind(): SpaceBind {
       const p = player.get(), id = p.shownId || p.id, s = p.session;
       if (id !== lastId || lib.get().tracks !== lastTracks) { lastId = id; lastTracks = lib.get().tracks; lastTrack = trackOf(id); }   // (looked up once per song, not every frame)
       const t = lastTrack;
-      if (s?.doc !== linesFor) { linesFor = s?.doc ?? null; lines = (s?.doc?.lines || []).filter(L => L.text.trim()).map(L => ({ t: L.t, end: L.end, sung: L.sung, text: L.text })); }
+      if (s?.doc !== linesFor) { linesFor = s?.doc ?? null; lines = (s?.doc?.lines || []).filter(L => L.text.trim()).map(L => ({ t: L.t, end: L.end, sung: L.sung, text: L.text, subs: L.subs || [], reads: L.reads || [] })); }
       return { id: id ?? null, title: t?.title || '', artist: t?.albumArtist || t?.artist || '', album: t?.album || '', cover: coverUrl(t?.cover) || null, coverFull: coverUrl(t?.cover, true) || null,
         playing: p.playing, t: engine.time, dur: s?.musicEnd || t?.duration || 0, lines };
     },

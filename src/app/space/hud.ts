@@ -31,6 +31,7 @@ export const hudHtml = () => `
   <ol id="f-list" hidden></ol>
   <div class="row"><button class="btn solid" id="f-play">${esc(ts('play'))}</button><button class="btn" id="f-close">${esc(ts('keep'))}</button></div>
 </div>
+<div class="hud subs" id="subs" aria-live="polite"><small id="sub-r"></small><span id="sub-t"></span></div>
 <div class="hud tip card" id="tip" hidden></div>
 <div class="hud reticle" id="reticle" hidden></div>
 <div class="hud player card" aria-label="${esc(ts('room.altar.sub'))}">
