@@ -54,7 +54,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const camera = new THREE.PerspectiveCamera(62, 1, 0.3, 160);
 
   /* ---------- light: a cool ambient paints the shade colour, one warm sun paints the light ---------- */
-  const SUN_DIR = new V3(.42, 1, .18).normalize();
+  const SUN_DIR = new V3(.42, 1, .18).normalize(), SUN_M = new V3(-.42, 1, .18).normalize();   // (the mirrored sun: light for the windows on the shaded side)
   const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b);
   const ambLight = new THREE.AmbientLight(lin(.72, .68, .64), Math.PI); scene.add(ambLight);   // a little lower: the room was too bright
   const sun = new THREE.DirectionalLight(lin(.34, .31, .22), Math.PI); sun.castShadow = true; sun.shadow.bias = -0.0004; sun.shadow.normalBias = .09; scene.add(sun, sun.target);
@@ -207,7 +207,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     for (const side of [-1, 1]) for (const [dep, y0, hh, m] of [[.26, 13.48, .28, MAT.oat], [.48, 13.76, .22, MAT.ivory]]) { const b = mesh(new THREE.BoxGeometry(dep + .1, hh, L - .02), m, world, false); b.position.set(side * (NAVE.w / 2 - dep / 2 + .05), y0 + hh / 2, zc); }   // the same cornice along the nave
     { const v = mesh(extrude(bandShape(NAVE.w, 7, .5), L + 1), MAT.vault); v.position.set(0, NAVE.h, NAVE.z1 - .5); v.receiveShadow = false; }
     const west = mesh(panelGeo(NAVE.w + 2 * T + .4, NAVE.h + 8, T, null, [], [{ x: 0, y: 15.2, r: 3.1 }]), MAT.paper); west.position.set(0, 0, T / 2);
-    const rose = new THREE.Mesh(new THREE.CircleGeometry(3.1, 64), glassMat(roseTex(), 7.5)); rose.position.set(0, 15.2, 0); west.add(rose); rose.userData.size = 7.5; glassList.push(rose); rose.userData.noBeam = true; rose.material.uniforms.base.value = .74; rose.material.uniforms.flare.value = .12;   // the rose is read for its pattern: it glows, it never burns
+    const rose = new THREE.Mesh(new THREE.CircleGeometry(3.1, 64), glassMat(roseTex(), 7.5)); rose.position.set(0, 15.2, 0); west.add(rose); rose.userData.size = 7.5; glassList.push(rose); rose.userData.noBeam = true; rose.castShadow = true;   /* (no sun through it: a sliver of it slipped past the vault onto the side wall as a thin streak) */ rose.material.uniforms.base.value = .74; rose.material.uniforms.flare.value = .12;   // the rose is read for its pattern: it glows, it never burns
     soft(west, GLOW, 9, 9, 0, 15.2, -T / 2 - .03, 0, Math.PI, .18, true);
     mesh(extrude(new THREE.Shape(archPts(4.4, 7)), .08), MAT.oat).position.set(0, 0, -.04);
     const east = mesh(panelGeo(NAVE.w + 2 * T + .4, NAVE.h + 8, T, { w: 6, h: 10.5 }, [], []), MAT.paper); east.position.set(0, 0, NAVE.z1 - T / 2); east.rotation.y = Math.PI;
@@ -626,7 +626,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
         const spread = f.distanceTo(new V3(CROSS.c.x, 0, CROSS.c.z)) < 1 ? 1.25 : .55, land = f.clone().addScaledVector(d, spread * (.8 + .4 * rnd(c.x * 3.1 + c.z))).addScaledVector(u, (rnd(c.z * 1.7 + c.x) - .5) * spread * .8);
         prism(pts, p => { const o = p.clone().sub(c); return land.clone().addScaledVector(u, o.dot(w) * .45).addScaledVector(d, o.y * .32).setY(0); }, false, beamK(f));
         if (!seen.has(f)) { seen.add(f); if (f.distanceTo(new V3(CROSS.c.x, 0, CROSS.c.z)) > 1) pool(f, .9); } }
-      else if (n.dot(SUN_DIR) >= .2) prism(pts, p => p.clone().addScaledVector(SUN_DIR, -p.y / SUN_DIR.y), true, beamK(null)); });
+      else { const sd = n.dot(SUN_DIR) >= .2 ? SUN_DIR : n.dot(SUN_M) >= .2 ? SUN_M : null; if (sd) prism(pts, p => p.clone().addScaledVector(sd, -p.y / sd.y), true, beamK(null)); } });
     domes.forEach(d => { const c = new V3(d.c.x, d.y, d.c.z), f = d.focal || new V3(d.c.x, 0, d.c.z);
       // under the clear-sky panel the light spreads out wide and soft, like daylight, instead of a column
       prism(Array.from({ length: 24 }, (_, k) => new V3(d.c.x + Math.cos(k / 24 * Math.PI * 2) * d.r, d.y, d.c.z + Math.sin(k / 24 * Math.PI * 2) * d.r)), p => f.clone().add(new V3((p.x - c.x) * (d.blue ? 2.4 : .6), 0, (p.z - c.z) * (d.blue ? 2.4 : .6))), false, beamK(f) * (d.blue ? .38 : .8));
@@ -724,10 +724,14 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
       const r = regionAt(p.clone().addScaledVector(inward, 1.4).setY(Math.min(p.y, 6)) ) || regionAt(p.clone().addScaledVector(inward, 1.4)); LIGHTS.push({ p, n, size, base: glassBase(size), flare: glassFlare(size), room: r ? r.room : null, glass: true }); });
     domes.forEach(d => { const r = regionAt(new V3(d.c.x, EYE, d.c.z)); LIGHTS.push({ p: new V3(d.c.x, d.y + 1, d.c.z), n: new V3(0, 1, 0), size: d.r * 2.4, base: 1.6, room: r ? r.room : null }); }); }
   function lightInView() { if (!LIGHTS) lightsBuild(); camera.updateMatrixWorld(true); const cam = camera.getWorldPosition(_lv), fwd = camera.getWorldDirection(_lf); let I = 0;
-    for (const L of LIGHTS) { if (L.room !== room) continue; _ld.subVectors(L.p, cam); const dist = _ld.length(); if (dist > (L.glass ? 25 : 36) || dist < .5) continue; _ld.multiplyScalar(1 / dist);
-      const ang = Math.acos(Math.max(-1, Math.min(1, fwd.dot(_ld)))), half = Math.atan(L.size / 2 / dist), w = 1 - sstep(half * .5, half * 1.6 + .06, ang); if (w <= 0) continue;
-      const f = Math.abs(_ld.dot(L.n)), bright = L.glass ? L.base * (.7 + 1.2 * f * L.flare) : L.base * (.6 + .4 * f); I = Math.max(I, w * bright * (1 - (L.glass ? sstep(14, 25, dist) : sstep(22, 36, dist)) * .7)); }
+    const check = (lightFrame++ % 8) === 0;   // (whether a wall hides it: looked again a few times a second)
+    for (const L of LIGHTS) { _ld.subVectors(L.p, cam); const dist = _ld.length(); if (dist < .5) continue; _ld.multiplyScalar(1 / dist);
+      const ang = Math.acos(Math.max(-1, Math.min(1, fwd.dot(_ld)))), half = Math.atan(L.size / 2 / dist), w = 1 - sstep(half * .5, half * 1.6 + .06, ang); if (w <= 0) { L.vis = null; continue; }
+      if (check || L.vis == null) { if (!landables) restHeight(0, 1, 0); sightRay.set(cam, _ld); sightRay.far = dist - .45; L.vis = sightRay.intersectObjects(landables, false).length === 0; }
+      if (!L.vis) continue;
+      const f = Math.abs(_ld.dot(L.n)), bright = L.glass ? L.base * (.7 + 1.2 * f * L.flare) : L.base * (.6 + .4 * f); I = Math.max(I, w * bright); }
     return I; }
+  let lightFrame = 0;
   class Dream extends Pass {
     constructor() { super(); this.needsSwap = true; this.exposure = 1; this.small = new THREE.WebGLRenderTarget(8, 8); this.buf = new Uint8Array(8 * 8 * 4); this.n = 0;   // brightness is stored /4, so up to 4x white still reads
       this.probe = new THREE.ShaderMaterial({ depthTest: false, depthWrite: false, vertexShader: FSV, uniforms: { t: { value: null } }, fragmentShader: `uniform sampler2D t; varying vec2 vUv; void main(){ vec2 uv = .3 + vUv*.4; vec3 c = (texture2D(t, uv).rgb + texture2D(t, uv+vec2(.02,.03)).rgb + texture2D(t, uv-vec2(.03,.02)).rgb)/3.; gl_FragColor = vec4(vec3(dot(c, vec3(.2126,.7152,.0722))/4.), 1.); }` });
@@ -769,7 +773,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
               float prof = kk.y > .5 ? .7*exp(-d*d/(r*r)*1.1) : exp(-d*d/(r*r)*7.) + .38*exp(-d*d/(r*r)*1.4);
               // each beam breathes on its own slow, unrelated rhythm
               float fi = float(i), breathe = 1. + .09*sin(time*.21 + fi*1.71)*sin(time*.133 + fi*4.13) + .05*sin(time*.47 + fi*2.93);
-              float add = k*breathe*prof*min(1.25/sn, 3.2)*smoothstep(-.14, .05, tu)*(1.-.35*t)*near; if (kk.y > .5) accS += add; else acc += add; }   // fade softly past the window end (a hard cut there left a ring)
+              float add = k*breathe*prof*min(1.25/sn, 3.2)*smoothstep(0., .2, tu)*(1.-.35*t)*near; if (kk.y > .5) accS += add; else acc += add; }   // fade softly past the window end (a hard cut there left a ring)
             float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898,78.233)))*43758.5453)*.04;
             gl_FragColor = vec4(base.rgb + (col*acc + colS*accS)*gain*(1.+n), base.a); }` });
       this.q = new FullScreenQuad(this.mat); }
@@ -787,23 +791,30 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   class UiGlass extends Pass {
     constructor() { super(); this.needsSwap = true; this.rects = Array.from({ length: 12 }, () => new THREE.Vector4()); this.radii = new Array(12).fill(0);
       this.mat = new THREE.ShaderMaterial({ depthTest: false, depthWrite: false, vertexShader: FSV,
-        uniforms: { tDiffuse: { value: null }, res: { value: new V2(1, 1) }, rects: { value: this.rects }, radii: { value: this.radii }, n: { value: 0 }, block: { value: 14 }, tint: { value: new THREE.Color(.98, .96, .92) } },
-        fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec4 rects[12]; uniform float radii[12]; uniform int n; uniform float block; uniform vec3 tint; varying vec2 vUv;
-          void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 p = vUv*res; float inside = 0.;
+        uniforms: { tDiffuse: { value: null }, res: { value: new V2(1, 1) }, rects: { value: this.rects }, radii: { value: this.radii }, n: { value: 0 }, block: { value: 14 }, lw: { value: 1.5 }, tint: { value: new THREE.Color(.98, .96, .92) } },
+        fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec4 rects[12]; uniform float radii[12]; uniform int n; uniform float block, lw; uniform vec3 tint; varying vec2 vUv;
+          void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 p = vUv*res; float inside = 0., ring = 0.; vec4 own = vec4(0.);
             for (int i = 0; i < 12; i++) { if (i >= n) break; vec4 r = rects[i]; vec2 hs = r.zw*.5; float rad = min(radii[i], min(hs.x, hs.y)); vec2 q = abs(p-(r.xy+hs))-hs+rad;
-              float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - rad; inside = max(inside, 1.-smoothstep(-1., 1., d)); }
+              float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - rad, k = 1.-smoothstep(-1., 1., d); if (k > inside) { inside = k; own = r; }
+              // the card's white frame, from the very same shape as its glass: it sits over the glass's edge like a mask
+              ring = max(ring, 1. - smoothstep(lw*.5 - .7, lw*.5 + .7, abs(d - lw*.25))); }
             // the mosaic glass: each block shows the average of what is behind it
-            if (inside > 0.) { vec2 b = (floor(p/block)+.5)*block; vec3 m = vec3(0.);
-              for (int k = 0; k < 16; k++) { vec2 o = (vec2(float(k - (k/4)*4), float(k/4)) - 1.5)/4.*block*1.6; m += texture2D(tDiffuse, (b+o)/res).rgb; }
+            // (the blocks are laid from the card's own corner and sized so whole blocks fill it exactly: no cut-off row at
+            // its top or bottom, no column cut at its sides)
+            if (inside > 0.) { vec2 bs = own.zw / max(vec2(1.), floor(own.zw/block + .5)), b = own.xy + (floor((p - own.xy)/bs) + .5)*bs; vec3 m = vec3(0.);
+              for (int k = 0; k < 16; k++) { vec2 o = (vec2(float(k - (k/4)*4), float(k/4)) - 1.5)/4.*bs*1.6; m += texture2D(tDiffuse, (b+o)/res).rgb; }
               m = m/16.; m = mix(m, vec3(dot(m, vec3(.3,.55,.15))), .25); c.rgb = mix(c.rgb, m, inside); }
+            c.rgb = mix(c.rgb, vec3(1.), ring * .82);
             gl_FragColor = c; }` });
       this.q = new FullScreenQuad(this.mat); }
     setSize(w, h) { this.mat.uniforms.res.value.set(w, h); }
     collect() { const pr = renderer.getPixelRatio(); let n = 0;
       for (const el of document.querySelectorAll('.card')) { if (n >= 12 || el.hidden || !el.offsetParent && getComputedStyle(el).position !== 'fixed') continue; const r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2 || el.closest('[hidden]')) continue;
-        if (el.dataset.rad == null) el.dataset.rad = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
+        // (its corner read again whenever its size changes: a radius in % or a pill depends on the size, and one read before
+        // the styles had loaded stayed wrong)
+        const sz = (r.width | 0) + 'x' + (r.height | 0); if (el.dataset.sz !== sz) { el.dataset.sz = sz; const cs = getComputedStyle(el), v = cs.borderTopLeftRadius; el.dataset.rad = String(v.endsWith('%') ? parseFloat(v) / 100 * Math.min(r.width, r.height) : parseFloat(v) || 0); }
         this.rects[n].set(r.left * pr, (innerHeight - r.bottom) * pr, r.width * pr, r.height * pr); this.radii[n] = +el.dataset.rad * pr; n++; }
-      this.mat.uniforms.n.value = n; this.mat.uniforms.block.value = 22 * pr; }
+      this.mat.uniforms.n.value = n; this.mat.uniforms.block.value = 22 * pr; this.mat.uniforms.lw.value = 1.6 * pr; }
     render(r, write, read) { this.collect(); this.mat.uniforms.tDiffuse.value = read.texture; r.setRenderTarget(this.renderToScreen ? null : write); this.q.render(r); } }
   const uiGlass = new UiGlass(); composer.addPass(uiGlass);
 
@@ -1107,8 +1118,8 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
         vec3 fillC = mix(diffuseColor.rgb, grad, uEdgeK), edgeC = uEdge + hl * .35 * (vec3(1.) - uEdge);
         diffuseColor = vec4(mix(mix(edgeC, fillC, 1. - uEdgeK), fillC, gF), diffuseColor.a * gT.a * mix(1., gF, 1. - uEdgeK));`); };
     m.customProgramCacheKey = () => 'glyph'; return m; }
-  // a glyph in the air is drawn over the room (it was placed clear of everything, so nothing is ever seen cutting through
-  // it); once it falls it is a thing in the room again, behind what stands in front of it
+  // a glyph is drawn over the room from first to last (placed clear of everything; falling or lying, one that ends up in
+  // a wall or behind a sofa is still seen until it fades, never cut off)
   function glyph(ch, s = 1) { const m = glyphMat(glyphTex(ch));
     const card = new THREE.Mesh(new THREE.PlaneGeometry(CH, CH), m); card.position.y = CH / 2; card.renderOrder = 6; noLine.push(card);
     const pivot = new THREE.Group(); pivot.scale.setScalar(s); pivot.add(card); return { pivot, card, m, ch, s }; }
@@ -1194,7 +1205,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   let landables = null; const downRay = new THREE.Raycaster(), DOWN = new V3(0, -1, 0), landed = [];
   function restHeight(x, y, z) { if (!landables) { landables = []; world.traverse(o => { if (o.isMesh && !o.isInstancedMesh && !o.userData.thin && !noLine.includes(o) && !glassList.includes(o)) landables.push(o); }); }
     downRay.set(new V3(x, y, z), DOWN); downRay.far = y + 1; const h = downRay.intersectObjects(landables, false).find(h => h.face && h.face.normal && Math.abs(h.face.normal.clone().transformDirection(h.object.matrixWorld).y) > .5); return h ? h.point.y : 0; }
-  function fall(line) { if (line.falling) return; line.falling = true; line.fallT = performance.now(); line.g.position.copy(line.pos); line.glyphs.forEach(gl => { gl.card.position.y = CH / 2; gl.card.rotation.set(0, 0, 0); gl.card.scale.setScalar(1); gl.m.depthTest = true; });
+  function fall(line) { if (line.falling) return; line.falling = true; line.fallT = performance.now(); line.g.position.copy(line.pos); line.glyphs.forEach(gl => { gl.card.position.y = CH / 2; gl.card.rotation.set(0, 0, 0); gl.card.scale.setScalar(1); });
     line.g.updateMatrixWorld(true); const fz = new V3(0, 0, 1).transformDirection(line.g.matrixWorld);
     line.glyphs.forEach((gl, k) => { gl.delay = k * .05 + Math.random() * .04; gl.dir = Math.random() < .5 ? 1 : -1; const ch = CH * gl.s;
       const pw = gl.pivot.getWorldPosition(new V3()), tip = pw.clone().addScaledVector(fz, gl.dir * ch), mid = pw.clone().addScaledVector(fz, gl.dir * ch / 2);
@@ -1352,7 +1363,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     try { composer.render(); renderErrors = 0; } catch (e) { if (renderErrors++ < 3) console.error('[space] frame', e); }
   }
   window.__cad = { fakeNow: (o) => { fakeNow = o ? { ...o, t0: performance.now() } : null; }, fakeBeats: (bl) => { fakeBeats = bl ? { bl } : null; }, tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
-    for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), pick: (x, y) => { const r = canvas.getBoundingClientRect(); ndc.set((x - r.left) / r.width * 2 - 1, -(y - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); const h = ray.intersectObjects([...pickables, ...occluders], false)[0]; return h ? [h.object.userData.kind || '-', +h.distance.toFixed(2), JSON.stringify(pickAt(x, y))] : null; }, C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, stand: (x, z, yaw, pitch = 0) => { me.pos.set(x, EYE, z); me.yaw = yaw; me.pitch = pitch; flight = null; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
+    for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), hits: (x, y) => { const r = canvas.getBoundingClientRect(); ndc.set((x - r.left) / r.width * 2 - 1, -(y - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); return ray.intersectObjects(scene.children, true).slice(0, 6).map(h => [h.object.type, h.object.geometry?.type, h.object.material?.type, (h.object.material?.color?.getHexString?.() || ''), +h.distance.toFixed(2), h.point.toArray().map(v => +v.toFixed(2)).join(','), h.object.material?.transparent ? 'T' : '', h.object.material?.blending]); }, pick: (x, y) => { const r = canvas.getBoundingClientRect(); ndc.set((x - r.left) / r.width * 2 - 1, -(y - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); const h = ray.intersectObjects([...pickables, ...occluders], false)[0]; return h ? [h.object.userData.kind || '-', +h.distance.toFixed(2), JSON.stringify(pickAt(x, y))] : null; }, C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, stand: (x, z, yaw, pitch = 0) => { me.pos.set(x, EYE, z); me.yaw = yaw; me.pitch = pitch; flight = null; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
   const start = () => { apply(); buildBeams(); resize(); layoutBowl(); setPlace(room, false); $('loading').style.opacity = 0; setTimeout(() => $('loading').hidden = true, 800); requestAnimationFrame(frame); };
   stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });
   start();

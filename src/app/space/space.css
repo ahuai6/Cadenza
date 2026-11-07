@@ -25,7 +25,7 @@
 .results button:hover, .results button:focus-visible { background: rgba(255,255,255,.16); }
 .bar { background: rgba(255,255,255,.4); }
 .player .hp { box-shadow: inset 0 0 0 1.5px #fff; } .player .hp[aria-pressed="false"] { background: rgba(255,255,255,.25); color: #fff; }
-.card { background: transparent; box-shadow: 0 0 0 1.5px rgba(255,255,255,.8), 0 8px 24px -12px rgba(38,28,18,.45); }   /* the glass itself is drawn by the renderer: a frosted mosaic of what is behind */
+.card { background: transparent; box-shadow: 0 8px 24px -12px rgba(38,28,18,.45); }   /* the glass and its white frame are both drawn by the renderer, from one shape */   /* the glass itself is drawn by the renderer: a frosted mosaic of what is behind */
 .top { top: calc(16px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; pointer-events: none; }
 .top > * { pointer-events: auto; }
 .mark { font: italic 400 20px/1 var(--serif); letter-spacing: .02em; color: var(--ink); }
@@ -94,7 +94,7 @@
 .tools { display: flex; align-items: center; gap: 10px; }
 .cfg { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: var(--r-pill); background: transparent; color: #fff; cursor: pointer; }
 .cfg:hover { background: rgba(255, 255, 255, .14); }
-.space-lite .card { background: rgba(60, 48, 36, .38); }   /* the lite mode draws no glass: a quiet shade behind the words instead */
+.space-lite .card { background: rgba(60, 48, 36, .38); box-shadow: 0 0 0 1.5px rgba(255,255,255,.8), 0 8px 24px -12px rgba(38,28,18,.45); }   /* the lite mode draws no glass: a quiet shade behind the words instead */
 .space-cfg .sign { opacity: 0; }   /* the settings page takes the room's sign's place */
 /* the line's captions under the room, as the effect lyrics draw theirs: a translation, its bracketed part smaller and
    softer, a reading softer still; Latin text spaced wide and lower-cased; each line's block rises in and fades out */
@@ -120,3 +120,7 @@
 /* too far to reach: the reticle and the tip say so, quietly */
 .reticle.far { box-shadow: 0 0 0 1.5px rgba(255,252,246,.55), 0 0 0 3px rgba(47,43,38,.15); }
 .tip.far small { color: #F2C9A8 !important; }
+/* the window has no frame: its top bar is where it is dragged from, and carries its buttons */
+.top { -webkit-app-region: drag; } .top > * { -webkit-app-region: no-drag; }
+.winbtns { display: flex; gap: 2px; padding: 4px; border-radius: var(--r-pill); }
+.winbtns:empty { display: none; }

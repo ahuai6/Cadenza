@@ -4,8 +4,8 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
 import { tx } from '../../i18n';
-import { useStore, trackOf, lib, toast } from '../state';
-import { Lib } from '../bridge';
+import { useStore, trackOf, lib, toast, ui } from '../state';
+import { Lib, D } from '../bridge';
 import { Icon } from '../ui/icons';
 import { Seg, Cover } from '../ui/kit';
 import { NpLyrics } from '../ui/NpLyrics';
@@ -25,6 +25,20 @@ export function PlayerExtras({ host, panel, setPanel }: { host: HTMLElement | nu
     {btn('quote', tx('s.lyricList'), panel === 'lyrics', () => setPanel(panel === 'lyrics' ? null : 'lyrics'), !hasSong)}
     {btn('queue', tx('s.queue'), panel === 'queue', () => setPanel(panel === 'queue' ? null : 'queue'))}
     {btn(MODE_ICON[mode], tx('s.mode.' + mode), mode !== 'stop', () => setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]))}
+  </>, host);
+}
+
+/** The window's own buttons (the window has no frame): minimise, maximise or restore, full screen, close. */
+export function WinButtons({ host }: { host: HTMLElement | null }) {
+  const st = useStore(ui, x => x.win);
+  if (!host || !D) return null;
+  const b = (n: string, label: string, op: 'min' | 'max' | 'full' | 'close', close = false) =>
+    <button type="button" className={s.wb + (close ? ' ' + s.wclose : '')} title={label} aria-label={label} onClick={() => D?.win(op)}><Icon n={n} size={15} /></button>;
+  return createPortal(<>
+    {!st.full && b('min', tx('s.min'), 'min')}
+    {!st.full && b(st.max ? 'restore' : 'max', tx(st.max ? 's.restore' : 's.max'), 'max')}
+    {b(st.full ? 'unfull' : 'full', tx(st.full ? 's.unfullscreen' : 's.fullscreen'), 'full')}
+    {b('close', tx('s.quit'), 'close', true)}
   </>, host);
 }
 

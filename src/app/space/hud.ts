@@ -20,6 +20,7 @@ export const hudHtml = () => `
       <kbd>/</kbd>
       <ul class="results card" id="results" hidden></ul>
     </div>
+    <span class="winbtns card" id="win-btns"></span>
     <button class="cfg card" id="cfg" aria-label="${esc(ts('settings'))}" title="${esc(ts('settings'))} ( , )">${gear}</button>
   </div>
 </div>
