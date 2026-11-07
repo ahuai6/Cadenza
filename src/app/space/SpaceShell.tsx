@@ -1,7 +1,6 @@
 // The space interface: the music library as a cathedral to walk through (docs/SPACE.md). It is the second appearance
 // half of the interface: it keeps the logic half (state, actions, playback, the bridge) exactly as the classic pages do.
-// Step 2a: the prototype's scene and HUD, moved as they stand, still on its demonstration data; bind.ts (step 3) puts
-// the real library in.
+// The scene reads the library and the song playing through bind.ts, and plays through it.
 import { useEffect, useRef, useState } from 'react';
 import { boot } from '../actions/boot';
 import { setSettings } from '../actions/settings';
@@ -9,6 +8,7 @@ import { D } from '../bridge';
 import { tx } from '../../i18n';
 import { ensureFont } from '../../engine';
 import { createWorld } from './world';
+import { createBind } from './bind';
 import hud from './hud.html?raw';
 import './space.css';
 import s from './SpaceShell.module.css';
@@ -22,7 +22,7 @@ export function SpaceShell() {
   useEffect(() => {
     if (!ready || !root.current) return;
     let world: { dispose(): void } | null = null, gone = false;
-    Promise.all(FACES.map(([k, t]) => ensureFont(k, t).catch(() => {}))).then(() => { if (!gone) world = createWorld(); });
+    Promise.all(FACES.map(([k, t]) => ensureFont(k, t).catch(() => {}))).then(() => { if (!gone) world = createWorld(createBind()); });
     return () => { gone = true; world?.dispose(); };
   }, [ready]);
   return (

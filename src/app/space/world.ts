@@ -1,7 +1,8 @@
 // @ts-nocheck
-// The cathedral, moved from the prototype as it stands (step 2a of docs/SPACE.md): one closure, so a second mount or a
-// dispose leaves nothing behind. Step 2b splits it into world/, render/, input/, audio/ and lyrics.ts with types; until
-// then this file is checked by the build only. Generated from the prototype by scripts in the design work, then edited here.
+// The cathedral (docs/SPACE.md): the scene, its render chain, input, the room audio and the scene lyrics, in one closure so
+// a second mount or a dispose leaves nothing behind. Everything it shows comes through bind.ts (the library, the song
+// playing, its lyrics); the rooms that show the library (the nave, the wall of songs, the playlists) rebuild when it
+// changes. Not yet typed: the split into world/, render/, input/, audio/ and rooms/ continues with steps 4 to 6.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -11,8 +12,11 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import type { SpaceBind, SpaceNow } from './bind';
+import { navePage, navePages, NAVE_SLOTS, LIST_SLOTS } from './data';
+import { CoverCache, CoverAtlas } from './covers';
 
-export function createWorld(): { dispose(): void } {
+export function createWorld(bind: SpaceBind): { dispose(): void } {
   const ac = new AbortController(); let alive = true;
   const opt = (o) => ({ ...(typeof o === 'object' ? o : { capture: !!o }), signal: ac.signal });
   const onW = (t, f, o) => window.addEventListener(t, f, opt(o)), onD = (t, f, o) => document.addEventListener(t, f, opt(o));
@@ -29,15 +33,12 @@ export function createWorld(): { dispose(): void } {
   const save = () => { try { localStorage.setItem('cadenza-cathedral-v4', JSON.stringify(S)); } catch (e) {} };
   const RM = () => S.motion === 'reduced';
 
-  /* ---------- example data ---------- */
-  const ALBUMS = [['晨光', '示範樂團', 2024], ['潮汐', '灰藍', 2021], ['未寄出的信', '林間', 2019], ['北方', '霜降', 2022], ['Glass Garden', 'Mira', 2020], ['午後三點', '咖啡與雨', 2018], ['遠方的燈', '夜行者', 2023], ['霧中城市', '灰藍', 2017],
-    ['Paper Moon', 'Mira', 2016], ['回聲', '林間', 2021], ['盛夏', '示範樂團', 2015], ['石與光', '霜降', 2024], ['舊信箱', '咖啡與雨', 2020], ['Lanterns', 'Nora Vale', 2022], ['白晝之後', '夜行者', 2019], ['海岸線', '灰藍', 2023]];
-  const W1 = ['清晨', '午後', '黃昏', '夜裡', '雨後', '冬天', '夏天', '遠方', '窗邊', '街角', '海邊', '山上', '心裡', '夢中', '路上', '城市'], W2 = ['的光', '的風', '的信', '的歌', '的雨', '的海', '的燈', '的你', '的話', '的路', '的雲', '的花'];
-  const SONGS = Array.from({ length: 320 }, (_, i) => { const a = ALBUMS[i % ALBUMS.length]; return { title: W1[(i * 7) % W1.length] + W2[(i * 5 + (i >> 4)) % W2.length] + (i >= 192 ? ' II' : ''), artist: a[1], album: a[0], cover: i % ALBUMS.length }; })
-    .sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'));
-  const PLAYLISTS = [['晨間散步', '慢一點的早晨'], ['深夜工作', '安靜、不打擾'], ['雨天', '窗外的聲音'], ['我的最愛', '常聽的那些'], ['旅行', '在路上'], ['專注', '沒有歌詞也可以'], ['週末', '什麼都不做']]
-    .map(([name, note], p) => ({ name, note, ids: Array.from({ length: 14 + Math.floor(rnd(p * 9) * 18) }, (_, k) => Math.floor(rnd(p * 31 + k * 7.7) * SONGS.length)) }));
-  const LYRICS = ['清晨的光落在窗邊', '我們沿著街道慢慢走', '風輕輕吹過', '把昨天的話說完', '時間一直往前', '每一個當下都很好', '明天見'];
+  /* ---------- the library, through bind.ts: songs by title (the crossing), albums sixteen to a page (the nave), playlists ---------- */
+  let LIB = bind.library(), SONGS = LIB.songs, navePg = 0, ALBUMS = navePage(LIB, 0), PLAYLISTS = LIB.playlists.slice(0, LIST_SLOTS);
+  let songById = new Map(SONGS.map((s, i) => [s.id, i]));
+  const covers = new CoverCache(512, 48), thumbs = new CoverCache(256, 96), atlas = new CoverAtlas(256);
+  // the song playing, read from bind once a frame
+  let NOW: SpaceNow = bind.now(), nowId = undefined, curLine = -1;
   const BEAT = 60 / 112;
 
   /* ---------- palette: paper and shade make the space, ink makes the line, accents stay under 10% ---------- */
@@ -83,13 +84,6 @@ export function createWorld(): { dispose(): void } {
   const tex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
   const textTex = (w, h, draw) => { const c = mk(w, h); draw(c.getContext('2d'), w, h); return tex(c); };
   const MORANDI = [['#c9b8a8', '#9aa597', '#e6ddd0'], ['#a9b4bc', '#d3c4b4', '#7d8a93'], ['#b99a8d', '#e4d8c8', '#8e9a8a'], ['#cfc2ae', '#a39486', '#e9e2d6'], ['#9fa8a0', '#c7b5a6', '#dcd3c3'], ['#b3a3ab', '#d8cdbf', '#8f8a7d'], ['#c4a99a', '#a9b0a3', '#ece4d8'], ['#a7a49a', '#d6c2b4', '#80878a']];
-  const coverCanvas = ALBUMS.map((_, i) => { const c = mk(512, 512), g = c.getContext('2d'), w = 512, h = 512; const [a, b, cc] = MORANDI[i % MORANDI.length]; g.fillStyle = cc; g.fillRect(0, 0, w, h);
-    const m = i % 4; if (m === 0) { g.fillStyle = a; g.fillRect(52, 56, w - 104, h * .46); g.fillStyle = b; g.fillRect(52, h * .58, w - 104, h * .32); }
-    else if (m === 1) { g.fillStyle = a; g.beginPath(); g.arc(w * .5, h * .44, 150, 0, 7); g.fill(); g.fillStyle = b; g.fillRect(0, h * .74, w, h * .26); }
-    else if (m === 2) { for (let k = 0; k < 5; k++) { g.fillStyle = k % 2 ? a : b; g.fillRect(60 + k * 80, 70 + rnd(i * 5 + k) * 60, 56, h - 160 - rnd(k + i) * 80); } }
-    else { g.fillStyle = a; g.beginPath(); g.moveTo(0, h); g.lineTo(w * .5, h * .25); g.lineTo(w, h); g.fill(); g.fillStyle = b; g.beginPath(); g.arc(w * .72, h * .26, 44, 0, 7); g.fill(); }
-    return c; });
-  const coverTex = coverCanvas.map(tex);
   const labelTex = (title, sub, w = 512) => textTex(w, 140, (g, W, h) => { g.fillStyle = C.ink; g.font = '500 46px "Noto Serif TC", serif'; g.fillText(title, 8, 56); g.fillStyle = '#7a6f63'; g.font = 'italic 400 30px "Source Serif 4", serif'; g.fillText(sub, 8, 108); });
   const lyricTex = (t) => textTex(1600, 180, (g, w, h) => { g.font = '700 118px "Noto Serif TC", serif'; g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillStyle = C.ink; g.fillText(t, w / 2, h / 2); });
   const titleTex = (zh, en) => textTex(1024, 260, (g, w, h) => { g.textAlign = 'center'; g.fillStyle = C.ink; g.font = '700 132px "Noto Serif TC", serif'; g.fillText(zh, w / 2, 140); g.fillStyle = '#7a6f63'; g.font = 'italic 400 56px "Source Serif 4", serif'; g.fillText(en, w / 2, 222); });
@@ -345,31 +339,57 @@ export function createWorld(): { dispose(): void } {
   // albums in the nave
   /* ---------- albums in the nave: one even row, thin ink frames ---------- */
   const pickables = [], albumMeshes = [];
-  albumSlots.forEach((s, i) => { if (i >= ALBUMS.length) return; const g = new THREE.Group(); g.position.set(s.x, EYE + .45, s.z); g.rotation.y = s.ry; world.add(g);
-    mesh(box(2.1, 2.1, .06), MAT.ink, g).position.z = .03; mesh(box(1.98, 1.98, .07), MAT.ivory, g).position.z = .035;
-    const art = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6), flat('#fff', { map: coverTex[i] })); art.position.z = .075; g.add(art);
-    const pl = label(g, labelTex(ALBUMS[i][0], `${ALBUMS[i][1]}, ${ALBUMS[i][2]}`), 1.6, .44, 0, -1.4, .02);
-    art.userData = { kind: 'album', i }; pickables.push(art); albumMeshes.push({ g, art, pl, s }); });
+  const unpick = (objs) => { for (const o of objs) { const k = pickables.indexOf(o); if (k >= 0) pickables.splice(k, 1); } };
+  // a room's part rebuilt: its geometry is its own; materials only when made for it (the shared MAT ones stay), their
+  // textures only when drawn for it (covers belong to the cover caches)
+  const freeGroup = (g) => { g.parent?.remove(g); g.traverse(o => { if (!o.isMesh) return; o.geometry.dispose(); const k = noLine.indexOf(o); if (k >= 0) noLine.splice(k, 1);
+    const m = o.material; if (m.userData.own) { if (m.userData.ownMap) m.map?.dispose(); m.dispose(); } }); };
+  const own = (m, map = false) => { m.material.userData.own = true; m.material.userData.ownMap = map; return m; };
+  const albumSub = (a) => [a.artist, a.year].filter(Boolean).join(', ');
+  function buildNave() {
+    albumMeshes.forEach(m => { unpick([m.art]); freeGroup(m.g); }); albumMeshes.length = 0;
+    albumSlots.forEach((s, i) => { const a = ALBUMS[i]; if (!a) return; const g = new THREE.Group(); g.position.set(s.x, EYE + .45, s.z); g.rotation.y = s.ry; world.add(g);
+      mesh(box(2.1, 2.1, .06), MAT.ink, g).position.z = .03; mesh(box(1.98, 1.98, .07), MAT.ivory, g).position.z = .035;
+      const art = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6), flat('#fff', { map: covers.get(bind.cover(a.cover, true), a.key) })); own(art); art.position.z = .075; g.add(art);
+      const pl = own(label(g, labelTex(a.title, albumSub(a)), 1.6, .44, 0, -1.4, .02), true);
+      art.userData = { kind: 'album', i }; pickables.push(art); albumMeshes.push({ g, art, pl, s }); }); }
+  function setNavePage(pg) { const n = navePages(LIB); pg = ((pg % n) + n) % n; if (pg === navePg && albumMeshes.length) return; navePg = pg; ALBUMS = navePage(LIB, pg); buildNave(); }
+  buildNave();
   sofas.forEach(s => s.g.traverse(o => { if (o.isMesh) pickables.push(o); }));
 
   /* ---------- the wall of all songs: covers ride a fixed rail; size never changes, only opacity ---------- */
-  const PER = 40, TIERS = Math.ceil(SONGS.length / PER), BOWL_R = 9.2, GAP = .44, ARC = Math.PI / 2 - GAP;
+  const PER = 40, BOWL_R = 9.2, GAP = .44, ARC = Math.PI / 2 - GAP;
   // per-instance opacity for instanced, unlit materials
   const fading = (m) => { m.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float iAlpha; varying float vA;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvA = iAlpha;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vA;').replace('#include <opaque_fragment>', 'diffuseColor.rgb = mix(vec3(.86,.80,.71), diffuseColor.rgb, smoothstep(.35, 1., vA));\nif (vA < .35 && vA / .35 < fract(52.9829189*fract(dot(gl_FragCoord.xy, vec2(.06711056,.00583715))))) discard;\n#include <opaque_fragment>'); };
     m.customProgramCacheKey = () => 'fading'; return m; };
+  // the same, for covers drawn from an atlas: each instance carries its cell's offset
+  const fadingAtlas = (m) => { const base = fading(m), inner = base.onBeforeCompile; base.onBeforeCompile = (sh, r) => { inner(sh, r);
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 iCell;').replace('#include <uv_vertex>', `#include <uv_vertex>\n#ifdef USE_MAP\nvMapUv = vMapUv / ${CoverAtlas.GRID.toFixed(1)} + iCell;\n#endif`); };
+    base.customProgramCacheKey = () => 'fadingAtlas'; return base; };
   const bowlGeo = new THREE.BoxGeometry(.92, .92, .04);
   const withAlpha = (geo, n) => { const g = geo.clone(); g.setAttribute('iAlpha', new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1), 1)); return g; };
   // covers on the rail carry their own ink border (the ink pass cannot see opacity, so the rail stays out of it)
-  const railTex = coverCanvas.map(cv => { const c = mk(256, 256), g = c.getContext('2d'); g.drawImage(cv, 0, 0, 256, 256); g.strokeStyle = C.ink; g.lineWidth = 7; g.strokeRect(3.5, 3.5, 249, 249); return tex(c); });
-  const bowl = railTex.map((t, c) => { const ids = SONGS.map((s, i) => s.cover === c ? i : -1).filter(i => i >= 0); const im = new THREE.InstancedMesh(withAlpha(bowlGeo, ids.length), fading(flat('#fff', { map: t })), ids.length); im.userData = { kind: 'bowl', ids }; im.castShadow = true; im.frustumCulled = false; im.renderOrder = 1; world.add(im); pickables.push(im); noLine.push(im); return im; });
-  const ledges = new THREE.InstancedMesh(withAlpha(new THREE.BoxGeometry(1.02, .035, .08), SONGS.length), fading(flat(C.ink)), SONGS.length); ledges.frustumCulled = false; ledges.renderOrder = 1; world.add(ledges); noLine.push(ledges);
+  let TIERS = 1, bowl = [], ledges = null;
+  // the wall is rebuilt whole when the library changes: one instanced mesh per atlas of covers, one for the ledges
+  function buildBowl() {
+    for (const im of [...bowl, ledges].filter(Boolean)) { world.remove(im); unpick([im]); const k = noLine.indexOf(im); if (k >= 0) noLine.splice(k, 1); im.geometry.dispose(); im.material.dispose(); }
+    TIERS = Math.max(1, Math.ceil(SONGS.length / PER));
+    const at = SONGS.map(sg => atlas.cell(bind.cover(sg.cover), sg.albumKey || sg.id)), byPage = atlas.pages.map(() => []);
+    at.forEach((c, i) => byPage[c.page].push(i));
+    bowl = byPage.map((ids, pg) => { const geo = withAlpha(bowlGeo, ids.length), cells = new Float32Array(ids.length * 2);
+      ids.forEach((i, j) => cells.set(CoverAtlas.uv(at[i].cell), j * 2)); geo.setAttribute('iCell', new THREE.InstancedBufferAttribute(cells, 2));
+      const im = new THREE.InstancedMesh(geo, fadingAtlas(flat('#fff', { map: atlas.pages[pg].tex })), ids.length); im.userData = { kind: 'bowl', ids }; im.castShadow = true; im.frustumCulled = false; im.renderOrder = 1; world.add(im); pickables.push(im); noLine.push(im); return im; });
+    ledges = new THREE.InstancedMesh(withAlpha(new THREE.BoxGeometry(1.02, .035, .08), SONGS.length), fading(flat(C.ink)), SONGS.length); ledges.frustumCulled = false; ledges.renderOrder = 1; world.add(ledges); noLine.push(ledges);
+    labelCache.forEach(t => t.dispose()); labelCache.clear(); signCache.forEach(t => t.dispose()); signCache.clear();
+    if (typeof pools !== 'undefined') pools.forEach(p => p.tier = -1);
+    hoverSong = chosenSong = -1; tierGoal = Math.min(tierGoal, TIERS - 1); tierAt = Math.min(tierAt, TIERS - 1); }
   // the rail: tierAt follows tierGoal on a critically damped spring; the goal snaps to a whole tier once the wheel rests
   let tierAt = 2, tierVel = 0, tierGoal = 2, wheelRest = 0;
   const labelCache = new Map(), signCache = new Map();
-  const songLabel = (i) => { if (!labelCache.has(i)) { const s = SONGS[i]; labelCache.set(i, textTex(480, 88, (g, w, h) => { g.fillStyle = '#29241F'; g.font = '500 34px "Noto Serif TC", serif'; g.textAlign = 'center'; g.fillText(s.title, w / 2, 38); g.fillStyle = '#7a6f63'; g.font = 'italic 400 24px "Source Serif 4", serif'; g.fillText(s.artist, w / 2, 74); })); } return labelCache.get(i); };
-  const tierLabel = (t) => { if (!signCache.has(t)) { const a = SONGS[t * PER], b = SONGS[Math.min(SONGS.length, (t + 1) * PER) - 1]; signCache.set(t, textTex(640, 100, (g, w, h) => { g.fillStyle = '#C4603F'; g.font = '500 34px "Noto Sans TC", sans-serif'; g.textAlign = 'center'; g.fillText(`第 ${t + 1} 層　${a.title[0]} — ${b.title[0]}`, w / 2, 62); })); } return signCache.get(t); };
+  const songLabel = (i) => { if (!labelCache.has(i)) { if (labelCache.size > 320) { const [k, t] = labelCache.entries().next().value; t.dispose(); labelCache.delete(k); } const s = SONGS[i]; labelCache.set(i, textTex(480, 88, (g, w, h) => { g.fillStyle = '#29241F'; g.font = '500 34px "Noto Serif TC", serif'; g.textAlign = 'center'; g.fillText(s.title, w / 2, 38); g.fillStyle = '#7a6f63'; g.font = 'italic 400 24px "Source Serif 4", serif'; g.fillText(s.artist, w / 2, 74); })); } return labelCache.get(i); };
+  const tierLabel = (t) => { if (!signCache.has(t)) { const a = SONGS[t * PER], b = SONGS[Math.min(SONGS.length, (t + 1) * PER) - 1]; signCache.set(t, textTex(640, 100, (g, w, h) => { g.fillStyle = '#C4603F'; g.font = '500 34px "Noto Sans TC", sans-serif'; g.textAlign = 'center'; g.fillText(`第 ${t + 1} 層　${(a?.title || ' ')[0]} — ${(b?.title || ' ')[0]}`, w / 2, 62); })); } return signCache.get(t); };
   // two sets of labels: the tier leaving and the tier arriving cross-fade, each riding with its own covers
   const mkPool = () => ({ tier: -1, labels: Array.from({ length: PER }, () => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, .22), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })); m.renderOrder = 3; world.add(m); return m; }),
     sign: (() => { const m = new THREE.Mesh(new THREE.PlaneGeometry(3.2, .5), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })); m.renderOrder = 3; world.add(m); return m; })() });
@@ -386,6 +406,7 @@ export function createWorld(): { dispose(): void } {
   const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   const railAlpha = (rel, y) => (1 - sm(2.3, 3.3, Math.abs(rel))) * sm(-.15, .35, y);
   let hoverSong = -1, chosenSong = -1;
+  buildBowl();
   const tmp = new V3();
   function layoutBowl() { let n = 0; const la = ledges.geometry.attributes.iAlpha;
     bowl.forEach(im => { const al = im.geometry.attributes.iAlpha; im.userData.ids.forEach((i, j) => { const { rel } = songPose(i, tierAt, tmp), a = railAlpha(rel, tmp.y), lift = (i === hoverSong || i === chosenSong) ? .12 : 0;
@@ -411,14 +432,19 @@ export function createWorld(): { dispose(): void } {
 
   /* ---------- north chapel: one large playlist arch faces the door, the rest are smaller ---------- */
   const listMeshes = [];
-  [6, 7, 5, 0, 4, 1, 3].forEach((pi, k) => { const p = lists.panels[pi], pl = PLAYLISTS[k]; if (!p || !pl) return; const big = k === 0, aw = big ? 3.8 : 2.5, ah = big ? 5.4 : 3.7, art = big ? 2.5 : 1.6;
-    const c = mk(512, 512), g = c.getContext('2d'); pl.ids.slice(0, 4).forEach((id, q) => g.drawImage(coverCanvas[SONGS[id].cover], (q % 2) * 256, (q >> 1) * 256, 256, 256));
-    const grp = new THREE.Group(); grp.position.set(0, 0, -T / 2 - .02); grp.rotation.y = Math.PI; p.add(grp);
-    mesh(extrude(new THREE.Shape(archPts(aw, ah)), .08), big ? MAT.mist : toon(k % 2 ? '#B2C0CF' : '#C9D2DA'), grp).position.y = .35;
-    const im = new THREE.Mesh(new THREE.PlaneGeometry(art, art), flat('#fff', { map: tex(c) })); im.position.set(0, .35 + ah * .5, .1); grp.add(im);
-    mesh(box(art + .1, art + .1, .04), MAT.ink, grp).position.set(0, .35 + ah * .5, .07);
-    const plq = label(grp, labelTex(pl.name, `${pl.ids.length} 首 · ${pl.note}`), big ? 2.2 : 1.7, big ? .6 : .46, 0, .35 + ah * .5 - art / 2 - .5, .1);
-    im.userData = { kind: 'playlist', i: k }; pickables.push(im); listMeshes.push({ grp, plq, panel: pi }); });
+  // a playlist's collage is its first four songs' covers
+  const collageOf = (pl) => thumbs.collage(pl.ids.slice(0, 4).map(id => SONGS[songById.get(id)]).filter(Boolean).map(sg => ({ url: bind.cover(sg.cover), key: sg.albumKey || sg.id })), pl.id);
+  function buildLists() {
+    listMeshes.forEach(L => { unpick([L.im]); freeGroup(L.grp); }); listMeshes.length = 0;
+    [6, 7, 5, 0, 4, 1, 3].forEach((pi, k) => { const p = lists.panels[pi], pl = PLAYLISTS[k]; if (!p || !pl) return; const big = k === 0, aw = big ? 3.8 : 2.5, ah = big ? 5.4 : 3.7, art = big ? 2.5 : 1.6;
+      const grp = new THREE.Group(); grp.position.set(0, 0, -T / 2 - .02); grp.rotation.y = Math.PI; p.add(grp);
+      mesh(extrude(new THREE.Shape(archPts(aw, ah)), .08), big ? MAT.mist : (k % 2 ? listTone[0] : listTone[1]), grp).position.y = .35;
+      const im = own(new THREE.Mesh(new THREE.PlaneGeometry(art, art), flat('#fff', { map: collageOf(pl) }))); im.position.set(0, .35 + ah * .5, .1); grp.add(im);
+      mesh(box(art + .1, art + .1, .04), MAT.ink, grp).position.set(0, .35 + ah * .5, .07);
+      const plq = own(label(grp, labelTex(pl.name, pl.note), big ? 2.2 : 1.7, big ? .6 : .46, 0, .35 + ah * .5 - art / 2 - .5, .1), true);
+      im.userData = { kind: 'playlist', i: k }; pickables.push(im); listMeshes.push({ grp, plq, im, panel: pi }); }); }
+  const listTone = [toon('#B2C0CF'), toon('#C9D2DA')];
+  buildLists();
 
   /* ---------- south chapel: each kind of setting is a small geometric sculpture on a plinth ---------- */
   const SECTIONS = [['look', '外觀', 'Appearance'], ['light', '光影', 'Light & Performance'], ['motion', '動態', 'Motion & Control'], ['lyrics', '歌詞', 'Lyrics'], ['audio', '音訊', 'Audio · Hi-Fi']];
@@ -441,13 +467,26 @@ export function createWorld(): { dispose(): void } {
     stations.push({ key, grp, sc, title }); });
 
   /* ---------- the sanctuary: a clay arch, the cover on it, the words in ink on paper ---------- */
-  const altarArt = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), flat('#fff', { map: coverTex[0] }));
+  const altarArt = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), flat('#fff', { map: covers.get(null, 'none') }));
   const lyricMeshes = [];
   { const p = sanct.panels[4], rer = new THREE.Group(); rer.position.set(0, 0, -T / 2 - .02); rer.rotation.y = Math.PI; p.add(rer);
     mesh(extrude(new THREE.Shape(archPts(6.2, 11)), .1), MAT.clay, rer).position.y = .4;
     mesh(box(3.3, 3.3, .05), MAT.ink, rer).position.set(0, 7.3, .14); altarArt.position.set(0, 7.3, .17); rer.add(altarArt);
     mesh(box(5.2, 3.6, .05), MAT.paper, rer).position.set(0, 3.2, .14);
-    LYRICS.forEach((l) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(5.4, .6), flat('#fff', { map: lyricTex(l), transparent: true, depthWrite: false })); m.position.set(0, 3.2, .2); m.renderOrder = 6; rer.add(m); noLine.push(m); lyricMeshes.push({ m, y: 3.2, o: 0 }); }); }
+    for (let k = 0; k < 9; k++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(5.4, .6), flat('#fff', { transparent: true, depthWrite: false, opacity: 0 })); m.visible = false; m.position.set(0, 3.2, .2); m.renderOrder = 6; rer.add(m); noLine.push(m); lyricMeshes.push({ m, y: 3.2, o: 0, idx: -1 }); } }
+  // the song's lines as textures, drawn once each while the song lasts
+  const lineTex = new Map();
+  const lineTexOf = (i) => { let t = lineTex.get(i); if (!t) { t = lyricTex(NOW.lines[i]?.text || ''); lineTex.set(i, t); } return t; };
+  // the wall shows the line being sung and three either side; a card leaving fades before it takes a new line
+  function wallTick(dt) { const n = NOW.lines.length, cur = curLine, want = new Set();
+    for (let d = -3; d <= 3; d++) { const i = cur + d; if (cur >= 0 && i >= 0 && i < n) want.add(i); }
+    lyricMeshes.forEach(L => { if (L.idx >= 0 && !want.has(L.idx) && L.o < .01) { L.idx = -1; L.m.visible = false; } });
+    for (const i of want) if (!lyricMeshes.some(L => L.idx === i)) { const L = lyricMeshes.find(x => x.idx < 0); if (!L) break; L.idx = i; L.m.material.map = lineTexOf(i); L.m.material.needsUpdate = true; L.o = 0; L.y = 3.2 - (i - cur) * .78 * (L.base || 1) - .3; }
+    lyricMeshes.forEach(L => { if (L.idx < 0) return; const d = L.idx - cur, b = L.base || 1, inWin = want.has(L.idx);
+      const ty = 3.2 - d * .78 * b, to = !inWin ? 0 : d === 0 ? 1 : Math.max(0, .4 - Math.abs(d) * .16), q = Math.min(1, dt * 5);
+      L.y += (ty - L.y) * q; L.o += (to - L.o) * q; L.m.position.y = L.y; L.m.scale.setScalar((d === 0 ? 1 : .8) * b); L.m.material.opacity = L.o * (1 - sstep(.95, 1.4, Math.abs(L.y - 3.2))) * scene3.wallFade; L.m.visible = L.m.material.opacity > .003 && Math.abs(L.y - 3.2) < 1.7; }); }
+  // the line being sung at t (shown a moment early, as the lyrics fly off the wall ahead of the voice)
+  const lineAt = (t) => { const L = NOW.lines; let k = -1; for (let i = 0; i < L.length; i++) { if (L[i].t <= t + .35) k = i; else break; } return k; };
 
   /* ---------- light beams: soft volumes, no sheets. Each beam is an axis with two radii (plus a strength);
      a post pass integrates every beam along each pixel's view ray, stopping at the scene's depth ---------- */
@@ -699,18 +738,19 @@ export function createWorld(): { dispose(): void } {
   function hideCards() { $('focus').hidden = true; $('f-list').hidden = true; }
   function focusAlbum(i) { const m = albumMeshes[i]; if (!m) return; const s = m.s; chosenSong = -1; $('ledger').hidden = true;
     fly(new V3(s.x - s.side * 4.4, EYE, s.z), s.side > 0 ? -Math.PI / 2 : Math.PI / 2, .1);
-    showFocus('專輯 · 中殿', ALBUMS[i][0], `${ALBUMS[i][1]}，${ALBUMS[i][2]}`, () => play(SONGS.findIndex(x => x.album === ALBUMS[i][0]))); }
+    showFocus('專輯 · 中殿', ALBUMS[i].title, [ALBUMS[i].artist, ALBUMS[i].year].filter(Boolean).join('，'), () => play(ALBUMS[i].ids, 0)); }
   function focusSong(i) { chosenSong = i; const t = Math.floor(i / PER); tierGoal = t; const a = songAngle(i); $('ledger').hidden = true;
     if (room === 'dome') { const tgt = new V3(); songPose(i, t, tgt); const d = tgt.clone().sub(me.pos); fly(me.pos.clone(), Math.atan2(-d.x, -d.z), Math.atan2(d.y, Math.hypot(d.x, d.z)) * .8, .7); }
     else fly(new V3(CROSS.c.x, EYE, CROSS.c.z), a, .02, 1);
-    showFocus('歌曲 · 穹頂', SONGS[i].title, `${SONGS[i].artist}，《${SONGS[i].album}》`, () => play(i)); }
+    showFocus('歌曲 · 中堂', SONGS[i].title, [SONGS[i].artist, SONGS[i].album && `《${SONGS[i].album}》`].filter(Boolean).join('，'), () => play(SONGS.map(x => x.id), i)); }
   function focusList(k) { const L = listMeshes[k], pl = PLAYLISTS[k]; $('ledger').hidden = true; const w = new V3(); L.grp.getWorldPosition(w); const d = w.clone().sub(LISTS.c).setY(0).normalize();
     fly(new V3(LISTS.c.x + d.x * 2.2, EYE, LISTS.c.z + d.z * 2.2), Math.atan2(-d.x, -d.z), .08);
-    showFocus('歌單 · 北禮拜堂', pl.name, `${pl.ids.length} 首 · ${pl.note}`, () => play(pl.ids[0]));
-    const ol = $('f-list'); ol.innerHTML = ''; pl.ids.slice(0, 8).forEach(id => { const li = document.createElement('li'); li.textContent = SONGS[id].title; ol.append(li); }); ol.hidden = false; }
+    showFocus('歌單 · 北禮拜堂', pl.name, pl.note, () => play(pl.ids, 0));
+    const ol = $('f-list'); ol.innerHTML = ''; pl.ids.slice(0, 8).forEach(id => { const sg = SONGS[songById.get(id)]; if (!sg) return; const li = document.createElement('li'); li.textContent = sg.title; ol.append(li); }); ol.hidden = false; }
   let onPlay = null; function showFocus(eye, title, meta, fn) { setTimeout(freePointer, 0); $('f-eye').textContent = eye; $('f-title').textContent = title; $('f-meta').textContent = meta; onPlay = fn; $('f-list').hidden = true; $('focus').hidden = false; }
   let playing = false, songT = 0, seated = false;
-  function play(i) { const s = SONGS[Math.max(0, i)]; $('p-title').textContent = s.title; $('p-sub').textContent = `${s.artist} · ${s.album}`; altarArt.material.map = coverTex[s.cover]; altarArt.material.needsUpdate = true; nowCover = s.cover; apply(); songT = 0; playing = true; $('pp').textContent = '❚❚'; $('pp').setAttribute('aria-label', '暫停'); if (au.ready) startSong(); updateAmbient(); hideCards(); setPlace('altar'); }
+  // Cadenza plays; the scene follows (the card, the cover, the lyrics change when the player says so, in frame())
+  function play(ids, index) { bind.play(ids, index); hideCards(); setPlace('altar'); }
 
   /* ---------- the settings ledger: opens beside the sculpture you chose ---------- */
   const seg = (k, opts) => `<div class="seg" role="group">${opts.map(([v, t]) => `<button data-k="${k}" data-v="${v}" aria-pressed="${String(S[k]) === String(v)}">${t}</button>`).join('')}</div>`;
@@ -766,7 +806,7 @@ export function createWorld(): { dispose(): void } {
   // with the view locked, the reticle is the pointer: it lights up over anything you can use and names it
   function reticleHover() { if (!locked) return; const h = pickAt(innerWidth / 2, innerHeight / 2), r = $('reticle'), tip = $('tip'); r.classList.toggle('hot', !!h); hoverSong = h && h.kind === 'song' ? h.i : -1;
     if (h) { const t = tipText(h), again = lastPick === h.kind + ':' + (h.i ?? h.key) && !$('focus').hidden; tip.innerHTML = `${t[0]}<small>${again ? '再點一下播放' : t[1]}</small>`; tip.style.left = innerWidth / 2 + 'px'; tip.style.top = innerHeight / 2 + 'px'; tip.hidden = false; } else tip.hidden = true; }
-  const tipText = (h) => h.kind === 'sofa' ? ['坐下', '從這裡看'] : h.kind === 'song' ? [SONGS[h.i].title, SONGS[h.i].artist] : h.kind === 'album' ? [ALBUMS[h.i][0], ALBUMS[h.i][1]] : h.kind === 'playlist' ? [PLAYLISTS[h.i].name, `${PLAYLISTS[h.i].ids.length} 首`] : [SECTIONS.find(s => s[0] === h.key)[1], '打開設定'];
+  const tipText = (h) => h.kind === 'sofa' ? ['坐下', '從這裡看'] : h.kind === 'song' ? [SONGS[h.i]?.title || '', SONGS[h.i]?.artist || ''] : h.kind === 'album' ? [ALBUMS[h.i]?.title || '', ALBUMS[h.i]?.artist || ''] : h.kind === 'playlist' ? [PLAYLISTS[h.i]?.name || '', PLAYLISTS[h.i]?.note || ''] : [SECTIONS.find(s => s[0] === h.key)[1], '打開設定'];
   canvas.addEventListener('pointermove', e => {
     if (looking || locked) {
       // pointer lock sometimes reports one huge jump (on lock, unlock or focus): drop those, they are what 'reset' the view
@@ -787,20 +827,22 @@ export function createWorld(): { dispose(): void } {
     if (e.key === 'Escape') { hideCards(); $('ledger').hidden = true; }
     if (e.key === 'Alt' && locked) { e.preventDefault(); document.exitPointerLock?.(); return; }
     if (e.code === 'KeyR') { rise = true; seated = false; flight = null; return; }
+    if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'nave') { e.preventDefault(); hideCards(); setNavePage(navePg + (e.code === 'PageDown' ? 1 : -1)); return; }
     if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'dome') { e.preventDefault(); tierGoal = Math.max(0, Math.min(TIERS - 1, Math.round(tierGoal) + (e.code === 'PageDown' ? 1 : -1))); return; }
     if (e.code === 'Space' && !(locked && immersive())) { e.preventDefault(); togglePlay(); return; }
     keys.add(e.code); if (['Space', 'ShiftLeft', 'ShiftRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
   });
   onW('keyup', e => keys.delete(e.code)); onW('blur', () => keys.clear());
-  function togglePlay() { playing = !playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', playing ? '暫停' : '播放'); updateAmbient(); }
+  function togglePlay() { bind.toggle(); }
 
   $('pp').onclick = togglePlay; $('p-go').onclick = () => setPlace('altar');
   Object.keys(PLACES).forEach(k => $('go-' + k).onclick = () => { hideCards(); setPlace(k); });
   $('f-close').onclick = () => { hideCards(); chosenSong = -1; takePointer(); }; $('f-play').onclick = () => { onPlay && onPlay(); takePointer(); };
   $('immersive').onchange = () => { if (!immersive()) document.exitPointerLock?.(); };
   $('q').addEventListener('input', () => { const q = $('q').value.trim(), ul = $('results'); ul.innerHTML = ''; if (!q) { ul.hidden = true; return; }
-    const hits = [...PLAYLISTS.map((p, i) => ({ t: p.name, s: `歌單 · ${p.ids.length} 首`, go: () => focusList(i) })), ...ALBUMS.map((a, i) => ({ t: a[0], s: `專輯 · ${a[1]}`, go: () => focusAlbum(i) })), ...SONGS.map((s, i) => ({ t: s.title, s: `歌曲 · ${s.artist}`, go: () => focusSong(i) }))].filter(x => x.t.includes(q) || x.s.includes(q)).slice(0, 8);
-    hits.forEach(h => { const li = document.createElement('li'), b = document.createElement('button'); b.innerHTML = `${h.t}<small>${h.s}</small>`; b.onclick = () => { ul.hidden = true; $('q').value = ''; $('q').blur(); h.go(); }; li.append(b); ul.append(li); });
+    const ql = q.toLowerCase(), has = (x) => x.t.toLowerCase().includes(ql) || x.s.toLowerCase().includes(ql);
+    const hits = [...PLAYLISTS.map((p, i) => ({ t: p.name, s: `歌單 · ${p.note}`, go: () => focusList(i) })), ...LIB.albums.map((a, j) => ({ t: a.title, s: `專輯 · ${a.artist}`, go: () => { setNavePage(Math.floor(j / NAVE_SLOTS)); focusAlbum(j % NAVE_SLOTS); } })), ...SONGS.map((s, i) => ({ t: s.title, s: `歌曲 · ${s.artist}`, go: () => focusSong(i) }))].filter(has).slice(0, 8);
+    hits.forEach(h => { const li = document.createElement('li'), b = document.createElement('button'); b.textContent = h.t; const sm = document.createElement('small'); sm.textContent = h.s; b.append(sm); b.onclick = () => { ul.hidden = true; $('q').value = ''; $('q').blur(); h.go(); }; li.append(b); ul.append(li); });
     ul.hidden = !hits.length; });
   $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { const b = $('results').querySelector('button'); if (b) b.click(); } });
 
@@ -863,7 +905,7 @@ export function createWorld(): { dispose(): void } {
       const rooms = Object.keys(RT60), next = () => { const r = rooms.shift(); if (!r) return; au.verbs[r].cv.buffer = makeIR(ctx, RT60[r]); later(next); }, later = (f) => window.requestIdleCallback ? window.requestIdleCallback(f, { timeout: 600 }) : setTimeout(f, 200); next();
       updateAmbient(); } catch (e) { au.failed = true; } }
   // in the prototype the demo songs are silent, so the room's music stands in for them (marked as such in the player)
-  function startSong() { if (!au.ready) return; stopSong(); const src = au.ctx.createBufferSource(); src.buffer = au.buf; src.loop = true; src.connect(au.direct); src.connect(au.scene); src.start(); au.song = src; }
+  function startSong() { return; if (!au.ready) return; stopSong(); const src = au.ctx.createBufferSource(); src.buffer = au.buf; src.loop = true; src.connect(au.direct); src.connect(au.scene); src.start(); au.song = src; }
   function stopSong(delay = 0) { const s = au.song; au.song = null; if (s) try { s.stop(au.ctx.currentTime + delay); } catch (e) {} }
   function aramp(p, v, sec) { const t = au.ctx.currentTime; p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + sec); }
   function updateAmbient() { if (!au.ready) return; const vol = +(S.musicVol ?? .6);
@@ -951,7 +993,7 @@ export function createWorld(): { dispose(): void } {
     if (want && !scene3.on) { scene3.on = true; scene3.lastIdx = -1; }
     if (!playing && scene3.on) { scene3.on = false; scene3.lines.forEach(fall); }
     scene3.wallFade += ((scene3.on ? 0 : 1) - scene3.wallFade) * Math.min(1, dt * 3);   // the paper empties while its words are out in the room
-    if (scene3.on) { const idx = Math.floor(songT / 3.2) % LYRICS.length; if (idx !== scene3.lastIdx) { scene3.lines.forEach(l => { if (!l.falling && now - l.t0 > 2600) l.leave = now + 1200; }); spawnLine(LYRICS[idx], idx); } }
+    if (scene3.on) { const idx = curLine; if (idx >= 0 && idx !== scene3.lastIdx) { scene3.lines.forEach(l => { if (!l.falling && now - l.t0 > 2600) l.leave = now + 1200; }); spawnLine(NOW.lines[idx].text, idx); } }
     if (followTo != null) { me.yaw += (wrapTo(me.yaw, followTo) - me.yaw) * Math.min(1, dt * 1.5); if (Math.abs(wrapTo(me.yaw, followTo) - me.yaw) < .01) followTo = null; }
     const air = scene3.lines.filter(l => !l.falling); while (air.length > 4) fall(air.shift());
     for (let i = scene3.lines.length - 1; i >= 0; i--) { const l = scene3.lines[i], age = (now - l.t0) / 1000;
@@ -984,7 +1026,12 @@ export function createWorld(): { dispose(): void } {
   const fwd = new V3(), right = new V3(), acc = new V3(), tng = new V3(), gp = new V3(), gd = new V3(), camDir = new V3();
   function frame(now) {
     if (!alive) return; requestAnimationFrame(frame); const dt = Math.min(.05, (now - last) / 1000); last = now;
-    if (playing) songT += dt; $('p-bar').style.width = `${(songT % 200) / 2}%`;
+    NOW = bind.now(); songT = NOW.t; $('p-bar').style.width = `${NOW.dur ? Math.min(100, NOW.t / NOW.dur * 100) : 0}%`;
+    if (NOW.playing !== playing) { playing = NOW.playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', playing ? '暫停' : '播放'); updateAmbient(); }
+    if (NOW.id !== nowId) { nowId = NOW.id; $('p-title').textContent = NOW.title || '尚未播放'; $('p-sub').textContent = [NOW.artist, NOW.album].filter(Boolean).join(' · ');
+      altarArt.material.map = covers.get(NOW.coverFull, NOW.id || 'none'); altarArt.material.needsUpdate = true;
+      lineTex.forEach(t => t.dispose()); lineTex.clear(); lyricMeshes.forEach(L => { L.idx = -1; L.m.visible = false; }); scene3.lastIdx = -1; }
+    curLine = lineAt(NOW.t);
     if (flight) { const u = Math.max(0, Math.min(1, (now - flight.t0) / flight.dur)), k = ease(u);
       if (flight.curve) { flight.curve.getPointAt(k, me.pos); flight.curve.getTangentAt(Math.min(1, k + .03), tng); const ty = Math.atan2(-tng.x, -tng.z);
         const yw = wrapTo(flight.y0, ty), endw = sstep(.72, 1, k), startw = sstep(0, .14, k); let y = flight.y0 + (yw - flight.y0) * startw; y = y + (wrapTo(y, flight.yaw) - y) * endw;
@@ -1022,20 +1069,17 @@ export function createWorld(): { dispose(): void } {
     // windows glare when you face them
     glares.forEach(g => { g.getWorldPosition(gp); g.parent.getWorldDirection(gd); const f = Math.max(0, -gd.dot(camDir.set(0, 0, -1).applyQuaternion(camera.quaternion))), dist = gp.distanceTo(camera.position); g.material.opacity = Math.pow(f, 6) * .75 * Math.min(1, dist / 6); });
     dream.step(dt); audioTick(dt); lyricsTick(now, dt); if (locked && immersive() && (frameN++ % 4 === 0)) reticleHover();
-    const cur = Math.floor(songT / 3.2) % LYRICS.length;
-    lyricMeshes.forEach((L, k) => { let d = k - cur; if (d < -3) d += LYRICS.length; if (d > LYRICS.length - 4) d -= LYRICS.length; const b = L.base || 1;
-      const ty = 3.2 - d * .78 * b, to = d === 0 ? 1 : Math.max(0, .4 - Math.abs(d) * .16), q = Math.min(1, dt * 5);
-      L.y += (ty - L.y) * q; L.o += (to - L.o) * q; L.m.position.y = L.y; L.m.scale.setScalar((d === 0 ? 1 : .8) * b); L.m.material.opacity = L.o * (1 - sstep(.95, 1.4, Math.abs(L.y - 3.2))) * scene3.wallFade; L.m.visible = L.m.material.opacity > .003 && Math.abs(L.y - 3.2) < 1.7; });
+    wallTick(dt);
     renderer.shadowMap.needsUpdate = true; composer.render();
   }
   window.__cad = { scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
     for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
   const start = () => { apply(); buildBeams(); resize(); layoutBowl(); $('loading').style.opacity = 0; setTimeout(() => $('loading').hidden = true, 800); requestAnimationFrame(frame); };
-  (document.fonts ? Promise.race([Promise.all(['500 40px "Noto Serif TC"', 'italic 400 20px "Source Serif 4"', '500 30px "Noto Sans TC"'].map(f => document.fonts.load(f))), new Promise(r => setTimeout(r, 2500))]) : Promise.resolve())
-    .then(() => { albumMeshes.forEach((a, i) => { a.pl.material.map = labelTex(ALBUMS[i][0], `${ALBUMS[i][1]}, ${ALBUMS[i][2]}`); a.pl.material.needsUpdate = true; });
-      listMeshes.forEach((L, k) => { L.plq.material.map = labelTex(PLAYLISTS[k].name, `${PLAYLISTS[k].ids.length} 首 · ${PLAYLISTS[k].note}`); L.plq.material.needsUpdate = true; });
-      stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });
-      lyricMeshes.forEach((L, k) => { L.m.material.map = lyricTex(LYRICS[k]); L.m.material.needsUpdate = true; }); labelsFor = -1; start(); });
+  stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });
+  start();
+  // a changed library rebuilds the rooms that show it (gathered by bind.ts)
+  const offLibrary = bind.onLibrary((l) => { LIB = l; SONGS = l.songs; songById = new Map(SONGS.map((sg, i) => [sg.id, i])); PLAYLISTS = l.playlists.slice(0, LIST_SLOTS);
+    navePg = Math.min(navePg, navePages(l) - 1); ALBUMS = navePage(l, navePg); hideCards(); buildNave(); buildBowl(); buildLists(); layoutBowl(); });
 
-  return { dispose() { alive = false; ac.abort(); try { au.ctx?.close(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
+  return { dispose() { alive = false; ac.abort(); offLibrary(); covers.dispose(); thumbs.dispose(); atlas.dispose(); try { au.ctx?.close(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
 }
