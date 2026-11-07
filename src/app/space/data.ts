@@ -34,3 +34,12 @@ export function fromLibrary(tracks: Track[], favorites: string[], playlists: Pla
 /** The albums on the nave's walls for one page (empty slots stay bare). */
 export const navePage = (lib: SpaceLibrary, page: number) => lib.albums.slice(page * NAVE_SLOTS, (page + 1) * NAVE_SLOTS);
 export const navePages = (lib: SpaceLibrary) => Math.max(1, Math.ceil(lib.albums.length / NAVE_SLOTS));
+
+/** The song's rhythm at song time t, for the scene: the accent clock (the floating things' time), how far an accent has
+ *  slowed it (0..1: the beams' swell), the quick pulse on every event. `clock` is the rhythm SDK's accentClock. */
+export interface SpaceRhythm { clock: number; dip: number; pulse: number }
+export function rhythmAt<M>(clock: (map: M, t: number) => number, s: { map?: M; sig?: { pulse(t: number): number } } | null | undefined, t: number): SpaceRhythm | null {
+  if (!s?.map || !s.sig) return null;
+  const h = 0.03, c0 = clock(s.map, t), v = (clock(s.map, t + h) - c0) / h;
+  return { clock: c0, dip: Math.max(0, Math.min(1, (1 - v) / 0.8)), pulse: Math.max(0, Math.min(1, s.sig.pulse(t))) };
+}

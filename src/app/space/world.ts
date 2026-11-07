@@ -39,7 +39,6 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   const covers = new CoverCache(512, 48), thumbs = new CoverCache(256, 96), atlas = new CoverAtlas(256);
   // the song playing, read from bind once a frame
   let NOW: SpaceNow = bind.now(), nowId = undefined, curLine = -1;
-  const BEAT = 60 / 112;
 
   /* ---------- palette: paper and shade make the space, ink makes the line, accents stay under 10% ---------- */
   const C = { wheat: '#E8DCC4', oat: '#D8C7A8', ivory: '#F5EEE0', taupe: '#BFAF97', ink: '#29241F', clay: '#D97757', kraft: '#C99A6E', olive: '#8C9A62', mist: '#8BA2BD', apricot: '#FFE3B8' };
@@ -57,7 +56,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   /* ---------- light: a cool ambient paints the shade colour, one warm sun paints the light ---------- */
   const SUN_DIR = new V3(.42, 1, .18).normalize();
   const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b);
-  scene.add(new THREE.AmbientLight(lin(.72, .68, .64), Math.PI));   // a little lower: the room was too bright
+  const ambLight = new THREE.AmbientLight(lin(.72, .68, .64), Math.PI); scene.add(ambLight);   // a little lower: the room was too bright
   const sun = new THREE.DirectionalLight(lin(.34, .31, .22), Math.PI); sun.castShadow = true; sun.shadow.bias = -0.0004; sun.shadow.normalBias = .09; scene.add(sun, sun.target);
   const fill = new THREE.DirectionalLight(lin(.12, .11, .1), Math.PI); fill.position.set(-.6, .7, .9); scene.add(fill);   // no shadow: gives round things a second tone
 
@@ -66,9 +65,10 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   const toon = (c, o = {}) => new THREE.MeshToonMaterial({ color: c, gradientMap: ramp, ...o });
   const flat = (c, o = {}) => new THREE.MeshBasicMaterial({ color: c, ...o });
   // walls brighten from wheat at the floor to ivory under the vault: light comes from above
+  const WASH_TOP = { value: new THREE.Color(C.ivory) };   // the colour the walls lighten toward under the vault (tinted by the cover)
   const skyWash = (m, y0 = 1, y1 = 18, k = .55) => { m.onBeforeCompile = (sh) => {
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vWY;').replace('#include <project_vertex>', '#include <project_vertex>\nvWY = (modelMatrix * vec4(transformed, 1.)).y;');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vWY;').replace('#include <color_fragment>', `#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(${new THREE.Color(C.ivory).toArray().map(v => v.toFixed(4)).join(',')}), smoothstep(${y0.toFixed(1)}, ${y1.toFixed(1)}, vWY) * ${k.toFixed(2)});`); };
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vWY;').replace('#include <color_fragment>', `#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uWashTop, smoothstep(${y0.toFixed(1)}, ${y1.toFixed(1)}, vWY) * ${k.toFixed(2)});`).replace('#include <common>', '#include <common>\nuniform vec3 uWashTop;'); sh.uniforms.uWashTop = WASH_TOP; };
     m.customProgramCacheKey = () => 'wash' + y0 + y1 + k; return m; };
   // a baked surface: no lighting at all, only a vertical gradient chosen by hand
   function baked(lo, hi, y0, y1, o) { const m = flat(lo, o), top = new THREE.Color(hi); m.onBeforeCompile = (sh) => {
@@ -627,7 +627,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     setSize(w, h) { this.mat.uniforms.aspect.value = w / h; }
     render(r, write, read) { const u = this.mat.uniforms;
       if (false) { this.probe.uniforms.t.value = read.texture; r.setRenderTarget(this.small); this.pq.render(r); r.readRenderTargetPixels(this.small, 0, 0, 8, 8, this.buf); let s = 0, mx = 0; for (let i = 0; i < 64; i++) { const l = this.buf[i * 4] / 255 * 4; s += l; mx = Math.max(mx, l); } this.lum = .55 * s / 64 + .45 * mx; }
-      u.tDiffuse.value = read.texture; u.tD.value = ink.rt.depthTexture; u.near.value = camera.near; u.far.value = camera.far; u.exposure.value = this.exposure;
+      u.tDiffuse.value = read.texture; u.tD.value = ink.rt.depthTexture; u.near.value = camera.near; u.far.value = camera.far; u.exposure.value = this.exposure * (1 + (this.pulse || 0));
       r.setRenderTarget(this.renderToScreen ? null : write); this.q.render(r); }
     // the brighter the light in view, the harder the eye stops down: up to about 80% darker around a window seen straight on
     step(dt) { this.lum = lightInView(); const L = this.lum, goal = Math.max(.2, 1 / (1 + 1.55 * Math.max(0, L - .55)));
@@ -1035,7 +1035,21 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   /* ---------- the frame ---------- */
   function resize() { const w = innerWidth, h = innerHeight, pr = renderer.getPixelRatio(); renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); if (motes) motes.material.uniforms.px.value = pr * h / 800; }
   onW('resize', resize);
-  let frameN = 0, last = performance.now(), lastBeat = -1, accent = 0, motion = 0, rise = false;
+  let frameN = 0, last = performance.now(), accent = 0, motion = 0, rise = false, swell = 0, lastClock = null;
+  // the scene's colour: the walls' wash, the shade, the beams and their pools lean toward the cover's colour, within
+  // limits (the cathedral is tinted, never repainted), and move there over about two seconds
+  const T0 = { wash: new THREE.Color(C.ivory), amb: lin(.72, .68, .64), beam: new THREE.Color(C.apricot), pool: new THREE.Color('#fff') }, T1 = { wash: new THREE.Color(), amb: new THREE.Color(), beam: new THREE.Color(), pool: new THREE.Color() };
+  const _c = new THREE.Color(), _hsl = { h: 0, s: 0, l: 0 };
+  function tintTick(dt) { const rgb = bind.tint();
+    if (!rgb) { T1.wash.copy(T0.wash); T1.amb.copy(T0.amb); T1.beam.copy(T0.beam); T1.pool.copy(T0.pool); }
+    else { _c.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace);
+      T1.wash.copy(T0.wash).lerp(_c.clone().lerp(new THREE.Color('#fff'), .6), .2);                 // the vault's light: up to 20 % of the cover's colour, paled
+      _c.getHSL(_hsl); T1.amb.copy(T0.amb).lerp(new THREE.Color().setHSL(_hsl.h, .35, .55).multiplyScalar(.72 / .55), .15);   // the shade: 15 %
+      T1.beam.setHSL(_hsl.h, Math.min(.75, Math.max(.35, _hsl.s)), Math.max(.75, _hsl.l));          // the beams: the cover's colour as light (lightness at least .75)
+      T1.pool.copy(T1.beam).lerp(new THREE.Color('#fff'), .5); }
+    const k = Math.min(1, dt / .7);
+    WASH_TOP.value.lerp(T1.wash, k); ambLight.color.lerp(T1.amb, k); shafts.mat.uniforms.col.value.lerp(T1.beam, k);
+    lightPools.forEach(m => m.material.color.lerp(T1.pool, k)); }
   const fwd = new V3(), right = new V3(), acc = new V3(), tng = new V3(), gp = new V3(), gd = new V3(), camDir = new V3();
   function frame(now) {
     if (!alive) return; requestAnimationFrame(frame); const dt = Math.min(.05, (now - last) / 1000); last = now;
@@ -1069,15 +1083,19 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     stepRail(dt, now); if (room === 'dome' || Math.abs(tierGoal - tierAt) > .001 || Math.abs(tierVel) > .001) layoutBowl();
     // only the living things move with the music: branches sway, the beams breathe
     // everything stays still; only the motes answer the music
-    const beat = RM() ? 0 : Math.pow(1 - ((songT / BEAT) % 1), 4) * (playing ? 1 : 0);
-    shafts.mat.uniforms.gain.value = .145 * (S.beams ? 1 : 0) * (.97 + beat * .05);
+    const R = playing && NOW.id ? bind.rhythm(NOW.t) : null, P = bind.prefs();
+    // the beams: always lit; an accent lifts them (up within ~80 ms, back over ~half a second), nothing else moves them
+    const swellIn = R && P.beatBeams && !RM() ? R.dip : 0; swell = swellIn > swell ? swell + (swellIn - swell) * Math.min(1, dt / .03) : swell * Math.exp(-dt / .22);
+    // the scene breathes with every event: at most 4 % brighter, deeper on the heavy ones (well under a flash's 10 %)
+    dream.pulse = R && P.pulse && !RM() ? Math.min(.04, .022 * R.pulse + .018 * swell) : 0;
+    tintTick(dt);
+    shafts.mat.uniforms.gain.value = .145 * (S.beams ? 1 : 0) * (1 + .35 * swell);
     // the floor of the crossing: ripples spread out every 8 s; pools follow the beat and breathe on their own phase
-    lightPools.forEach((m, k) => { const t = now / 1000, j = Math.floor(k / 2); m.material.opacity = (k % 2 ? .3 : .55) * (.97 + beat * .05) * (1 + .08 * Math.sin(t * .19 + j * 2.3) * Math.sin(t * .29 + j * 5.1)); });
+    lightPools.forEach((m, k) => { const t = now / 1000, j = Math.floor(k / 2); m.material.opacity = (k % 2 ? .3 : .55) * (1 + .35 * swell) * (1 + .08 * Math.sin(t * .19 + j * 2.3) * Math.sin(t * .29 + j * 5.1)); });
     ripples.forEach((m, k) => { const u = ((now / 1000) / 8 + k / 3) % 1; m.scale.setScalar(3.1 + u * 2.6); m.material.opacity = Math.sin(Math.PI * u) * .55; });
     // accents slow the dust down (like the effect lyrics' slow-motion on heavy beats), then it eases back to speed
-    const bi = Math.floor(songT / BEAT); if (playing && bi !== lastBeat) { lastBeat = bi; if (bi % 4 === 0) accent = 1; }
-    if (!playing && hearAccent(now)) accent = 1;
-    accent = RM() ? 0 : accent * Math.exp(-dt / 1.1); motion += dt * (1 - .85 * accent);
+    if (R) { const step = lastClock == null ? 0 : R.clock - lastClock; lastClock = R.clock; motion += Math.max(0, Math.min(dt * 1.5, step)); accent = RM() ? 0 : R.dip; }
+    else { lastClock = null; if (!playing && hearAccent(now)) accent = 1; accent = RM() ? 0 : accent * Math.exp(-dt / 1.1); motion += dt * (1 - .85 * accent); }
     if (motes) { const u = motes.material.uniforms; u.time.value = motion; u.accent.value = accent; u.still.value = RM() ? 1 : 0; }
     // windows glare when you face them
     glares.forEach(g => { g.getWorldPosition(gp); g.parent.getWorldDirection(gd); const f = Math.max(0, -gd.dot(camDir.set(0, 0, -1).applyQuaternion(camera.quaternion))), dist = gp.distanceTo(camera.position); g.material.opacity = Math.pow(f, 6) * .75 * Math.min(1, dist / 6); });

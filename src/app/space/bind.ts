@@ -2,12 +2,13 @@
 // lyrics here, and plays through here; it never reaches the stores or the player itself. Reads are cheap and made once
 // a frame by the scene (no per-frame subscriptions); a change of library is announced, gathered over a moment, so a scan
 // that adds songs one by one rebuilds the rooms once.
-import { lib, trackOf } from '../state';
+import { lib, trackOf, settings } from '../state';
 import { coverUrl } from '../bridge';
 import { player, playIds, toggle, next, prev, switchOutput } from '../playback/player';
 import { setSettings } from '../actions/settings';
 import { engine, audioContext } from '../playback/stage';
-import { fromLibrary, type SpaceLibrary } from './data';
+import { accentClock } from '../../engine';
+import { fromLibrary, rhythmAt, type SpaceLibrary, type SpaceRhythm } from './data';
 
 export interface NowLine { t: number; end: number; sung: number; text: string }
 export interface SpaceNow {
@@ -25,6 +26,14 @@ export interface SpaceBind {
   cover(key: string | null, full?: boolean): string | null;
   /** the page's audio (Cadenza's one context); where the song goes; whether the Hi-Fi output plays it (outside the page) */
   audio(): { ctx: AudioContext; route(node: AudioNode | null): void; hifi: boolean; useStandard(): Promise<void> };
+  /** the song's rhythm at song time t (null: no song, or not read yet): the accent clock (the drifting things' time),
+   *  how far an accent has slowed it (0..1, the beams' swell), the quick pulse on every event (the scene's breath) */
+  rhythm(t: number): SpaceRhythm | null;
+  /** the scene's colour: from the playing song's cover (its ambient palette), or the fixed colour the settings name;
+   *  null while neither (the wheat house colours) */
+  tint(): [number, number, number] | null;
+  /** the space's own settings */
+  prefs(): { beatBeams: boolean; pulse: boolean };
 }
 
 export function createBind(): SpaceBind {
@@ -45,6 +54,13 @@ export function createBind(): SpaceBind {
     play(ids, index = 0) { if (ids.length) playIds(ids, index).catch(() => {}); },
     toggle, next: () => { next().catch(() => {}); }, prev: () => { prev().catch(() => {}); },
     cover: (key, full = false) => coverUrl(key, full) || null,
+    rhythm: (t) => rhythmAt(accentClock, player.get().session, t),
+    tint() {
+      const st = settings.get();
+      if (st.spaceTint === 'fixed') { const m = /^#?([0-9a-f]{6})$/i.exec(st.spaceTintColor || ''); if (m) { const n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; } }
+      const a = player.get().session?.ambient; return a ? (a.cols[0] || a.base) as [number, number, number] : null;
+    },
+    prefs() { const st = settings.get(); return { beatBeams: st.spaceBeatBeams !== false, pulse: st.spacePulse !== false }; },
     audio: () => ({ ctx: audioContext(), route: (n) => engine.audioRoute(n), hifi: !!engine.clock.external,
       useStandard: async () => { await setSettings({ audioOut: 'standard' }); await switchOutput(); } }),
   };
