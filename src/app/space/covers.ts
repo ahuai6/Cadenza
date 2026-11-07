@@ -17,10 +17,17 @@ export function placeholder(g: CanvasRenderingContext2D, x: number, y: number, w
 }
 
 const images = new Map<string, Promise<HTMLImageElement | null>>();
-/** One load per URL, shared by every texture that shows it. */
+// a few at a time: a library of thousands must not decode all its covers in one go (the newest asks go first: what the
+// room is showing now)
+const queue: (() => void)[] = []; let inFlight = 0; const MAX = 4;
+const pump = () => { while (inFlight < MAX && queue.length) { inFlight++; queue.pop()!(); } };
+/** One load per URL, shared by every texture that shows it. The cover protocol answers with CORS headers and the image is
+ *  asked for anonymously, so a canvas it is drawn into stays readable (WebGL refuses to upload a tainted one). */
 export function loadImage(url: string): Promise<HTMLImageElement | null> {
   let p = images.get(url);
-  if (!p) { p = new Promise(res => { const im = new Image(); im.decoding = 'async'; im.onload = () => res(im); im.onerror = () => res(null); im.src = url; }); images.set(url, p); }
+  if (!p) { p = new Promise(res => queue.push(() => { const im = new Image(); if (!/^data:/.test(url)) im.crossOrigin = 'anonymous'; im.decoding = 'async';
+      const done = (v: HTMLImageElement | null) => { inFlight--; res(v); pump(); }; im.onload = () => done(im); im.onerror = () => done(null); im.src = url; }));
+    images.set(url, p); pump(); }
   return p;
 }
 const mkCanvas = (w: number, h: number) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
@@ -58,20 +65,24 @@ export class CoverCache {
   dispose() { this.map.forEach(v => v.tex.dispose()); this.map.clear(); }
 }
 
-/** The wall's covers: 64 to an atlas, each cell with its own ink border (the ink pass cannot outline the rail). */
+/** The wall's covers: 64 to an atlas, each cell with its own ink border (the ink pass cannot outline the rail). An
+ *  arriving cover marks its atlas dirty; flush() uploads the dirty ones, at most every quarter of a second, so a wall
+ *  filling with covers is a few uploads, not one per cover. */
 export class CoverAtlas {
   static readonly GRID = 8;
-  readonly pages: { tex: THREE.CanvasTexture; g: CanvasRenderingContext2D }[] = [];
+  readonly pages: { tex: THREE.CanvasTexture; g: CanvasRenderingContext2D; dirty: boolean }[] = [];
   private cells = new Map<string, { page: number; cell: number }>();
-  constructor(private cellPx = 256, private ink = '#29241F') {}
+  private flushedAt = 0;
+  constructor(private cellPx = 128, private ink = '#29241F') {}
+  flush(now: number) { if (now - this.flushedAt < 250) return; this.flushedAt = now; for (const P of this.pages) if (P.dirty) { P.dirty = false; P.tex.needsUpdate = true; } }
   /** Where the cover of `key` sits (allotted on first ask, drawn as its image arrives). */
   cell(url: string | null, key: string) {
     const id = url || '#' + key, hit = this.cells.get(id); if (hit) return hit;
     const n = this.cells.size, per = CoverAtlas.GRID ** 2, page = Math.floor(n / per), cell = n % per;
-    if (!this.pages[page]) { const S = this.cellPx * CoverAtlas.GRID, c = mkCanvas(S, S); this.pages[page] = { tex: texOf(c), g: c.getContext('2d')! }; }
+    if (!this.pages[page]) { const S = this.cellPx * CoverAtlas.GRID, c = mkCanvas(S, S); this.pages[page] = { tex: texOf(c), g: c.getContext('2d')!, dirty: true }; }
     const at = { page, cell }; this.cells.set(id, at);
     const P = this.pages[page], x = (cell % CoverAtlas.GRID) * this.cellPx, y = Math.floor(cell / CoverAtlas.GRID) * this.cellPx, s = this.cellPx;
-    const frame = () => { P.g.strokeStyle = this.ink; P.g.lineWidth = s * .027; P.g.strokeRect(x + s * .0137, y + s * .0137, s - s * .027, s - s * .027); P.tex.needsUpdate = true; };
+    const frame = () => { P.g.strokeStyle = this.ink; P.g.lineWidth = s * .027; P.g.strokeRect(x + s * .0137, y + s * .0137, s - s * .027, s - s * .027); P.dirty = true; };
     placeholder(P.g, x, y, s, s, key); frame();
     if (url) loadImage(url).then(im => { if (!im) return; P.g.drawImage(im, x, y, s, s); frame(); });
     return at;

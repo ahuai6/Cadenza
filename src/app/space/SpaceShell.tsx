@@ -18,7 +18,7 @@ import s from './SpaceShell.module.css';
 const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設定播放中清晨的光'], ['notosans', '聖堂中殿全部歌曲'], ['tiempos', 'The Nave Crossing']];
 
 export function SpaceShell() {
-  const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false });
+  const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }), [gen, setGen] = useState(0);
   const world = useRef<{ dispose(): void; takePointer(): void } | null>(null);
   const lang = useStore(langStore, x => x.lang), lite = useStore(settings, x => x.gfx === 'lite');
   useEffect(() => boot(() => setReady(true)), []);
@@ -27,15 +27,17 @@ export function SpaceShell() {
     let gone = false;
     Promise.all(FACES.map(([k, t]) => ensureFont(k, t).catch(() => {}))).then(() => {
       if (gone) return;
-      world.current = createWorld(createBind(), { openSettings: (section) => setCfg({ open: true, section }), closeSettings: () => setCfg(c => c.open ? { open: false } : c) });
+      world.current = createWorld(createBind(), { openSettings: (section) => setCfg({ open: true, section }), closeSettings: () => setCfg(c => c.open ? { open: false } : c),
+        // a lost graphics context: a fresh canvas and scene a moment later (the HUD remounts with it)
+        lost: () => setTimeout(() => setGen(g => g + 1), 600) });
     });
     return () => { gone = true; world.current?.dispose(); world.current = null; };
-  }, [ready, lang]);
+  }, [ready, lang, gen]);
   const close = () => { setCfg({ open: false }); world.current?.takePointer(); };
   return (
     <div className={`space-root ${s.space}${cfg.open ? ' space-cfg' : ''}${lite ? ' space-lite' : ''}`} data-test="space">
       {/* a language change rebuilds the HUD and the scene's labels */}
-      {ready && <div key={lang} ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hudHtml() }} />}
+      {ready && <div key={lang + ':' + gen} ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hudHtml() }} />}
       {ready && cfg.open && <SpaceSettings section={cfg.section} onClose={close} />}
     </div>
   );

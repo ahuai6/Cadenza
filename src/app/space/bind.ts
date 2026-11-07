@@ -51,13 +51,19 @@ export function createBind(): SpaceBind {
   let cur = build(), timer = 0;
   const subs = new Set<(l: SpaceLibrary) => void>();
   function build() { const s = lib.get(); return fromLibrary(s.tracks, s.favorites, s.playlists, { favorites: ts('favorites'), songs: (n) => ts('songs', { n }) }); }
-  lib.subscribe(() => { clearTimeout(timer); timer = window.setTimeout(() => { const n = build(); if (n.sig === cur.sig) return; cur = n; subs.forEach(f => f(cur)); }, 1500); });
+  // (the library store also carries scan and analysis progress: only a change of tracks, favourites or playlists counts)
+  let seen = [lib.get().tracks, lib.get().favorites, lib.get().playlists];
+  lib.subscribe(() => { const v = lib.get(), now = [v.tracks, v.favorites, v.playlists]; if (now.every((x, i) => x === seen[i])) return; seen = now;
+    clearTimeout(timer); timer = window.setTimeout(() => { const n = build(); if (n.sig === cur.sig) return; cur = n; subs.forEach(f => f(cur)); }, 1500); });
   let linesFor: unknown = null, lines: NowLine[] = [];
+  let lastId: string | null | undefined, lastTracks: unknown = null, lastTrack: ReturnType<typeof trackOf> = null;
   return {
     library: () => cur,
     onLibrary(f) { subs.add(f); return () => subs.delete(f); },
     now() {
-      const p = player.get(), id = p.shownId || p.id, t = trackOf(id), s = p.session;
+      const p = player.get(), id = p.shownId || p.id, s = p.session;
+      if (id !== lastId || lib.get().tracks !== lastTracks) { lastId = id; lastTracks = lib.get().tracks; lastTrack = trackOf(id); }   // (looked up once per song, not every frame)
+      const t = lastTrack;
       if (s?.doc !== linesFor) { linesFor = s?.doc ?? null; lines = (s?.doc?.lines || []).filter(L => L.text.trim()).map(L => ({ t: L.t, end: L.end, sung: L.sung, text: L.text })); }
       return { id: id ?? null, title: t?.title || '', artist: t?.albumArtist || t?.artist || '', album: t?.album || '', cover: coverUrl(t?.cover) || null, coverFull: coverUrl(t?.cover, true) || null,
         playing: p.playing, t: engine.time, dur: s?.musicEnd || t?.duration || 0, lines };

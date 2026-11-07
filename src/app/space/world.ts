@@ -18,7 +18,7 @@ import { CoverCache, CoverAtlas } from './covers';
 import { ts } from './i18n';
 import AMBIENT from './ambient.ogg?url';
 
-export interface SpaceUi { openSettings(section?: string): void; closeSettings(): void }
+export interface SpaceUi { openSettings(section?: string): void; closeSettings(): void; /** the graphics context was lost (a driver reset, memory): the shell builds the scene again */ lost(): void }
 export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; takePointer(): void } {
   const ac = new AbortController(); let alive = true;
   const opt = (o) => ({ ...(typeof o === 'object' ? o : { capture: !!o }), signal: ac.signal });
@@ -36,7 +36,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   /* ---------- the library, through bind.ts: songs by title (the crossing), albums sixteen to a page (the nave), playlists ---------- */
   let LIB = bind.library(), SONGS = LIB.songs, navePg = 0, ALBUMS = navePage(LIB, 0), listPg = 0, PLAYLISTS = LIB.playlists.slice(0, LIST_SLOTS);
   let songById = new Map(SONGS.map((s, i) => [s.id, i]));
-  const covers = new CoverCache(512, 48), thumbs = new CoverCache(256, 96), atlas = new CoverAtlas(256);
+  const covers = new CoverCache(512, 48), thumbs = new CoverCache(256, 96), atlas = new CoverAtlas(128);
   // the song playing, read from bind once a frame
   let NOW: SpaceNow = bind.now(), nowId = undefined, curLine = -1;
 
@@ -340,6 +340,9 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     MAT.floor.customProgramCacheKey = () => 'floorAO'; }
   // albums in the nave
   /* ---------- albums in the nave: one even row, thin ink frames ---------- */
+  let renderErrors = 0;
+  let lastRailKey = '', bowlDirty = true;   // the wall is laid out again when it moves, its hover changes or it is rebuilt
+  let shadowDirty = true;   // the shadow map is redrawn only when something that casts a shadow has changed
   const pickables = [], albumMeshes = [];
   const unpick = (objs) => { for (const o of objs) { const k = pickables.indexOf(o); if (k >= 0) pickables.splice(k, 1); } };
   // a room's part rebuilt: its geometry is its own; materials only when made for it (the shared MAT ones stay), their
@@ -348,11 +351,11 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     const m = o.material; if (m.userData.own) { if (m.userData.ownMap) m.map?.dispose(); m.dispose(); } }); };
   const own = (m, map = false) => { m.material.userData.own = true; m.material.userData.ownMap = map; return m; };
   const albumSub = (a) => [a.artist, a.year].filter(Boolean).join(', ');
-  function buildNave() {
+  function buildNave() { shadowDirty = true;
     albumMeshes.forEach(m => { unpick([m.art]); freeGroup(m.g); }); albumMeshes.length = 0;
     albumSlots.forEach((s, i) => { const a = ALBUMS[i]; if (!a) return; const g = new THREE.Group(); g.position.set(s.x, EYE + .45, s.z); g.rotation.y = s.ry; world.add(g);
       mesh(box(2.1, 2.1, .06), MAT.ink, g).position.z = .03; mesh(box(1.98, 1.98, .07), MAT.ivory, g).position.z = .035;
-      const art = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6), flat('#fff', { map: covers.get(bind.cover(a.cover, true), a.key) })); own(art); art.position.z = .075; g.add(art);
+      const art = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6), flat('#fff', { map: thumbs.get(bind.cover(a.cover), a.key) })); own(art); art.position.z = .075; g.add(art);
       const pl = own(label(g, labelTex(a.title, albumSub(a)), 1.6, .44, 0, -1.4, .02), true);
       art.userData = { kind: 'album', i }; pickables.push(art); albumMeshes.push({ g, art, pl, s }); }); }
   function setNavePage(pg) { const n = navePages(LIB); pg = ((pg % n) + n) % n; if (pg === navePg && albumMeshes.length) return; navePg = pg; ALBUMS = navePage(LIB, pg); buildNave(); }
@@ -382,11 +385,11 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     at.forEach((c, i) => byPage[c.page].push(i));
     bowl = byPage.map((ids, pg) => { const geo = withAlpha(bowlGeo, ids.length), cells = new Float32Array(ids.length * 2);
       ids.forEach((i, j) => cells.set(CoverAtlas.uv(at[i].cell), j * 2)); geo.setAttribute('iCell', new THREE.InstancedBufferAttribute(cells, 2));
-      const im = new THREE.InstancedMesh(geo, fadingAtlas(flat('#fff', { map: atlas.pages[pg].tex })), ids.length); im.userData = { kind: 'bowl', ids }; im.castShadow = true; im.frustumCulled = false; im.renderOrder = 1; world.add(im); pickables.push(im); noLine.push(im); return im; });
+      const im = new THREE.InstancedMesh(geo, fadingAtlas(flat('#fff', { map: atlas.pages[pg].tex })), ids.length); im.userData = { kind: 'bowl', ids }; im.castShadow = false; im.frustumCulled = false; im.renderOrder = 1; world.add(im); pickables.push(im); noLine.push(im); return im; });
     ledges = new THREE.InstancedMesh(withAlpha(new THREE.BoxGeometry(1.02, .035, .08), SONGS.length), fading(flat(C.ink)), SONGS.length); ledges.frustumCulled = false; ledges.renderOrder = 1; world.add(ledges); noLine.push(ledges);
     labelCache.forEach(t => t.dispose()); labelCache.clear(); signCache.forEach(t => t.dispose()); signCache.clear();
     if (typeof pools !== 'undefined') pools.forEach(p => p.tier = -1);
-    hoverSong = chosenSong = -1; tierGoal = Math.min(tierGoal, TIERS - 1); tierAt = Math.min(tierAt, TIERS - 1); }
+    hoverSong = chosenSong = -1; bowlDirty = true; tierGoal = Math.min(tierGoal, TIERS - 1); tierAt = Math.min(tierAt, TIERS - 1); }
   // the rail: tierAt follows tierGoal on a critically damped spring; the goal snaps to a whole tier once the wheel rests
   let tierAt = 2, tierVel = 0, tierGoal = 2, wheelRest = 0;
   const labelCache = new Map(), signCache = new Map();
@@ -436,7 +439,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const listMeshes = [];
   // a playlist's collage is its first four songs' covers
   const collageOf = (pl) => thumbs.collage(pl.ids.slice(0, 4).map(id => SONGS[songById.get(id)]).filter(Boolean).map(sg => ({ url: bind.cover(sg.cover), key: sg.albumKey || sg.id })), pl.id);
-  function buildLists() {
+  function buildLists() { shadowDirty = true;
     listMeshes.forEach(L => { unpick([L.im]); freeGroup(L.grp); }); listMeshes.length = 0;
     [6, 7, 5, 0, 4, 1, 3].forEach((pi, k) => { const p = lists.panels[pi], pl = PLAYLISTS[k]; if (!p || !pl) return; const big = k === 0, aw = big ? 3.8 : 2.5, ah = big ? 5.4 : 3.7, art = big ? 2.5 : 1.6;
       const grp = new THREE.Group(); grp.position.set(0, 0, -T / 2 - .02); grp.rotation.y = Math.PI; p.add(grp);
@@ -695,7 +698,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     const cam = sun.shadow.camera; cam.position.copy(sun.position); cam.lookAt(center); cam.updateMatrixWorld(); const inv = cam.matrixWorldInverse, mn = new V3(1e9, 1e9, 1e9), mx = new V3(-1e9, -1e9, -1e9);
     for (const x of [-38, 38]) for (const y of [-1, 32]) for (const z of [3, -103]) { const p = new V3(x, y, z).applyMatrix4(inv); mn.min(p); mx.max(p); }
     Object.assign(cam, { left: mn.x, right: mx.x, bottom: mn.y, top: mx.y, near: -mx.z - 2, far: -mn.z + 2 }); cam.updateProjectionMatrix();
-    sun.shadow.mapSize.set(size, size); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } renderer.shadowMap.needsUpdate = true; }
+    sun.shadow.mapSize.set(size, size); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } renderer.shadowMap.needsUpdate = true; shadowDirty = true; }
   /* ---------- rooms, doors and routes ---------- */
   const octIn = (p, R, m) => { const dx = p.x - R.c.x, dz = p.z - R.c.z; for (const d of DIRS) if (dx * d.x + dz * d.z > R.r - m) return false; return true; };
   const VEST = [['settings', new V3(1, 0, 0)], ['lists', new V3(-1, 0, 0)], ['altar', new V3(0, 0, -1)]];
@@ -835,6 +838,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   $('pp').onclick = togglePlay; $('p-go').onclick = () => setPlace('altar');
   Object.keys(PLACES).forEach(k => $('go-' + k).onclick = () => { hideCards(); setPlace(k); });
   $('f-close').onclick = () => { hideCards(); chosenSong = -1; takePointer(); }; $('f-play').onclick = () => { onPlay && onPlay(); takePointer(); };
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); alive = false; setTimeout(() => ui.lost(), 0); }, { signal: ac.signal });
   $('cfg').onclick = () => { hideCards(); freePointer(); ui.openSettings(); };
   $('q').addEventListener('input', () => { const q = $('q').value.trim(), ul = $('results'); ul.innerHTML = ''; if (!q) { ul.hidden = true; return; }
     const ql = q.toLowerCase(), has = (x) => x.t.toLowerCase().includes(ql) || x.s.toLowerCase().includes(ql);
@@ -1090,7 +1094,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     const reg = regionAt(me.pos); if (reg && !reg.door && reg.room !== room) onRoom(reg.room);
     const bob = RM() ? 0 : Math.sin(now / 1000 * .7) * .02;
     camera.position.set(me.pos.x, me.pos.y + bob, me.pos.z); camera.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
-    stepRail(dt, now); if (room === 'dome' || Math.abs(tierGoal - tierAt) > .001 || Math.abs(tierVel) > .001) layoutBowl();
+    stepRail(dt, now); const railKey = hoverSong + ':' + chosenSong; if (Math.abs(tierGoal - tierAt) > .001 || Math.abs(tierVel) > .001 || railKey !== lastRailKey || bowlDirty) { lastRailKey = railKey; bowlDirty = false; layoutBowl(); }
     // only the living things move with the music: branches sway, the beams breathe
     // everything stays still; only the motes answer the music
     const R = playing && NOW.id ? bind.rhythm(NOW.t) : null, P = bind.prefs();
@@ -1111,7 +1115,9 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     glares.forEach(g => { g.getWorldPosition(gp); g.parent.getWorldDirection(gd); const f = Math.max(0, -gd.dot(camDir.set(0, 0, -1).applyQuaternion(camera.quaternion))), dist = gp.distanceTo(camera.position); g.material.opacity = Math.pow(f, 6) * .75 * Math.min(1, dist / 6); });
     dream.step(dt); audioTick(dt); lyricsTick(now, dt); if (locked && immersive() && (frameN++ % 4 === 0)) reticleHover();
     wallTick(dt);
-    renderer.shadowMap.needsUpdate = true; composer.render();
+    if (shadowDirty) { shadowDirty = false; renderer.shadowMap.needsUpdate = true; } atlas.flush(now);
+    // one bad frame (a texture the GPU refuses, say) must not stop the picture: it is reported, the next frame tries again
+    try { composer.render(); renderErrors = 0; } catch (e) { if (renderErrors++ < 3) console.error('[space] frame', e); }
   }
   window.__cad = { tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
     for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
