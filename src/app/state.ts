@@ -17,7 +17,7 @@ export interface MenuItem { label: string; icon?: string; danger?: boolean; disa
 /** Where the user is. `layer` is what they asked to see on top of the page; the stage animates toward it. */
 export const ui = createStore({
   page: 'library' as Page, section: remember<string | null>('section', null), detail: null as Detail, search: '',
-  layer: 'none' as 'none' | 'np' | 'fx', queue: false, win: { max: false, full: false },
+  layer: 'none' as 'none' | 'np' | 'fx', queue: false, win: { max: false, full: false, mini: false } as { max: boolean; full: boolean; mini?: boolean },
   modal: null as null | { kind: string; [k: string]: unknown }, menu: null as null | { x: number; y: number; items: (MenuItem | '-')[] },
   toast: null as null | { text: string; id: number },
   wallLayout: remember('wallLayout', 'mosaic'), wallSource: remember('wallSource', 'all'),

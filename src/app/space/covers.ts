@@ -39,13 +39,14 @@ const texOf = (c: HTMLCanvasElement) => { const t = new THREE.CanvasTexture(c); 
 export class CoverCache {
   private map = new Map<string, { tex: THREE.CanvasTexture; used: number }>();
   constructor(private size = 512, private limit = 48) {}
-  /** The cover at `url` (null: no cover), keyed so a song without one still gets its own placeholder. */
+  /** The cover at `url` (null: no cover), keyed so a song without one still gets its own placeholder (its texture's
+   *  userData.loaded turns true once the image is in). */
   get(url: string | null, key: string): THREE.CanvasTexture {
     const id = (url || '') + '#' + key, hit = this.map.get(id);
     if (hit) { hit.used = performance.now(); return hit.tex; }
     const c = mkCanvas(this.size, this.size), g = c.getContext('2d')!, tex = texOf(c);
     placeholder(g, 0, 0, this.size, this.size, key);
-    if (url) loadImage(url).then(im => { if (!im) return; g.drawImage(im, 0, 0, this.size, this.size); tex.needsUpdate = true; });
+    if (url) loadImage(url).then(im => { if (!im) return; g.drawImage(im, 0, 0, this.size, this.size); tex.needsUpdate = true; tex.userData.loaded = true; });
     this.map.set(id, { tex, used: performance.now() }); this.trim(); return tex;
   }
   /** A 2 x 2 collage of up to four covers (a playlist). */

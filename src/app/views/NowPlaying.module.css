@@ -91,38 +91,11 @@
 .ctl > :last-child { justify-self: end; display: flex; align-items: center; gap: 4px; }
 .right { position: relative; min-height: 0; overflow: hidden; mask-image: linear-gradient(transparent, #000 14%, #000 80%, transparent); }
 
-/* lyrics: every word floats on its own spring */
-.lyr { position: absolute; inset: 0; overflow: hidden; padding: 0 8px; }
-.line { display: block; width: 100%; padding: 12px 14px; margin: 0 0 6px; border-radius: var(--r-lg); text-align: left; color: #fff; font-size: calc(clamp(24px, 2.55vw, 38px) * var(--np-fs, 1)); font-weight: 760; line-height: 1.28; letter-spacing: -0.01em;
-  opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05); filter: blur(calc(min(var(--d, 1), 5) * 0.55px));
-  transition: opacity var(--t-slow) var(--ease), filter var(--t-slow) var(--ease), background var(--t-fast) var(--ease); }
-:global(html[data-gfx="lite"]) .line { filter: none; }
-/* like Apple Music: the line being sung is sharp, the others softer the further they are; all sharp while the user
-   scrolls through them, and the one under the pointer */
-.line[data-on="true"] { opacity: 1; filter: none; }
-.line:hover, .lyr[data-manual="true"] .line, .lyr[data-blur="false"] .line { filter: none; }
-.lyr[data-subs="false"] .line small { display: none; }
-.line:hover { background: rgba(255, 255, 255, 0.06); }
-.w { display: inline-block; white-space: pre-wrap; }
-.wu { display: inline; }   /* a word of characters, each its own .w: it wraps between them */
-.line[data-on="true"] .w { background: linear-gradient(90deg, #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em), rgba(255, 255, 255, 0.42) calc(var(--p, 0) * (100% + 0.6em))); -webkit-background-clip: text; background-clip: text; color: transparent;
-  text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3)); }
-/* a line timed only as a whole: no sweep — the whole line brightens together, every word and character alike, by the
-   one fill the line holds */
-.line[data-on="true"][data-whole="true"] .w { background: none; -webkit-background-clip: border-box; background-clip: border-box; color: rgba(255, 255, 255, calc(0.42 + 0.58 * var(--p, 0))); }
-/* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
-.line .w { transition: translate var(--t-slow) var(--ease); }
-.line[data-on="true"] .w { transition: none; }
-.harmRow { display: block; font-size: 0.6em; font-weight: 600; opacity: 0.78; margin-top: 0.22em; }   /* the harmonies: their own smaller line under the words */
-.line small { display: block; font-size: 0.55em; font-weight: 560; opacity: 0.75; margin-top: 4px; }
-.line small[data-kind="read"] { opacity: 0.45; font-weight: 500; }   /* a reading: softer than a translation */
-.line small[data-kind="harm"] { font-size: 0.47em; font-weight: 600; opacity: 0.6; margin-top: 2px; }   /* a translation's bracketed part, as a harmony is */
-.np[data-fx="true"] .line[data-handed="true"] { visibility: hidden; }
-.compact .line { font-size: calc(17px * var(--np-fs, 1)); padding: 7px 10px; }
 .none { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; color: var(--fg-2); }
 .none b { color: #fff; font-size: 18px; }
 .none p { margin: 0; max-width: 340px; }
-.np[data-fx="true"] .lyr { opacity: calc(1 - min(1, var(--h) * 3.2)); }
+.np[data-fx="true"] [data-np-lyr] { opacity: calc(1 - min(1, var(--h) * 3.2)); }
+.np[data-fx="true"] [data-test="line"][data-handed="true"] { visibility: hidden; }
 
 /* full screen: the lyrics sit a little further right (a better balance with the cover), and the page's controls fade
    away while the pointer rests, coming back as soon as it moves */

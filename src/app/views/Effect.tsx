@@ -13,7 +13,7 @@ import { engine } from '../playback/stage';
 import { player, editSong, saveSong, useLyrics, spreadPlain, hasTimedLines, setMvOn, unbindMv, spacedLines, saveSpacing, fxAspect, FX_ASPECTS, setFxAspect } from '../playback/player';
 import { refs, back } from '../layers';
 import { Progress, Transport, QueueButton } from './Player';
-import { NpLyrics } from './NowPlaying';
+import { NpLyrics } from '../ui/NpLyrics';
 import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, ExportPanel } from './panes';
 import { askMv, askMvOffset } from './Modals';
 import { MvLook } from './Settings';

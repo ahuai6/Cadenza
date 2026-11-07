@@ -97,6 +97,8 @@ function TitleBar() {
         )}
       </div>
       <div className={s.winbtns}>
+        {/* the small window on top: the app stays in the foreground (Windows throttles a background app's Bluetooth audio) */}
+        <button type="button" aria-pressed={!!st.mini} title={tx(st.mini ? 's.unmini' : 's.mini')} aria-label={tx(st.mini ? 's.unmini' : 's.mini')} onClick={() => { if (!st.mini && player.get().id) ui.set({ layer: 'np' }); D?.win('mini'); }}><Icon n="pip" size={16} /></button>
         <button type="button" title={tx(st.full ? 's.unfullscreen' : 's.fullscreen')} aria-label={tx(st.full ? 's.unfullscreen' : 's.fullscreen')} onClick={() => D?.win('full')}><Icon n={st.full ? 'unfull' : 'full'} size={16} /></button>
         {!st.full && <>
           <button type="button" title={tx('s.min')} aria-label={tx('s.min')} onClick={() => D?.win('min')}><Icon n="min" size={16} /></button>

@@ -7,6 +7,7 @@ import { settings, lib, useStore } from '../state';
 import { Lib, D, type Settings } from '../bridge';
 import { setSettings, setLang } from '../actions/settings';
 import { Seg, Toggle, Slider, Button, Dropdown } from '../ui/kit';
+import { FontPicker } from '../ui/fonts';
 import { ts } from './i18n';
 import s from './SpaceSettings.module.css';
 
@@ -57,6 +58,9 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
           <Slider label={ts('ambientVol')} value={st.spaceAmbientVol ?? .6} min={0} max={1} step={.05} onCommit={v => set({ spaceAmbientVol: v })} format={v => Math.round(v * 100) + '%'} />
         </Group>
         <Group id="lyrics" title={ts('g.lyrics')}>
+          <Field label={ts('lyricFont')} help={ts('lyricFont.help')}><FontPicker label={ts('lyricFont')} value={st.spaceFont || 'sansmed'} onChange={v => set({ spaceFont: v })} /></Field>
+          <Toggle label={tx('s.set.fxCapSubs')} on={st.fxCapSubs !== false} set={v => set({ fxCapSubs: v })} />
+          <Toggle label={tx('s.set.fxCapReads')} on={st.fxCapReads !== false} set={v => set({ fxCapReads: v })} />
           <Field label={ts('lyricSize')}><Seg size="sm" value={st.spaceLyric || 'm'} onChange={v => set({ spaceLyric: v })} options={[['s', ts('size.s')], ['m', ts('size.m')], ['l', ts('size.l')]]} /></Field>
         </Group>
         <Group id="look" title={ts('g.look')}>

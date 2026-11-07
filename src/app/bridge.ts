@@ -45,15 +45,15 @@ export interface Settings {
   spaceTint?: 'cover' | 'fixed'; spaceTintColor?: string; spaceBeatBeams?: boolean; spacePulse?: boolean;
   /** the space's picture and walking: dream (exposure, haze, glow), ink weight, shadow quality, render scale, walking speed,
    *  look sensitivity, the sanctuary's lyric size, reduced motion */
-  spaceDream?: boolean; spaceLine?: 'thin' | 'mid' | 'bold'; spaceShadow?: 'high' | 'mid' | 'low'; spaceScale?: number; spaceWalk?: number; spaceLook?: number; spaceLyric?: 's' | 'm' | 'l'; spaceReduced?: boolean;
+  spaceDream?: boolean; spaceLine?: 'thin' | 'mid' | 'bold'; spaceShadow?: 'high' | 'mid' | 'low'; spaceScale?: number; spaceWalk?: number; spaceLook?: number; spaceLyric?: 's' | 'm' | 'l'; spaceReduced?: boolean; /** the scene lyrics' face (a FONTS key) */ spaceFont?: string;
 }
 type Off = () => void;
 export interface DesktopApi {
   saveDialog(o: { defaultPath: string; filters: { name: string; extensions: string[] }[] }): Promise<string | null>;
   openWrite(path: string): Promise<number>; write(id: number, data: Uint8Array, pos: number): Promise<void>; close(id: number): Promise<number>; abort(id: number): Promise<void>;
   saveText(path: string, text: string): Promise<void>; showItem(path: string): Promise<void>;
-  platform: string; win(op: 'min' | 'max' | 'close' | 'full'): Promise<{ max: boolean; full: boolean } | null>;
-  onWin(f: (s: { max: boolean; full: boolean }) => void): Off; onMedia(f: (op: 'toggle' | 'next' | 'prev') => void): Off;
+  platform: string; win(op: 'min' | 'max' | 'close' | 'full' | 'mini'): Promise<{ max: boolean; full: boolean; mini?: boolean } | null>;
+  onWin(f: (s: { max: boolean; full: boolean; mini?: boolean }) => void): Off; onMedia(f: (op: 'toggle' | 'next' | 'prev') => void): Off;
   settings(): Promise<Settings>; setSettings(p: Partial<Settings>): Promise<Settings>;
   /** restart the app (the interface mode takes effect at start) */ relaunch(): Promise<void>;
 }

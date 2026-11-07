@@ -1,7 +1,7 @@
 // Cadenza desktop shell. The window is frameless (the page draws its own title bar and window buttons); this process adds
 // what a page cannot do itself: the music library on disk (library.cjs), save dialogs and streamed writes for exports of
 // any size, the app's own settings (start at login, the tray), media keys, and the Hi-Fi output (audio.cjs).
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, nativeTheme, globalShortcut, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, nativeTheme, globalShortcut, protocol, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const library = require('./library.cjs');
@@ -26,7 +26,7 @@ const open = new Map(); let nextId = 1;
 
 /* ---------- the app's own settings ---------- */
 const SETTINGS = () => path.join(app.getPath('userData'), 'settings.json');
-const DEFAULTS = { ui: 'classic', spaceBeams: true, spaceFollow: false, spaceAmbient: true, spaceAmbientVol: 0.6, spaceImmersive: false, spaceTint: 'cover', spaceTintColor: '#D97757', spaceBeatBeams: true, spacePulse: true, spaceDream: true, spaceLine: 'mid', spaceShadow: 'high', spaceScale: 1, spaceWalk: 1, spaceLook: 1, spaceLyric: 'm', spaceReduced: false, mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, theme: 'system', tone: 'paper', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
+const DEFAULTS = { ui: 'classic', spaceBeams: true, spaceFollow: false, spaceAmbient: true, spaceAmbientVol: 0.6, spaceImmersive: false, spaceTint: 'cover', spaceTintColor: '#D97757', spaceBeatBeams: true, spacePulse: true, spaceDream: true, spaceLine: 'mid', spaceShadow: 'high', spaceScale: 1, spaceWalk: 1, spaceLook: 1, spaceLyric: 'm', spaceReduced: false, spaceFont: 'sansmed', mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, theme: 'system', tone: 'paper', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
   audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, rhythmEngine: 'auto', rhythmRuntime: 'auto', rhythmDevice: 'auto', rhythmDrums: true, rhythmStream: 'stream', gfx: 'default', gpuLyrics: true, perfHud: false, debugLog: false, fxCapSubs: true, fxCapReads: true, uiFont: 'default', fxAspect: '16:9', lyricsTarget: 'tag' };
 let settings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS(), 'utf8')) }; } catch (e) { /* first run */ }
@@ -59,7 +59,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 980, minHeight: 640, backgroundColor: bgColor(), title: 'Cadenza', frame: false,
     icon: asset(process.platform === 'win32' ? 'icon.ico' : 'icon.png'), show: false,
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
+    // (backgroundThrottling off: covered or behind other windows, the page's timers and audio scheduling keep full speed)
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, backgroundThrottling: false },
   });
   const hidden = process.argv.includes('--hidden') && settings.closeToTray;      // started at login into the tray
   win.once('ready-to-show', () => { if (!hidden) win.show(); });
@@ -68,7 +69,7 @@ function createWindow() {
   win.webContents.on('will-navigate', e => e.preventDefault());
   // on Windows isFullScreen() can still report the old state while its own event fires: each event says what it means,
   // and the state is read again once the window has settled
-  const send = (o = {}) => win && !win.isDestroyed() && win.webContents.send('win:state', { max: win.isMaximized() && !win.isFullScreen(), full: win.isFullScreen(), ...o });
+  const send = (o = {}) => win && !win.isDestroyed() && win.webContents.send('win:state', { max: win.isMaximized() && !win.isFullScreen(), full: win.isFullScreen(), mini: !!miniFrom, ...o });
   let settle = 0; const state = o => { send(o); clearTimeout(settle); settle = setTimeout(() => send(), 250); };
   win.on('maximize', () => state({ max: true })); win.on('unmaximize', () => state({ max: false }));
   win.on('enter-full-screen', () => state({ full: true })); win.on('leave-full-screen', () => state({ full: false }));
@@ -84,13 +85,31 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 ]));
 
 /* ---------- window buttons and settings ---------- */
+// the small window: kept on top of every other window in a corner of the screen, so the app stays in the foreground
+// (Windows throttles a background app's audio over Bluetooth); the window's size and place before it come back after
+let miniFrom = null;
+function setMini(on) {
+  if (!win || on === !!miniFrom) return;
+  if (on) {
+    miniFrom = { bounds: win.getNormalBounds(), max: win.isMaximized() };
+    const go = () => { if (!win || !miniFrom) return; if (win.isMaximized()) win.unmaximize(); win.setMinimumSize(320, 200);
+      const wa = screen.getDisplayMatching(win.getBounds()).workArea, w = 480, h = 300; win.setBounds({ x: wa.x + wa.width - w - 20, y: wa.y + wa.height - h - 20, width: w, height: h });
+      win.setAlwaysOnTop(true, 'floating'); win.webContents.send('win:state', { max: false, full: false, mini: true }); };
+    if (win.isFullScreen()) { win.once('leave-full-screen', () => setTimeout(go, 50)); win.setFullScreen(false); } else go();
+  } else {
+    const was = miniFrom; miniFrom = null; win.setAlwaysOnTop(false); win.setMinimumSize(980, 640); win.setBounds(was.bounds); if (was.max) win.maximize();
+    win.webContents.send('win:state', { max: win.isMaximized(), full: false, mini: false });
+  }
+}
 ipcMain.handle('win:op', (_e, op) => {
   if (!win) return null;
+  if (op === 'mini') { setMini(!miniFrom); return { max: win.isMaximized(), full: win.isFullScreen(), mini: !!miniFrom }; }
+  if ((op === 'max' || op === 'full') && miniFrom) setMini(false);
   if (op === 'min') win.minimize();
   else if (op === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
   else if (op === 'close') win.close();
   else if (op === 'full') win.setFullScreen(!win.isFullScreen());
-  return { max: win.isMaximized(), full: win.isFullScreen() };
+  return { max: win.isMaximized(), full: win.isFullScreen(), mini: !!miniFrom };
 });
 // the interface mode (classic or space) is chosen at start: changing it restarts the app
 ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
