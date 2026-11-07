@@ -12,6 +12,7 @@ import { SpaceSettings } from './SpaceSettings';
 import { PlayerExtras, SpacePanel, type Panel } from './SpacePanels';
 import { SpaceDetail, type Detail } from './SpaceDetail';
 import { Toast } from '../ui/kit';
+import { MiniLyrics } from '../ui/MiniLyrics';
 import { lang as langStore } from '../../i18n';
 import { useStore, settings, ui } from '../state';
 import './space.css';
@@ -22,7 +23,7 @@ const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設�
 
 export function SpaceShell() {
   const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }), [gen, setGen] = useState(0), [panel, setPanel] = useState<Panel>(null), [extra, setExtra] = useState<HTMLElement | null>(null), [detail, setDetail] = useState<Detail>(null);
-  const world = useRef<{ dispose(): void; takePointer(): void; closed(): void } | null>(null);
+  const world = useRef<{ dispose(): void; takePointer(): void; closed(): void; pause(on: boolean): void } | null>(null);
   const lang = useStore(langStore, x => x.lang), lite = useStore(settings, x => x.gfx === 'lite'), mini = useStore(ui, x => !!x.win.mini);
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(() => {
@@ -38,7 +39,7 @@ export function SpaceShell() {
     });
     return () => { gone = true; world.current?.dispose(); world.current = null; };
   }, [ready, lang, gen]);
-  useEffect(() => { document.getElementById('mini')?.setAttribute('aria-pressed', String(mini)); }, [mini, gen, lang, ready]);
+  useEffect(() => { document.getElementById('mini')?.setAttribute('aria-pressed', String(mini)); world.current?.pause(mini); }, [mini, gen, lang, ready]);
   const close = () => { setCfg({ open: false }); world.current?.takePointer(); };
   return (
     <div className={`space-root ${s.space}${cfg.open ? ' space-cfg' : ''}${lite ? ' space-lite' : ''}${mini ? ' space-mini' : ''}`} data-test="space">
@@ -48,6 +49,7 @@ export function SpaceShell() {
       {ready && <PlayerExtras host={extra} panel={panel} setPanel={p => { if (p) { setCfg({ open: false }); setDetail(null); } setPanel(p); }} />}
       {ready && detail && <SpaceDetail detail={detail} onClose={() => { setDetail(null); world.current?.closed(); }} />}
       {ready && <Toast />}
+      {ready && mini && <MiniLyrics />}
       {ready && !cfg.open && <SpacePanel panel={panel} onClose={() => setPanel(null)} />}
     </div>
   );

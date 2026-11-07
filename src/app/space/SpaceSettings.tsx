@@ -21,7 +21,8 @@ const Field = ({ label, help, children }: { label: string; help?: string; childr
 export function SpaceSettings({ section, onClose }: { section?: string; onClose: () => void }) {
   const st = useStore(settings), folders = useStore(lib, x => x.folders), body = useRef<HTMLDivElement>(null);
   const set = (p: Partial<Settings>) => { setSettings(p); };
-  useEffect(() => { const el = section ? body.current?.querySelector(`[data-section="${section}"]`) : null; el?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, [section]);
+  // (only the list scrolls to the section: scrollIntoView would scroll every box around it too)
+  useEffect(() => { const box = body.current, el = section ? box?.querySelector<HTMLElement>(`[data-section="${section}"]`) : null; if (box && el) box.scrollTo({ top: el.offsetTop - box.offsetTop, behavior: 'smooth' }); }, [section]);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [onClose]);
   return (
     <section className={`hud card ${s.panel}`} aria-label={ts('s.title')} data-test="space-settings">
@@ -43,6 +44,11 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
           <Toggle label={ts('beams')} on={st.spaceBeams !== false} set={v => set({ spaceBeams: v })} />
           <Toggle label={ts('beatBeams')} on={st.spaceBeatBeams !== false} set={v => set({ spaceBeatBeams: v })} />
           <Toggle label={ts('pulse')} help={ts('pulse.help')} on={st.spacePulse !== false} set={v => set({ spacePulse: v })} />
+          {/* the scene's response: four plain knobs (1 is as designed) */}
+          <Slider label={ts('fx.beat')} value={st.spaceFxBeat ?? 1} min={0} max={2} step={.1} onCommit={v => set({ spaceFxBeat: v })} format={v => Math.round(v * 100) + '%'} />
+          <Slider label={ts('fx.pulse')} value={st.spaceFxPulse ?? 1} min={0} max={2} step={.1} onCommit={v => set({ spaceFxPulse: v })} format={v => Math.round(v * 100) + '%'} />
+          <Slider label={ts('fx.tint')} value={st.spaceFxTint ?? 1} min={0} max={1} step={.05} onCommit={v => set({ spaceFxTint: v })} format={v => Math.round(v * 100) + '%'} />
+          <Slider label={ts('fx.beams')} value={st.spaceFxBeams ?? 1} min={0} max={2} step={.1} onCommit={v => set({ spaceFxBeams: v })} format={v => Math.round(v * 100) + '%'} />
           <Toggle label={ts('dream')} on={st.spaceDream !== false} set={v => set({ spaceDream: v })} />
           <Field label={ts('line')}><Seg size="sm" value={st.spaceLine || 'mid'} onChange={v => set({ spaceLine: v })} options={[['thin', ts('line.thin')], ['mid', ts('line.mid')], ['bold', ts('line.bold')]]} /></Field>
           <Field label={ts('shadow')}><Seg size="sm" value={st.spaceShadow || 'high'} onChange={v => set({ spaceShadow: v })} options={[['high', ts('q.high')], ['mid', ts('q.mid')], ['low', ts('q.low')]]} /></Field>

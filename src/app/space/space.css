@@ -108,11 +108,10 @@
 .subs .cap.read { font-size: .92em; opacity: .55; } .subs .cap.read.lat { font-size: .83em; opacity: .45; }
 .subs .cap.harm { font-size: .84em; opacity: .62; } .subs .cap.harm.lat { font-size: .76em; opacity: .5; }
 @media (prefers-reduced-motion: reduce) { .subs .cb { transition: opacity .2s; } .subs .cb.in { transform: none; } }
-/* the small window on top: only the player and the lyrics; the player's words are where it is dragged from */
-.space-mini .top, .space-mini .sign, .space-mini .focus, .space-mini #p-go, .space-mini #hp, .space-mini .tip { display: none !important; }
-.space-mini .player { left: 8px; right: 8px; bottom: 8px; width: auto; transform: none; padding: 8px 8px 8px 12px; }
-.space-mini .player .t { -webkit-app-region: drag; } .space-mini .player button { -webkit-app-region: no-drag; }
-.space-mini .subs { bottom: 76px; } .space-mini .subs .cb { --cap: 12px; }
+/* the small window shows its own view (ui/MiniLyrics): the room's HUD steps aside */
+.space-mini .hud { display: none !important; }
+.player .mini { display: grid; place-items: center; padding: 0; min-width: 44px; width: 44px; }
+.player .mini svg { display: block; }
 .player .mini[aria-pressed="true"] { background: rgba(255, 255, 255, .25); }
 .player .extras { display: flex; gap: 2px; }
 /* the player's words on one line each, never squeezed into a column */

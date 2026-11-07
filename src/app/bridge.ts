@@ -46,6 +46,7 @@ export interface Settings {
   /** the space's picture and walking: dream (exposure, haze, glow), ink weight, shadow quality, render scale, walking speed,
    *  look sensitivity, the sanctuary's lyric size, reduced motion */
   spaceDream?: boolean; spaceLine?: 'thin' | 'mid' | 'bold'; spaceShadow?: 'high' | 'mid' | 'low'; spaceScale?: number; spaceWalk?: number; spaceLook?: number; spaceLyric?: 's' | 'm' | 'l'; spaceReduced?: boolean; /** the scene lyrics' face (a FONTS key) */ spaceFont?: string;
+  /** the scene's response, each 0..2 (1 as designed; the colour 0..1): to the beat, the room's pulse, the cover's colour, the beams' brightness */ spaceFxBeat?: number; spaceFxPulse?: number; spaceFxTint?: number; spaceFxBeams?: number;
 }
 type Off = () => void;
 export interface DesktopApi {

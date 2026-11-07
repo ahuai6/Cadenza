@@ -49,12 +49,12 @@ export interface SpaceBind {
 }
 /** The space's settings in the scene's terms. */
 export interface SpacePrefs { capSubs: boolean; capReads: boolean; beams: boolean; beatBeams: boolean; pulse: boolean; dream: boolean; line: 'thin' | 'mid' | 'bold'; shadow: 'high' | 'mid' | 'low'; res: number;
-  walk: number; look: number; lyric: 's' | 'm' | 'l'; font: string; follow: boolean; music: boolean; musicVol: number; immersive: boolean; motion: 'full' | 'reduced'; gfx: 'default' | 'optimized' | 'lite' }
+  walk: number; look: number; lyric: 's' | 'm' | 'l'; font: string; fxBeat: number; fxPulse: number; fxTint: number; fxBeams: number; follow: boolean; music: boolean; musicVol: number; immersive: boolean; motion: 'full' | 'reduced'; gfx: 'default' | 'optimized' | 'lite' }
 
 const SYS_REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 function prefsOf(st: Settings): SpacePrefs {
   return { capSubs: st.fxCapSubs !== false, capReads: st.fxCapReads !== false, beams: st.spaceBeams !== false, beatBeams: st.spaceBeatBeams !== false, pulse: st.spacePulse !== false, dream: st.spaceDream !== false, line: st.spaceLine || 'mid', shadow: st.spaceShadow || 'high',
-    res: st.spaceScale || 1, walk: st.spaceWalk || 1, look: st.spaceLook || 1, lyric: st.spaceLyric || 'm', font: st.spaceFont || 'sansmed', follow: !!st.spaceFollow, music: st.spaceAmbient !== false, musicVol: st.spaceAmbientVol ?? 0.6,
+    res: st.spaceScale || 1, walk: st.spaceWalk || 1, look: st.spaceLook || 1, lyric: st.spaceLyric || 'm', font: st.spaceFont || 'sansmed', fxBeat: st.spaceFxBeat ?? 1, fxPulse: st.spaceFxPulse ?? 1, fxTint: st.spaceFxTint ?? 1, fxBeams: st.spaceFxBeams ?? 1, follow: !!st.spaceFollow, music: st.spaceAmbient !== false, musicVol: st.spaceAmbientVol ?? 0.6,
     immersive: !!st.spaceImmersive, motion: st.spaceReduced || SYS_REDUCED ? 'reduced' : 'full', gfx: st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default' };
 }
 export function createBind(): SpaceBind {

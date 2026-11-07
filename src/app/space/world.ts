@@ -19,7 +19,7 @@ import { ts } from './i18n';
 import AMBIENT from './ambient.ogg?url';
 
 export interface SpaceUi { openSettings(section?: string): void; closeSettings(): void; /** open what was clicked (an album, a playlist, a song) where you stand, or close it */ show(d: { kind: 'album' | 'playlist' | 'song'; key: string } | null): void; /** the graphics context was lost (a driver reset, memory): the shell builds the scene again */ lost(): void }
-export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; takePointer(): void; closed(): void } {
+export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; takePointer(): void; closed(): void; pause(on: boolean): void } {
   const ac = new AbortController(); let alive = true;
   const opt = (o) => ({ ...(typeof o === 'object' ? o : { capture: !!o }), signal: ac.signal });
   const onW = (t, f, o) => window.addEventListener(t, f, opt(o)), onD = (t, f, o) => document.addEventListener(t, f, opt(o));
@@ -434,7 +434,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     const el = document.createElement('div'); el.className = 'cb in'; el.style.fontFamily = bind.capFace(parts.map(p => p.s).join(''));
     for (const p of parts) { const d = document.createElement('div'), lat = LAT.test(p.s); d.className = `cap ${p.kind}${lat ? ' lat' : ''}`; d.textContent = lat ? p.s.toLowerCase() : p.s; el.append(d); }
     box.append(el); capEl = el; requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('in'))); }
-  let fakeNow = null, fakeBeats = null;   // (tests: a song without the player; a steady beat without an analysis)
+  let fakeNow = null, fakeBeats = null, paused = false;   // (tests: a song without the player; a steady beat without an analysis)
   let lastRailKey = '', bowlDirty = true;   // the wall is laid out again when it moves, its hover changes or it is rebuilt
   let shadowDirty = true;   // the shadow map is redrawn only when something that casts a shadow has changed
   const pickables = [], albumMeshes = [];
@@ -792,11 +792,10 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
           void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 p = vUv*res; float inside = 0.;
             for (int i = 0; i < 12; i++) { if (i >= n) break; vec4 r = rects[i]; vec2 hs = r.zw*.5; float rad = min(radii[i], min(hs.x, hs.y)); vec2 q = abs(p-(r.xy+hs))-hs+rad;
               float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - rad; inside = max(inside, 1.-smoothstep(-1., 1., d)); }
-            // frosted: a wide soft blur (a 5 x 5 tent, half a block apart), continuous everywhere, so nothing behind the glass
-            // ever shows as squares (the old block mosaic left square shadows behind the words)
-            if (inside > 0.) { vec3 m = vec3(0.); float wsum = 0.;
-              for (int k = 0; k < 25; k++) { vec2 o = vec2(float(k - (k/5)*5) - 2., float(k/5) - 2.); float w = 3. - max(abs(o.x), abs(o.y)); m += texture2D(tDiffuse, (p + o*block*.42)/res).rgb * w; wsum += w; }
-              m = m/wsum; m = mix(m, vec3(dot(m, vec3(.3,.55,.15))), .25); c.rgb = mix(c.rgb, m, inside); }
+            // the mosaic glass: each block shows the average of what is behind it
+            if (inside > 0.) { vec2 b = (floor(p/block)+.5)*block; vec3 m = vec3(0.);
+              for (int k = 0; k < 16; k++) { vec2 o = (vec2(float(k - (k/4)*4), float(k/4)) - 1.5)/4.*block*1.6; m += texture2D(tDiffuse, (b+o)/res).rgb; }
+              m = m/16.; m = mix(m, vec3(dot(m, vec3(.3,.55,.15))), .25); c.rgb = mix(c.rgb, m, inside); }
             gl_FragColor = c; }` });
       this.q = new FullScreenQuad(this.mat); }
     setSize(w, h) { this.mat.uniforms.res.value.set(w, h); }
@@ -1259,7 +1258,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     if (rgb) { tintGoal.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace); tintAmtGoal = 1; } else tintAmtGoal = 0;
     const k = Math.max(0, Math.min(1, dt / .7)); tintNow.lerp(tintGoal, k); tintAmt += (tintAmtGoal - tintAmt) * k;
     if (!tintBase.mote && motes) { tintBase.mote = motes.material.uniforms.col.value.clone(); tintSig = ''; }
-    const sig = tintNow.getHexString() + tintAmt.toFixed(3); if (sig === tintSig) return; tintSig = sig; const A = tintAmt, B = tintBase;
+    const sig = tintNow.getHexString() + tintAmt.toFixed(3) + S.fxTint; if (sig === tintSig) return; tintSig = sig; const A = tintAmt * Math.max(0, Math.min(1, S.fxTint)), B = tintBase;   // (the settings' colour knob scales it all)
     // surfaces: a pale tone of the colour, strongly (the walls carry the room's mood)
     B.surf.forEach(([m, base], i) => { tone(_a, tintNow, i === 0 ? .74 : i === 1 ? .66 : .8, i === 1 ? .55 : .7); m.color.copy(base).lerp(_a, A * (i === 0 ? .62 : .5)); });
     B.baked.forEach(([m, lo, top, tintTop]) => { tone(_a, tintNow, .7, .6); m.color.copy(lo).lerp(_a, A * .55); if (tintTop) { tone(_b, tintNow, .86, .55); m.userData.top.value.copy(top).lerp(_b, A * .55); } });
@@ -1315,7 +1314,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     // everything stays still; only the motes answer the music
     const R = playing && NOW.id ? bind.rhythm(NOW.t) : null, P = bind.prefs();
     // the beams: always lit; an accent lifts them (up within ~80 ms, back over ~half a second), nothing else moves them
-    const swellIn = R && P.beatBeams && !RM() ? R.dip : 0; swell = swellIn > swell ? swell + (swellIn - swell) * Math.min(1, dt / .03) : swell * Math.exp(-dt / .22);
+    const swellIn = R && P.beatBeams && !RM() ? R.dip * S.fxBeat : 0; swell = swellIn > swell ? swell + (swellIn - swell) * Math.min(1, dt / .03) : swell * Math.exp(-dt / .22);
     // the scene breathes with every event: at most 4 % brighter, deeper on the heavy ones (well under a flash's 10 %)
     // the beat itself (as the effect lyrics' woofer pushes): a quick push on every event, its weight from the rhythm
     let push = 0, nR = 0; const live = (!!R || !!fakeBeats) && !RM();
@@ -1323,14 +1322,15 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
       const evs = fakeBeats ? Array.from({ length: 4 }, (_, k) => { const t = (Math.floor(NOW.t / bl) - k) * bl, n = Math.round(t / bl); return { t, w: n % 4 ? .5 : 1.2, strong: n % 8 === 0 }; }) : bind.beats(NOW.t - Lr, NOW.t);
       for (const e of evs) { const dtE = NOW.t - e.t; if (dtE < 0) continue; push = Math.max(push, e.w * Math.min(1, dtE / .03) * Math.exp(-dtE / .16));
         const u = dtE / Lr; if (u >= 1 || nR >= 8) continue; const r = 1 - Math.pow(1 - u, 2.5), al = Math.pow(1 - u, 1.25) * Math.min(1, u * 20) * e.w;
-        RINGS[nR++].set(2.3 + r * 9.6 * (.8 + .2 * e.w), (.05 + .07 * e.w) * (1 - .35 * u) * (e.strong ? 1.5 : 1), al * .7, e.strong ? 1 : 0); } }
+        RINGS[nR++].set(2.3 + r * 9.6 * (.8 + .2 * e.w), (.05 + .07 * e.w) * (1 - .35 * u) * (e.strong ? 1.5 : 1), al * .7 * S.fxBeat, e.strong ? 1 : 0); }
+      push *= S.fxBeat; }
     beatFloor.material.uniforms.n.value = nR; beatFloor.material.uniforms.glow.value = live ? push * .8 : 0; beatFloor.visible = nR > 0 || push > .01;
     // the scene breathes with every beat: brighter on each push, deeper on the accents (the scene pulse setting)
-    dream.pulse = live && P.pulse ? Math.min(.15, .1 * push + .05 * swell) : 0; beatPush = live ? push : 0;
+    dream.pulse = live && P.pulse ? Math.min(.15, .1 * push + .05 * swell) * S.fxPulse : 0; beatPush = live ? push : 0;
     tintTick(dt);
     // the clear-sky panels brighten with the accents as the beams do
     for (const d of domes) if (d.sky?.material?.color) d.sky.material.color.setScalar(1.05 * (1 + .35 * swell));
-    shafts.mat.uniforms.gain.value = .145 * (S.beams ? 1 : 0) * (1 + .9 * swell + (P.beatBeams ? .35 * beatPush : 0));
+    shafts.mat.uniforms.gain.value = .145 * (S.beams ? 1 : 0) * S.fxBeams * (1 + .9 * swell + (P.beatBeams ? .35 * beatPush : 0));
     // the floor of the crossing: ripples spread out every 8 s; pools follow the beat and breathe on their own phase
     lightPools.forEach((m, k) => { const t = now / 1000, j = Math.floor(k / 2); m.material.opacity = Math.min(1, (k % 2 ? .3 : .55) * (1 + .8 * swell + .9 * beatPush) * (1 + .08 * Math.sin(t * .19 + j * 2.3) * Math.sin(t * .29 + j * 5.1))); });
     focusLight.intensity = 9 * (1 + 1.2 * beatPush + .6 * swell);
@@ -1348,6 +1348,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     wallTick(dt);
     if (shadowDirty) { shadowDirty = false; renderer.shadowMap.needsUpdate = true; } atlas.flush(now);
     // one bad frame (a texture the GPU refuses, say) must not stop the picture: it is reported, the next frame tries again
+    if (paused) return;   // (the small window shows only the lyrics: the scene rests)
     try { composer.render(); renderErrors = 0; } catch (e) { if (renderErrors++ < 3) console.error('[space] frame', e); }
   }
   window.__cad = { fakeNow: (o) => { fakeNow = o ? { ...o, t0: performance.now() } : null; }, fakeBeats: (bl) => { fakeBeats = bl ? { bl } : null; }, tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
@@ -1360,5 +1361,5 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const offLibrary = bind.onLibrary((l) => { LIB = l; SONGS = l.songs; songById = new Map(SONGS.map((sg, i) => [sg.id, i])); listPg = Math.min(listPg, Math.max(1, Math.ceil(l.playlists.length / LIST_SLOTS)) - 1); PLAYLISTS = l.playlists.slice(listPg * LIST_SLOTS, (listPg + 1) * LIST_SLOTS);
     navePg = Math.min(navePg, navePages(l) - 1); ALBUMS = navePage(l, navePg); hideCards(); buildNave(); buildBowl(); buildLists(); layoutBowl(); });
 
-  return { takePointer: () => takePointer(), closed: () => { shownAt = null; chosenSong = -1; takePointer(); }, dispose() { alive = false; ac.abort(); offLibrary(); offPrefs(); covers.dispose(); thumbs.dispose(); hiCovers.dispose(); atlas.dispose(); try { clearTimeout(unrouteAt); if (routed) bind.audio().route(null); au.ambSrc?.stop(); au.master?.disconnect(); au.songIn?.disconnect(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
+  return { pause: (on) => { paused = on; }, takePointer: () => takePointer(), closed: () => { shownAt = null; chosenSong = -1; takePointer(); }, dispose() { alive = false; ac.abort(); offLibrary(); offPrefs(); covers.dispose(); thumbs.dispose(); hiCovers.dispose(); atlas.dispose(); try { clearTimeout(unrouteAt); if (routed) bind.audio().route(null); au.ambSrc?.stop(); au.master?.disconnect(); au.songIn?.disconnect(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
 }

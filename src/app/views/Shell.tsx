@@ -22,6 +22,7 @@ import { EffectView } from './Effect';
 import { ModalHost } from './Modals';
 import { WorkshopPage } from './workshop/Workshop';
 import { Guard } from '../ui/Guard';
+import { MiniLyrics } from '../ui/MiniLyrics';
 import s from './Shell.module.css';
 
 function resolveTheme(t: string) { return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
@@ -44,7 +45,7 @@ export function Shell() {
   useEffect(bindKeys, []);
   // full screen over the picture: the window's buttons (leaving full screen) show only while the pointer moves, as the
   // play page's and the effect view's own controls do
-  const full = useStore(ui, x => x.win.full), [idle, setIdle] = useState(false);
+  const full = useStore(ui, x => x.win.full), mini = useStore(ui, x => !!x.win.mini), [idle, setIdle] = useState(false);
   useEffect(() => {
     if (!full || layer === 'none') { setIdle(false); return; }
     let tm = 0; const wake = () => { setIdle(false); clearTimeout(tm); tm = window.setTimeout(() => setIdle(true), 2600); };
@@ -79,6 +80,7 @@ export function Shell() {
       {hasTrack && <Guard name="effect lyrics" k={songId}><EffectView /></Guard>}
       <Guard name="queue" k={songId}><QueuePanel /></Guard>
       <ModalHost />
+      {mini && <MiniLyrics />}
       <ContextMenu />
       <Toast />
     </div>
@@ -98,7 +100,7 @@ function TitleBar() {
       </div>
       <div className={s.winbtns}>
         {/* the small window on top: the app stays in the foreground (Windows throttles a background app's Bluetooth audio) */}
-        <button type="button" aria-pressed={!!st.mini} title={tx(st.mini ? 's.unmini' : 's.mini')} aria-label={tx(st.mini ? 's.unmini' : 's.mini')} onClick={() => { if (!st.mini && player.get().id) ui.set({ layer: 'np' }); D?.win('mini'); }}><Icon n="pip" size={16} /></button>
+        <button type="button" aria-pressed={!!st.mini} title={tx(st.mini ? 's.unmini' : 's.mini')} aria-label={tx(st.mini ? 's.unmini' : 's.mini')} onClick={() => D?.win('mini')}><Icon n="pip" size={16} /></button>
         <button type="button" title={tx(st.full ? 's.unfullscreen' : 's.fullscreen')} aria-label={tx(st.full ? 's.unfullscreen' : 's.fullscreen')} onClick={() => D?.win('full')}><Icon n={st.full ? 'unfull' : 'full'} size={16} /></button>
         {!st.full && <>
           <button type="button" title={tx('s.min')} aria-label={tx('s.min')} onClick={() => D?.win('min')}><Icon n="min" size={16} /></button>

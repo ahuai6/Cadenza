@@ -1,5 +1,5 @@
 .panel { right: max(16px, env(safe-area-inset-right, 0px)); top: calc(84px + env(safe-area-inset-top, 0px)); bottom: calc(112px + env(safe-area-inset-bottom, 0px));
-  width: min(420px, calc(100% - 32px)); display: flex; flex-direction: column; border-radius: var(--r-3); padding: 0; overflow: hidden; z-index: 5; }
+  width: min(420px, calc(100% - 32px)); display: flex; flex-direction: column; border-radius: var(--r-3); padding: 0; overflow: clip; z-index: 5; }   /* (clip: a focused control or a jump to a section can never scroll the card itself, header and all, out of sight) */
 .head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px 8px; }
 .head h2 { margin: 0; font-size: 20px; letter-spacing: .08em; }
 .close { width: 36px; height: 36px; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, .16); color: #fff; cursor: pointer; font: inherit; }
