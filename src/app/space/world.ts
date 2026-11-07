@@ -71,9 +71,11 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vWY;').replace('#include <color_fragment>', `#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uWashTop, smoothstep(${y0.toFixed(1)}, ${y1.toFixed(1)}, vWY) * ${k.toFixed(2)});`).replace('#include <common>', '#include <common>\nuniform vec3 uWashTop;'); sh.uniforms.uWashTop = WASH_TOP; };
     m.customProgramCacheKey = () => 'wash' + y0 + y1 + k; return m; };
   // a baked surface: no lighting at all, only a vertical gradient chosen by hand
-  function baked(lo, hi, y0, y1, o) { const m = flat(lo, o), top = new THREE.Color(hi); m.onBeforeCompile = (sh) => {
+  const BAKED = [];
+  const skyBaked = (...a) => { const m = baked(...a); m.userData.sky = true; return m; };
+  function baked(lo, hi, y0, y1, o) { const m = flat(lo, o), top = { value: new THREE.Color(hi) }; m.userData.top = top; BAKED.push(m); m.onBeforeCompile = (sh) => { sh.uniforms.uTop = top;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vWY;').replace('#include <project_vertex>', '#include <project_vertex>\nvWY = (modelMatrix * vec4(transformed, 1.)).y;');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vWY;').replace('#include <color_fragment>', `#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(${top.toArray().map(v => v.toFixed(4)).join(',')}), smoothstep(${y0.toFixed(1)}, ${y1.toFixed(1)}, vWY));`); };
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vWY; uniform vec3 uTop;').replace('#include <color_fragment>', `#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uTop, smoothstep(${y0.toFixed(1)}, ${y1.toFixed(1)}, vWY));`); };
     m.customProgramCacheKey = () => 'baked' + lo + hi + y0 + y1; return m; }
   const MAT = { paper: skyWash(toon(C.wheat)), oat: toon(C.oat), ivory: toon(C.ivory), taupe: toon(C.taupe), clay: toon(C.clay), kraft: toon(C.kraft), olive: toon(C.olive), mist: toon(C.mist), ink: flat(C.ink),
     dome: baked('#D2C2A6', '#EFE5D2', 14, 30, { side: THREE.BackSide, shadowSide: THREE.DoubleSide }), vault: baked('#D4C5AA', '#E2D5BC', 14, 21, {}), tunnel: baked('#CDBEA2', '#D9CBB0', 0, 8, {}), floor: toon(C.oat) };
@@ -224,7 +226,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   // every oculus is a clear-sky panel: a soft blue disc that washes the vault around it a cool white
   for (const d of domes) { const skyTex = textTex(256, 256, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); r.addColorStop(0, '#5AA2EA'); r.addColorStop(.65, '#82BCF2'); r.addColorStop(1, '#B9DCF8'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
     d.sky.material = flat('#fff', { map: skyTex, side: THREE.DoubleSide }); d.sky.material.color.setRGB(1.05, 1.05, 1.08); d.blue = true;
-    d.g.children.filter(m => m.material === MAT.dome).forEach(m => { m.material = baked('#D2C2A6', '#D7E6F0', d.y - 12, d.y, { side: THREE.BackSide, shadowSide: THREE.DoubleSide }); });   // the sky panel lights the vault around it a cool white
+    d.g.children.filter(m => m.material === MAT.dome).forEach(m => { m.material = skyBaked('#D2C2A6', '#D7E6F0', d.y - 12, d.y, { side: THREE.BackSide, shadowSide: THREE.DoubleSide }); });   // the sky panel lights the vault around it a cool white
   }
   for (const [R, d] of [[SETS, new V3(1, 0, 0)], [LISTS, new V3(-1, 0, 0)], [SANCT, new V3(0, 0, -1)]]) vestibule(CROSS.c.clone().addScaledVector(d, CROSS.r + T), d, 3);
 
@@ -1036,23 +1038,39 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   function resize() { const w = innerWidth, h = innerHeight, pr = renderer.getPixelRatio(); renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); if (motes) motes.material.uniforms.px.value = pr * h / 800; }
   onW('resize', resize);
   let frameN = 0, last = performance.now(), accent = 0, motion = 0, rise = false, swell = 0, lastClock = null;
-  // the scene's colour: the walls' wash, the shade, the beams and their pools lean toward the cover's colour, within
-  // limits (the cathedral is tinted, never repainted), and move there over about two seconds
-  const T0 = { wash: new THREE.Color(C.ivory), amb: lin(.72, .68, .64), beam: new THREE.Color(C.apricot), pool: new THREE.Color('#fff') }, T1 = { wash: new THREE.Color(), amb: new THREE.Color(), beam: new THREE.Color(), pool: new THREE.Color() };
-  const _c = new THREE.Color(), _hsl = { h: 0, s: 0, l: 0 };
-  function tintTick(dt) { const rgb = bind.tint();
-    if (!rgb) { T1.wash.copy(T0.wash); T1.amb.copy(T0.amb); T1.beam.copy(T0.beam); T1.pool.copy(T0.pool); }
-    else { _c.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace);
-      T1.wash.copy(T0.wash).lerp(_c.clone().lerp(new THREE.Color('#fff'), .6), .2);                 // the vault's light: up to 20 % of the cover's colour, paled
-      _c.getHSL(_hsl); T1.amb.copy(T0.amb).lerp(new THREE.Color().setHSL(_hsl.h, .35, .55).multiplyScalar(.72 / .55), .15);   // the shade: 15 %
-      T1.beam.setHSL(_hsl.h, Math.min(.75, Math.max(.35, _hsl.s)), Math.max(.75, _hsl.l));          // the beams: the cover's colour as light (lightness at least .75)
-      T1.pool.copy(T1.beam).lerp(new THREE.Color('#fff'), .5); }
-    const k = Math.min(1, dt / .7);
-    WASH_TOP.value.lerp(T1.wash, k); ambLight.color.lerp(T1.amb, k); shafts.mat.uniforms.col.value.lerp(T1.beam, k);
-    lightPools.forEach(m => m.material.color.lerp(T1.pool, k)); }
+  // the scene's colour: the whole atmosphere takes the cover's colour — walls, floor, vaults, the shade, the air and its
+  // haze, the beams, their pools, the windows' glow and the motes — kept light (a pale, airy version of the colour), so
+  // the cathedral changes its mood with every song and stays readable. The furniture's accents keep their own colours.
+  // About two seconds to move to a new song's colour; with no song (or no colour) it returns to the wheat house tones.
+  let tintBase = null; const tintNow = new THREE.Color(), tintGoal = new THREE.Color(); let tintAmt = 0, tintAmtGoal = 0, tintSig = '';
+  const _hsl = { h: 0, s: 0, l: 0 }, _a = new THREE.Color(), _b = new THREE.Color();
+  // a tone of the colour at a given lightness and a share of its saturation (so a vivid cover still gives a calm room)
+  const tone = (out, src, l, sMul, sMin = .18, sMax = .62) => { src.getHSL(_hsl); return out.setHSL(_hsl.h, Math.min(sMax, Math.max(sMin, _hsl.s * sMul)) * Math.min(1, _hsl.s * 4), l); };
+  function tintTick(dt) {
+    if (!tintBase) { tintBase = { surf: [MAT.paper, MAT.floor, MAT.oat, MAT.ivory, MAT.taupe].map(m => [m, m.color.clone()]), baked: BAKED.map(m => [m, m.color.clone(), m.userData.top.value.clone(), !m.userData.sky]),
+      wash: WASH_TOP.value.clone(), amb: ambLight.color.clone(), haze: dream.mat.uniforms.haze.value.clone(), bg: scene.background.clone(), beam: shafts.mat.uniforms.col.value.clone(),
+      mote: motes ? motes.material.uniforms.col.value.clone() : null, glass: glassList.map(m => [m, m.material.uniforms?.warm?.value.clone()]).filter(x => x[1]), glare: glares.map(g => [g, g.material.color.clone()]) }; }
+    const rgb = bind.tint();
+    if (rgb) { tintGoal.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, THREE.SRGBColorSpace); tintAmtGoal = 1; } else tintAmtGoal = 0;
+    const k = Math.max(0, Math.min(1, dt / .7)); tintNow.lerp(tintGoal, k); tintAmt += (tintAmtGoal - tintAmt) * k;
+    if (!tintBase.mote && motes) { tintBase.mote = motes.material.uniforms.col.value.clone(); tintSig = ''; }
+    const sig = tintNow.getHexString() + tintAmt.toFixed(3); if (sig === tintSig) return; tintSig = sig; const A = tintAmt, B = tintBase;
+    // surfaces: a pale tone of the colour, strongly (the walls carry the room's mood)
+    B.surf.forEach(([m, base], i) => { tone(_a, tintNow, i === 0 ? .74 : i === 1 ? .66 : .8, i === 1 ? .55 : .7); m.color.copy(base).lerp(_a, A * (i === 0 ? .62 : .5)); });
+    B.baked.forEach(([m, lo, top, tintTop]) => { tone(_a, tintNow, .7, .6); m.color.copy(lo).lerp(_a, A * .55); if (tintTop) { tone(_b, tintNow, .86, .55); m.userData.top.value.copy(top).lerp(_b, A * .55); } });
+    tone(_a, tintNow, .9, .6); WASH_TOP.value.copy(B.wash).lerp(_a, A * .6);
+    // the shade and the air
+    tone(_a, tintNow, .5, .7); ambLight.color.copy(B.amb).lerp(_a.multiplyScalar(1.3), A * .45);
+    tone(_a, tintNow, .8, .6); dream.mat.uniforms.haze.value.copy(B.haze).lerp(_a, A * .65); scene.background.copy(B.bg).lerp(_a, A * .65);
+    // the light itself: beams, pools, the windows' glow, the dust in the air
+    tone(_a, tintNow, .8, 1.1, .3, .85); shafts.mat.uniforms.col.value.copy(B.beam).lerp(_a, A * .85);
+    lightPools.forEach(m => m.material.color.set('#fff').lerp(_a, A * .7));
+    if (B.mote) motes.material.uniforms.col.value.copy(B.mote).lerp(_a, A * .85);
+    B.glass.forEach(([m, w]) => m.material.uniforms.warm.value.copy(w).lerp(_a, A * .6));
+    B.glare.forEach(([g, c]) => g.material.color.copy(c).lerp(_b.copy(_a).multiplyScalar(1.5), A * .6)); }
   const fwd = new V3(), right = new V3(), acc = new V3(), tng = new V3(), gp = new V3(), gd = new V3(), camDir = new V3();
   function frame(now) {
-    if (!alive) return; requestAnimationFrame(frame); const dt = Math.min(.05, (now - last) / 1000); last = now;
+    if (!alive) return; requestAnimationFrame(frame); const dt = Math.max(0, Math.min(.05, (now - last) / 1000)); last = now;   // (the first frame can be stamped before the loop began)
     NOW = bind.now(); songT = NOW.t; $('p-bar').style.width = `${NOW.dur ? Math.min(100, NOW.t / NOW.dur * 100) : 0}%`;
     if (NOW.playing !== playing) { playing = NOW.playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', playing ? '暫停' : '播放'); updateAmbient(); }
     if (NOW.id !== nowId) { nowId = NOW.id; $('p-title').textContent = NOW.title || '尚未播放'; $('p-sub').textContent = [NOW.artist, NOW.album].filter(Boolean).join(' · ');
@@ -1103,7 +1121,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     wallTick(dt);
     renderer.shadowMap.needsUpdate = true; composer.render();
   }
-  window.__cad = { scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
+  window.__cad = { tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
     for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
   const start = () => { apply(); buildBeams(); resize(); layoutBowl(); $('loading').style.opacity = 0; setTimeout(() => $('loading').hidden = true, 800); requestAnimationFrame(frame); };
   stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });
