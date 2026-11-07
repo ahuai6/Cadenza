@@ -10,6 +10,8 @@ import { createBind } from './bind';
 import { hudHtml } from './hud';
 import { SpaceSettings } from './SpaceSettings';
 import { PlayerExtras, SpacePanel, type Panel } from './SpacePanels';
+import { SpaceDetail, type Detail } from './SpaceDetail';
+import { Toast } from '../ui/kit';
 import { lang as langStore } from '../../i18n';
 import { useStore, settings, ui } from '../state';
 import './space.css';
@@ -19,8 +21,8 @@ import s from './SpaceShell.module.css';
 const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設定播放中清晨的光'], ['notosans', '聖堂中殿全部歌曲'], ['sansmed', '聖堂中殿全部歌曲清晨的光落在窗邊 Morning light'], ['tiempos', 'The Nave Crossing']];
 
 export function SpaceShell() {
-  const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }), [gen, setGen] = useState(0), [panel, setPanel] = useState<Panel>(null), [extra, setExtra] = useState<HTMLElement | null>(null);
-  const world = useRef<{ dispose(): void; takePointer(): void } | null>(null);
+  const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }), [gen, setGen] = useState(0), [panel, setPanel] = useState<Panel>(null), [extra, setExtra] = useState<HTMLElement | null>(null), [detail, setDetail] = useState<Detail>(null);
+  const world = useRef<{ dispose(): void; takePointer(): void; closed(): void } | null>(null);
   const lang = useStore(langStore, x => x.lang), lite = useStore(settings, x => x.gfx === 'lite'), mini = useStore(ui, x => !!x.win.mini);
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(() => {
@@ -29,7 +31,8 @@ export function SpaceShell() {
     Promise.all(FACES.map(([k, t]) => ensureFont(k, t).catch(() => {}))).then(() => {
       if (gone) return;
       setExtra(document.getElementById('p-extra'));
-      world.current = createWorld(createBind(), { openSettings: (section) => { setPanel(null); setCfg({ open: true, section }); }, closeSettings: () => setCfg(c => c.open ? { open: false } : c),
+      world.current = createWorld(createBind(), { openSettings: (section) => { setPanel(null); setDetail(null); setCfg({ open: true, section }); },
+        show: (d) => { setDetail(d); if (d) { setPanel(null); setCfg(c => c.open ? { open: false } : c); } }, closeSettings: () => setCfg(c => c.open ? { open: false } : c),
         // a lost graphics context: a fresh canvas and scene a moment later (the HUD remounts with it)
         lost: () => setTimeout(() => setGen(g => g + 1), 600) });
     });
@@ -42,7 +45,9 @@ export function SpaceShell() {
       {/* a language change rebuilds the HUD and the scene's labels */}
       {ready && <div key={lang + ':' + gen} ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hudHtml() }} />}
       {ready && cfg.open && <SpaceSettings section={cfg.section} onClose={close} />}
-      {ready && <PlayerExtras host={extra} panel={panel} setPanel={p => { if (p) setCfg({ open: false }); setPanel(p); }} />}
+      {ready && <PlayerExtras host={extra} panel={panel} setPanel={p => { if (p) { setCfg({ open: false }); setDetail(null); } setPanel(p); }} />}
+      {ready && detail && <SpaceDetail detail={detail} onClose={() => { setDetail(null); world.current?.closed(); }} />}
+      {ready && <Toast />}
       {ready && !cfg.open && <SpacePanel panel={panel} onClose={() => setPanel(null)} />}
     </div>
   );

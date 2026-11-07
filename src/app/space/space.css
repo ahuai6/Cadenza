@@ -118,3 +118,6 @@
 /* the player's words on one line each, never squeezed into a column */
 .player { width: min(560px, calc(100% - 32px)); } .player .t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .player .hp { padding: 0 10px; }
+/* too far to reach: the reticle and the tip say so, quietly */
+.reticle.far { box-shadow: 0 0 0 1.5px rgba(255,252,246,.55), 0 0 0 3px rgba(47,43,38,.15); }
+.tip.far small { color: #F2C9A8 !important; }

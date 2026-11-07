@@ -4,23 +4,25 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
 import { tx } from '../../i18n';
-import { useStore, trackOf, lib } from '../state';
+import { useStore, trackOf, lib, toast } from '../state';
+import { Lib } from '../bridge';
 import { Icon } from '../ui/icons';
 import { Seg, Cover } from '../ui/kit';
 import { NpLyrics } from '../ui/NpLyrics';
-import { player, setMode, MODES, MODE_ICON, playQueueAt, removeFromQueue, clearQueue, type Mode } from '../playback/player';
+import { player, setMode, MODES, MODE_ICON, playQueueAt, removeFromQueue, clearQueue, useLyrics, type Mode } from '../playback/player';
+import { ts } from './i18n';
 import s from './SpacePanels.module.css';
 
 export type Panel = 'lyrics' | 'queue' | null;
 
 /** The three buttons, placed into the HUD's player card. */
 export function PlayerExtras({ host, panel, setPanel }: { host: HTMLElement | null; panel: Panel; setPanel: (p: Panel) => void }) {
-  const mode = useStore(player, x => x.mode), hasLyrics = useStore(player, x => x.hasLyrics);
+  const mode = useStore(player, x => x.mode), hasSong = useStore(player, x => !!x.id);
   if (!host) return null;
   const btn = (n: string, label: string, on: boolean, f: () => void, dis = false) =>
     <button type="button" className={'btn ' + s.ib} aria-pressed={on} title={label} aria-label={label} onClick={f} disabled={dis}><Icon n={n} size={18} /></button>;
   return createPortal(<>
-    {btn('quote', tx('s.lyricList'), panel === 'lyrics', () => setPanel(panel === 'lyrics' ? null : 'lyrics'), !hasLyrics)}
+    {btn('quote', tx('s.lyricList'), panel === 'lyrics', () => setPanel(panel === 'lyrics' ? null : 'lyrics'), !hasSong)}
     {btn('queue', tx('s.queue'), panel === 'queue', () => setPanel(panel === 'queue' ? null : 'queue'))}
     {btn(MODE_ICON[mode], tx('s.mode.' + mode), mode !== 'stop', () => setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]))}
   </>, host);
@@ -30,13 +32,27 @@ export function PlayerExtras({ host, panel, setPanel }: { host: HTMLElement | nu
 export function SpacePanel({ panel, onClose }: { panel: Panel; onClose: () => void }) {
   const session = useStore(player, x => x.session), hasLyrics = useStore(player, x => x.hasLyrics), shownId = useStore(player, x => x.shownId || x.id);
   useEffect(() => { if (!panel) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [panel, onClose]);
-  if (panel === 'lyrics') return (
-    <section className={`hud card ${s.panel} ${s.lyr}`} aria-label={tx('s.lyricList')} data-test="space-lyrics">
-      <header className={s.head}><b>{tx('s.lyricList')}</b><button type="button" className={s.x} onClick={onClose} aria-label={tx('close')}>✕</button></header>
-      <div className={s.lyrBox}>{hasLyrics && session ? <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live compact /> : null}</div>
-    </section>);
+  if (panel === 'lyrics') return <Lyrics key={shownId || ''} onClose={onClose} hasLyrics={hasLyrics} session={session} shownId={shownId} />;
   if (panel === 'queue') return <Queue onClose={onClose} />;
   return null;
+}
+
+// the lyric list, and its editor: the song's lyrics as text (LRC, TTML or plain), saved where the settings say
+function Lyrics({ onClose, hasLyrics, session, shownId }: { onClose: () => void; hasLyrics: boolean; session: ReturnType<typeof player.get>['session']; shownId: string | null }) {
+  const text = useStore(player, x => x.lyrics?.text || ''), [edit, setEdit] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  useEffect(() => { if (!hasLyrics && edit == null) setEdit(text); }, [hasLyrics]);
+  const save = async () => { if (edit == null) return; setBusy(true); try { await useLyrics(edit); setEdit(null); } finally { setBusy(false); } };
+  return (
+    <section className={`hud card ${s.panel} ${s.lyr}`} aria-label={tx('s.lyricList')} data-test="space-lyrics">
+      <header className={s.head}><b>{edit != null ? ts('lyr.edit') : tx('s.lyricList')}</b>
+        {edit == null && <button type="button" className={s.clear} onClick={() => setEdit(text)}>{ts('lyr.edit')}</button>}
+        <button type="button" className={s.x} onClick={onClose} aria-label={tx('close')}>✕</button></header>
+      {edit != null ? <div className={s.editor}>
+          <textarea value={edit} onChange={e => setEdit(e.target.value)} spellCheck={false} aria-label={ts('lyr.edit')} placeholder={ts('lyr.placeholder')} />
+          <div className={s.actions}><button type="button" className={s.solid} disabled={busy} onClick={save}>{tx('s.save')}</button>
+            <button type="button" className={s.ghost} onClick={() => setEdit(null)} disabled={!hasLyrics}>{tx('s.cancel')}</button></div></div>
+        : <div className={s.lyrBox}>{hasLyrics && session ? <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live compact /> : null}</div>}
+    </section>);
 }
 
 function Queue({ onClose }: { onClose: () => void }) {
@@ -46,6 +62,7 @@ function Queue({ onClose }: { onClose: () => void }) {
   return (
     <section className={`hud card ${s.panel}`} aria-label={tx('s.queue')} data-test="space-queue">
       <header className={s.head}><div><b>{tx('s.queue')}</b><small>{tx('s.queue.count', { n: items.length, rest: Math.max(0, items.length - 1 - cur) })}</small></div>
+        <button type="button" className={s.clear} disabled={!items.length} onClick={async () => { const n = ts('queueList'); await Lib?.playlist('create', n, items.map(x => x.id)); toast(tx('s.addedTo', { name: n })); }}>{ts('saveQueue')}</button>
         <button type="button" className={s.clear} disabled={items.length < 2} onClick={() => clearQueue()}>{tx('s.queue.clear')}</button>
         <button type="button" className={s.x} onClick={onClose} aria-label={tx('close')}>✕</button></header>
       <div className={s.modes}><Seg size="sm" value={p.mode} label={tx('s.mode')} onChange={(m: Mode) => setMode(m)} options={MODES.map(m => [m, '', MODE_ICON[m], tx('s.mode.' + m)])} />

@@ -18,8 +18,8 @@ import { CoverCache, CoverAtlas } from './covers';
 import { ts } from './i18n';
 import AMBIENT from './ambient.ogg?url';
 
-export interface SpaceUi { openSettings(section?: string): void; closeSettings(): void; /** the graphics context was lost (a driver reset, memory): the shell builds the scene again */ lost(): void }
-export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; takePointer(): void } {
+export interface SpaceUi { openSettings(section?: string): void; closeSettings(): void; /** open what was clicked (an album, a playlist, a song) where you stand, or close it */ show(d: { kind: 'album' | 'playlist' | 'song'; key: string } | null): void; /** the graphics context was lost (a driver reset, memory): the shell builds the scene again */ lost(): void }
+export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; takePointer(): void; closed(): void } {
   const ac = new AbortController(); let alive = true;
   const opt = (o) => ({ ...(typeof o === 'object' ? o : { capture: !!o }), signal: ac.signal });
   const onW = (t, f, o) => window.addEventListener(t, f, opt(o)), onD = (t, f, o) => document.addEventListener(t, f, opt(o));
@@ -853,31 +853,27 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     flight = { curve, t0: performance.now(), dur: Math.max(1.6, Math.min(6.5, len / 10)) * 1000, y0: me.yaw, p0: me.pitch, yaw, pitch }; }
   function setPlace(p, go = true) { place = p; Object.keys(PLACES).forEach(k => $('go-' + k).setAttribute('aria-pressed', String(k === p))); const P = PLACES[p];
     if (go) { fly(P.pos, P.yaw, P.pitch); return; }   // the sign changes on arrival, not on departure
-    const s = $('sign'); s.style.opacity = 0; setTimeout(() => { s.innerHTML = `<i>${P.sign[0]}</i><b>${P.sign[1]}</b><u style="background:${ROOM_COL[p]}"></u>`; s.style.opacity = 1; }, 300); }
+    // the room's name only as you come in: it fades in, stays a moment, and fades away
+    const s = $('sign'); s.style.opacity = 0; clearTimeout(setPlace.t); clearTimeout(setPlace.t2);
+    setPlace.t = setTimeout(() => { s.innerHTML = `<i>${P.sign[0]}</i><b>${P.sign[1]}</b><u style="background:${ROOM_COL[p]}"></u>`; s.style.opacity = 1; setPlace.t2 = setTimeout(() => { s.style.opacity = 0; }, 2800); }, 300); }
   function onRoom(r) { room = r; setPlace(r, false); if (r !== 'settings') ui.closeSettings(); }
 
   function sit(i) { const s = sofas[i]; if (!s) return;
     if (s.ring) { const a = Math.atan2(me.pos.x - s.ring.x, me.pos.z - s.ring.z); s.seat.set(s.ring.x + Math.sin(a) * s.ring.r, 1.15, s.ring.z + Math.cos(a) * s.ring.r); s.yaw = a + Math.PI; }   /* the nearest point of the ring, facing out */ hideCards(); ui.closeSettings(); fly(s.seat.clone(), s.yaw, -.04, Math.min(1.1, .4 + me.pos.distanceTo(s.seat) * .05), true); seated = true; }
   function hideCards() { $('focus').hidden = true; $('f-list').hidden = true; }
-  function focusAlbum(i) { const m = albumMeshes[i]; if (!m) return; const s = m.s; chosenSong = -1; ui.closeSettings();
-    fly(new V3(s.x - s.side * 4.4, EYE, s.z), s.side > 0 ? -Math.PI / 2 : Math.PI / 2, .1);
-    showFocus(`${ts('kind.album')} · ${ts('room.nave')}`, ALBUMS[i].title, [ALBUMS[i].artist, ALBUMS[i].year].filter(Boolean).join('，'), () => play(ALBUMS[i].ids, 0)); }
-  function focusSong(i) { chosenSong = i; const t = Math.floor(i / PER); tierGoal = t; const a = songAngle(i); ui.closeSettings();
-    if (room === 'dome') { const tgt = new V3(); songPose(i, t, tgt); const d = tgt.clone().sub(me.pos); fly(me.pos.clone(), Math.atan2(-d.x, -d.z), Math.atan2(d.y, Math.hypot(d.x, d.z)) * .8, .7); }
-    else fly(new V3(CROSS.c.x, EYE, CROSS.c.z), a, .02, 1);
-    showFocus(`${ts('kind.song')} · ${ts('room.dome')}`, SONGS[i].title, [SONGS[i].artist, SONGS[i].album && `《${SONGS[i].album}》`].filter(Boolean).join('，'), () => play(SONGS.map(x => x.id), i)); }
-  function focusList(k) { const L = listMeshes[k], pl = PLAYLISTS[k]; ui.closeSettings(); const w = new V3(); L.grp.getWorldPosition(w); const d = w.clone().sub(LISTS.c).setY(0).normalize();
-    fly(new V3(LISTS.c.x + d.x * 2.2, EYE, LISTS.c.z + d.z * 2.2), Math.atan2(-d.x, -d.z), .08);
-    showFocus(`${ts('kind.list')} · ${ts('room.lists')}`, pl.name, pl.note, () => play(pl.ids, 0));
-    const ol = $('f-list'); ol.innerHTML = ''; pl.ids.slice(0, 8).forEach(id => { const sg = SONGS[songById.get(id)]; if (!sg) return; const li = document.createElement('li'); li.textContent = sg.title; ol.append(li); }); ol.hidden = false; }
+  // what you click opens where you stand: the view never moves for it (the card closes when you walk away from it)
+  let shownAt = null;
+  function show(d, at) { hideCards(); ui.closeSettings(); ui.show(d); shownAt = at && me.pos.distanceTo(at) <= REACH + 3 ? at.clone() : null; setTimeout(freePointer, 0); }   // (one found by search, far off: open until closed)
+  function focusAlbum(i) { const m = albumMeshes[i]; if (!m) return; chosenSong = -1; show({ kind: 'album', key: ALBUMS[i].key }, m.g.getWorldPosition(new V3())); }
+  function focusSong(i) { chosenSong = i; tierGoal = Math.floor(i / PER); const at = new V3(); songPose(i, tierGoal, at); show({ kind: 'song', key: SONGS[i].id }, room === 'dome' ? at : null); }
+  function focusList(k) { const L = listMeshes[k], pl = PLAYLISTS[k]; if (!L || !pl) return; chosenSong = -1; show({ kind: 'playlist', key: pl.id }, L.grp.getWorldPosition(new V3())); }
   let onPlay = null; function showFocus(eye, title, meta, fn) { setTimeout(freePointer, 0); $('f-play').textContent = ts('play'); $('f-eye').textContent = eye; $('f-title').textContent = title; $('f-meta').textContent = meta; onPlay = fn; $('f-list').hidden = true; $('focus').hidden = false; }
   let playing = false, songT = 0, seated = false;
   // Cadenza plays; the scene follows (the card, the cover, the lyrics change when the player says so, in frame())
   function play(ids, index) { bind.play(ids, index); hideCards(); }   // (you stay where you are: the lyrics come to you)
 
   /* ---------- the settings: the sculptures open the settings page at their part (the page is SpaceShell's) ---------- */
-  function openLedger(key) { const st = stations.find(l => l.key === key); hideCards(); freePointer(); ui.openSettings(SECTION_OF[key]);
-    const w = new V3(); st.grp.getWorldPosition(w); const d = w.clone().sub(SETS.c).setY(0).normalize(); fly(new V3(w.x - d.x * 3, EYE, w.z - d.z * 3), Math.atan2(-d.x, -d.z), -.12); }
+  function openLedger(key) { hideCards(); ui.show(null); freePointer(); ui.openSettings(SECTION_OF[key]); }
   let shadowSize = 0;
   // Cadenza's picture-quality modes: as designed; optimised (no second ink scale, half the motes, softer bloom);
   // lite (no beams' volumes, no bloom, no glass behind the HUD, a quarter of the motes, at most 75 % resolution)
@@ -894,9 +890,11 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const ray = new THREE.Raycaster(), ndc = new V2();
   function pickAt(x, y) { const r = canvas.getBoundingClientRect(); ndc.set((x - r.left) / r.width * 2 - 1, -(y - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera);
     const h = ray.intersectObjects([...pickables, ...occluders], false)[0]; if (!h || !h.object.userData.kind) return null;
-    if (h.distance > (h.object.userData.kind === 'bowl' ? 17 : h.object.userData.kind === 'sofa' ? 40 : 7)) return null;
     const back = h.point.clone().addScaledVector(ray.ray.direction, -.6), rr = regionAt(back); if (!rr || rr.room !== room) return null;   // only what is in your own room
-    if (h.object.userData.kind === 'bowl') return { kind: 'song', i: h.object.userData.ids[h.instanceId] }; return h.object.userData; }
+    // one reach for everything, as in a game: within it a thing lights up and answers; further, it tells you to come closer
+    const far = h.distance > REACH;
+    if (h.object.userData.kind === 'bowl') return { kind: 'song', i: h.object.userData.ids[h.instanceId], far }; return { ...h.object.userData, far }; }
+  const REACH = 6;
   const occluders = []; world.traverse(o => { if (o.isMesh && !o.isInstancedMesh && o.castShadow && !o.userData.kind) occluders.push(o); });   // walls stop the pointer like they stop the eye
   const immersive = () => !!S.immersive;
   canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -904,8 +902,8 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     if (e.button === 2 && !immersive()) { looking = true; canvas.setPointerCapture(e.pointerId); canvas.requestPointerLock?.(); $('tip').hidden = true; return; }
     if (e.button === 0 && immersive() && !locked) { canvas.requestPointerLock?.(); return; }
     if (e.button === 0) { const h = locked ? pickAt(innerWidth / 2, innerHeight / 2) : pickAt(e.clientX, e.clientY);
-      if (locked && !h) { hideCards(); return; } if (!h) return;
-      const key = h.kind + ':' + (h.i ?? h.key); if (locked && key === lastPick && !$('focus').hidden && onPlay) { onPlay(); lastPick = ''; return; } lastPick = key;
+      if (!h) return;
+      if (h.far) { reachHint(locked ? innerWidth / 2 : e.clientX, locked ? innerHeight / 2 : e.clientY); return; }
       if (h.kind === 'album') focusAlbum(h.i); else if (h.kind === 'song') focusSong(h.i); else if (h.kind === 'playlist') focusList(h.i); else if (h.kind === 'setting') openLedger(h.key); else if (h.kind === 'sofa') sit(h.i); }
   });
   onW('pointerup', e => { if (e.button === 2 && looking) { looking = false; if (!immersive()) document.exitPointerLock?.(); } });
@@ -914,10 +912,11 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   function freePointer() { if (locked && immersive()) { relock = true; document.exitPointerLock?.(); } }
   function takePointer() { if (relock) { relock = false; canvas.requestPointerLock?.(); } }
   onD('pointerlockchange', () => { locked = document.pointerLockElement === canvas; lockAt = performance.now(); lookDrift = 0; $('reticle').hidden = !(locked && immersive()); if (!locked) { $('tip').hidden = true; $('reticle').classList.remove('hot'); } });
-  let lastPick = '';
+  // too far to reach: the tip says so, briefly
+  function reachHint(x, y) { const tip = $('tip'); tip.innerHTML = `${ts('reach')}`; tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.hidden = false; tip.classList.add('far'); clearTimeout(reachHint.t); reachHint.t = setTimeout(() => { tip.classList.remove('far'); }, 900); }
   // with the view locked, the reticle is the pointer: it lights up over anything you can use and names it
-  function reticleHover() { if (!locked) return; const h = pickAt(innerWidth / 2, innerHeight / 2), r = $('reticle'), tip = $('tip'); r.classList.toggle('hot', !!h); hoverSong = h && h.kind === 'song' ? h.i : -1;
-    if (h) { const t = tipText(h), again = lastPick === h.kind + ':' + (h.i ?? h.key) && !$('focus').hidden; tip.innerHTML = `${t[0]}<small>${again ? ts('tip.again') : t[1]}</small>`; tip.style.left = innerWidth / 2 + 'px'; tip.style.top = innerHeight / 2 + 'px'; tip.hidden = false; } else tip.hidden = true; }
+  function reticleHover() { if (!locked) return; const h = pickAt(innerWidth / 2, innerHeight / 2), r = $('reticle'), tip = $('tip'); r.classList.toggle('hot', !!h && !h.far); r.classList.toggle('far', !!h && h.far); hoverSong = h && h.kind === 'song' && !h.far ? h.i : -1;
+    if (h) { const t = tipText(h); tip.innerHTML = `${t[0]}<small>${h.far ? ts('reach') : t[1]}</small>`; tip.style.left = innerWidth / 2 + 'px'; tip.style.top = innerHeight / 2 + 'px'; tip.hidden = false; } else tip.hidden = true; }
   const tipText = (h) => h.kind === 'sofa' ? [ts('tip.sit'), ts('tip.sitSub')] : h.kind === 'song' ? [SONGS[h.i]?.title || '', SONGS[h.i]?.artist || ''] : h.kind === 'album' ? [ALBUMS[h.i]?.title || '', ALBUMS[h.i]?.artist || ''] : h.kind === 'playlist' ? [PLAYLISTS[h.i]?.name || '', PLAYLISTS[h.i]?.note || ''] : [SECTIONS.find(s => s[0] === h.key)[1], ts('tip.settings')];
   canvas.addEventListener('pointermove', e => {
     if (looking || locked) {
@@ -930,8 +929,8 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   });
   let hoverAt = null;
   function hoverTick() { if (!hoverAt) return; const [x, y] = hoverAt; hoverAt = null;
-    const h = pickAt(x, y); canvas.classList.toggle('hot', !!h); hoverSong = h && h.kind === 'song' ? h.i : -1;
-    const tip = $('tip'); if (h) { const t = tipText(h); tip.innerHTML = `${t[0]}<small>${t[1]}</small>`; tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.hidden = false; } else tip.hidden = true; }
+    const h = pickAt(x, y); canvas.classList.toggle('hot', !!h && !h.far); hoverSong = h && h.kind === 'song' && !h.far ? h.i : -1;
+    const tip = $('tip'); if (h) { const t = tipText(h); tip.innerHTML = `${t[0]}<small>${h.far ? ts('reach') : t[1]}</small>`; tip.classList.toggle('far', !!h.far); tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.hidden = false; } else tip.hidden = true; }
   canvas.addEventListener('wheel', e => { e.preventDefault(); const d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
     if (room === 'dome' && octIn(me.pos, CROSS, 1)) { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }
     else me.vel.addScaledVector(new V3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)), -d * .02); }, { passive: false });
@@ -955,7 +954,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   $('mini').onclick = () => bind.mini();
   $('pp').onclick = togglePlay;
   Object.keys(PLACES).forEach(k => $('go-' + k).onclick = () => { hideCards(); setPlace(k); });
-  $('f-close').onclick = () => { hideCards(); chosenSong = -1; takePointer(); }; $('f-play').onclick = () => { onPlay && onPlay(); takePointer(); };
+  $('f-close').onclick = () => { hideCards(); takePointer(); }; $('f-play').onclick = () => { onPlay && onPlay(); takePointer(); };
   canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); alive = false; setTimeout(() => ui.lost(), 0); }, { signal: ac.signal });
   $('cfg').onclick = () => { hideCards(); freePointer(); ui.openSettings(); };
   $('q').addEventListener('input', () => { const q = $('q').value.trim(), ul = $('results'); ul.innerHTML = ''; if (!q) { ul.hidden = true; return; }
@@ -1307,6 +1306,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
       for (const axis of ['x', 'z', 'y']) { const next = me.pos.clone(); next[axis] += me.vel[axis] * dt; const reg = regionAt(next); if (reg && next.y >= EYE * .55 && next.y <= reg.top) me.pos.copy(next); else me.vel[axis] *= .2; }
     }
     const reg = regionAt(me.pos); if (reg && !reg.door && reg.room !== room) onRoom(reg.room);
+    if (shownAt && me.pos.distanceTo(shownAt) > REACH + 3) { shownAt = null; chosenSong = -1; ui.show(null); }
     const bob = RM() ? 0 : Math.sin(now / 1000 * .7) * .02;
     camera.position.set(me.pos.x, me.pos.y + bob, me.pos.z); camera.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
     stepRail(dt, now); const railKey = hoverSong + ':' + chosenSong; if (liftTick(dt) || (frameN % 15 === 0 && room === 'dome')) bowlDirty = true;
@@ -1351,8 +1351,8 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     try { composer.render(); renderErrors = 0; } catch (e) { if (renderErrors++ < 3) console.error('[space] frame', e); }
   }
   window.__cad = { fakeNow: (o) => { fakeNow = o ? { ...o, t0: performance.now() } : null; }, fakeBeats: (bl) => { fakeBeats = bl ? { bl } : null; }, tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];
-    for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), pick: (x, y) => { const r = canvas.getBoundingClientRect(); ndc.set((x - r.left) / r.width * 2 - 1, -(y - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); const h = ray.intersectObjects([...pickables, ...occluders], false)[0]; return h ? [h.object.userData.kind || '-', +h.distance.toFixed(2), JSON.stringify(pickAt(x, y))] : null; }, C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
-  const start = () => { apply(); buildBeams(); resize(); layoutBowl(); $('loading').style.opacity = 0; setTimeout(() => $('loading').hidden = true, 800); requestAnimationFrame(frame); };
+    for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) if (bx[i].max.y > .05 && bx[j].max.y > .05 && bx[i].intersectsBox(bx[j])) out.push([i, j, bx[i].getCenter(new V3()).toArray().map(v => +v.toFixed(1)), bx[j].getCenter(new V3()).toArray().map(v => +v.toFixed(1))]); return out; }, rest: (x, y, z) => restHeight(x, y, z), pick: (x, y) => { const r = canvas.getBoundingClientRect(); ndc.set((x - r.left) / r.width * 2 - 1, -(y - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); const h = ray.intersectObjects([...pickables, ...occluders], false)[0]; return h ? [h.object.userData.kind || '-', +h.distance.toFixed(2), JSON.stringify(pickAt(x, y))] : null; }, C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z], camera: () => camera, sitAt: () => { const s = sofas.find(x => Math.abs(x.seat.z - (SANCT.c.z + .9)) < .5); if (s) { me.pos.copy(s.seat); me.yaw = s.yaw; me.pitch = -.04; seated = true; flight = null; } }, au: () => au, lyr: () => scene3, room: () => room, regionAt: (x, y, z) => regionAt(new V3(x, y, z)), LINKS, CROSS, NAVE, wheel: (d) => { tierGoal = Math.max(-.35, Math.min(TIERS - .65, tierGoal + d / 110)); wheelRest = performance.now(); }, rail: () => [tierAt, tierGoal], setRail: (v) => { tierAt = tierGoal = v; tierVel = 0; wheelRest = 0; }, stand: (x, z, yaw, pitch = 0) => { me.pos.set(x, EYE, z); me.yaw = yaw; me.pitch = pitch; flight = null; }, go: (k) => { const P = PLACES[k]; me.pos.copy(P.pos); me.yaw = P.yaw; me.pitch = P.pitch; flight = null; }, fly: (k) => setPlace(k), look: (y, p) => { me.yaw = y; me.pitch = p; }, set: (k, v) => { S[k] = v; apply(); } };
+  const start = () => { apply(); buildBeams(); resize(); layoutBowl(); setPlace(room, false); $('loading').style.opacity = 0; setTimeout(() => $('loading').hidden = true, 800); requestAnimationFrame(frame); };
   stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });
   start();
   const offPrefs = bind.onPrefs((p) => { S = p; apply(); });
@@ -1360,5 +1360,5 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const offLibrary = bind.onLibrary((l) => { LIB = l; SONGS = l.songs; songById = new Map(SONGS.map((sg, i) => [sg.id, i])); listPg = Math.min(listPg, Math.max(1, Math.ceil(l.playlists.length / LIST_SLOTS)) - 1); PLAYLISTS = l.playlists.slice(listPg * LIST_SLOTS, (listPg + 1) * LIST_SLOTS);
     navePg = Math.min(navePg, navePages(l) - 1); ALBUMS = navePage(l, navePg); hideCards(); buildNave(); buildBowl(); buildLists(); layoutBowl(); });
 
-  return { takePointer: () => takePointer(), dispose() { alive = false; ac.abort(); offLibrary(); offPrefs(); covers.dispose(); thumbs.dispose(); hiCovers.dispose(); atlas.dispose(); try { clearTimeout(unrouteAt); if (routed) bind.audio().route(null); au.ambSrc?.stop(); au.master?.disconnect(); au.songIn?.disconnect(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
+  return { takePointer: () => takePointer(), closed: () => { shownAt = null; chosenSong = -1; takePointer(); }, dispose() { alive = false; ac.abort(); offLibrary(); offPrefs(); covers.dispose(); thumbs.dispose(); hiCovers.dispose(); atlas.dispose(); try { clearTimeout(unrouteAt); if (routed) bind.audio().route(null); au.ambSrc?.stop(); au.master?.disconnect(); au.songIn?.disconnect(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
 }

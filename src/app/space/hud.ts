@@ -23,7 +23,7 @@ export const hudHtml = () => `
     <button class="cfg card" id="cfg" aria-label="${esc(ts('settings'))}" title="${esc(ts('settings'))} ( , )">${gear}</button>
   </div>
 </div>
-<div class="hud sign" id="sign"><i>The Gallery</i><b>${esc(ts('room.nave'))} · ${esc(ts('room.nave.sub'))}</b><u></u></div>
+<div class="hud sign" id="sign" style="opacity:0"><i>The Gallery</i><b>${esc(ts('room.nave'))} · ${esc(ts('room.nave.sub'))}</b><u></u></div>
 <div class="hud focus card" id="focus" hidden>
   <div class="eyebrow" id="f-eye"></div>
   <h2 id="f-title"></h2>
