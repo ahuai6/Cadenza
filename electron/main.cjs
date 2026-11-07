@@ -26,7 +26,7 @@ const open = new Map(); let nextId = 1;
 
 /* ---------- the app's own settings ---------- */
 const SETTINGS = () => path.join(app.getPath('userData'), 'settings.json');
-const DEFAULTS = { ui: 'classic', spaceBeams: true, spaceFollow: false, spaceAmbient: true, spaceAmbientVol: 0.6, spaceImmersive: false, spaceTint: 'cover', spaceTintColor: '#D97757', spaceBeatBeams: true, spacePulse: true, mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, theme: 'system', tone: 'paper', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
+const DEFAULTS = { ui: 'classic', spaceBeams: true, spaceFollow: false, spaceAmbient: true, spaceAmbientVol: 0.6, spaceImmersive: false, spaceTint: 'cover', spaceTintColor: '#D97757', spaceBeatBeams: true, spacePulse: true, spaceDream: true, spaceLine: 'mid', spaceShadow: 'high', spaceScale: 1, spaceWalk: 1, spaceLook: 1, spaceLyric: 'm', spaceReduced: false, mvDark: 0.34, mvBlur: 0.12, mvDesat: 0, mvFit: false, theme: 'system', tone: 'paper', scanOnLaunch: true, openAtLogin: false, closeToTray: false, lang: '', scale: 'auto', fps: 0, prerender: true,
   audioOut: 'standard', audioMode: 'exclusive', audioDevice: '', fixedVolume: true, volBalance: true, rhythmEngine: 'auto', rhythmRuntime: 'auto', rhythmDevice: 'auto', rhythmDrums: true, rhythmStream: 'stream', gfx: 'default', gpuLyrics: true, perfHud: false, debugLog: false, fxCapSubs: true, fxCapReads: true, uiFont: 'default', fxAspect: '16:9', lyricsTarget: 'tag' };
 let settings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS(), 'utf8')) }; } catch (e) { /* first run */ }

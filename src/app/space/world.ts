@@ -15,9 +15,11 @@ import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
 import type { SpaceBind, SpaceNow } from './bind';
 import { navePage, navePages, NAVE_SLOTS, LIST_SLOTS } from './data';
 import { CoverCache, CoverAtlas } from './covers';
+import { ts } from './i18n';
 import AMBIENT from './ambient.ogg?url';
 
-export function createWorld(bind: SpaceBind): { dispose(): void } {
+export interface SpaceUi { openSettings(section?: string): void; closeSettings(): void }
+export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; takePointer(): void } {
   const ac = new AbortController(); let alive = true;
   const opt = (o) => ({ ...(typeof o === 'object' ? o : { capture: !!o }), signal: ac.signal });
   const onW = (t, f, o) => window.addEventListener(t, f, opt(o)), onD = (t, f, o) => document.addEventListener(t, f, opt(o));
@@ -27,10 +29,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   const V2 = THREE.Vector2, V3 = THREE.Vector3;
   const EYE = 1.7;
 
-  /* ---------- settings (kept per viewer) ---------- */
-  const DEF = { ui: 'museum', accent: 'clay', beams: true, dream: true, music: true, musicVol: .6, follow: false, line: 'mid', shadow: 'high', res: 1, motion: SYS_RM ? 'reduced' : 'full', walk: 1, look: 1, lyric: 'm', trans: false, hifi: false, loud: true };
-  let S = { ...DEF }; try { Object.assign(S, JSON.parse(localStorage.getItem('cadenza-cathedral-v4') || '{}')); } catch (e) {}
-  const save = () => { try { localStorage.setItem('cadenza-cathedral-v4', JSON.stringify(S)); } catch (e) {} };
+  /* ---------- settings: Cadenza's own (the space's fields, the picture-quality mode), followed as they change ---------- */
+  let S = bind.prefs();
   const RM = () => S.motion === 'reduced';
 
   /* ---------- the library, through bind.ts: songs by title (the crossing), albums sixteen to a page (the nave), playlists ---------- */
@@ -391,7 +391,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   let tierAt = 2, tierVel = 0, tierGoal = 2, wheelRest = 0;
   const labelCache = new Map(), signCache = new Map();
   const songLabel = (i) => { if (!labelCache.has(i)) { if (labelCache.size > 320) { const [k, t] = labelCache.entries().next().value; t.dispose(); labelCache.delete(k); } const s = SONGS[i]; labelCache.set(i, textTex(480, 88, (g, w, h) => { g.fillStyle = '#29241F'; g.font = '500 34px "Noto Serif TC", serif'; g.textAlign = 'center'; g.fillText(s.title, w / 2, 38); g.fillStyle = '#7a6f63'; g.font = 'italic 400 24px "Source Serif 4", serif'; g.fillText(s.artist, w / 2, 74); })); } return labelCache.get(i); };
-  const tierLabel = (t) => { if (!signCache.has(t)) { const a = SONGS[t * PER], b = SONGS[Math.min(SONGS.length, (t + 1) * PER) - 1]; signCache.set(t, textTex(640, 100, (g, w, h) => { g.fillStyle = '#C4603F'; g.font = '500 34px "Noto Sans TC", sans-serif'; g.textAlign = 'center'; g.fillText(`第 ${t + 1} 層　${(a?.title || ' ')[0]} — ${(b?.title || ' ')[0]}`, w / 2, 62); })); } return signCache.get(t); };
+  const tierLabel = (t) => { if (!signCache.has(t)) { const a = SONGS[t * PER], b = SONGS[Math.min(SONGS.length, (t + 1) * PER) - 1]; signCache.set(t, textTex(640, 100, (g, w, h) => { g.fillStyle = '#C4603F'; g.font = '500 34px "Noto Sans TC", sans-serif'; g.textAlign = 'center'; g.fillText(`${ts('tier', { n: t + 1 })}　${(a?.title || ' ')[0]} — ${(b?.title || ' ')[0]}`, w / 2, 62); })); } return signCache.get(t); };
   // two sets of labels: the tier leaving and the tier arriving cross-fade, each riding with its own covers
   const mkPool = () => ({ tier: -1, labels: Array.from({ length: PER }, () => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, .22), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })); m.renderOrder = 3; world.add(m); return m; }),
     sign: (() => { const m = new THREE.Mesh(new THREE.PlaneGeometry(3.2, .5), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })); m.renderOrder = 3; world.add(m); return m; })() });
@@ -451,7 +451,9 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   buildLists();
 
   /* ---------- south chapel: each kind of setting is a small geometric sculpture on a plinth ---------- */
-  const SECTIONS = [['look', '外觀', 'Appearance'], ['light', '光影', 'Light & Performance'], ['motion', '動態', 'Motion & Control'], ['lyrics', '歌詞', 'Lyrics'], ['audio', '音訊', 'Audio · Hi-Fi']];
+  const SECTIONS = [['look', ts('g.look'), 'Appearance'], ['light', ts('g.light'), 'Light & Picture'], ['motion', ts('g.guide'), 'Moving around'], ['lyrics', ts('g.lyrics'), 'Lyrics'], ['audio', ts('g.audio'), 'Sound · Hi-Fi']];
+  // which part of the settings page each sculpture opens
+  const SECTION_OF = { look: 'look', light: 'light', motion: 'guide', lyrics: 'lyrics', audio: 'audio' };
   function sculpture(key) { const g = new THREE.Group();
     if (key === 'look') [[C.clay, -.22, 0], [C.olive, .2, .08], [C.mist, 0, .34]].forEach(([c, x, y], i) => { const d = mesh(cyl(.3, .3, .06, 40), toon(c), g); d.rotation.x = Math.PI / 2; d.position.set(x, .45 + y, i * .07); });
     if (key === 'light') { const d = mesh(new THREE.CylinderGeometry(.42, .42, .08, 40, 1, false, -Math.PI / 2, Math.PI), MAT.kraft, g); d.rotation.x = Math.PI / 2; d.position.y = .1;
@@ -532,10 +534,10 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     const st = segTex();
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('seed', new THREE.BufferAttribute(seed, 1)); geo.setAttribute('dir', new THREE.BufferAttribute(dir, 3)); geo.setAttribute('yr', new THREE.BufferAttribute(yr, 2));
     motes = new THREE.Points(geo, new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms: { segs: { value: st }, nSeg: { value: Math.min(64, segs.length) }, time: { value: 0 }, px: { value: 1 }, accent: { value: 0 }, still: { value: 0 }, col: { value: new THREE.Color(C.apricot) } },
+      uniforms: { segs: { value: st }, nSeg: { value: Math.min(64, segs.length) }, time: { value: 0 }, px: { value: 1 }, accent: { value: 0 }, still: { value: 0 }, col: { value: new THREE.Color(C.apricot) }, keep: { value: 1 } },
       vertexShader: `#include <common>
   #include <logdepthbuf_pars_vertex>
-  uniform sampler2D segs; uniform int nSeg; uniform float time, px, accent, still; attribute float seed; attribute vec3 dir; attribute vec2 yr; varying float vB;
+  uniform sampler2D segs; uniform int nSeg; uniform float time, px, accent, still, keep; attribute float seed; attribute vec3 dir; attribute vec2 yr; varying float vB;
         void main(){ vec3 p = position; float T = time*(1.-still);
           p += vec3(sin(T*.11+seed*40.)*.55 + sin(T*.031+seed*9.)*.3, 0., cos(T*.09+seed*23.)*.55 + cos(T*.027+seed*5.)*.3);
           p.y = yr.x + mod(position.y - yr.x + T*.03*(.4+seed) + sin(T*.07+seed*13.)*.25, yr.y - yr.x);
@@ -544,7 +546,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
             float r = mix(a.w, b.w, t); inb = max(inb, 1.-smoothstep(r*.3, r, length(p-(a.xyz+ab*t)))); }
           vec4 mv = modelViewMatrix*vec4(p, 1.); float dz = -mv.z;
           vB = (.08 + inb*.72)*(1.+accent*.25)*smoothstep(.6, 2., dz)*(1.-smoothstep(26., 48., dz));
-          gl_PointSize = px*(1.1+seed*1.3)*(1.+inb*1.1)*5./max(.5, dz); gl_Position = projectionMatrix*mv;
+          gl_PointSize = fract(seed*7.31) > keep ? 0. : px*(1.1+seed*1.3)*(1.+inb*1.1)*5./max(.5, dz); gl_Position = projectionMatrix*mv;
   #include <logdepthbuf_vertex>
   }`,
       fragmentShader: `#include <common>
@@ -570,8 +572,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
         this.ids.set(key, im); return im; };
       this.swap = [];
       this.mat = new THREE.ShaderMaterial({ depthTest: false, depthWrite: false, vertexShader: FSV,
-        uniforms: { tDiffuse: { value: null }, tN: { value: this.rt.texture }, tD: { value: this.rt.depthTexture }, px: { value: new V2() }, w: { value: 1 }, near: { value: .1 }, far: { value: 300 }, ink: { value: new THREE.Color(C.ink) } },
-        fragmentShader: `uniform sampler2D tDiffuse, tN, tD; uniform vec2 px; uniform float w, near, far; uniform vec3 ink; varying vec2 vUv;
+        uniforms: { tDiffuse: { value: null }, tN: { value: this.rt.texture }, tD: { value: this.rt.depthTexture }, px: { value: new V2() }, w: { value: 1 }, two: { value: 1 }, near: { value: .1 }, far: { value: 300 }, ink: { value: new THREE.Color(C.ink) } },
+        fragmentShader: `uniform sampler2D tDiffuse, tN, tD; uniform vec2 px; uniform float w, two, near, far; uniform vec3 ink; varying vec2 vUv;
           float L(vec2 uv){ return exp2(texture2D(tD, uv).x*log2(far+1.)) - 1.; }
           vec3 N(vec2 uv){ return texture2D(tN, uv).xyz*2.-1.; }
           // material boundaries: two different surfaces always meet in a line, however flush and parallel they are (a plate on a wall, a relief)
@@ -584,7 +586,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
             float id0 = texture2D(tN, vUv).a, ie = max(max(I(vUv+vec2(o.x,0.), id0), I(vUv-vec2(o.x,0.), id0)), max(I(vUv+vec2(0.,o.y), id0), I(vUv-vec2(0.,o.y), id0)));
             return max(max(e, smoothstep(.2, .45, nn)), ie); }
           void main(){ vec4 c = texture2D(tDiffuse, vUv); float d0 = L(vUv); vec3 n0 = N(vUv); float i0 = 1./d0;
-            float e = .6*edgeAt(px*w, i0, n0) + .4*edgeAt(px*w*2., i0, n0);
+            float e1 = edgeAt(px*w, i0, n0), e = two > .5 ? .6*e1 + .4*edgeAt(px*w*2., i0, n0) : e1;
             float fade = 1.-smoothstep(14., 40., d0)*.85;
             float grain = (fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898,78.233)))*43758.5453)-.5)*.022;
             gl_FragColor = vec4(mix(c.rgb, ink, e*fade*.92)+grain, c.a); }` });
@@ -707,11 +709,11 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     if (octIn(p, LISTS, .6)) return { room: 'lists', top: 15 }; if (octIn(p, SETS, .6)) return { room: 'settings', top: 15 }; if (octIn(p, SANCT, .6)) return { room: 'altar', top: 17 };
     return null; }
   const PLACES = {
-    nave: { pos: new V3(0, EYE, -4), yaw: 0, pitch: .05, sign: ['The Nave', '中殿 · 專輯'] },
-    dome: { pos: new V3(CROSS.c.x, EYE, CROSS.c.z + 11.2), yaw: 0, pitch: .03, sign: ['The Crossing', '中堂 · 全部歌曲'] },
-    lists: { pos: new V3(LISTS.c.x + 4.2, EYE, LISTS.c.z), yaw: Math.PI / 2, pitch: .02, sign: ['North Chapel', '北禮拜堂 · 歌單'] },
-    altar: { pos: new V3(SANCT.c.x, EYE, SANCT.c.z + 5.2), yaw: 0, pitch: .1, sign: ['The Sanctuary', '聖所 · 播放中'] },
-    settings: { pos: new V3(SETS.c.x - 4.2, EYE, SETS.c.z), yaw: -Math.PI / 2, pitch: -.04, sign: ['South Chapel', '南禮拜堂 · 設定'] } };
+    nave: { pos: new V3(0, EYE, -4), yaw: 0, pitch: .05, sign: ['The Nave', `${ts('room.nave')} · ${ts('room.nave.sub')}`] },
+    dome: { pos: new V3(CROSS.c.x, EYE, CROSS.c.z + 11.2), yaw: 0, pitch: .03, sign: ['The Crossing', `${ts('room.dome')} · ${ts('room.dome.sub')}`] },
+    lists: { pos: new V3(LISTS.c.x + 4.2, EYE, LISTS.c.z), yaw: Math.PI / 2, pitch: .02, sign: ['North Chapel', `${ts('room.lists')} · ${ts('room.lists.sub')}`] },
+    altar: { pos: new V3(SANCT.c.x, EYE, SANCT.c.z + 5.2), yaw: 0, pitch: .1, sign: ['The Sanctuary', `${ts('room.altar')} · ${ts('room.altar.sub')}`] },
+    settings: { pos: new V3(SETS.c.x - 4.2, EYE, SETS.c.z), yaw: -Math.PI / 2, pitch: -.04, sign: ['South Chapel', `${ts('room.settings')} · ${ts('room.settings.sub')}`] } };
   // the way through the building: every room hangs off the crossing; each link is the line through its doorways
   const at = (d, s) => new V3(CROSS.c.x + d.x * s, EYE, CROSS.c.z + d.z * s);
   const LINKS = { nave: [new V3(0, EYE, NAVE.z1 + 4), new V3(0, EYE, NAVE.z1 - T / 2), new V3(0, EYE, NAVE.z1 - T - 3)] };
@@ -735,51 +737,40 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   function setPlace(p, go = true) { place = p; Object.keys(PLACES).forEach(k => $('go-' + k).setAttribute('aria-pressed', String(k === p))); const P = PLACES[p];
     if (go) { fly(P.pos, P.yaw, P.pitch); return; }   // the sign changes on arrival, not on departure
     const s = $('sign'); s.style.opacity = 0; setTimeout(() => { s.innerHTML = `<i>${P.sign[0]}</i><b>${P.sign[1]}</b><u style="background:${ROOM_COL[p]}"></u>`; s.style.opacity = 1; }, 300); }
-  function onRoom(r) { room = r; setPlace(r, false); if (r !== 'settings') $('ledger').hidden = true; }
+  function onRoom(r) { room = r; setPlace(r, false); if (r !== 'settings') ui.closeSettings(); }
 
   function sit(i) { const s = sofas[i]; if (!s) return;
-    if (s.ring) { const a = Math.atan2(me.pos.x - s.ring.x, me.pos.z - s.ring.z); s.seat.set(s.ring.x + Math.sin(a) * s.ring.r, 1.15, s.ring.z + Math.cos(a) * s.ring.r); s.yaw = a + Math.PI; }   /* the nearest point of the ring, facing out */ hideCards(); $('ledger').hidden = true; fly(s.seat.clone(), s.yaw, -.04); seated = true; }
+    if (s.ring) { const a = Math.atan2(me.pos.x - s.ring.x, me.pos.z - s.ring.z); s.seat.set(s.ring.x + Math.sin(a) * s.ring.r, 1.15, s.ring.z + Math.cos(a) * s.ring.r); s.yaw = a + Math.PI; }   /* the nearest point of the ring, facing out */ hideCards(); ui.closeSettings(); fly(s.seat.clone(), s.yaw, -.04); seated = true; }
   function hideCards() { $('focus').hidden = true; $('f-list').hidden = true; }
-  function focusAlbum(i) { const m = albumMeshes[i]; if (!m) return; const s = m.s; chosenSong = -1; $('ledger').hidden = true;
+  function focusAlbum(i) { const m = albumMeshes[i]; if (!m) return; const s = m.s; chosenSong = -1; ui.closeSettings();
     fly(new V3(s.x - s.side * 4.4, EYE, s.z), s.side > 0 ? -Math.PI / 2 : Math.PI / 2, .1);
-    showFocus('專輯 · 中殿', ALBUMS[i].title, [ALBUMS[i].artist, ALBUMS[i].year].filter(Boolean).join('，'), () => play(ALBUMS[i].ids, 0)); }
-  function focusSong(i) { chosenSong = i; const t = Math.floor(i / PER); tierGoal = t; const a = songAngle(i); $('ledger').hidden = true;
+    showFocus(`${ts('kind.album')} · ${ts('room.nave')}`, ALBUMS[i].title, [ALBUMS[i].artist, ALBUMS[i].year].filter(Boolean).join('，'), () => play(ALBUMS[i].ids, 0)); }
+  function focusSong(i) { chosenSong = i; const t = Math.floor(i / PER); tierGoal = t; const a = songAngle(i); ui.closeSettings();
     if (room === 'dome') { const tgt = new V3(); songPose(i, t, tgt); const d = tgt.clone().sub(me.pos); fly(me.pos.clone(), Math.atan2(-d.x, -d.z), Math.atan2(d.y, Math.hypot(d.x, d.z)) * .8, .7); }
     else fly(new V3(CROSS.c.x, EYE, CROSS.c.z), a, .02, 1);
-    showFocus('歌曲 · 中堂', SONGS[i].title, [SONGS[i].artist, SONGS[i].album && `《${SONGS[i].album}》`].filter(Boolean).join('，'), () => play(SONGS.map(x => x.id), i)); }
-  function focusList(k) { const L = listMeshes[k], pl = PLAYLISTS[k]; $('ledger').hidden = true; const w = new V3(); L.grp.getWorldPosition(w); const d = w.clone().sub(LISTS.c).setY(0).normalize();
+    showFocus(`${ts('kind.song')} · ${ts('room.dome')}`, SONGS[i].title, [SONGS[i].artist, SONGS[i].album && `《${SONGS[i].album}》`].filter(Boolean).join('，'), () => play(SONGS.map(x => x.id), i)); }
+  function focusList(k) { const L = listMeshes[k], pl = PLAYLISTS[k]; ui.closeSettings(); const w = new V3(); L.grp.getWorldPosition(w); const d = w.clone().sub(LISTS.c).setY(0).normalize();
     fly(new V3(LISTS.c.x + d.x * 2.2, EYE, LISTS.c.z + d.z * 2.2), Math.atan2(-d.x, -d.z), .08);
-    showFocus('歌單 · 北禮拜堂', pl.name, pl.note, () => play(pl.ids, 0));
+    showFocus(`${ts('kind.list')} · ${ts('room.lists')}`, pl.name, pl.note, () => play(pl.ids, 0));
     const ol = $('f-list'); ol.innerHTML = ''; pl.ids.slice(0, 8).forEach(id => { const sg = SONGS[songById.get(id)]; if (!sg) return; const li = document.createElement('li'); li.textContent = sg.title; ol.append(li); }); ol.hidden = false; }
-  let onPlay = null; function showFocus(eye, title, meta, fn) { setTimeout(freePointer, 0); $('f-play').textContent = '播放'; $('f-eye').textContent = eye; $('f-title').textContent = title; $('f-meta').textContent = meta; onPlay = fn; $('f-list').hidden = true; $('focus').hidden = false; }
+  let onPlay = null; function showFocus(eye, title, meta, fn) { setTimeout(freePointer, 0); $('f-play').textContent = ts('play'); $('f-eye').textContent = eye; $('f-title').textContent = title; $('f-meta').textContent = meta; onPlay = fn; $('f-list').hidden = true; $('focus').hidden = false; }
   let playing = false, songT = 0, seated = false;
   // Cadenza plays; the scene follows (the card, the cover, the lyrics change when the player says so, in frame())
   function play(ids, index) { bind.play(ids, index); hideCards(); setPlace('altar'); }
 
-  /* ---------- the settings ledger: opens beside the sculpture you chose ---------- */
-  const seg = (k, opts) => `<div class="seg" role="group">${opts.map(([v, t]) => `<button data-k="${k}" data-v="${v}" aria-pressed="${String(S[k]) === String(v)}">${t}</button>`).join('')}</div>`;
-  const row = (t, sm, ctl) => `<div class="r"><div><span>${t}</span>${sm ? `<small>${sm}</small>` : ''}</div>${ctl}</div>`;
-  const chk = (k, label) => `<input type="checkbox" data-k="${k}" ${S[k] ? 'checked' : ''} aria-label="${label}">`;
-  const rng = (k, min, max, step, label) => `<input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${S[k]}" aria-label="${label}">`;
-  const LEDGER = {
-    look: () => row('介面', '切換後重新啟動才會套用', seg('ui', [['space', '深空'], ['museum', '美術館'], ['classic', '經典']])) + (S.ui !== 'museum' ? '<p class="note">已記下，下次啟動時套用（原型只記錄選擇）。</p>' : '') + row('主色', '拱與色塊的強調色', seg('accent', [['clay', '陶土'], ['olive', '橄欖'], ['cover', '跟隨封面']])),
-    light: () => row('光束', '從窗口落下的杏色光片', chk('beams', '光束')) + row('夢境', '曝光、暗角、遠處薄霧與光暈', chk('dream', '夢境')) + row('描邊', '墨線的粗細', seg('line', [['thin', '細'], ['mid', '中'], ['bold', '粗']])) + row('陰影品質', '', seg('shadow', [['high', '高'], ['mid', '中'], ['low', '低']])) + row('渲染解析度', '', seg('res', [['1', '100%'], ['0.75', '75%'], ['0.5', '50%']])),
-    motion: () => row('鏡頭動態', '「減少」時移動改為淡入淡出', seg('motion', [['full', '完整'], ['reduced', '減少']])) + row('跟隨歌詞', '新的一句出現時視角輕輕轉過去', chk('follow', '跟隨歌詞')) + row('步行速度', '', rng('walk', .5, 2, .1, '步行速度')) + row('視角靈敏度', '', rng('look', .4, 2, .1, '視角靈敏度')),
-    lyrics: () => row('字級', '聖所裡歌詞的大小', seg('lyric', [['s', '小'], ['m', '中'], ['l', '大']])) + row('翻譯', '在主歌詞下顯示（示範）', chk('trans', '翻譯')),
-    audio: () => row('空間背景音樂', '沒有播放歌曲時淡入，播放前淡出', chk('music', '空間背景音樂')) + row('背景音量', '', rng('musicVol', 0, 1, .05, '背景音量')) + row('Hi-Fi 獨佔輸出', '示範歌曲本身不出聲，這裡只記錄選擇', chk('hifi', 'Hi-Fi 獨佔輸出')) + row('響度平衡', '', chk('loud', '響度平衡')),
-  };
-  let ledgerKey = null;
-  function openLedger(key) { ledgerKey = key; const sec = SECTIONS.find(s => s[0] === key), st = stations.find(l => l.key === key); hideCards();
-    freePointer(); $('l-eye').textContent = sec[2]; $('l-title').textContent = sec[1]; $('l-body').innerHTML = LEDGER[key](); $('ledger').hidden = false;
+  /* ---------- the settings: the sculptures open the settings page at their part (the page is SpaceShell's) ---------- */
+  function openLedger(key) { const st = stations.find(l => l.key === key); hideCards(); freePointer(); ui.openSettings(SECTION_OF[key]);
     const w = new V3(); st.grp.getWorldPosition(w); const d = w.clone().sub(SETS.c).setY(0).normalize(); fly(new V3(w.x - d.x * 3, EYE, w.z - d.z * 3), Math.atan2(-d.x, -d.z), -.12); }
-  $('l-body').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (!b) return; S[b.dataset.k] = b.dataset.v; save(); apply(); $('l-body').innerHTML = LEDGER[ledgerKey](); });
-  $('l-body').addEventListener('input', e => { const t = e.target; if (!t.dataset.k) return; S[t.dataset.k] = t.type === 'checkbox' ? t.checked : +t.value; save(); apply(); });
-  $('l-close').onclick = () => { $('ledger').hidden = true; takePointer(); };
-  let shadowSize = 0, nowCover = 0;
-  function apply() { beams.visible = !!S.beams; if (typeof updateAmbient === 'function') updateAmbient(); dream.enabled = glow.enabled = S.dream !== false; ink.mat.uniforms.w.value = { thin: .8, mid: 1.2, bold: 1.8 }[S.line] || 1.2;
-    MAT.clay.color.set(S.accent === 'olive' ? C.olive : S.accent === 'cover' ? MORANDI[nowCover % MORANDI.length][0] : C.clay);
+  let shadowSize = 0;
+  // Cadenza's picture-quality modes: as designed; optimised (no second ink scale, half the motes, softer bloom);
+  // lite (no beams' volumes, no bloom, no glass behind the HUD, a quarter of the motes, at most 75 % resolution)
+  function quality() { const q = S.gfx, lite = q === 'lite', opt = q === 'optimized';
+    shafts.enabled = !lite; glow.enabled = !lite && S.dream !== false; uiGlass.enabled = !lite;
+    ink.mat.uniforms.two && (ink.mat.uniforms.two.value = lite || opt ? 0 : 1); glow.resolution?.set(innerWidth * (opt ? .5 : 1), innerHeight * (opt ? .5 : 1));
+    if (motes) motes.material.uniforms.keep.value = lite ? .25 : opt ? .5 : 1; }
+  function apply() { quality(); if (!S.immersive && document.pointerLockElement === canvas && !looking) document.exitPointerLock?.(); beams.visible = !!S.beams; if (typeof updateAmbient === 'function') updateAmbient(); dream.enabled = S.dream !== false; glow.enabled = S.dream !== false && S.gfx !== 'lite'; ink.mat.uniforms.w.value = { thin: .8, mid: 1.2, bold: 1.8 }[S.line] || 1.2;
     const size = { high: 4096, mid: 2048, low: 1024 }[S.shadow] || 4096; if (size !== shadowSize) { shadowSize = size; fitSun(size); }
-    const pr = Math.min(1.5, devicePixelRatio || 1) * (+S.res || 1); if (Math.abs(renderer.getPixelRatio() - pr) > .001) { renderer.setPixelRatio(pr); composer.setPixelRatio(pr); resize(); }
+    const pr = Math.min(1.5, devicePixelRatio || 1) * (+S.res || 1) * (S.gfx === 'lite' ? .75 : 1); if (Math.abs(renderer.getPixelRatio() - pr) > .001) { renderer.setPixelRatio(pr); composer.setPixelRatio(pr); resize(); }
     const ls = { s: .8, m: 1, l: 1.2 }[S.lyric] || 1; lyricMeshes.forEach(L => L.base = ls); }
 
   /* ---------- input ---------- */
@@ -790,7 +781,7 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     const back = h.point.clone().addScaledVector(ray.ray.direction, -.6), rr = regionAt(back); if (!rr || rr.room !== room) return null;   // only what is in your own room
     if (h.object.userData.kind === 'bowl') return { kind: 'song', i: h.object.userData.ids[h.instanceId] }; return h.object.userData; }
   const occluders = []; world.traverse(o => { if (o.isMesh && !o.isInstancedMesh && o.castShadow && !o.userData.kind) occluders.push(o); });   // walls stop the pointer like they stop the eye
-  const immersive = () => $('immersive').checked;
+  const immersive = () => !!S.immersive;
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   canvas.addEventListener('pointerdown', e => {
     if (e.button === 2 && !immersive()) { looking = true; canvas.setPointerCapture(e.pointerId); canvas.requestPointerLock?.(); $('tip').hidden = true; return; }
@@ -809,8 +800,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   let lastPick = '';
   // with the view locked, the reticle is the pointer: it lights up over anything you can use and names it
   function reticleHover() { if (!locked) return; const h = pickAt(innerWidth / 2, innerHeight / 2), r = $('reticle'), tip = $('tip'); r.classList.toggle('hot', !!h); hoverSong = h && h.kind === 'song' ? h.i : -1;
-    if (h) { const t = tipText(h), again = lastPick === h.kind + ':' + (h.i ?? h.key) && !$('focus').hidden; tip.innerHTML = `${t[0]}<small>${again ? '再點一下播放' : t[1]}</small>`; tip.style.left = innerWidth / 2 + 'px'; tip.style.top = innerHeight / 2 + 'px'; tip.hidden = false; } else tip.hidden = true; }
-  const tipText = (h) => h.kind === 'sofa' ? ['坐下', '從這裡看'] : h.kind === 'song' ? [SONGS[h.i]?.title || '', SONGS[h.i]?.artist || ''] : h.kind === 'album' ? [ALBUMS[h.i]?.title || '', ALBUMS[h.i]?.artist || ''] : h.kind === 'playlist' ? [PLAYLISTS[h.i]?.name || '', PLAYLISTS[h.i]?.note || ''] : [SECTIONS.find(s => s[0] === h.key)[1], '打開設定'];
+    if (h) { const t = tipText(h), again = lastPick === h.kind + ':' + (h.i ?? h.key) && !$('focus').hidden; tip.innerHTML = `${t[0]}<small>${again ? ts('tip.again') : t[1]}</small>`; tip.style.left = innerWidth / 2 + 'px'; tip.style.top = innerHeight / 2 + 'px'; tip.hidden = false; } else tip.hidden = true; }
+  const tipText = (h) => h.kind === 'sofa' ? [ts('tip.sit'), ts('tip.sitSub')] : h.kind === 'song' ? [SONGS[h.i]?.title || '', SONGS[h.i]?.artist || ''] : h.kind === 'album' ? [ALBUMS[h.i]?.title || '', ALBUMS[h.i]?.artist || ''] : h.kind === 'playlist' ? [PLAYLISTS[h.i]?.name || '', PLAYLISTS[h.i]?.note || ''] : [SECTIONS.find(s => s[0] === h.key)[1], ts('tip.settings')];
   canvas.addEventListener('pointermove', e => {
     if (looking || locked) {
       // pointer lock sometimes reports one huge jump (on lock, unlock or focus): drop those, they are what 'reset' the view
@@ -828,7 +819,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   onW('keydown', e => {
     if (e.key === '/' && !typing()) { e.preventDefault(); $('q').focus(); return; }
     if (typing()) { if (e.key === 'Escape') { $('q').blur(); $('results').hidden = true; } return; }
-    if (e.key === 'Escape') { hideCards(); $('ledger').hidden = true; }
+    if (e.key === 'Escape') { hideCards(); ui.closeSettings(); }
+    if (e.key === ',') { e.preventDefault(); hideCards(); freePointer(); ui.openSettings(); return; }
     if (e.key === 'Alt' && locked) { e.preventDefault(); document.exitPointerLock?.(); return; }
     if (e.code === 'KeyR') { rise = true; seated = false; flight = null; return; }
     if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'nave') { e.preventDefault(); hideCards(); setNavePage(navePg + (e.code === 'PageDown' ? 1 : -1)); return; }
@@ -843,10 +835,10 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   $('pp').onclick = togglePlay; $('p-go').onclick = () => setPlace('altar');
   Object.keys(PLACES).forEach(k => $('go-' + k).onclick = () => { hideCards(); setPlace(k); });
   $('f-close').onclick = () => { hideCards(); chosenSong = -1; takePointer(); }; $('f-play').onclick = () => { onPlay && onPlay(); takePointer(); };
-  $('immersive').onchange = () => { if (!immersive()) document.exitPointerLock?.(); };
+  $('cfg').onclick = () => { hideCards(); freePointer(); ui.openSettings(); };
   $('q').addEventListener('input', () => { const q = $('q').value.trim(), ul = $('results'); ul.innerHTML = ''; if (!q) { ul.hidden = true; return; }
     const ql = q.toLowerCase(), has = (x) => x.t.toLowerCase().includes(ql) || x.s.toLowerCase().includes(ql);
-    const hits = [...LIB.playlists.map((p, j) => ({ t: p.name, s: `歌單 · ${p.note}`, go: () => { setListPage(Math.floor(j / LIST_SLOTS)); focusList(j % LIST_SLOTS); } })), ...LIB.albums.map((a, j) => ({ t: a.title, s: `專輯 · ${a.artist}`, go: () => { setNavePage(Math.floor(j / NAVE_SLOTS)); focusAlbum(j % NAVE_SLOTS); } })), ...SONGS.map((s, i) => ({ t: s.title, s: `歌曲 · ${s.artist}`, go: () => focusSong(i) }))].filter(has).slice(0, 8);
+    const hits = [...LIB.playlists.map((p, j) => ({ t: p.name, s: `${ts('kind.list')} · ${p.note}`, go: () => { setListPage(Math.floor(j / LIST_SLOTS)); focusList(j % LIST_SLOTS); } })), ...LIB.albums.map((a, j) => ({ t: a.title, s: `${ts('kind.album')} · ${a.artist}`, go: () => { setNavePage(Math.floor(j / NAVE_SLOTS)); focusAlbum(j % NAVE_SLOTS); } })), ...SONGS.map((s, i) => ({ t: s.title, s: `${ts('kind.song')} · ${s.artist}`, go: () => focusSong(i) }))].filter(has).slice(0, 8);
     hits.forEach(h => { const li = document.createElement('li'), b = document.createElement('button'); b.textContent = h.t; const sm = document.createElement('small'); sm.textContent = h.s; b.append(sm); b.onclick = () => { ul.hidden = true; $('q').value = ''; $('q').blur(); h.go(); }; li.append(b); ul.append(li); });
     ul.hidden = !hits.length; });
   $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { const b = $('results').querySelector('button'); if (b) b.click(); } });
@@ -925,11 +917,11 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
     if (au.phones) { aramp(au.direct.gain, 1, .6); aramp(au.scene.gain, 0, .6); if (routed) { clearTimeout(unrouteAt); unrouteAt = setTimeout(() => { if (au.phones) { A.route(null); routed = false; } }, 700); } }
     else { clearTimeout(unrouteAt); if (!routed) { au.direct.gain.value = 1; au.scene.gain.value = 0; A.route(au.songIn); routed = true; } aramp(au.direct.gain, 0, .8); aramp(au.scene.gain, 1.15, .8); } }
   // taking the headphones off: the clean sound is muffled away while the room fades in; only the audio does this
-  function setPhones(on) { au.phones = on; const b = $('hp'); b.setAttribute('aria-pressed', String(on)); b.textContent = on ? '已戴耳機' : '已摘下耳機'; b.title = on ? '點一下摘下耳機，聽房間裡的聲音' : '點一下戴回耳機';
+  function setPhones(on) { au.phones = on; const b = $('hp'); b.setAttribute('aria-pressed', String(on)); b.textContent = ts(on ? 'phones.on' : 'phones.off'); b.title = ts(on ? 'phones.onHelp' : 'phones.offHelp');
     if (!au.ready) return; const t = au.ctx.currentTime, f = au.directLP.frequency; f.cancelScheduledValues(t); f.setValueAtTime(f.value, t); f.exponentialRampToValueAtTime(on ? 20000 : 700, t + .6); routeSong(); }
   $('hp').onclick = () => { initAudio();
-    if (au.phones && bind.audio().hifi) { showFocus('聲音 · Hi-Fi', 'Hi-Fi 輸出時只能用耳機聽', 'Hi-Fi 輸出直接送到音效卡、不經過場景，所以房間音響無法使用。要改用標準輸出嗎？', async () => { hideCards(); await bind.audio().useStandard(); });
-      $('f-play').textContent = '改用標準輸出'; return; }
+    if (au.phones && bind.audio().hifi) { showFocus(ts('hifi.eye'), ts('hifi.title'), ts('hifi.body'), async () => { hideCards(); await bind.audio().useStandard(); });
+      $('f-play').textContent = ts('hifi.use'); return; }
     setPhones(!au.phones); };
   onW('pointerdown', initAudio); onW('keydown', initAudio);
   // every frame: place the listener, route each speaker through the doorways, keep only the two nearest awake
@@ -1072,8 +1064,8 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   function frame(now) {
     if (!alive) return; requestAnimationFrame(frame); const dt = Math.max(0, Math.min(.05, (now - last) / 1000)); last = now;   // (the first frame can be stamped before the loop began)
     NOW = bind.now(); songT = NOW.t; $('p-bar').style.width = `${NOW.dur ? Math.min(100, NOW.t / NOW.dur * 100) : 0}%`;
-    if (NOW.playing !== playing) { playing = NOW.playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', playing ? '暫停' : '播放'); updateAmbient(); }
-    if (NOW.id !== nowId) { nowId = NOW.id; $('p-title').textContent = NOW.title || '尚未播放'; $('p-sub').textContent = [NOW.artist, NOW.album].filter(Boolean).join(' · ');
+    if (NOW.playing !== playing) { playing = NOW.playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', ts(playing ? 'pause' : 'play')); updateAmbient(); }
+    if (NOW.id !== nowId) { nowId = NOW.id; $('p-title').textContent = NOW.title || ts('nothing'); $('p-sub').textContent = [NOW.artist, NOW.album].filter(Boolean).join(' · ');
       altarArt.material.map = covers.get(NOW.coverFull, NOW.id || 'none'); altarArt.material.needsUpdate = true;
       lineTex.forEach(t => t.dispose()); lineTex.clear(); lyricMeshes.forEach(L => { L.idx = -1; L.m.visible = false; }); scene3.lastIdx = -1; }
     curLine = lineAt(NOW.t);
@@ -1126,9 +1118,10 @@ export function createWorld(bind: SpaceBind): { dispose(): void } {
   const start = () => { apply(); buildBeams(); resize(); layoutBowl(); $('loading').style.opacity = 0; setTimeout(() => $('loading').hidden = true, 800); requestAnimationFrame(frame); };
   stations.forEach(s => { const sec = SECTIONS.find(x => x[0] === s.key); s.title.material.map = titleTex(sec[1], sec[2]); s.title.material.needsUpdate = true; });
   start();
+  const offPrefs = bind.onPrefs((p) => { S = p; apply(); });
   // a changed library rebuilds the rooms that show it (gathered by bind.ts)
   const offLibrary = bind.onLibrary((l) => { LIB = l; SONGS = l.songs; songById = new Map(SONGS.map((sg, i) => [sg.id, i])); listPg = Math.min(listPg, Math.max(1, Math.ceil(l.playlists.length / LIST_SLOTS)) - 1); PLAYLISTS = l.playlists.slice(listPg * LIST_SLOTS, (listPg + 1) * LIST_SLOTS);
     navePg = Math.min(navePg, navePages(l) - 1); ALBUMS = navePage(l, navePg); hideCards(); buildNave(); buildBowl(); buildLists(); layoutBowl(); });
 
-  return { dispose() { alive = false; ac.abort(); offLibrary(); covers.dispose(); thumbs.dispose(); atlas.dispose(); try { clearTimeout(unrouteAt); if (routed) bind.audio().route(null); au.ambSrc?.stop(); au.master?.disconnect(); au.songIn?.disconnect(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
+  return { takePointer: () => takePointer(), dispose() { alive = false; ac.abort(); offLibrary(); offPrefs(); covers.dispose(); thumbs.dispose(); atlas.dispose(); try { clearTimeout(unrouteAt); if (routed) bind.audio().route(null); au.ambSrc?.stop(); au.master?.disconnect(); au.songIn?.disconnect(); } catch (e) {} composer.dispose?.(); renderer.dispose(); delete window.__cad; } };
 }

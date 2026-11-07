@@ -42,7 +42,8 @@ describe('architecture', () => {
   it('in the interface, the logic never reaches into the views: an interface redo replaces views/ and ui/ only', () => {
     // (main.tsx is the entry that mounts the views; everything else — state, playback, actions, the bridge — is the
     // part a new interface keeps)
-    const viewish = (t: string) => t.startsWith(`app${sep}views${sep}`) || t.startsWith(`app${sep}ui${sep}`);
+    // (the space, src/app/space, is an appearance too: the second one, beside views/)
+    const viewish = (t: string) => t.startsWith(`app${sep}views${sep}`) || t.startsWith(`app${sep}ui${sep}`) || t.startsWith(`app${sep}space${sep}`);
     const bad = files.filter(f => { const r = relative(SRC, f); return r.startsWith(`app${sep}`) && !viewish(r) && r !== `app${sep}main.tsx`; })
       .flatMap(f => [...readFileSync(f, 'utf8').matchAll(/(?:from|import\()\s*'(\.[^'?]+)/g)].map(m => [relative(SRC, f), relative(SRC, resolve(dirname(f), m[1]))]))
       .filter(([, t]) => viewish(t)).map(([f, t]) => `${f} → ${t}`);

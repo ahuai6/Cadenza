@@ -3,11 +3,12 @@
 // a frame by the scene (no per-frame subscriptions); a change of library is announced, gathered over a moment, so a scan
 // that adds songs one by one rebuilds the rooms once.
 import { lib, trackOf, settings } from '../state';
-import { coverUrl } from '../bridge';
-import { player, playIds, toggle, next, prev, switchOutput } from '../playback/player';
+import { coverUrl, type Settings } from '../bridge';
+import { player, playIds, toggle, next, prev } from '../playback/player';
 import { setSettings } from '../actions/settings';
 import { engine, audioContext } from '../playback/stage';
 import { accentClock } from '../../engine';
+import { ts } from './i18n';
 import { fromLibrary, rhythmAt, type SpaceLibrary, type SpaceRhythm } from './data';
 
 export interface NowLine { t: number; end: number; sung: number; text: string }
@@ -33,13 +34,23 @@ export interface SpaceBind {
    *  null while neither (the wheat house colours) */
   tint(): [number, number, number] | null;
   /** the space's own settings */
-  prefs(): { beatBeams: boolean; pulse: boolean };
+  prefs(): SpacePrefs;
+  onPrefs(f: (p: SpacePrefs) => void): () => void;
 }
+/** The space's settings in the scene's terms. */
+export interface SpacePrefs { beams: boolean; beatBeams: boolean; pulse: boolean; dream: boolean; line: 'thin' | 'mid' | 'bold'; shadow: 'high' | 'mid' | 'low'; res: number;
+  walk: number; look: number; lyric: 's' | 'm' | 'l'; follow: boolean; music: boolean; musicVol: number; immersive: boolean; motion: 'full' | 'reduced'; gfx: 'default' | 'optimized' | 'lite' }
 
+const SYS_REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function prefsOf(st: Settings): SpacePrefs {
+  return { beams: st.spaceBeams !== false, beatBeams: st.spaceBeatBeams !== false, pulse: st.spacePulse !== false, dream: st.spaceDream !== false, line: st.spaceLine || 'mid', shadow: st.spaceShadow || 'high',
+    res: st.spaceScale || 1, walk: st.spaceWalk || 1, look: st.spaceLook || 1, lyric: st.spaceLyric || 'm', follow: !!st.spaceFollow, music: st.spaceAmbient !== false, musicVol: st.spaceAmbientVol ?? 0.6,
+    immersive: !!st.spaceImmersive, motion: st.spaceReduced || SYS_REDUCED ? 'reduced' : 'full', gfx: st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default' };
+}
 export function createBind(): SpaceBind {
   let cur = build(), timer = 0;
   const subs = new Set<(l: SpaceLibrary) => void>();
-  function build() { const s = lib.get(); return fromLibrary(s.tracks, s.favorites, s.playlists); }
+  function build() { const s = lib.get(); return fromLibrary(s.tracks, s.favorites, s.playlists, { favorites: ts('favorites'), songs: (n) => ts('songs', { n }) }); }
   lib.subscribe(() => { clearTimeout(timer); timer = window.setTimeout(() => { const n = build(); if (n.sig === cur.sig) return; cur = n; subs.forEach(f => f(cur)); }, 1500); });
   let linesFor: unknown = null, lines: NowLine[] = [];
   return {
@@ -60,8 +71,9 @@ export function createBind(): SpaceBind {
       if (st.spaceTint === 'fixed') { const m = /^#?([0-9a-f]{6})$/i.exec(st.spaceTintColor || ''); if (m) { const n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; } }
       const a = player.get().session?.ambient; return a ? (a.cols[0] || a.base) as [number, number, number] : null;
     },
-    prefs() { const st = settings.get(); return { beatBeams: st.spaceBeatBeams !== false, pulse: st.spacePulse !== false }; },
+    prefs: () => prefsOf(settings.get()),
+    onPrefs(f) { let last = JSON.stringify(prefsOf(settings.get())); return settings.subscribe(() => { const p = prefsOf(settings.get()), k = JSON.stringify(p); if (k !== last) { last = k; f(p); } }); },
     audio: () => ({ ctx: audioContext(), route: (n) => engine.audioRoute(n), hifi: !!engine.clock.external,
-      useStandard: async () => { await setSettings({ audioOut: 'standard' }); await switchOutput(); } }),
+      useStandard: () => setSettings({ audioOut: 'standard' }) }),
   };
 }

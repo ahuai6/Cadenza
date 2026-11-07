@@ -1,5 +1,2 @@
 .space { position: fixed; inset: 0; background: #E8DCC4; overflow: hidden; }
 .hud { position: absolute; inset: 0; }
-.back { position: absolute; z-index: 4; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(64px + env(safe-area-inset-top, 0px));
-  font: 700 12px "Noto Sans TC", system-ui, sans-serif; color: #fff; text-shadow: 0 0 3px rgba(38, 28, 18, .7);
-  background: rgba(255, 255, 255, .14); border: 0; border-radius: var(--r-pill); box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .8); padding: 6px 12px; cursor: pointer; }

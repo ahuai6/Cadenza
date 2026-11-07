@@ -43,6 +43,9 @@ export interface Settings {
   spaceBeams?: boolean; spaceFollow?: boolean; spaceAmbient?: boolean; spaceAmbientVol?: number; spaceImmersive?: boolean;
   /** the space's colour: from the playing song's cover, or one fixed colour; beams lighting on the accents; the scene's soft pulse */
   spaceTint?: 'cover' | 'fixed'; spaceTintColor?: string; spaceBeatBeams?: boolean; spacePulse?: boolean;
+  /** the space's picture and walking: dream (exposure, haze, glow), ink weight, shadow quality, render scale, walking speed,
+   *  look sensitivity, the sanctuary's lyric size, reduced motion */
+  spaceDream?: boolean; spaceLine?: 'thin' | 'mid' | 'bold'; spaceShadow?: 'high' | 'mid' | 'low'; spaceScale?: number; spaceWalk?: number; spaceLook?: number; spaceLyric?: 's' | 'm' | 'l'; spaceReduced?: boolean;
 }
 type Off = () => void;
 export interface DesktopApi {

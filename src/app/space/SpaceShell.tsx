@@ -1,15 +1,16 @@
 // The space interface: the music library as a cathedral to walk through (docs/SPACE.md). It is the second appearance
 // half of the interface: it keeps the logic half (state, actions, playback, the bridge) exactly as the classic pages do.
-// The scene reads the library and the song playing through bind.ts, and plays through it.
+// The scene reads the library and the song playing through bind.ts, and plays through it; the settings page is React,
+// opened by the scene (the gear, the , key, the south chapel's sculptures).
 import { useEffect, useRef, useState } from 'react';
 import { boot } from '../actions/boot';
-import { setSettings } from '../actions/settings';
-import { D } from '../bridge';
-import { tx } from '../../i18n';
 import { ensureFont } from '../../engine';
 import { createWorld } from './world';
 import { createBind } from './bind';
-import hud from './hud.html?raw';
+import { hudHtml } from './hud';
+import { SpaceSettings } from './SpaceSettings';
+import { lang as langStore } from '../../i18n';
+import { useStore, settings } from '../state';
 import './space.css';
 import s from './SpaceShell.module.css';
 
@@ -17,18 +18,25 @@ import s from './SpaceShell.module.css';
 const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設定播放中清晨的光'], ['notosans', '聖堂中殿全部歌曲'], ['tiempos', 'The Nave Crossing']];
 
 export function SpaceShell() {
-  const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false);
+  const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false });
+  const world = useRef<{ dispose(): void; takePointer(): void } | null>(null);
+  const lang = useStore(langStore, x => x.lang), lite = useStore(settings, x => x.gfx === 'lite');
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(() => {
     if (!ready || !root.current) return;
-    let world: { dispose(): void } | null = null, gone = false;
-    Promise.all(FACES.map(([k, t]) => ensureFont(k, t).catch(() => {}))).then(() => { if (!gone) world = createWorld(createBind()); });
-    return () => { gone = true; world?.dispose(); };
-  }, [ready]);
+    let gone = false;
+    Promise.all(FACES.map(([k, t]) => ensureFont(k, t).catch(() => {}))).then(() => {
+      if (gone) return;
+      world.current = createWorld(createBind(), { openSettings: (section) => setCfg({ open: true, section }), closeSettings: () => setCfg(c => c.open ? { open: false } : c) });
+    });
+    return () => { gone = true; world.current?.dispose(); world.current = null; };
+  }, [ready, lang]);
+  const close = () => { setCfg({ open: false }); world.current?.takePointer(); };
   return (
-    <div className={`space-root ${s.space}`} data-test="space">
-      {ready && <div ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hud }} />}
-      {ready && <button type="button" className={s.back} onClick={async () => { await setSettings({ ui: 'classic' }); await D?.relaunch(); }}>{tx('s.set.uiMode.classic')} · {tx('s.set.uiMode.restart')}</button>}
+    <div className={`space-root ${s.space}${cfg.open ? ' space-cfg' : ''}${lite ? ' space-lite' : ''}`} data-test="space">
+      {/* a language change rebuilds the HUD and the scene's labels */}
+      {ready && <div key={lang} ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hudHtml() }} />}
+      {ready && cfg.open && <SpaceSettings section={cfg.section} onClose={close} />}
     </div>
   );
 }

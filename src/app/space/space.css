@@ -89,3 +89,10 @@
 .card :is(b, h2, span, button, input, li, div, label, i, small, p, a, em) { color: #fff !important; }
 .mark, .mark small, .sign, .sign i, .sign b { color: #fff !important; text-shadow: 0 0 3px rgba(38,28,18,.6), 0 1px 12px rgba(38,28,18,.45); }
 .sign b { font-family: "Noto Sans TC", system-ui, sans-serif !important; font-weight: 700 !important; }
+
+/* the search and the settings button sit together at the top right */
+.tools { display: flex; align-items: center; gap: 10px; }
+.cfg { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: var(--r-pill); background: transparent; color: #fff; cursor: pointer; }
+.cfg:hover { background: rgba(255, 255, 255, .14); }
+.space-lite .card { background: rgba(60, 48, 36, .38); }   /* the lite mode draws no glass: a quiet shade behind the words instead */
+.space-cfg .sign { opacity: 0; }   /* the settings page takes the room's sign's place */
