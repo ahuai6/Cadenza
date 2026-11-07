@@ -564,15 +564,16 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   class Ink extends Pass {
     constructor() { super(); this.needsSwap = true;
       this.rt = new THREE.WebGLRenderTarget(2, 2, { depthTexture: new THREE.DepthTexture(2, 2), type: THREE.HalfFloatType });
-      this.ids = new Map();   // one outline material per surface material: the boundary is between materials, not objects, so coplanar
+      this.ids = new WeakMap();   // one outline material per surface material, kept as long as that material lives: the boundary is between materials, not objects, so coplanar
       // pieces of one material (overlapping rug motifs, a sofa's arm meeting its back) never fight over a line
-      this.idMat = (m) => { const side = m.side, bias = m.userData.bias || 0, tr = m.transparent || bias > 0 ? 1 : 0, key = m.uuid;   // decals lying flat on a floor (rugs and their motifs) stay out: a grazing outline there only crawls if (this.ids.has(key)) return this.ids.get(key);
+      // (decals lying flat on a floor, rugs and their motifs, stay out: a grazing outline there only crawls)
+      this.idMat = (m) => { const hit = this.ids.get(m); if (hit) return hit; const side = m.side, bias = m.userData.bias || 0, tr = m.transparent || bias > 0 ? 1 : 0;
         // materials that only differ by a depth bias (decal clones) are the same surface; they share their source's colour
         const tag = (m.color ? m.color.getHexString() : m.uuid) + (m.map ? m.map.uuid : ''); let hsh = 2166136261; for (let i = 0; i < tag.length; i++) hsh = Math.imul(hsh ^ tag.charCodeAt(i), 16777619);
         const im = new THREE.ShaderMaterial({ side, uniforms: { bias: { value: bias * 2e-5 }, tr: { value: tr }, mid: { value: ((hsh >>> 0) % 1000003) / 1000003 } },
           vertexShader: `#include <common>\n#include <logdepthbuf_pars_vertex>\nvarying vec3 vN; void main(){ vec3 n = normal; mat4 M = modelMatrix;\n#ifdef USE_INSTANCING\n n = mat3(instanceMatrix)*n; M = modelMatrix*instanceMatrix;\n#endif\n vN = normalize(normalMatrix*n); gl_Position = projectionMatrix*viewMatrix*M*vec4(position, 1.);\n#include <logdepthbuf_vertex>\n}`,
           fragmentShader: `#include <common>\n#include <logdepthbuf_pars_fragment>\nuniform float bias, tr, mid; varying vec3 vN; void main(){\n#include <logdepthbuf_fragment>\n#ifdef USE_LOGDEPTHBUF\n gl_FragDepth -= bias;\n#endif\n vec3 n = normalize(vN)*(gl_FrontFacing ? 1. : -1.); gl_FragColor = vec4(n*.5+.5, tr > .5 ? -1. : mid); }` });
-        this.ids.set(key, im); return im; };
+        this.ids.set(m, im); return im; };
       this.swap = [];
       this.mat = new THREE.ShaderMaterial({ depthTest: false, depthWrite: false, vertexShader: FSV,
         uniforms: { tDiffuse: { value: null }, tN: { value: this.rt.texture }, tD: { value: this.rt.depthTexture }, px: { value: new V2() }, w: { value: 1 }, two: { value: 1 }, near: { value: .1 }, far: { value: 300 }, ink: { value: new THREE.Color(C.ink) } },
@@ -930,7 +931,9 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   onW('pointerdown', initAudio); onW('keydown', initAudio);
   // every frame: place the listener, route each speaker through the doorways, keep only the two nearest awake
   const _f = new V3(), _u = new V3();
-  function audioTick(dt) { if (!au.ready) return; if (!au.phones && engineHifi()) setPhones(true); const ctx = au.ctx, t = ctx.currentTime, L = camera.position, lsn = ctx.listener;
+  let audioAcc = 0;
+  // ten times a second is enough: every value below glides to its target on its own time constant
+  function audioTick(dt) { if (!au.ready) return; audioAcc += dt; if (audioAcc < .1) return; audioAcc = 0; if (!au.phones && engineHifi()) setPhones(true); const ctx = au.ctx, t = ctx.currentTime, L = camera.position, lsn = ctx.listener;
     _f.set(0, 0, -1).applyQuaternion(camera.quaternion); _u.set(0, 1, 0).applyQuaternion(camera.quaternion);
     if (lsn.positionX) { for (const [p, v] of [[lsn.positionX, L.x], [lsn.positionY, L.y], [lsn.positionZ, L.z], [lsn.forwardX, _f.x], [lsn.forwardY, _f.y], [lsn.forwardZ, _f.z], [lsn.upX, _u.x], [lsn.upY, _u.y], [lsn.upZ, _u.z]]) p.setTargetAtTime(v, t, .03); }
     else { lsn.setPosition(L.x, L.y, L.z); lsn.setOrientation(_f.x, _f.y, _f.z, _u.x, _u.y, _u.z); }
@@ -954,6 +957,9 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const glyphCache = new Map();
   const glyphTex = (ch) => { if (!glyphCache.has(ch)) glyphCache.set(ch, textTex(128, 128, (g, w, h) => { g.font = '700 104px "Noto Serif TC", serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText(ch, w / 2, h / 2 + 6); })); return glyphCache.get(ch); };
   const scene3 = { on: false, lines: [], lastIdx: -1, lastPos: null, wallFade: 1 };
+  // a line gone: out of the scene, out of the ink pass's list, its materials and cards freed (the glyphs' textures are kept, per character)
+  function dropLine(l) { scene.remove(l.g); const gone = new Set(l.glyphs.map(gl => gl.card)); for (let k = noLine.length - 1; k >= 0; k--) if (gone.has(noLine[k])) noLine.splice(k, 1);
+    l.glyphs.forEach(gl => { gl.m.dispose(); gl.card.geometry.dispose(); }); }
   function glyph(ch) { const m = biasDepth(new THREE.MeshBasicMaterial({ map: glyphTex(ch), color: new THREE.Color(C.ink), transparent: true, side: THREE.DoubleSide, depthWrite: false }), 10);
     const card = new THREE.Mesh(new THREE.PlaneGeometry(CH, CH), m); card.position.y = CH / 2; card.renderOrder = 6; noLine.push(card);
     const pivot = new THREE.Group(); pivot.add(card); return { pivot, card, m }; }
@@ -1028,8 +1034,8 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
           if (gl.y <= gl.floor) { gl.y = gl.floor; gl.ang = Math.PI / 2; if (gl.vy < -1.6) { gl.vy *= -.22; gl.rv *= .35; } else { gl.landed = now; } } }
         gl.pivot.position.y = gl.y - l.pos.y; gl.pivot.rotation.set(gl.ang * gl.dir, 0, gl.roll);   // roll spins in the glyph's own plane, so it still lands flat
         if (gl.landed) { const s = 1 - Math.min(1, (now - gl.landed) / 1200); gl.card.scale.setScalar(Math.max(.001, s)); gl.m.opacity = s; if (s > 0) done = false; } else done = false; });
-      if (done) { scene.remove(l.g); l.glyphs.forEach(gl => { gl.m.dispose(); gl.card.geometry.dispose(); }); scene3.lines.splice(i, 1); } }
-    const falling = scene3.lines.filter(l => l.falling); while (falling.length > 6) { const l = falling.shift(); scene.remove(l.g); scene3.lines.splice(scene3.lines.indexOf(l), 1); } }
+      if (done) { dropLine(l); scene3.lines.splice(i, 1); } }
+    const falling = scene3.lines.filter(l => l.falling); while (falling.length > 6) { const l = falling.shift(); dropLine(l); scene3.lines.splice(scene3.lines.indexOf(l), 1); } }
   /* ---------- the frame ---------- */
   function resize() { const w = innerWidth, h = innerHeight, pr = renderer.getPixelRatio(); renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); if (motes) motes.material.uniforms.px.value = pr * h / 800; }
   onW('resize', resize);

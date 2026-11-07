@@ -27,7 +27,9 @@ export function loadImage(url: string): Promise<HTMLImageElement | null> {
   let p = images.get(url);
   if (!p) { p = new Promise(res => queue.push(() => { const im = new Image(); if (!/^data:/.test(url)) im.crossOrigin = 'anonymous'; im.decoding = 'async';
       const done = (v: HTMLImageElement | null) => { inFlight--; res(v); pump(); }; im.onload = () => done(im); im.onerror = () => done(null); im.src = url; }));
-    images.set(url, p); pump(); }
+    // (kept only while it loads: once drawn into its canvas the image is let go, or every full-size cover ever shown
+    // would stay decoded in memory)
+    images.set(url, p); p.then(() => images.delete(url)); pump(); }
   return p;
 }
 const mkCanvas = (w: number, h: number) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
