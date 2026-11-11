@@ -12,11 +12,19 @@ import type { PLine, PWord } from './types';
 import type { Line } from '../lyrics/model';
 
 export type SceneId = 'dash' | 'roller';
-export interface SceneRule { id: SceneId; /** does line i call for this scene (it may look at its neighbours) */ applies(lines: PLine[], i: number, map: RhythmMap): boolean }
+export interface SceneRule {
+  id: SceneId;
+  /** does line i call for this scene (it may look at its neighbours) */ applies(
+    lines: PLine[],
+    i: number,
+    map: RhythmMap,
+  ): boolean;
+}
 
 /** Words (or, for scripts without spaces, sung units) per second over the time the line is sung. */
 export function paceOf(L: Line): number {
-  const dur = Math.max(0.4, Math.min(L.sung, L.end) - L.t), latin = L.words.every(W => W.latin);
+  const dur = Math.max(0.4, Math.min(L.sung, L.end) - L.t),
+    latin = L.words.every((W) => W.latin);
   return (latin ? L.words.length : L.words.reduce((a, W) => a + W.units.length, 0) * 0.55) / dur;
 }
 export const pace = (P: PLine) => paceOf(P.L);
@@ -24,12 +32,20 @@ export const pace = (P: PLine) => paceOf(P.L);
 export const fastLine = (L: Line) => paceOf(L) >= 3.4;
 const units = (P: PLine) => P.words.reduce((a, S) => a + S.units.length, 0);
 const dense = (P: PLine | undefined) => !!P && (P.words.length >= 3 || units(P) >= 6) && pace(P) >= 3.4;
-const DASH: SceneRule = { id: 'dash', applies: (lines, i) => dense(lines[i]) && (dense(lines[i - 1]) || dense(lines[i + 1]) || units(lines[i]) >= 12) };
+const DASH: SceneRule = {
+  id: 'dash',
+  applies: (lines, i) => dense(lines[i]) && (dense(lines[i - 1]) || dense(lines[i + 1]) || units(lines[i]) >= 12),
+};
 
 /* ---- roller ---- */
 const key = (S: PWord) => S.w.text.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
 /** How the roller turns one word: sg the roll's direction (−1 left, +1 right), run the repeated word's run, j its place in it. */
-export interface Roll { sg: number; run: number; j: number; /** how long its half turn takes (s) */ dur: number }
+export interface Roll {
+  sg: number;
+  run: number;
+  j: number;
+  /** how long its half turn takes (s) */ dur: number;
+}
 const MAX_ROLLS = 4;
 /** How long half a turn takes at a camera pace (the pace knob's speed): the same for the scene's rule and the camera. */
 export const rollDur = (speed: number) => Math.min(1.9, Math.max(0.55, 1.05 / Math.max(0.3, speed)));
@@ -39,19 +55,37 @@ export const rollDur = (speed: number) => Math.min(1.9, Math.max(0.55, 1.05 / Ma
  *  0.4 s, which could not be followed). Lines whose scene is a dash keep their own arrangement. */
 const ROLL_MIN = 0.4;
 export function rollsOf(lines: PLine[], scenes: (SceneId | null)[], map: RhythmMap, D: number): Map<PWord, Roll> {
-  const out = new Map<PWord, Roll>(), seq = lines.flatMap((P, i) => (scenes[i] === 'dash' ? [] : P.words.map(S => ({ S, i }))));
+  const out = new Map<PWord, Roll>(),
+    seq = lines.flatMap((P, i) => (scenes[i] === 'dash' ? [] : P.words.map((S) => ({ S, i }))));
   let run = 0;
-  for (let a = 0; a < seq.length;) {
-    const k0 = key(seq[a].S); let b = a + 1;
-    while (b < seq.length && [...k0].length >= 2 && key(seq[b].S) === k0 && seq[b].i - seq[b - 1].i <= 1
-      && seq[b].S.w.t - seq[b - 1].S.w.t <= 2 * map.meter * map.beatLen(seq[b].S.w.t) && seq[b].S.w.t - seq[b - 1].S.w.t >= 0.25) b++;
-    if (b - a >= 2) { run++; let j = 0;
+  for (let a = 0; a < seq.length; ) {
+    const k0 = key(seq[a].S);
+    let b = a + 1;
+    while (
+      b < seq.length &&
+      [...k0].length >= 2 &&
+      key(seq[b].S) === k0 &&
+      seq[b].i - seq[b - 1].i <= 1 &&
+      seq[b].S.w.t - seq[b - 1].S.w.t <= 2 * map.meter * map.beatLen(seq[b].S.w.t) &&
+      seq[b].S.w.t - seq[b - 1].S.w.t >= 0.25
+    )
+      b++;
+    if (b - a >= 2) {
+      run++;
+      let j = 0;
       // a word rolls only when the roll fits between the word before it being sung and the word after it starting, so
       // the camera is never late for the words that follow (the word itself may ride along with the camera)
-      for (let q = a; q < b && j < MAX_ROLLS; q++) { const S = seq[q].S, prev = seq[q - 1]?.S, next = seq[q + 1]?.S;
+      for (let q = a; q < b && j < MAX_ROLLS; q++) {
+        const S = seq[q].S,
+          prev = seq[q - 1]?.S,
+          next = seq[q + 1]?.S;
         if (!prev || (seq[q].i === 0 && S.k === 0)) continue;
-        const room = (next ? next.w.t : Infinity) - Math.min(prev.end, prev.w.t + 1.2); if (room < Math.max(ROLL_MIN, D * 0.5)) continue;
-        out.set(S, { sg: j % 2 ? 1 : -1, run, j, dur: Math.min(D, room) }); j++; } }
+        const room = (next ? next.w.t : Infinity) - Math.min(prev.end, prev.w.t + 1.2);
+        if (room < Math.max(ROLL_MIN, D * 0.5)) continue;
+        out.set(S, { sg: j % 2 ? 1 : -1, run, j, dur: Math.min(D, room) });
+        j++;
+      }
+    }
     a = b;
   }
   return out;
@@ -60,8 +94,16 @@ export function rollsOf(lines: PLine[], scenes: (SceneId | null)[], map: RhythmM
 export const SCENES: SceneRule[] = [DASH];
 /** The scene of each line (null: the ordinary arrangement); a line the roller turns words of is a roller line unless
  *  a scene above it (a dash) claims it. */
-export function scenesOf(lines: PLine[], map: RhythmMap, speed: number): { scenes: (SceneId | null)[]; rolls: Map<PWord, Roll> } {
-  const scenes = lines.map((_, i) => SCENES.find(r => r.applies(lines, i, map))?.id ?? null), rolls = rollsOf(lines, scenes, map, rollDur(speed));
-  for (const S of rolls.keys()) { const i = lines.indexOf(S.line); if (i >= 0 && !scenes[i]) scenes[i] = 'roller'; }
+export function scenesOf(
+  lines: PLine[],
+  map: RhythmMap,
+  speed: number,
+): { scenes: (SceneId | null)[]; rolls: Map<PWord, Roll> } {
+  const scenes = lines.map((_, i) => SCENES.find((r) => r.applies(lines, i, map))?.id ?? null),
+    rolls = rollsOf(lines, scenes, map, rollDur(speed));
+  for (const S of rolls.keys()) {
+    const i = lines.indexOf(S.line);
+    if (i >= 0 && !scenes[i]) scenes[i] = 'roller';
+  }
   return { scenes, rolls };
 }

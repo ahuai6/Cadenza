@@ -1,13 +1,45 @@
 /* The performance overlay over the effect lyrics: a small panel in the top left, never in the way of the pointer. */
 .hud {
-  position: absolute; left: 16px; top: calc(var(--tb-h) + 8px); z-index: 5; pointer-events: none;
-  font: 500 11px/1.45 var(--font-mono); color: #f2f0ea; background: rgba(10, 10, 9, 0.62);
-  border: 1px solid var(--glass-edge); border-radius: var(--r-sm); padding: 8px 10px; min-width: 196px;
+  position: absolute;
+  left: 16px;
+  top: calc(var(--tb-h) + 8px);
+  z-index: 5;
+  pointer-events: none;
+  font: 500 11px/1.45 var(--font-mono);
+  color: #f2f0ea;
+  background: rgba(10, 10, 9, 0.62);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  min-width: 196px;
   font-variant-numeric: tabular-nums;
 }
-.row { display: flex; justify-content: space-between; gap: 14px; }
-.head { font-weight: 700; margin-bottom: 2px; }
-.dim { color: #b9b6ad; }
-.bar { height: 3px; background: rgba(242, 240, 234, 0.12); border-radius: var(--r-pill); margin: 1px 0 3px; overflow: hidden; }
-.bar > i { display: block; height: 100%; background: var(--accent); }
-.sep { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(242, 240, 234, 0.14); }
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+.head {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.dim {
+  color: #b9b6ad;
+}
+.bar {
+  height: 3px;
+  background: rgba(242, 240, 234, 0.12);
+  border-radius: var(--r-pill);
+  margin: 1px 0 3px;
+  overflow: hidden;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.sep {
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(242, 240, 234, 0.14);
+}

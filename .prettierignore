@@ -1,0 +1,15 @@
+dist-app
+dist-web
+dist-harness
+release
+build
+models
+data
+licenses
+node_modules
+native
+package-lock.json
+src/i18n/dict.json
+src/app/ui/font-previews
+tests/fixtures
+*.md

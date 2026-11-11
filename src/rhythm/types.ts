@@ -1,7 +1,7 @@
 // The rhythm SDK's data: what an analysis of a song contains. Plain arrays only, so it can be cached as JSON, sent
 // between threads, and read by any part of the app. Times are in seconds of the audio file.
 
-export const RHYTHM_VERSION = 3;              // 2: the coarse spectrum (spec); 3: the neural engine (engine, bars, accents, drums)
+export const RHYTHM_VERSION = 3; // 2: the coarse spectrum (spec); 3: the neural engine (engine, bars, accents, drums)
 
 /** How strong a rhythmic event is felt: 0 light (hats, ghost notes), 1 medium (backbeats, ordinary kicks), 2 strong (重拍:
  *  downbeat hits, accents, drops). */
@@ -25,7 +25,8 @@ export interface RhythmEvent {
 }
 
 export interface Section {
-  t0: number; t1: number;
+  t0: number;
+  t1: number;
   /** level of this section within the song, 0 (quietest) .. 1 (loudest) */
   energy: number;
   /** density of events per beat */
@@ -45,7 +46,8 @@ export interface RhythmAnalysis {
   /** beat times (s) */
   beats: number[];
   /** beats per bar (3 or 4) and the index in `beats` of the first downbeat */
-  meter: number; downbeat: number;
+  meter: number;
+  downbeat: number;
   /** bar index (in bars from the first downbeat) where 4-bar phrases start, modulo 4 */
   phrase: number;
   /** half-time feel (backbeat on 3) */
@@ -91,7 +93,9 @@ export interface BeatAccentSeries {
   /** 1 when the beat's bar has rhythm (not a held pad, not a stretch the model is unsure of), else 0 */
   rhythmic: number[];
   /** each band's share of the beat's rise (they add up to 1) */
-  low: number[]; mid: number[]; high: number[];
+  low: number[];
+  mid: number[];
+  high: number[];
   /** how sure the model was of each beat (its logit) */
   conf: number[];
   /** 0.45..1: a song whose beats barely rise moves less */

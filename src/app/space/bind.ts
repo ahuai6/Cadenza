@@ -11,11 +11,30 @@ import { accentClock, fontStack, ensureFont, subLines } from '../../engine';
 import { ts } from './i18n';
 import { fromLibrary, rhythmAt, beatsIn, type SpaceLibrary, type SpaceRhythm, type SpaceBeat } from './data';
 
-export interface NowLine { t: number; end: number; sung: number; text: string; /** translations, readings (romanisation, kana) */ subs: string[]; reads: string[];
-  /** the harmony sung with the line (its words' harmonies together), from when it is sung */ harm: { text: string; t: number } | null }
+export interface NowLine {
+  t: number;
+  end: number;
+  sung: number;
+  text: string;
+  /** translations, readings (romanisation, kana) */ subs: string[];
+  reads: string[];
+  /** the harmony sung with the line (its words' harmonies together), from when it is sung */ harm: {
+    text: string;
+    t: number;
+  } | null;
+}
 export interface SpaceNow {
-  id: string | null; title: string; artist: string; album: string; cover: string | null; coverFull: string | null;
-  playing: boolean; /** a song is on its way (asked for, still loading): what plays for it steps aside already */ busy: boolean; t: number; dur: number; lines: NowLine[];
+  id: string | null;
+  title: string;
+  artist: string;
+  album: string;
+  cover: string | null;
+  coverFull: string | null;
+  playing: boolean;
+  /** a song is on its way (asked for, still loading): what plays for it steps aside already */ busy: boolean;
+  t: number;
+  dur: number;
+  lines: NowLine[];
 }
 export interface SpaceBind {
   library(): SpaceLibrary;
@@ -23,7 +42,10 @@ export interface SpaceBind {
   onLibrary(f: (l: SpaceLibrary) => void): () => void;
   now(): SpaceNow;
   play(ids: string[], index?: number): void;
-  toggle(): void; next(): void; prev(): void; /** to a moment of the song (seconds) */ seek(t: number): void;
+  toggle(): void;
+  next(): void;
+  prev(): void;
+  /** to a moment of the song (seconds) */ seek(t: number): void;
   /** the window to the taskbar: nothing is drawn until it is back (energy saving) */ rest(): void;
   /** the small window on top of every other (the app kept in the foreground), and back */
   mini(): void;
@@ -35,12 +57,15 @@ export interface SpaceBind {
    *  how far an accent has slowed it (0..1, the beams' swell), the quick pulse on every event (the scene's breath) */
   rhythm(t: number): SpaceRhythm | null;
   /** the rhythm's events between t0 and t1, weighted as the effect lyrics' beat rings weigh them; and the beat's length at t */
-  beats(t0: number, t1: number): SpaceBeat[]; beatLen(t: number): number;
+  beats(t0: number, t1: number): SpaceBeat[];
+  beatLen(t: number): number;
   /** the scene lyrics' face (Cadenza's lyric fonts), for a sample of the text it will draw, and its loading */
-  face(sample: string): { stack: string; w: number }; loadFace(sample: string): Promise<void>;
+  face(sample: string): { stack: string; w: number };
+  loadFace(sample: string): Promise<void>;
   /** a line's captions as the effect lyrics show them (translations, their bracketed parts, readings, as the settings
    *  allow), top to bottom; and the captions' face */
-  captions(L: NowLine): { s: string; kind: 'sub' | 'read' | 'harm' }[]; capFace(sample: string): string;
+  captions(L: NowLine): { s: string; kind: 'sub' | 'read' | 'harm' }[];
+  capFace(sample: string): string;
   /** the scene's colour: from the playing song's cover (its ambient palette), or the fixed colour the settings name;
    *  null while neither (the wheat house colours) */
   tint(): [number, number, number] | null;
@@ -49,59 +74,205 @@ export interface SpaceBind {
   onPrefs(f: (p: SpacePrefs) => void): () => void;
 }
 /** The space's settings in the scene's terms. */
-export interface SpacePrefs { capSubs: boolean; capReads: boolean; beams: boolean; beatBeams: boolean; pulse: boolean; dream: boolean; line: 'thin' | 'mid' | 'bold'; shadow: 'high' | 'mid' | 'low'; res: number;
-  walk: number; look: number; lyric: 's' | 'm' | 'l'; font: string; fxBeat: number; fxPulse: number; fxTint: number; fxBeams: number; follow: boolean; music: boolean; musicVol: number; immersive: boolean; motion: 'full' | 'reduced'; gfx: 'default' | 'optimized' | 'lite' }
+export interface SpacePrefs {
+  capSubs: boolean;
+  capReads: boolean;
+  beams: boolean;
+  beatBeams: boolean;
+  pulse: boolean;
+  dream: boolean;
+  line: 'thin' | 'mid' | 'bold';
+  shadow: 'high' | 'mid' | 'low';
+  res: number;
+  walk: number;
+  look: number;
+  lyric: 's' | 'm' | 'l';
+  font: string;
+  fxBeat: number;
+  fxPulse: number;
+  fxTint: number;
+  fxBeams: number;
+  follow: boolean;
+  music: boolean;
+  musicVol: number;
+  immersive: boolean;
+  motion: 'full' | 'reduced';
+  gfx: 'default' | 'optimized' | 'lite';
+}
 
 const SYS_REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 function prefsOf(st: Settings): SpacePrefs {
-  return { capSubs: st.fxCapSubs !== false, capReads: st.fxCapReads !== false, beams: st.spaceBeams !== false, beatBeams: st.spaceBeatBeams !== false, pulse: st.spacePulse !== false, dream: st.spaceDream !== false, line: st.spaceLine || 'mid', shadow: st.spaceShadow || 'high',
-    res: st.spaceScale || 1, walk: st.spaceWalk || 1, look: st.spaceLook || 1, lyric: st.spaceLyric || 'm', font: st.spaceFont || 'sansmed', fxBeat: st.spaceFxBeat ?? 1, fxPulse: st.spaceFxPulse ?? 1, fxTint: st.spaceFxTint ?? 1, fxBeams: st.spaceFxBeams ?? 1, follow: !!st.spaceFollow, music: st.spaceAmbient !== false, musicVol: st.spaceAmbientVol ?? 0.6,
-    immersive: !!st.spaceImmersive, motion: st.spaceReduced || SYS_REDUCED ? 'reduced' : 'full', gfx: st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default' };
+  return {
+    capSubs: st.fxCapSubs !== false,
+    capReads: st.fxCapReads !== false,
+    beams: st.spaceBeams !== false,
+    beatBeams: st.spaceBeatBeams !== false,
+    pulse: st.spacePulse !== false,
+    dream: st.spaceDream !== false,
+    line: st.spaceLine || 'mid',
+    shadow: st.spaceShadow || 'high',
+    res: st.spaceScale || 1,
+    walk: st.spaceWalk || 1,
+    look: st.spaceLook || 1,
+    lyric: st.spaceLyric || 'm',
+    font: st.spaceFont || 'sansmed',
+    fxBeat: st.spaceFxBeat ?? 1,
+    fxPulse: st.spaceFxPulse ?? 1,
+    fxTint: st.spaceFxTint ?? 1,
+    fxBeams: st.spaceFxBeams ?? 1,
+    follow: !!st.spaceFollow,
+    music: st.spaceAmbient !== false,
+    musicVol: st.spaceAmbientVol ?? 0.6,
+    immersive: !!st.spaceImmersive,
+    motion: st.spaceReduced || SYS_REDUCED ? 'reduced' : 'full',
+    gfx: st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default',
+  };
 }
 export function createBind(): SpaceBind {
-  let cur = build(), timer = 0;
+  let cur = build(),
+    timer = 0;
   const subs = new Set<(l: SpaceLibrary) => void>();
-  function build() { const s = lib.get(); return fromLibrary(s.tracks, s.favorites, s.playlists, { favorites: ts('favorites'), songs: (n) => ts('songs', { n }) }); }
+  function build() {
+    const s = lib.get();
+    return fromLibrary(s.tracks, s.favorites, s.playlists, {
+      favorites: ts('favorites'),
+      songs: (n) => ts('songs', { n }),
+    });
+  }
   // (the library store also carries scan and analysis progress: only a change of tracks, favourites or playlists counts)
   let seen = [lib.get().tracks, lib.get().favorites, lib.get().playlists];
-  lib.subscribe(() => { const v = lib.get(), now = [v.tracks, v.favorites, v.playlists]; if (now.every((x, i) => x === seen[i])) return; seen = now;
-    clearTimeout(timer); timer = window.setTimeout(() => { const n = build(); if (n.sig === cur.sig) return; cur = n; subs.forEach(f => f(cur)); }, 1500); });
-  let linesFor: unknown = null, lines: NowLine[] = [];
-  let lastId: string | null | undefined, lastTracks: unknown = null, lastTrack: ReturnType<typeof trackOf> = null;
+  lib.subscribe(() => {
+    const v = lib.get(),
+      now = [v.tracks, v.favorites, v.playlists];
+    if (now.every((x, i) => x === seen[i])) return;
+    seen = now;
+    clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      const n = build();
+      if (n.sig === cur.sig) return;
+      cur = n;
+      subs.forEach((f) => f(cur));
+    }, 1500);
+  });
+  let linesFor: unknown = null,
+    lines: NowLine[] = [];
+  let lastId: string | null | undefined,
+    lastTracks: unknown = null,
+    lastTrack: ReturnType<typeof trackOf> = null;
   return {
     library: () => cur,
-    onLibrary(f) { subs.add(f); return () => subs.delete(f); },
-    now() {
-      const p = player.get(), id = p.shownId || p.id, s = p.session;
-      if (id !== lastId || lib.get().tracks !== lastTracks) { lastId = id; lastTracks = lib.get().tracks; lastTrack = trackOf(id); }   // (looked up once per song, not every frame)
-      const t = lastTrack;
-      if (s?.doc !== linesFor) { linesFor = s?.doc ?? null; lines = (s?.doc?.lines || []).filter(L => L.text.trim()).map(L => { const hw = L.words.filter(w => w.harm?.text.trim());
-          return { t: L.t, end: L.end, sung: L.sung, text: L.text, subs: L.subs || [], reads: L.reads || [],
-            harm: hw.length ? { text: hw.map(w => w.harm!.text.trim()).join(' '), t: Math.min(...hw.map(w => isFinite(w.harm!.t) ? w.harm!.t : L.t)) } : null,
-            kar: !!L.kar, times: L.kar ? L.words.flatMap(w => w.units.map(u => u.t ?? w.t)) : [] }; }); }
-      return { id: id ?? null, title: t?.title || '', artist: t?.albumArtist || t?.artist || '', album: t?.album || '', cover: coverUrl(t?.cover) || null, coverFull: coverUrl(t?.cover, true) || null,
-        playing: p.playing, busy: p.playing || p.loading, t: engine.time, dur: s?.musicEnd || t?.duration || 0, lines };
+    onLibrary(f) {
+      subs.add(f);
+      return () => subs.delete(f);
     },
-    play(ids, index = 0) { if (ids.length) playIds(ids, index).catch(() => {}); },
-    mini: () => { D?.win('mini'); }, rest: () => { D?.win('min'); },
-    seek: (t) => { const s = player.get().session; if (s) engine.seek(Math.max(0, Math.min(s.musicEnd, t))); },
-    toggle, next: () => { next().catch(() => {}); }, prev: () => { prev().catch(() => {}); },
+    now() {
+      const p = player.get(),
+        id = p.shownId || p.id,
+        s = p.session;
+      if (id !== lastId || lib.get().tracks !== lastTracks) {
+        lastId = id;
+        lastTracks = lib.get().tracks;
+        lastTrack = trackOf(id);
+      } // (looked up once per song, not every frame)
+      const t = lastTrack;
+      if (s?.doc !== linesFor) {
+        linesFor = s?.doc ?? null;
+        lines = (s?.doc?.lines || [])
+          .filter((L) => L.text.trim())
+          .map((L) => {
+            const hw = L.words.filter((w) => w.harm?.text.trim());
+            return {
+              t: L.t,
+              end: L.end,
+              sung: L.sung,
+              text: L.text,
+              subs: L.subs || [],
+              reads: L.reads || [],
+              harm: hw.length
+                ? {
+                    text: hw.map((w) => w.harm!.text.trim()).join(' '),
+                    t: Math.min(...hw.map((w) => (isFinite(w.harm!.t) ? w.harm!.t : L.t))),
+                  }
+                : null,
+              kar: !!L.kar,
+              times: L.kar ? L.words.flatMap((w) => w.units.map((u) => u.t ?? w.t)) : [],
+            };
+          });
+      }
+      return {
+        id: id ?? null,
+        title: t?.title || '',
+        artist: t?.albumArtist || t?.artist || '',
+        album: t?.album || '',
+        cover: coverUrl(t?.cover) || null,
+        coverFull: coverUrl(t?.cover, true) || null,
+        playing: p.playing,
+        busy: p.playing || p.loading,
+        t: engine.time,
+        dur: s?.musicEnd || t?.duration || 0,
+        lines,
+      };
+    },
+    play(ids, index = 0) {
+      if (ids.length) playIds(ids, index).catch(() => {});
+    },
+    mini: () => {
+      D?.win('mini');
+    },
+    rest: () => {
+      D?.win('min');
+    },
+    seek: (t) => {
+      const s = player.get().session;
+      if (s) engine.seek(Math.max(0, Math.min(s.musicEnd, t)));
+    },
+    toggle,
+    next: () => {
+      next().catch(() => {});
+    },
+    prev: () => {
+      prev().catch(() => {});
+    },
     cover: (key, full = false) => coverUrl(key, full) || null,
     rhythm: (t) => rhythmAt(accentClock, player.get().session, t),
     beats: (t0, t1) => beatsIn(player.get().session?.map, t0, t1),
-    beatLen: (t) => player.get().session?.map?.beatLen(t) ?? .5,
+    beatLen: (t) => player.get().session?.map?.beatLen(t) ?? 0.5,
     face: (sample) => fontStack(prefsOf(settings.get()).font, sample),
     loadFace: (sample) => ensureFont(prefsOf(settings.get()).font, sample).catch(() => {}),
-    captions: (L) => { const p = prefsOf(settings.get()); return subLines(p.capSubs ? L : { ...L, subs: [] }, p.capReads); },
+    captions: (L) => {
+      const p = prefsOf(settings.get());
+      return subLines(p.capSubs ? L : { ...L, subs: [] }, p.capReads);
+    },
     capFace: (sample) => fontStack('sansmed', sample).stack,
     tint() {
       const st = settings.get();
-      if (st.spaceTint === 'fixed') { const m = /^#?([0-9a-f]{6})$/i.exec(st.spaceTintColor || ''); if (m) { const n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; } }
-      const a = player.get().session?.ambient; return a ? (a.cols[0] || a.base) as [number, number, number] : null;
+      if (st.spaceTint === 'fixed') {
+        const m = /^#?([0-9a-f]{6})$/i.exec(st.spaceTintColor || '');
+        if (m) {
+          const n = parseInt(m[1], 16);
+          return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+        }
+      }
+      const a = player.get().session?.ambient;
+      return a ? ((a.cols[0] || a.base) as [number, number, number]) : null;
     },
     prefs: () => prefsOf(settings.get()),
-    onPrefs(f) { let last = JSON.stringify(prefsOf(settings.get())); return settings.subscribe(() => { const p = prefsOf(settings.get()), k = JSON.stringify(p); if (k !== last) { last = k; f(p); } }); },
-    audio: () => ({ ctx: audioContext(), route: (n) => engine.audioRoute(n), hifi: !!engine.clock.external,
-      useStandard: () => setSettings({ audioOut: 'standard' }) }),
+    onPrefs(f) {
+      let last = JSON.stringify(prefsOf(settings.get()));
+      return settings.subscribe(() => {
+        const p = prefsOf(settings.get()),
+          k = JSON.stringify(p);
+        if (k !== last) {
+          last = k;
+          f(p);
+        }
+      });
+    },
+    audio: () => ({
+      ctx: audioContext(),
+      route: (n) => engine.audioRoute(n),
+      hifi: !!engine.clock.external,
+      useStandard: () => setSettings({ audioOut: 'standard' }),
+    }),
   };
 }

@@ -10,6 +10,10 @@ export const canvas = document.createElement('canvas');
 canvas.setAttribute('aria-hidden', 'true');
 export const engine = new Engine(canvas, { audioContext });
 export function sessionEnv(e: Engine = engine): SessionEnv {
-  return { lang: currentLang(), labels: { composer: tx('end.composer'), lyricist: tx('end.lyricist'), artist: tx('end.artist') }, viewAspect: () => e.viewAspect() };
+  return {
+    lang: currentLang(),
+    labels: { composer: tx('end.composer'), lyricist: tx('end.lyricist'), artist: tx('end.artist') },
+    viewAspect: () => e.viewAspect(),
+  };
 }
 (window as any).__cadenza = { engine, planStats: PLAN_STATS, gpuStats: GPU_STATS, debug: DEBUG };

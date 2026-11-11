@@ -1,27 +1,164 @@
-.presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-.preset { display: grid; gap: 7px; padding: 8px; border-radius: var(--r-md); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); text-align: left; font-size: 12.5px; font-weight: 560; transition: box-shadow var(--t-fast) var(--ease), background var(--t-fast) var(--ease); min-width: 0; }
-.preset span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.preset:hover { background: var(--surface-3); }
-.preset[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
-.swatch { display: grid; grid-template-columns: repeat(4, 1fr); height: 26px; border-radius: calc(var(--r-md) - 4px); overflow: hidden; }
-.colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
-.set { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
-.set:disabled { opacity: 0.55; }
-.fxList { display: grid; gap: 4px; }
-.fx { display: grid; gap: 2px; padding: 2px 8px; border-radius: var(--r-sm); }
-.fx[data-on="true"] { background: var(--surface-2); padding: 4px 10px 8px; }
-.export { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
-.xbar { height: 6px; border-radius: var(--r-track); background: var(--surface-3); position: relative; overflow: hidden; --k: 0; }
-.xbar i { position: absolute; inset: 0; background: var(--brand); clip-path: inset(0 calc((1 - var(--k)) * 100%) 0 0 round 4px); }
-.status { margin: 0; min-height: 1.4em; font-size: 12.5px; color: var(--fg-2); word-break: break-word; user-select: text; }
+.presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.preset {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 560;
+  transition:
+    box-shadow var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+  min-width: 0;
+}
+.preset span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preset:hover {
+  background: var(--surface-3);
+}
+.preset[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.swatch {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: 26px;
+  border-radius: calc(var(--r-md) - 4px);
+  overflow: hidden;
+}
+.colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.set {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.set:disabled {
+  opacity: 0.55;
+}
+.fxList {
+  display: grid;
+  gap: 4px;
+}
+.fx {
+  display: grid;
+  gap: 2px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+}
+.fx[data-on='true'] {
+  background: var(--surface-2);
+  padding: 4px 10px 8px;
+}
+.export {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.xbar {
+  height: 6px;
+  border-radius: var(--r-track);
+  background: var(--surface-3);
+  position: relative;
+  overflow: hidden;
+  --k: 0;
+}
+.xbar i {
+  position: absolute;
+  inset: 0;
+  background: var(--brand);
+  clip-path: inset(0 calc((1 - var(--k)) * 100%) 0 0 round 4px);
+}
+.status {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 12.5px;
+  color: var(--fg-2);
+  word-break: break-word;
+  user-select: text;
+}
 /* the motion styles as cards, each with the path its camera takes; the chosen one outlined in the accent */
-.motions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.motion { min-height: 72px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; text-align: left; border-radius: var(--r-2); background: var(--hover); color: var(--fg-2); min-width: 0;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
-.motion:hover { background: var(--press); color: var(--fg); }
-.motion[aria-checked="true"] { color: var(--fg); background: var(--press); box-shadow: inset 0 0 0 1.5px var(--accent-ink); }
-.motion:focus-visible { outline: none; box-shadow: var(--focus); }
-.motion > span { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.motion em { font-style: normal; font-size: 9.5px; font-weight: 650; letter-spacing: 0.06em; padding: 2px 5px; border-radius: var(--r-1); background: var(--accent-ink); color: var(--on-accent); flex: none; }
-.mine { min-height: 56px; }
-.motion small { font-size: 10.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.motions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.motion {
+  min-height: 72px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  border-radius: var(--r-2);
+  background: var(--hover);
+  color: var(--fg-2);
+  min-width: 0;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.motion:hover {
+  background: var(--press);
+  color: var(--fg);
+}
+.motion[aria-checked='true'] {
+  color: var(--fg);
+  background: var(--press);
+  box-shadow: inset 0 0 0 1.5px var(--accent-ink);
+}
+.motion:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.motion > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.motion em {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  border-radius: var(--r-1);
+  background: var(--accent-ink);
+  color: var(--on-accent);
+  flex: none;
+}
+.mine {
+  min-height: 56px;
+}
+.motion small {
+  font-size: 10.5px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

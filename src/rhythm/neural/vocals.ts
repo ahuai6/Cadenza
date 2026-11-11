@@ -12,14 +12,24 @@ const VOICE_RANGE = 30;
 const NO_VOICE_DB = 24;
 
 const db = (e: number) => 10 * Math.log10(e + 1e-12);
-const pct = (a: number[], q: number) => { const s = a.filter(x => x > -100).sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : -120; };
+const pct = (a: number[], q: number) => {
+  const s = a.filter((x) => x > -100).sort((x, y) => x - y);
+  return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : -120;
+};
 
 /** The voice level of a vocal stem (mono, 44.1 kHz) against its mix; null for a song without singing. */
 export function voiceLevel(vocals: Float32Array, mix: Float32Array): number[] | null {
-  const ev = energyFrames(vocals), em = energyFrames(mix), n = Math.floor(ev.length / 2);
-  const v: number[] = new Array(n), m: number[] = new Array(n);
-  for (let i = 0; i < n; i++) { v[i] = db((ev[2 * i] + ev[2 * i + 1]) / 2); m[i] = db((em[2 * i] + em[2 * i + 1]) / 2); }
-  const top = pct(v, 0.95), mixTop = pct(m, 0.95);
+  const ev = energyFrames(vocals),
+    em = energyFrames(mix),
+    n = Math.floor(ev.length / 2);
+  const v: number[] = new Array(n),
+    m: number[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    v[i] = db((ev[2 * i] + ev[2 * i + 1]) / 2);
+    m[i] = db((em[2 * i] + em[2 * i + 1]) / 2);
+  }
+  const top = pct(v, 0.95),
+    mixTop = pct(m, 0.95);
   if (top < mixTop - NO_VOICE_DB) return null;
-  return v.map(x => Math.round(Math.min(1, Math.max(0, (x - (top - VOICE_RANGE)) / VOICE_RANGE)) * 100) / 100);
+  return v.map((x) => Math.round(Math.min(1, Math.max(0, (x - (top - VOICE_RANGE)) / VOICE_RANGE)) * 100) / 100);
 }

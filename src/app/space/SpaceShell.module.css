@@ -1,2 +1,10 @@
-.space { position: fixed; inset: 0; background: #E8DCC4; overflow: hidden; }
-.hud { position: absolute; inset: 0; }
+.space {
+  position: fixed;
+  inset: 0;
+  background: #e8dcc4;
+  overflow: hidden;
+}
+.hud {
+  position: absolute;
+  inset: 0;
+}

@@ -19,10 +19,10 @@ import { CHINESE_NON_HOSTS, CHINESE_TRAILING_PARTICLES } from './lexicon';
 // case is rare in real lyrics and is kept as a known gap in the test corpus.
 
 export interface IcuFoliaEngines {
-    /** Chinese words for a Han-only run. Must join back to the input exactly. */
-    cutChinese(text: string): string[];
-    /** Japanese bunsetsu for a Han/kana run. Must join back to the input exactly. */
-    parseJapanese(text: string): string[];
+  /** Chinese words for a Han-only run. Must join back to the input exactly. */
+  cutChinese(text: string): string[];
+  /** Japanese bunsetsu for a Han/kana run. Must join back to the input exactly. */
+  parseJapanese(text: string): string[];
 }
 
 const CJ_PIECE = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々〆〇]+$/u;
@@ -39,8 +39,8 @@ const isAlphabeticWord = (piece: string) => ALPHABETIC_WORD.test(piece) && !NOT_
 let icuSegmenter: Intl.Segmenter | null = null;
 
 const icuWordPieces = (text: string): string[] => {
-    icuSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'word' });
-    return Array.from(icuSegmenter.segment(text), part => part.segment);
+  icuSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'word' });
+  return Array.from(icuSegmenter.segment(text), (part) => part.segment);
 };
 
 /** An engine's answer only counts when it rebuilds its input; anything else falls back to ICU. */
@@ -48,51 +48,53 @@ const rebuilds = (pieces: string[], text: string) => pieces.length > 0 && pieces
 
 /** 故事/的 -> 故事的, but 天/和/地 stays: 和 cannot host a particle. */
 const attachTrailingParticles = (words: string[]): string[] => {
-    const out: string[] = [];
-    for (const word of words) {
-        const host = out[out.length - 1];
-        if (host !== undefined && CHINESE_TRAILING_PARTICLES.has(word) && !CHINESE_NON_HOSTS.has(host)) {
-            out[out.length - 1] = host + word;
-        } else {
-            out.push(word);
-        }
+  const out: string[] = [];
+  for (const word of words) {
+    const host = out[out.length - 1];
+    if (host !== undefined && CHINESE_TRAILING_PARTICLES.has(word) && !CHINESE_NON_HOSTS.has(host)) {
+      out[out.length - 1] = host + word;
+    } else {
+      out.push(word);
     }
-    return out;
+  }
+  return out;
 };
 
 const cutCjRun = (run: string, icuPieces: string[], engines: IcuFoliaEngines | null): string[] => {
-    if (!engines) {
-        return icuPieces;
-    }
-    if (KANA.test(run)) {
-        const bunsetsu = engines.parseJapanese(run);
-        return rebuilds(bunsetsu, run) ? bunsetsu : icuPieces;
-    }
-    const words = engines.cutChinese(run);
-    return rebuilds(words, run) ? attachTrailingParticles(words) : icuPieces;
+  if (!engines) {
+    return icuPieces;
+  }
+  if (KANA.test(run)) {
+    const bunsetsu = engines.parseJapanese(run);
+    return rebuilds(bunsetsu, run) ? bunsetsu : icuPieces;
+  }
+  const words = engines.cutChinese(run);
+  return rebuilds(words, run) ? attachTrailingParticles(words) : icuPieces;
 };
 
 /** rock / - / and / - / roll -> rock-and-roll. ICU already keeps don't and l'amour whole. */
 const joinHyphenatedWords = (pieces: string[]): string[] => {
-    const out: string[] = [];
-    for (let index = 0; index < pieces.length; index += 1) {
-        const piece = pieces[index];
-        const previous = out[out.length - 1];
-        const next = pieces[index + 1];
-        // `previous` may already be a joined compound, so its last hyphen-separated word is what
-        // has to be alphabetic.
-        if (
-            HYPHEN.test(piece)
-            && previous !== undefined && next !== undefined
-            && isAlphabeticWord(previous.split(HYPHEN_SPLIT).pop() ?? '') && isAlphabeticWord(next)
-        ) {
-            out[out.length - 1] = previous + piece + next;
-            index += 1;
-        } else {
-            out.push(piece);
-        }
+  const out: string[] = [];
+  for (let index = 0; index < pieces.length; index += 1) {
+    const piece = pieces[index];
+    const previous = out[out.length - 1];
+    const next = pieces[index + 1];
+    // `previous` may already be a joined compound, so its last hyphen-separated word is what
+    // has to be alphabetic.
+    if (
+      HYPHEN.test(piece) &&
+      previous !== undefined &&
+      next !== undefined &&
+      isAlphabeticWord(previous.split(HYPHEN_SPLIT).pop() ?? '') &&
+      isAlphabeticWord(next)
+    ) {
+      out[out.length - 1] = previous + piece + next;
+      index += 1;
+    } else {
+      out.push(piece);
     }
-    return out;
+  }
+  return out;
 };
 
 /**
@@ -101,24 +103,24 @@ const joinHyphenatedWords = (pieces: string[]): string[] => {
  * is plain ICU apart from the hyphen join.
  */
 export const segmentWithIcuFolia = (text: string, engines: IcuFoliaEngines | null): string[] => {
-    if (!text) {
-        return [];
+  if (!text) {
+    return [];
+  }
+  const pieces = icuWordPieces(text);
+  const out: string[] = [];
+  let index = 0;
+  while (index < pieces.length) {
+    if (!CJ_PIECE.test(pieces[index])) {
+      out.push(pieces[index]);
+      index += 1;
+      continue;
     }
-    const pieces = icuWordPieces(text);
-    const out: string[] = [];
-    let index = 0;
-    while (index < pieces.length) {
-        if (!CJ_PIECE.test(pieces[index])) {
-            out.push(pieces[index]);
-            index += 1;
-            continue;
-        }
-        const runPieces: string[] = [];
-        while (index < pieces.length && CJ_PIECE.test(pieces[index])) {
-            runPieces.push(pieces[index]);
-            index += 1;
-        }
-        out.push(...cutCjRun(runPieces.join(''), runPieces, engines));
+    const runPieces: string[] = [];
+    while (index < pieces.length && CJ_PIECE.test(pieces[index])) {
+      runPieces.push(pieces[index]);
+      index += 1;
     }
-    return joinHyphenatedWords(out);
+    out.push(...cutCjRun(runPieces.join(''), runPieces, engines));
+  }
+  return joinHyphenatedWords(out);
 };

@@ -4,41 +4,64 @@
    - Colour: ink (dark) or paper (light) — or, light, the earlier white (data-tone="white") — one accent (vermilion).
    - Motion: one curve, fast then slow; exits shorter than entrances so two layers never stack. */
 :root {
-  --font-ui: "Instrument Sans Variable", "Instrument Sans", var(--font-cjk), system-ui, sans-serif;
-  --font-cjk: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Noto Sans SC", "Noto Sans JP", "Noto Sans KR";
-  --font-cjk-serif: "Noto Serif TC", "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", serif;
-  --font-display: "Fraunces Variable", "Fraunces", var(--font-cjk-serif);
-  --font-mono: ui-monospace, "Cascadia Mono", "Noto Sans Mono", monospace;
+  --font-ui: 'Instrument Sans Variable', 'Instrument Sans', var(--font-cjk), system-ui, sans-serif;
+  --font-cjk: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR';
+  --font-cjk-serif: 'Noto Serif TC', 'Noto Serif SC', 'Noto Serif JP', 'Noto Serif KR', serif;
+  --font-display: 'Fraunces Variable', 'Fraunces', var(--font-cjk-serif);
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Noto Sans Mono', monospace;
 
   /* corners */
-  --r-1: 2px; --r-2: 6px; --r-3: 12px; --r-pill: 999px;
+  --r-1: 2px;
+  --r-2: 6px;
+  --r-3: 12px;
+  --r-pill: 999px;
   --corner: superellipse(1.4);
   /* (the earlier names, onto the same four steps: a component not yet rewritten still lands on the scale) */
-  --r-xs: var(--r-2); --r-sm: var(--r-2); --r-md: var(--r-2); --r-lg: var(--r-3); --r-xl: var(--r-3); --r-2xl: var(--r-3);
-  --r-mark: 1px; --r-dot: 50%; --r-bar: var(--r-pill); --r-track: var(--r-pill); --r-knob: var(--r-pill);
-  --r-chip: var(--r-1); --r-tag: var(--r-1); --r-cover-sm: var(--r-1); --r-cover-md: var(--r-1); --r-cover-np: var(--r-2);
+  --r-xs: var(--r-2);
+  --r-sm: var(--r-2);
+  --r-md: var(--r-2);
+  --r-lg: var(--r-3);
+  --r-xl: var(--r-3);
+  --r-2xl: var(--r-3);
+  --r-mark: 1px;
+  --r-dot: 50%;
+  --r-bar: var(--r-pill);
+  --r-track: var(--r-pill);
+  --r-knob: var(--r-pill);
+  --r-chip: var(--r-1);
+  --r-tag: var(--r-1);
+  --r-cover-sm: var(--r-1);
+  --r-cover-md: var(--r-1);
+  --r-cover-np: var(--r-2);
 
   /* motion: fast in, slow settle */
-  --ease: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.5, 0, 0.75, 0); --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
-  --t-fast: 120ms; --t-med: 220ms;
-  --t-fade: 180ms;      /* a scrim fading in */
-  --t-out: 120ms;       /* anything leaving: menus, modals, the old page */
-  --t-exit: 220ms;      /* chrome leaving */
-  --t-swap-out: 220ms;  /* the old content of a swap leaving */
-  --t-fill: 300ms;      /* a progress fill moving */
-  --t-show: 280ms;      /* controls fading in */
-  --t-stagger: 420ms;   /* each item of a staggered list */
-  --t-enter: 320ms;     /* a page or block easing in */
-  --t-slow: 420ms;      /* larger moves: lyric lines, panels, chrome coming back */
-  --t-panel: 460ms;     /* a side panel sliding */
-  --t-reveal: 560ms;    /* the slowest reveals */
-  --t-delay: 120ms;     /* chrome waits this long before coming back */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 120ms;
+  --t-med: 220ms;
+  --t-fade: 180ms; /* a scrim fading in */
+  --t-out: 120ms; /* anything leaving: menus, modals, the old page */
+  --t-exit: 220ms; /* chrome leaving */
+  --t-swap-out: 220ms; /* the old content of a swap leaving */
+  --t-fill: 300ms; /* a progress fill moving */
+  --t-show: 280ms; /* controls fading in */
+  --t-stagger: 420ms; /* each item of a staggered list */
+  --t-enter: 320ms; /* a page or block easing in */
+  --t-slow: 420ms; /* larger moves: lyric lines, panels, chrome coming back */
+  --t-panel: 460ms; /* a side panel sliding */
+  --t-reveal: 560ms; /* the slowest reveals */
+  --t-delay: 120ms; /* chrome waits this long before coming back */
   --t-stagger-step: 16ms;
 
-  --tb-h: 44px; --side-w: clamp(220px, 16.6667vw, 280px); --card-h: 72px;   /* (the sidebar: a sixth of the window) */
+  --tb-h: 44px;
+  --side-w: clamp(220px, 16.6667vw, 280px);
+  --card-h: 72px; /* (the sidebar: a sixth of the window) */
   /* the play page's cover: its size, its left edge and its centre line — the player bar's cover sits on the same centre
      line, so the page opens straight up, the cover rising and growing about its own centre */
-  --np-cover: min(48vh, 32vw, 480px); --np-cx: 25vw; --np-x: calc(var(--np-cx) - var(--np-cover) / 2);
+  --np-cover: min(48vh, 32vw, 480px);
+  --np-cx: 25vw;
+  --np-x: calc(var(--np-cx) - var(--np-cover) / 2);
   /* (the layout's lines: the window halved and quartered. The play page's cover is centred on the ¼ line, its lyrics begin
      on the ½ line and end as far from the right edge as the cover begins from the left; the player bar's cover sits on the
      ¼ line and its transport on the ½ line — docs/DESIGN.md, 版面網格) */
@@ -46,50 +69,121 @@
   --kicker-track: 0.14em;
 
   /* dark: ink */
-  --bg: #0e0e0d; --bg-side: #0e0e0d; --surface: #161615; --surface-2: #1c1c1a; --surface-3: #262624;
-  --float: #1b1b19; --float-2: #232321;
-  --fg: #eeece6; --fg-2: #aeaba3; --fg-3: #77756f; --line: rgba(238, 236, 230, 0.085); --line-2: rgba(238, 236, 230, 0.16);
-  --hover: rgba(238, 236, 230, 0.045); --press: rgba(238, 236, 230, 0.08);
-  --accent: #ff6a3d; --accent-2: #ff6a3d; --accent-3: #f2b766; --on-accent: #150b07; --accent-soft: rgba(255, 106, 61, 0.14); --accent-ink: #ff8a64;
-  --danger: #ff6670; --ok: #6fcf97; --warn: #f2b766;
-  --glass: rgba(20, 20, 19, 0.72); --glass-strong: rgba(22, 22, 21, 0.9); --glass-edge: rgba(255, 255, 255, 0.1); --glass-blur: blur(28px) saturate(1.5);
+  --bg: #0e0e0d;
+  --bg-side: #0e0e0d;
+  --surface: #161615;
+  --surface-2: #1c1c1a;
+  --surface-3: #262624;
+  --float: #1b1b19;
+  --float-2: #232321;
+  --fg: #eeece6;
+  --fg-2: #aeaba3;
+  --fg-3: #77756f;
+  --line: rgba(238, 236, 230, 0.085);
+  --line-2: rgba(238, 236, 230, 0.16);
+  --hover: rgba(238, 236, 230, 0.045);
+  --press: rgba(238, 236, 230, 0.08);
+  --accent: #ff6a3d;
+  --accent-2: #ff6a3d;
+  --accent-3: #f2b766;
+  --on-accent: #150b07;
+  --accent-soft: rgba(255, 106, 61, 0.14);
+  --accent-ink: #ff8a64;
+  --danger: #ff6670;
+  --ok: #6fcf97;
+  --warn: #f2b766;
+  --glass: rgba(20, 20, 19, 0.72);
+  --glass-strong: rgba(22, 22, 21, 0.9);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-blur: blur(28px) saturate(1.5);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-2: 0 1px 1px rgba(0, 0, 0, 0.3), 0 12px 32px -6px rgba(0, 0, 0, 0.55), 0 28px 64px -18px rgba(0, 0, 0, 0.5);
   --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
-  --menu-bg: var(--float); --menu-fg: var(--fg);
+  --menu-bg: var(--float);
+  --menu-fg: var(--fg);
   --brand: linear-gradient(90deg, var(--accent), var(--accent-3));
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   color-scheme: dark;
 }
-:root[data-theme="light"] {
-  --bg: #f4f2ec; --bg-side: #f4f2ec; --surface: #faf9f5; --surface-2: #ebe8e0; --surface-3: #dfdbd1;
-  --float: #fdfcf9; --float-2: #f2efe8;
-  --fg: #1a1916; --fg-2: #57544c; --fg-3: #8d897f; --line: rgba(26, 25, 22, 0.1); --line-2: rgba(26, 25, 22, 0.2);
-  --hover: rgba(26, 25, 22, 0.04); --press: rgba(26, 25, 22, 0.08);
-  --accent: #d4461f; --accent-2: #d4461f; --accent-3: #b7791f; --on-accent: #ffffff; --accent-soft: rgba(212, 70, 31, 0.1); --accent-ink: #b83a16;
-  --danger: #c8323f; --ok: #2a8a5a; --warn: #a86a12;
-  --glass: rgba(253, 252, 249, 0.78); --glass-strong: rgba(253, 252, 249, 0.94); --glass-edge: rgba(26, 25, 22, 0.08);
+:root[data-theme='light'] {
+  --bg: #f4f2ec;
+  --bg-side: #f4f2ec;
+  --surface: #faf9f5;
+  --surface-2: #ebe8e0;
+  --surface-3: #dfdbd1;
+  --float: #fdfcf9;
+  --float-2: #f2efe8;
+  --fg: #1a1916;
+  --fg-2: #57544c;
+  --fg-3: #8d897f;
+  --line: rgba(26, 25, 22, 0.1);
+  --line-2: rgba(26, 25, 22, 0.2);
+  --hover: rgba(26, 25, 22, 0.04);
+  --press: rgba(26, 25, 22, 0.08);
+  --accent: #d4461f;
+  --accent-2: #d4461f;
+  --accent-3: #b7791f;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(212, 70, 31, 0.1);
+  --accent-ink: #b83a16;
+  --danger: #c8323f;
+  --ok: #2a8a5a;
+  --warn: #a86a12;
+  --glass: rgba(253, 252, 249, 0.78);
+  --glass-strong: rgba(253, 252, 249, 0.94);
+  --glass-edge: rgba(26, 25, 22, 0.08);
   --shadow-1: 0 1px 2px rgba(26, 25, 22, 0.08);
-  --shadow-2: 0 1px 1px rgba(26, 25, 22, 0.05), 0 12px 32px -8px rgba(26, 25, 22, 0.18), 0 28px 64px -20px rgba(26, 25, 22, 0.2);
+  --shadow-2: 0 1px 1px rgba(26, 25, 22, 0.05), 0 12px 32px -8px rgba(26, 25, 22, 0.18),
+    0 28px 64px -20px rgba(26, 25, 22, 0.2);
   color-scheme: light;
 }
-:root[data-theme="light"][data-tone="white"] {
+:root[data-theme='light'][data-tone='white'] {
   /* light, white: the earlier versions' cool white (pure white surfaces on a faint lilac-grey ground), the same accent */
-  --bg: #f6f5f9; --bg-side: #efedf4; --surface: #ffffff; --surface-2: #f1eff6; --surface-3: #e6e3ee;
-  --float: #ffffff; --float-2: #f3f1f7;
-  --fg: #17151f; --fg-2: #55516a; --fg-3: #8b8799; --line: rgba(20, 16, 40, 0.08); --line-2: rgba(20, 16, 40, 0.14);
-  --hover: rgba(20, 16, 40, 0.05); --press: rgba(20, 16, 40, 0.09);
-  --glass: rgba(255, 255, 255, 0.72); --glass-strong: rgba(255, 255, 255, 0.92); --glass-edge: rgba(20, 16, 40, 0.07);
+  --bg: #f6f5f9;
+  --bg-side: #efedf4;
+  --surface: #ffffff;
+  --surface-2: #f1eff6;
+  --surface-3: #e6e3ee;
+  --float: #ffffff;
+  --float-2: #f3f1f7;
+  --fg: #17151f;
+  --fg-2: #55516a;
+  --fg-3: #8b8799;
+  --line: rgba(20, 16, 40, 0.08);
+  --line-2: rgba(20, 16, 40, 0.14);
+  --hover: rgba(20, 16, 40, 0.05);
+  --press: rgba(20, 16, 40, 0.09);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-strong: rgba(255, 255, 255, 0.92);
+  --glass-edge: rgba(20, 16, 40, 0.07);
   --shadow-1: 0 1px 2px rgba(20, 16, 40, 0.08);
-  --shadow-2: 0 1px 1px rgba(20, 16, 40, 0.05), 0 12px 32px -8px rgba(20, 16, 40, 0.16), 0 28px 64px -20px rgba(20, 16, 40, 0.18);
+  --shadow-2: 0 1px 1px rgba(20, 16, 40, 0.05), 0 12px 32px -8px rgba(20, 16, 40, 0.16),
+    0 28px 64px -20px rgba(20, 16, 40, 0.18);
 }
 /* over the picture (now playing, effect lyrics) the interface is light on a dark, cover-tinted glass */
 .on-picture {
-  --fg: #ffffff; --fg-2: rgba(255, 255, 255, 0.72); --fg-3: rgba(255, 255, 255, 0.48); --line: rgba(255, 255, 255, 0.12); --line-2: rgba(255, 255, 255, 0.2);
-  --hover: rgba(255, 255, 255, 0.1); --press: rgba(255, 255, 255, 0.16);
-  --glass: rgba(12, 11, 14, 0.42); --glass-strong: rgba(14, 13, 16, 0.78); --glass-edge: rgba(255, 255, 255, 0.12);
-  --float: rgba(18, 17, 20, 0.86); --float-2: rgba(255, 255, 255, 0.08);
-  --surface: rgba(255, 255, 255, 0.08); --surface-2: rgba(255, 255, 255, 0.11); --surface-3: rgba(255, 255, 255, 0.17);
-  --accent: #ffffff; --on-accent: #121114; --accent-soft: rgba(255, 255, 255, 0.16); --accent-ink: #ffffff; --bg: #121114; --menu-bg: var(--float); --menu-fg: #fff;
-  color-scheme: dark; color: var(--fg);
+  --fg: #ffffff;
+  --fg-2: rgba(255, 255, 255, 0.72);
+  --fg-3: rgba(255, 255, 255, 0.48);
+  --line: rgba(255, 255, 255, 0.12);
+  --line-2: rgba(255, 255, 255, 0.2);
+  --hover: rgba(255, 255, 255, 0.1);
+  --press: rgba(255, 255, 255, 0.16);
+  --glass: rgba(12, 11, 14, 0.42);
+  --glass-strong: rgba(14, 13, 16, 0.78);
+  --glass-edge: rgba(255, 255, 255, 0.12);
+  --float: rgba(18, 17, 20, 0.86);
+  --float-2: rgba(255, 255, 255, 0.08);
+  --surface: rgba(255, 255, 255, 0.08);
+  --surface-2: rgba(255, 255, 255, 0.11);
+  --surface-3: rgba(255, 255, 255, 0.17);
+  --accent: #ffffff;
+  --on-accent: #121114;
+  --accent-soft: rgba(255, 255, 255, 0.16);
+  --accent-ink: #ffffff;
+  --bg: #121114;
+  --menu-bg: var(--float);
+  --menu-fg: #fff;
+  color-scheme: dark;
+  color: var(--fg);
 }

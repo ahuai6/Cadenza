@@ -6,11 +6,32 @@ import { applyUiFont } from '../../uifont';
 import { ContextMenu, Toast } from '../../ui/kit';
 import { Workshop } from './Workshop';
 
-const saved = (() => { try { return localStorage.getItem('cz-lang'); } catch { return null; } })();
+const saved = (() => {
+  try {
+    return localStorage.getItem('cz-lang');
+  } catch {
+    return null;
+  }
+})();
 const first = (saved && LANGS.some(([k]) => k === saved) ? saved : detectLang()) as Lang;
-applyUiFont(first); setLang(first);
+applyUiFont(first);
+setLang(first);
 export function WebApp() {
-  const l = useStore(langStore, x => x.lang);
-  useLayoutEffect(() => { const mq = matchMedia('(prefers-color-scheme: dark)'), apply = () => { document.documentElement.dataset.theme = mq.matches ? 'dark' : 'light'; }; apply(); mq.addEventListener('change', apply); return () => mq.removeEventListener('change', apply); }, []);
-  return <div key={l} style={{ position: 'fixed', inset: 0 }}><Workshop web /><ContextMenu /><Toast /></div>;
+  const l = useStore(langStore, (x) => x.lang);
+  useLayoutEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)'),
+      apply = () => {
+        document.documentElement.dataset.theme = mq.matches ? 'dark' : 'light';
+      };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+  return (
+    <div key={l} style={{ position: 'fixed', inset: 0 }}>
+      <Workshop web />
+      <ContextMenu />
+      <Toast />
+    </div>
+  );
 }

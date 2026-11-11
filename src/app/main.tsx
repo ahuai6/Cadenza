@@ -11,6 +11,10 @@ import { WebApp } from './views/workshop/WebApp';
 const root = createRoot(document.getElementById('root')!);
 (async () => {
   const mode = D && Lib ? (await D.settings().catch(() => null))?.ui : null;
-  if (mode === 'space') { const { SpaceShell } = await import('./space/SpaceShell'); root.render(<SpaceShell />); return; }
+  if (mode === 'space') {
+    const { SpaceShell } = await import('./space/SpaceShell');
+    root.render(<SpaceShell />);
+    return;
+  }
   root.render(Lib ? <Shell /> : <WebApp />);
 })();

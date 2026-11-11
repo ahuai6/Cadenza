@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit -p .",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"electron/*.cjs\" \"tests/**/*.{ts,cjs}\" \"scripts/*.mjs\" \"*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"electron/*.cjs\" \"tests/**/*.{ts,cjs}\" \"scripts/*.mjs\" \"*.ts\"",
     "test": "vitest run",
     "build:web": "vite build --mode web",
     "build:app": "vite build --mode app && node scripts/fonts.mjs dist-app/fonts",
@@ -158,6 +160,7 @@
     "mediabunny": "1.64.0",
     "mp4box": "2.5.0",
     "opencc-js": "1.4.2",
+    "prettier": "^3.3.3",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "three": "0.160.0",

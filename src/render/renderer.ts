@@ -9,7 +9,20 @@ import { clamp, D2R } from '../core/math';
 import { sstep } from '../core/math';
 import { rgba } from '../core/color';
 import { effects, effect, paramsFor, type Ctx, type BackdropView, type Effect } from './effects/registry';
-import './effects/ambient'; import './effects/cover'; import './effects/backdrops'; import './effects/particles'; import './effects/floor'; import './effects/rings'; import './effects/glass'; import './effects/glyph'; import './effects/frames'; import './effects/wordring'; import './effects/stars'; import './effects/screen'; import './effects/vinyl'; import './effects/strike';
+import './effects/ambient';
+import './effects/cover';
+import './effects/backdrops';
+import './effects/particles';
+import './effects/floor';
+import './effects/rings';
+import './effects/glass';
+import './effects/glyph';
+import './effects/frames';
+import './effects/wordring';
+import './effects/stars';
+import './effects/screen';
+import './effects/vinyl';
+import './effects/strike';
 import type { RenderFrame } from './frame';
 import { visibleWords, paintLyrics } from './lyrics';
 import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';
@@ -27,117 +40,328 @@ const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
  *  frame rate). Collected only while on (the settings' performance overlay). */
 export const PROFILE = { on: false, ms: { backdrop: 0, world: 0, lyrics: 0, post: 0, screen: 0 } };
 const now = () => performance.now();
-export interface DrawOptions { captions?: boolean; /** the captions' translations / readings shown (both unless false) */ capSubs?: boolean; capReads?: boolean; captionBottom?: number; overlay?: (g: Ctx, f: RenderFrame) => void; /** drawn on the backdrop, under the words */ under?: (g: Ctx, f: RenderFrame) => void; sig: Signals }
+export interface DrawOptions {
+  captions?: boolean;
+  /** the captions' translations / readings shown (both unless false) */ capSubs?: boolean;
+  capReads?: boolean;
+  captionBottom?: number;
+  overlay?: (g: Ctx, f: RenderFrame) => void;
+  /** drawn on the backdrop, under the words */ under?: (g: Ctx, f: RenderFrame) => void;
+  sig: Signals;
+}
 
 export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
-  const st = f.style, M = st.m, W = f.W, H = f.H, view = f.view.effect, cf = f.cam, PR = PROFILE.on ? PROFILE.ms : null; let tp = PR ? now() : 0;
-  const mark = (k: keyof typeof PROFILE.ms) => { if (PR) { const t = now(); PR[k] += t - tp; tp = t; } };
+  const st = f.style,
+    M = st.m,
+    W = f.W,
+    H = f.H,
+    view = f.view.effect,
+    cf = f.cam,
+    PR = PROFILE.on ? PROFILE.ms : null;
+  let tp = PR ? now() : 0;
+  const mark = (k: keyof typeof PROFILE.ms) => {
+    if (PR) {
+      const t = now();
+      PR[k] += t - tp;
+      tp = t;
+    }
+  };
   if (PR) for (const k in PR) PR[k as keyof typeof PR] = 0;
-  glyphFrame();   // (this frame's budget for new large glyph bitmaps: glyphs.ts)
-  g.setTransform(f.px, 0, 0, f.px, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.filter = 'none';
+  glyphFrame(); // (this frame's budget for new large glyph bitmaps: glyphs.ts)
+  g.setTransform(f.px, 0, 0, f.px, 0, 0);
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+  g.filter = 'none';
   // the camera's speed on screen (for the motion trail and the backdrop's slight lean-in when moving fast)
-  const prev = cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam, cam = cf.cam;
-  const vx = (cam.x - prev.x) * cam.z, vy = (cam.y - prev.y) * cam.z, vel = Math.hypot(vx, vy) + Math.abs(Math.log(cam.z / prev.z)) * W * 0.5 + Math.abs(cam.r - prev.r) * W / 90;
+  const prev = cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam,
+    cam = cf.cam;
+  const vx = (cam.x - prev.x) * cam.z,
+    vy = (cam.y - prev.y) * cam.z,
+    vel = Math.hypot(vx, vy) + Math.abs(Math.log(cam.z / prev.z)) * W * 0.5 + (Math.abs(cam.r - prev.r) * W) / 90;
   // (a cut between the moment before and now is not a motion: across it the "speed" was the whole jump to the next
   // passage, and for that one frame — the blur's peak — the backdrop leant in up to 15 % and the trail flared: the size
   // twitch where the blur turns to clear)
-  const acrossCut = f.plan.camera.cuts.some(k => k.t > f.t - 1 / 60 - 1e-6 && k.t <= f.t + 1e-6);
-  const mb = Number.isFinite(vel) && !acrossCut ? Math.min(12 * W / 1280, vel * 0.025) * f.motion : 0;   // (the moment before not a number: no motion lean — engine.ts guards the frame itself)
+  const acrossCut = f.plan.camera.cuts.some((k) => k.t > f.t - 1 / 60 - 1e-6 && k.t <= f.t + 1e-6);
+  const mb = Number.isFinite(vel) && !acrossCut ? Math.min((12 * W) / 1280, vel * 0.025) * f.motion : 0; // (the moment before not a number: no motion lean — engine.ts guards the frame itself)
   /* ---- backdrop ---- */
   // a video backdrop: in a long pause it rests upright and centred (the camera's turn, push and drift let go of it), and
   // with 'less crop' it never turns at all (the words still do), so it can be drawn barely larger than the frame
   // (how much of each, continuous: an MV fading in or out takes the backdrop with it smoothly, never in one jump)
-  const mvK = f.media.mv ? sstep(clamp(f.media.mv.k)) : 0, vidK = st.bgStyle === 'video' ? 1 : mvK;
-  const fit = st.bgStyle === 'video' ? (st.vidFit ? 1 : 0) : (f.media.mvLook?.fit ? mvK : 0), rest = cf.rest * vidK;
-  const settle = (1 - rest) * (1 - fit), hold = (1 - rest) * (1 - 0.65 * fit);
-  const roll = (cf.fx.r - cf.cont.r) * settle, zoom = 1 + (cf.fx.z * (1 + Math.min(0.15, mb * 0.01)) - 1) * hold, ra = Math.abs(roll * D2R), zz = Math.max(0.05, zoom), E = Math.max(W, H) * 0.7;
-  const Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(ra)) + H / 2 * Math.abs(Math.sin(ra))) / zz - W / 2, (W / 2 * Math.abs(Math.sin(ra)) + H / 2 * Math.abs(Math.cos(ra))) / zz - H / 2)) + 4);
-  const bd: BackdropView = { roll, zoom, ox: (cf.fx.x * 0.5 - cf.hand[0] * 0.35) * hold, oy: (cf.fx.y * 0.5 - cf.hand[1] * 0.35) * hold, E, Ev, fit, rest };
+  const mvK = f.media.mv ? sstep(clamp(f.media.mv.k)) : 0,
+    vidK = st.bgStyle === 'video' ? 1 : mvK;
+  const fit = st.bgStyle === 'video' ? (st.vidFit ? 1 : 0) : f.media.mvLook?.fit ? mvK : 0,
+    rest = cf.rest * vidK;
+  const settle = (1 - rest) * (1 - fit),
+    hold = (1 - rest) * (1 - 0.65 * fit);
+  const roll = (cf.fx.r - cf.cont.r) * settle,
+    zoom = 1 + (cf.fx.z * (1 + Math.min(0.15, mb * 0.01)) - 1) * hold,
+    ra = Math.abs(roll * D2R),
+    zz = Math.max(0.05, zoom),
+    E = Math.max(W, H) * 0.7;
+  const Ev = Math.min(
+    E,
+    Math.ceil(
+      Math.max(
+        0,
+        ((W / 2) * Math.abs(Math.cos(ra)) + (H / 2) * Math.abs(Math.sin(ra))) / zz - W / 2,
+        ((W / 2) * Math.abs(Math.sin(ra)) + (H / 2) * Math.abs(Math.cos(ra))) / zz - H / 2,
+      ),
+    ) + 4,
+  );
+  const bd: BackdropView = {
+    roll,
+    zoom,
+    ox: (cf.fx.x * 0.5 - cf.hand[0] * 0.35) * hold,
+    oy: (cf.fx.y * 0.5 - cf.hand[1] * 0.35) * hold,
+    E,
+    Ev,
+    fit,
+    rest,
+  };
   // (album play: the backdrop — the cover — goes on from where the song before left it, easing to this song's own camera)
-  if (f.bdFrom && f.bdFrom.k > 0) { const B = f.bdFrom, k = B.k; bd.roll += (B.roll - bd.roll) * k; bd.zoom += (B.zoom - bd.zoom) * k; bd.ox += (B.ox - bd.ox) * k; bd.oy += (B.oy - bd.oy) * k;
-    const r2 = Math.abs(bd.roll * D2R), z2 = Math.max(0.05, bd.zoom); bd.Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(r2)) + H / 2 * Math.abs(Math.sin(r2))) / z2 - W / 2, (W / 2 * Math.abs(Math.sin(r2)) + H / 2 * Math.abs(Math.cos(r2))) / z2 - H / 2)) + 4); }
+  if (f.bdFrom && f.bdFrom.k > 0) {
+    const B = f.bdFrom,
+      k = B.k;
+    bd.roll += (B.roll - bd.roll) * k;
+    bd.zoom += (B.zoom - bd.zoom) * k;
+    bd.ox += (B.ox - bd.ox) * k;
+    bd.oy += (B.oy - bd.oy) * k;
+    const r2 = Math.abs(bd.roll * D2R),
+      z2 = Math.max(0.05, bd.zoom);
+    bd.Ev = Math.min(
+      E,
+      Math.ceil(
+        Math.max(
+          0,
+          ((W / 2) * Math.abs(Math.cos(r2)) + (H / 2) * Math.abs(Math.sin(r2))) / z2 - W / 2,
+          ((W / 2) * Math.abs(Math.sin(r2)) + (H / 2) * Math.abs(Math.cos(r2))) / z2 - H / 2,
+        ),
+      ) + 4,
+    );
+  }
   f.bdOut = { roll: bd.roll, zoom: bd.zoom, ox: bd.ox, oy: bd.oy };
   // (an MV is one layer over the song's own theme: one that has run out fades away and leaves the song as it is without
   // it — its theme, whatever it is changed to, and no MV framing — never a stand-in backdrop)
-  const bgFx = effect(st.bgStyle) || effect('minimal')!, sameAsAmbient = st.bgStyle === 'cover';
+  const bgFx = effect(st.bgStyle) || effect('minimal')!,
+    sameAsAmbient = st.bgStyle === 'cover';
   // (lite: the effects that read the whole frame again or blur every frame are left out)
-  const lite = gfx() === 'lite', bdEffects = effects('effect').filter(e => e.layer === 'backdrop' && (st.fx[e.id] || e.id === 'mv') && !(lite && LITE_OFF.has(e.id)));
-  if (bgFx.front) bdEffects.push({ id: bgFx.id + ':front', label: '', layer: 'backdrop', kind: 'effect', z: bgFx.frontZ ?? 0, draw: bgFx.front });
+  const lite = gfx() === 'lite',
+    bdEffects = effects('effect').filter(
+      (e) => e.layer === 'backdrop' && (st.fx[e.id] || e.id === 'mv') && !(lite && LITE_OFF.has(e.id)),
+    );
+  if (bgFx.front)
+    bdEffects.push({
+      id: bgFx.id + ':front',
+      label: '',
+      layer: 'backdrop',
+      kind: 'effect',
+      z: bgFx.frontZ ?? 0,
+      draw: bgFx.front,
+    });
   bdEffects.sort(byZ);
-  const inBackdrop = (c: Ctx) => { c.save(); c.translate(W / 2, H / 2); c.rotate(roll * D2R); c.scale(zoom, zoom); c.translate(-W / 2, -H / 2); };
+  const inBackdrop = (c: Ctx) => {
+    c.save();
+    c.translate(W / 2, H / 2);
+    c.rotate(roll * D2R);
+    c.scale(zoom, zoom);
+    c.translate(-W / 2, -H / 2);
+  };
   // the deep effects (the glyph pane): over the backdrop's ground and under its elements, by the backdrop's own hook (or
   // right after it, for one without elements); over the song's video when one is up
-  const deepFx = bdEffects.filter(e => e.deep), flatFx = bdEffects.filter(e => !e.deep), mvUp = !!f.media.mv && f.media.mv.k > 0.02;
-  const deepOnce = (c: Ctx) => { let done = false; return () => { if (done) return; done = true;
-    for (const e of deepFx) { c.save(); c.setTransform(f.px, 0, 0, f.px, 0, 0); e.draw(c, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); c.restore(); } }; };
-  const drawTheme = (c: Ctx) => { const deep = deepOnce(c); inBackdrop(c); bgFx.draw(c, f, { bd, params: paramsFor(bgFx, st.fxp?.[bgFx.id]), under: mvUp ? undefined : deep }); if (!mvUp) deep();
-    for (const e of flatFx) { e.draw(c, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); if (e.id === 'mv') deep(); } deep(); c.restore(); };
+  const deepFx = bdEffects.filter((e) => e.deep),
+    flatFx = bdEffects.filter((e) => !e.deep),
+    mvUp = !!f.media.mv && f.media.mv.k > 0.02;
+  const deepOnce = (c: Ctx) => {
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      for (const e of deepFx) {
+        c.save();
+        c.setTransform(f.px, 0, 0, f.px, 0, 0);
+        e.draw(c, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) });
+        c.restore();
+      }
+    };
+  };
+  const drawTheme = (c: Ctx) => {
+    const deep = deepOnce(c);
+    inBackdrop(c);
+    bgFx.draw(c, f, { bd, params: paramsFor(bgFx, st.fxp?.[bgFx.id]), under: mvUp ? undefined : deep });
+    if (!mvUp) deep();
+    for (const e of flatFx) {
+      e.draw(c, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) });
+      if (e.id === 'mv') deep();
+    }
+    deep();
+    c.restore();
+  };
   if (view >= 0.999) drawTheme(g);
   else {
-    inBackdrop(g); effect('ambient')!.draw(g, f, { bd, params: {} }); g.restore();
+    inBackdrop(g);
+    effect('ambient')!.draw(g, f, { bd, params: {} });
+    g.restore();
     if (view > 0.001) {
-      const cv = g.canvas as HTMLCanvasElement; if (LAYER.width !== cv.width || LAYER.height !== cv.height) { LAYER.width = cv.width; LAYER.height = cv.height; }
-      const lg = LAYER.getContext('2d')!; lg.setTransform(1, 0, 0, 1, 0, 0); lg.clearRect(0, 0, LAYER.width, LAYER.height); lg.setTransform(f.px, 0, 0, f.px, 0, 0);
-      if (sameAsAmbient) { const deep = deepOnce(lg); inBackdrop(lg); for (const e of flatFx) e.draw(lg, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); deep(); if (f.coverOwner === 'backdrop') bgFx.draw(lg, f, { bd, params: {} }); lg.restore(); }
-      else drawTheme(lg);
-      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = sstep(view); g.drawImage(LAYER, 0, 0); g.restore();
+      const cv = g.canvas as HTMLCanvasElement;
+      if (LAYER.width !== cv.width || LAYER.height !== cv.height) {
+        LAYER.width = cv.width;
+        LAYER.height = cv.height;
+      }
+      const lg = LAYER.getContext('2d')!;
+      lg.setTransform(1, 0, 0, 1, 0, 0);
+      lg.clearRect(0, 0, LAYER.width, LAYER.height);
+      lg.setTransform(f.px, 0, 0, f.px, 0, 0);
+      if (sameAsAmbient) {
+        const deep = deepOnce(lg);
+        inBackdrop(lg);
+        for (const e of flatFx) e.draw(lg, f, { bd, params: paramsFor(e, st.fxp?.[e.id]) });
+        deep();
+        if (f.coverOwner === 'backdrop') bgFx.draw(lg, f, { bd, params: {} });
+        lg.restore();
+      } else drawTheme(lg);
+      g.save();
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalAlpha = sstep(view);
+      g.drawImage(LAYER, 0, 0);
+      g.restore();
     }
   }
   // the now-playing page's shade, part of the ambient picture: over the backdrop, under the flying cover and the words,
   // leaving as the scene takes over — so nothing that crosses from the page into the picture changes brightness
-  if (view < 0.999 && !f.offline) { const k = 1 - sstep(view); if (k > 0.003) { const R = Math.hypot(W * 1.2, H * 0.9) * 0.5, sh = g.createRadialGradient(W * 0.3, H * 0.55, 0, W * 0.3, H * 0.55, R);
-    sh.addColorStop(0, 'rgba(8,6,14,0.12)'); sh.addColorStop(1, 'rgba(8,6,14,0.46)'); g.save(); g.globalAlpha = k; g.fillStyle = sh; g.fillRect(0, 0, W, H); g.restore(); } }
-  o.under?.(g, f); g.setTransform(f.px, 0, 0, f.px, 0, 0); mark('backdrop');
+  if (view < 0.999 && !f.offline) {
+    const k = 1 - sstep(view);
+    if (k > 0.003) {
+      const R = Math.hypot(W * 1.2, H * 0.9) * 0.5,
+        sh = g.createRadialGradient(W * 0.3, H * 0.55, 0, W * 0.3, H * 0.55, R);
+      sh.addColorStop(0, 'rgba(8,6,14,0.12)');
+      sh.addColorStop(1, 'rgba(8,6,14,0.46)');
+      g.save();
+      g.globalAlpha = k;
+      g.fillStyle = sh;
+      g.fillRect(0, 0, W, H);
+      g.restore();
+    }
+  }
+  o.under?.(g, f);
+  g.setTransform(f.px, 0, 0, f.px, 0, 0);
+  mark('backdrop');
   /* ---- flashes ---- */
-  const bl = f.plan.map.beatLen(f.t), tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)), calm = cf.calm;
-  let flash = 0; { const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));
-    flash = env(f.rs.phase, 9, 0.05) * (f.rs.inBar === 0 ? 0.12 : 0.05) * f.I * Math.min(3, M.groove ?? 1);   // the beat's own glint follows the groove
-    if (st.bgStyle === 'solid') flash *= 2.6;                                       // (plainly seen on a plain colour: nothing else on it moves)
-    const fa = st.cut === 'glide' || st.cut === 'close' ? 0.12 : st.cut === 'waltz' ? 0.16 : 0.05, fpk = st.cut === 'waltz' ? 0.5 : 0.6, fd = 6 / tempo;
-    for (const q of f.plan.cues.flash) { const dt = f.t - q.t; if (dt >= 0 && dt < 1.4) flash = Math.max(flash, (dt < fa ? sstep(dt / fa) : Math.exp(-(dt - fa) * fd)) * fpk * (0.5 + 0.5 * q.k)); }
-    flash *= calm * (M.flash > 0.02 ? M.flashk ?? 0.6 : 0) * view * (f.motion < 1 ? 0.3 : 1); }
+  const bl = f.plan.map.beatLen(f.t),
+    tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)),
+    calm = cf.calm;
+  let flash = 0;
+  {
+    const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));
+    flash = env(f.rs.phase, 9, 0.05) * (f.rs.inBar === 0 ? 0.12 : 0.05) * f.I * Math.min(3, M.groove ?? 1); // the beat's own glint follows the groove
+    if (st.bgStyle === 'solid') flash *= 2.6; // (plainly seen on a plain colour: nothing else on it moves)
+    const fa = st.cut === 'glide' || st.cut === 'close' ? 0.12 : st.cut === 'waltz' ? 0.16 : 0.05,
+      fpk = st.cut === 'waltz' ? 0.5 : 0.6,
+      fd = 6 / tempo;
+    for (const q of f.plan.cues.flash) {
+      const dt = f.t - q.t;
+      if (dt >= 0 && dt < 1.4)
+        flash = Math.max(flash, (dt < fa ? sstep(dt / fa) : Math.exp(-(dt - fa) * fd)) * fpk * (0.5 + 0.5 * q.k));
+    }
+    flash *= calm * (M.flash > 0.02 ? (M.flashk ?? 0.6) : 0) * view * (f.motion < 1 ? 0.3 : 1);
+  }
   const invert = st.flashMode === 'invert';
-  let inv = false; if (invert && M.flash > 0.02 && calm > 0.5 && f.motion >= 1 && view > 0.5) { const wnd = 0.1 * tempo; for (const q of f.plan.cues.flash) { const dt = f.t - q.t; if (dt >= 0 && dt < wnd) { inv = true; break; } } }
-  if (!invert && flash > 0.005) { g.fillStyle = rgba(f.pal.flash, Math.min(0.75, flash)); g.fillRect(0, 0, W, H); }
+  let inv = false;
+  if (invert && M.flash > 0.02 && calm > 0.5 && f.motion >= 1 && view > 0.5) {
+    const wnd = 0.1 * tempo;
+    for (const q of f.plan.cues.flash) {
+      const dt = f.t - q.t;
+      if (dt >= 0 && dt < wnd) {
+        inv = true;
+        break;
+      }
+    }
+  }
+  if (!invert && flash > 0.005) {
+    g.fillStyle = rgba(f.pal.flash, Math.min(0.75, flash));
+    g.fillRect(0, 0, W, H);
+  }
   f.ink = !invert && flash > 0.32 && f.pal.invertOnFlash ? f.pal.bg : f.pal.text;
   /* ---- the lyric world ---- */
   const card = !!f.plan.titles.end;
   f.vis = visibleWords(f, card);
   // a curtain the lyrics asked for ('@N', curtain.ts): its ground under the words, the words fading in as it opens
   const cu = view > 0.001 ? curtainAt(f) : null;
-  if (cu) { drawCurtainGround(g, f, cu); const wk = curtainWords(cu); if (wk < 1) for (const v of f.vis) v.o *= wk; }
-  const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen', fr: RenderFrame = f) => { for (const e of effects('effect').filter(x => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id))).sort(byZ)) e.draw(g, fr, { bd, params: paramsFor(e, st.fxp?.[e.id]) }); };
+  if (cu) {
+    drawCurtainGround(g, f, cu);
+    const wk = curtainWords(cu);
+    if (wk < 1) for (const v of f.vis) v.o *= wk;
+  }
+  const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen', fr: RenderFrame = f) => {
+    for (const e of effects('effect')
+      .filter((x) => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id)))
+      .sort(byZ))
+      e.draw(g, fr, { bd, params: paramsFor(e, st.fxp?.[e.id]) });
+  };
   if (view > 0.001) {
-    mark('backdrop'); world('world-back'); mark('world');
+    mark('backdrop');
+    world('world-back');
+    mark('world');
     // (the afterimage: the effect's strength — 0.4 at 1, the liquid look's — times the older knob's, kept for styles that tuned it)
     const afterK = st.fx.afterimage ? 0.4 * +(st.fxp?.afterimage?.amount ?? 1) * (st.k.split ?? 1) : 0;
     const split = (cf.split * 10 + f.rs.pulse * 1.5 * f.I) * f.motion * afterK;
     const tk = clamp((mb - 0.3) / 2.5);
     const passes: Parameters<typeof paintLyrics>[3] = [];
-    if (tk > 0.02) { const len = mb * 1.6, d = Math.hypot(vx, vy) || 1, c = Math.cos(-cam.r * D2R), s = Math.sin(-cam.r * D2R), mdx = (vx * c - vy * s) / d, mdy = (vx * s + vy * c) / d;
-      passes.push({ ink: f.ink, split, trail: { k: 0.22 * tk, dx: mdx * len * 0.7, dy: mdy * len * 0.7 } }); }
+    if (tk > 0.02) {
+      const len = mb * 1.6,
+        d = Math.hypot(vx, vy) || 1,
+        c = Math.cos(-cam.r * D2R),
+        s = Math.sin(-cam.r * D2R),
+        mdx = (vx * c - vy * s) / d,
+        mdy = (vx * s + vy * c) / d;
+      passes.push({ ink: f.ink, split, trail: { k: 0.22 * tk, dx: mdx * len * 0.7, dy: mdy * len * 0.7 } });
+    }
     passes.push({ ink: f.ink, split });
-    paintLyrics(g, f, f.vis, passes); mark('lyrics');
-    world('world-front'); world('foreground'); mark('world');
+    paintLyrics(g, f, f.vis, passes);
+    mark('lyrics');
+    world('world-front');
+    world('foreground');
+    mark('world');
   }
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
-  if (inv) { g.save(); g.globalCompositeOperation = 'difference'; g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H); g.restore(); }
-  const trk = cf.trans * view; if (trk > 0.005) drawTransition(g, f, trk);
+  if (inv) {
+    g.save();
+    g.globalCompositeOperation = 'difference';
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, W, H);
+    g.restore();
+  }
+  const trk = cf.trans * view;
+  if (trk > 0.005) drawTransition(g, f, trk);
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   drawIdleDots(g, f);
-  if (o.captions !== false) drawCaptions(g, f, o.captionBottom ?? H * 0.9, { subs: o.capSubs !== false, reads: o.capReads !== false });
+  if (o.captions !== false)
+    drawCaptions(g, f, o.captionBottom ?? H * 0.9, { subs: o.capSubs !== false, reads: o.capReads !== false });
   drawIntro(g, f);
   drawEndCard(g, f);
-  const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6) * view; if (fo > 0) { g.fillStyle = rgba(f.pal.bg, fo); g.fillRect(0, 0, W, H); }
+  const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6) * view;
+  if (fo > 0) {
+    g.fillStyle = rgba(f.pal.bg, fo);
+    g.fillRect(0, 0, W, H);
+  }
   // the curtain: over the picture, its captions and titles — fixed to the screen, never moved by the camera or its shake
-  if (cu) { g.setTransform(f.px, 0, 0, f.px, 0, 0); drawCurtain(g, f, cu); }
+  if (cu) {
+    g.setTransform(f.px, 0, 0, f.px, 0, 0);
+    drawCurtain(g, f, cu);
+  }
   // the screen's own effects (grain, scan lines, vignette, colour split…) last: they are the display's, over everything
   // in the picture, the curtain too — and they go with the picture at the end (they fade as the effect view does, so
   // once the song has faded to its ground no grain or vignette is left over it)
-  mark('post'); g.setTransform(f.px, 0, 0, f.px, 0, 0); if (view * (1 - fo) > 0.001) world('screen', fo > 0 ? { ...f, view: { effect: view * (1 - fo) } } : f);
+  mark('post');
+  g.setTransform(f.px, 0, 0, f.px, 0, 0);
+  if (view * (1 - fo) > 0.001) world('screen', fo > 0 ? { ...f, view: { effect: view * (1 - fo) } } : f);
   mark('screen');
   o.overlay?.(g, f);
 }
 /** Effects that belong to a backdrop and follow it rather than a switch (they check the backdrop themselves). */
 // (the frames: drawn whenever a word has one — the chosen ones exist only while frames are on, the asked-for ones ('$1') always)
-const alwaysOn = (e: Effect) => e.id === 'frame' || e.id === 'gothic-chains' || e.id === 'geo-front' || e.id === 'glass-shards' || e.id === 'feathers-fg';
+const alwaysOn = (e: Effect) =>
+  e.id === 'frame' ||
+  e.id === 'gothic-chains' ||
+  e.id === 'geo-front' ||
+  e.id === 'glass-shards' ||
+  e.id === 'feathers-fg';

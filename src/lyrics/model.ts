@@ -12,16 +12,32 @@ import { applyWordRules, type WordLift } from './rules';
 import { looksRomaji } from './subs';
 /** What pacing the words needs from the rhythm (RhythmMap is one): the tempo, the beat's length at a moment, and a
  *  time snapped to the grid within a tolerance. The lyric model reads the beat through this and knows nothing else of it. */
-export interface BeatGrid { readonly bpm: number; beatLen(t: number): number; snap(t: number, tol: number, div: number): number;
-  /** how much the voice sings at t (0..1), or null where that is not known: where the lyrics are cut (phrasing.ts) */ voice?(t: number): number | null }
+export interface BeatGrid {
+  readonly bpm: number;
+  beatLen(t: number): number;
+  snap(t: number, tol: number, div: number): number;
+  /** how much the voice sings at t (0..1), or null where that is not known: where the lyrics are cut (phrasing.ts) */ voice?(
+    t: number,
+  ): number | null;
+}
 
-export interface Unit { c: string; /** sung time, or null when the line is timed only as a whole */ t: number | null }
+export interface Unit {
+  c: string;
+  /** sung time, or null when the line is timed only as a whole */ t: number | null;
+}
 export interface Word {
-  id: number; line: number; k: number;
-  text: string; units: Unit[];
+  id: number;
+  line: number;
+  k: number;
+  text: string;
+  units: Unit[];
   /** sung from, sung until (the word is over) */
-  t: number; end: number;
-  timed: boolean; latin: boolean; cjk: boolean; complex: boolean;
+  t: number;
+  end: number;
+  timed: boolean;
+  latin: boolean;
+  cjk: boolean;
+  complex: boolean;
   /** units timed by estimate (a line timed only as a whole: its characters spread over the word's singing) */
   paced?: boolean;
   /** a harmony sung with this word (shown small beside it), with its units' times */
@@ -35,28 +51,46 @@ export interface Word {
   /** its end is the lyrics' own (a stamp after its last syllable, a TTML end), not an estimate */
   endGiven?: boolean;
   /** the lyrics' own space after it, and the word as shown where they have one inside it (lyrics/spacing.ts) */
-  gap?: boolean; disp?: string;
+  gap?: boolean;
+  disp?: string;
   /** set apart by a word rule (lyrics/rules.ts): bigger, nearer, over the rest */
   lift?: WordLift;
   /** the pause after this word when it ends its line (0 otherwise) */
   rest: number;
 }
 export interface Line {
-  i: number; t: number;
+  i: number;
+  t: number;
   /** when the line stops being current (next line, an empty stamp, or a few bars after it is sung) */
   end: number;
   /** when its singing is over */
   sung: number;
-  text: string; subs: string[]; words: Word[];
+  text: string;
+  subs: string[];
+  words: Word[];
   /** its readings (romanisation, kana) where the lyrics say which lines are readings (TTML) */
   reads?: string[];
-  kar: boolean; rtl: boolean;
+  kar: boolean;
+  rtl: boolean;
   /** spaced by the listener: its words as they wrote them (not joined by the singing) */
   own?: boolean;
 }
-export interface LyricDoc { lines: Line[]; words: Word[]; meta: Record<string, string>; groups: number; /** where choruses come in (the lyrics' own marks): time, level 1..3, and whether that time is a stamp (exact) */ marks: Mark[];
-  /** curtains the lyrics ask for ('@N'): curtain N closed at t, then drawn open */ curtains: { t: number; kind: number }[] }
-export interface Mark { t: number; level: number; exact?: boolean }
+export interface LyricDoc {
+  lines: Line[];
+  words: Word[];
+  meta: Record<string, string>;
+  groups: number;
+  /** where choruses come in (the lyrics' own marks): time, level 1..3, and whether that time is a stamp (exact) */ marks: Mark[];
+  /** curtains the lyrics ask for ('@N'): curtain N closed at t, then drawn open */ curtains: {
+    t: number;
+    kind: number;
+  }[];
+}
+export interface Mark {
+  t: number;
+  level: number;
+  exact?: boolean;
+}
 
 /** Words starting closer than this (s) are one gesture for the camera and the entrance. */
 export const FUSE = 0.12;
@@ -67,46 +101,109 @@ const syllableTime = (n: number, bpm: number) => n * 0.3 * Math.sqrt(120 / bpm);
 export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
   // (the words joined into the phrases they are sung in: phrasing.ts)
   // (the words joined into the phrases they are sung in, then the rules on the words as finally cut: rules.ts)
-  const bpm = map.bpm, raw = phrase(p, map).lines, lines: Line[] = [];
+  const bpm = map.bpm,
+    raw = phrase(p, map).lines,
+    lines: Line[] = [];
   applyWordRules(raw);
   const sungEndOf = (L: RawLine) => {
-    if (L.kar) { const lk = Math.max(...L.kar.flat().map(u => u.t)); return L.close ?? lk + 0.5; }
+    if (L.kar) {
+      const lk = Math.max(...L.kar.flat().map((u) => u.t));
+      return L.close ?? lk + 0.5;
+    }
     // (a line that says when it ends — TTML — is sung until then)
     return L.end ?? L.t + syllableTime(syllables(L.text), bpm) + 0.8;
   };
   raw.forEach((R, i) => {
-    const next = i + 1 < raw.length ? raw[i + 1].t : end, sung = Math.min(sungEndOf(R), R.stop ?? Infinity);
-    let lend = Math.min(next, R.stop ?? Infinity, sung + Math.max(2.5, 8 * 60 / bpm));
+    const next = i + 1 < raw.length ? raw[i + 1].t : end,
+      sung = Math.min(sungEndOf(R), R.stop ?? Infinity);
+    let lend = Math.min(next, R.stop ?? Infinity, sung + Math.max(2.5, (8 * 60) / bpm));
     lend = Math.max(lend, Math.min(next, R.t + 0.6));
     // (its own end, when the lyrics give one, holds even over a line that comes in before it: a background line, a duet)
     if (R.end != null) lend = Math.max(lend, R.end);
     // (a kana line's romaji, given as a translation — as most LRC files do — is its reading)
-    const rom = R.reads?.length ? [] : R.subs.filter(s => looksRomaji(s, R.text)), reads = R.reads?.length ? R.reads : rom, subs = rom.length ? R.subs.filter(s => !rom.includes(s)) : R.subs;
-    lines.push({ i, t: R.t, end: lend, sung, text: R.text, subs, words: [], kar: !!R.kar, rtl: RE_RTL.test(R.text), ...(R.own ? { own: true } : {}), ...(reads.length ? { reads } : {}) });
+    const rom = R.reads?.length ? [] : R.subs.filter((s) => looksRomaji(s, R.text)),
+      reads = R.reads?.length ? R.reads : rom,
+      subs = rom.length ? R.subs.filter((s) => !rom.includes(s)) : R.subs;
+    lines.push({
+      i,
+      t: R.t,
+      end: lend,
+      sung,
+      text: R.text,
+      subs,
+      words: [],
+      kar: !!R.kar,
+      rtl: RE_RTL.test(R.text),
+      ...(R.own ? { own: true } : {}),
+      ...(reads.length ? { reads } : {}),
+    });
   });
-  const words: Word[] = []; let gid = -1;
+  const words: Word[] = [];
+  let gid = -1;
   lines.forEach((L, i) => {
     const R = raw[i];
     // the words as the lyrics break them: at spaces only (an unspaced line is one word); their harmonies and chorus marks
-    const timed = !!R.kar && R.words.every(w => w.units && w.units.length);
+    const timed = !!R.kar && R.words.every((w) => w.units && w.units.length);
     L.words = R.words.map((rw, k) => {
-      const w = rw.text, tu = timed ? rw.units!.map(u => ({ c: u.c, t: Math.max(u.t, L.t) })) : null, units: Unit[] = tu ? tu : unitsOf(w).map(c => ({ c, t: null }));   // sung syllables stay whole
-      const hu = rw.harm ? (rw.harm.units?.length ? rw.harm.units.map(u => ({ c: u.c, t: Math.max(u.t, L.t) })) : unitsOf(rw.harm.text).map(c => ({ c, t: null as number | null }))) : null;
-      return { id: words.length + k, line: i, k, text: w, units, t: tu ? tu[0].t! : L.t, end: 0, timed: !!tu,
-        latin: isLatin(w), cjk: RE_CJK.test(w) && !RE_COMPLEX.test(w), complex: RE_COMPLEX.test(w), group: 0, rest: 0,
-        harm: rw.harm && hu ? { text: rw.harm.text, units: hu, t: hu[0]?.t ?? NaN } : null, ...(rw.box ? { box: true } : {}), ...(rw.gap ? { gap: true } : {}), ...(rw.disp ? { disp: rw.disp } : {}), ...(rw.lift ? { lift: rw.lift } : {}), ...(rw.mark ? { mark: rw.mark, ...((rw.markT ?? rw.units?.[0]?.t) != null ? { markT: (rw.markT ?? rw.units![0].t)! } : {}) } : {}) };
+      const w = rw.text,
+        tu = timed ? rw.units!.map((u) => ({ c: u.c, t: Math.max(u.t, L.t) })) : null,
+        units: Unit[] = tu ? tu : unitsOf(w).map((c) => ({ c, t: null })); // sung syllables stay whole
+      const hu = rw.harm
+        ? rw.harm.units?.length
+          ? rw.harm.units.map((u) => ({ c: u.c, t: Math.max(u.t, L.t) }))
+          : unitsOf(rw.harm.text).map((c) => ({ c, t: null as number | null }))
+        : null;
+      return {
+        id: words.length + k,
+        line: i,
+        k,
+        text: w,
+        units,
+        t: tu ? tu[0].t! : L.t,
+        end: 0,
+        timed: !!tu,
+        latin: isLatin(w),
+        cjk: RE_CJK.test(w) && !RE_COMPLEX.test(w),
+        complex: RE_COMPLEX.test(w),
+        group: 0,
+        rest: 0,
+        harm: rw.harm && hu ? { text: rw.harm.text, units: hu, t: hu[0]?.t ?? NaN } : null,
+        ...(rw.box ? { box: true } : {}),
+        ...(rw.gap ? { gap: true } : {}),
+        ...(rw.disp ? { disp: rw.disp } : {}),
+        ...(rw.lift ? { lift: rw.lift } : {}),
+        ...(rw.mark
+          ? {
+              mark: rw.mark,
+              ...((rw.markT ?? rw.units?.[0]?.t) != null ? { markT: (rw.markT ?? rw.units![0].t)! } : {}),
+            }
+          : {}),
+      };
     });
     if (!timed) paceWords(L, map);
     // when each word is over
     L.words.forEach((W, k) => {
       const nx = k + 1 < L.words.length ? L.words[k + 1].t : Infinity;
       // (timed: its last unit's own end where the lyrics give one, else a quarter second after it starts)
-      if (W.timed) { const ru = R.words[k].units!, lu = ru[ru.length - 1]; W.end = lu.e != null ? Math.max(lu.e, Math.max(...W.units.map(u => u.t!)) + 0.08) : Math.max(...W.units.map(u => u.t!)) + 0.25; if (lu.e != null) W.endGiven = true; }
-      else W.end = Math.min(nx, W.t + syllableTime(syllables(W.text), bpm) + 0.35, L.end);
+      if (W.timed) {
+        const ru = R.words[k].units!,
+          lu = ru[ru.length - 1];
+        W.end =
+          lu.e != null
+            ? Math.max(lu.e, Math.max(...W.units.map((u) => u.t!)) + 0.08)
+            : Math.max(...W.units.map((u) => u.t!)) + 0.25;
+        if (lu.e != null) W.endGiven = true;
+      } else W.end = Math.min(nx, W.t + syllableTime(syllables(W.text), bpm) + 0.35, L.end);
       W.end = Math.max(W.end, W.t + 0.12);
       // a word timed only as a whole: its characters spread over its singing, so it is still sung (and followed) one
       // character at a time
-      if (!W.timed && W.units.length > 1) { const D = Math.max(0.12, (W.end - W.t) * 0.85); W.units.forEach((u, j) => { u.t = W.t + D * j / W.units.length; }); W.paced = true; }
+      if (!W.timed && W.units.length > 1) {
+        const D = Math.max(0.12, (W.end - W.t) * 0.85);
+        W.units.forEach((u, j) => {
+          u.t = W.t + (D * j) / W.units.length;
+        });
+        W.paced = true;
+      }
       // its harmony: with the word when it has no timing of its own — and on a line timed only as a whole, with the
       // line (it is shown as the line is, all at once: not at its word's guessed moment)
       if (W.harm && (!isFinite(W.harm.t) || !R.kar)) W.harm.t = R.kar ? W.t : L.t;
@@ -124,22 +221,46 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
   // the choruses: the words marked, and the stamps that carry only a mark
   // (exact: on a stamp of its own — a syllable's, or a stamp with only the mark — so the chorus comes in right there; a
   // word timed only by its line's spread has a guessed time, which the cues bring onto the beat)
-  const marks = [...words.filter(W => W.mark).map(W => ({ t: W.markT ?? W.t, level: W.mark!, exact: W.markT != null })), ...(p.marks || []).map(m => ({ ...m, exact: true }))].sort((a, b) => a.t - b.t);
-  return { lines, words, meta: p.meta, groups: gid + 1, marks, curtains: (p.curtains || []).map(c => ({ ...c, t: Math.max(0, c.t) })).filter((c, i, all) => !all.slice(0, i).some(x => x.kind === c.kind && Math.abs(x.t - c.t) < 0.05)) };
+  const marks = [
+    ...words.filter((W) => W.mark).map((W) => ({ t: W.markT ?? W.t, level: W.mark!, exact: W.markT != null })),
+    ...(p.marks || []).map((m) => ({ ...m, exact: true })),
+  ].sort((a, b) => a.t - b.t);
+  return {
+    lines,
+    words,
+    meta: p.meta,
+    groups: gid + 1,
+    marks,
+    curtains: (p.curtains || [])
+      .map((c) => ({ ...c, t: Math.max(0, c.t) }))
+      .filter((c, i, all) => !all.slice(0, i).some((x) => x.kind === c.kind && Math.abs(x.t - c.t) < 0.05)),
+  };
 }
 
 /** Line-timed words: each starts at its share of the line's syllables across the sung part, drawn onto a beat when
  *  one is close (an eighth otherwise), always after the word before. */
 function paceWords(L: Line, map: BeatGrid) {
-  const n = L.words.length; if (!n) return;
-  const beat = map.beatLen(L.t), q = beat / 2;
-  const D = Math.max(n * q / 2, Math.min(L.end, L.sung) - L.t), R = n > 1 ? Math.min(2 * beat, D * 0.3) : 0, avail = D - R;
-  let step = Math.max(q / 2, Math.round(avail / n / q) * q); if (step * n > avail + 1e-6) step = avail / n;
-  const syl = L.words.map(W => Math.max(1, syllables(W.text))), tot = syl.reduce((a, b) => a + b, 0), span = Math.min(avail, step * n * 1.15);
-  let acc = 0; L.words.forEach((W, k) => { W.t = L.t + span * acc / tot; acc += syl[k]; });
+  const n = L.words.length;
+  if (!n) return;
+  const beat = map.beatLen(L.t),
+    q = beat / 2;
+  const D = Math.max((n * q) / 2, Math.min(L.end, L.sung) - L.t),
+    R = n > 1 ? Math.min(2 * beat, D * 0.3) : 0,
+    avail = D - R;
+  let step = Math.max(q / 2, Math.round(avail / n / q) * q);
+  if (step * n > avail + 1e-6) step = avail / n;
+  const syl = L.words.map((W) => Math.max(1, syllables(W.text))),
+    tot = syl.reduce((a, b) => a + b, 0),
+    span = Math.min(avail, step * n * 1.15);
+  let acc = 0;
+  L.words.forEach((W, k) => {
+    W.t = L.t + (span * acc) / tot;
+    acc += syl[k];
+  });
   for (let k = 1; k < n; k++) {
-    const W = L.words[k], b = map.snap(W.t, Math.min(0.35 * beat, span / n * 0.5), 1);
-    const x = b !== W.t ? b : map.snap(W.t, Math.min(0.2 * beat, span / n * 0.4), 2);
+    const W = L.words[k],
+      b = map.snap(W.t, Math.min(0.35 * beat, (span / n) * 0.5), 1);
+    const x = b !== W.t ? b : map.snap(W.t, Math.min(0.2 * beat, (span / n) * 0.4), 2);
     W.t = x > L.words[k - 1].t + 0.1 ? x : Math.max(W.t, L.words[k - 1].t + 0.1);
   }
 }

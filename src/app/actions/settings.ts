@@ -9,11 +9,18 @@ import { applyEngineConfig } from '../engineConfig';
 import { applyUiFont } from '../uifont';
 
 export async function setSettings(patch: Partial<Settings>) {
-  settings.set(patch); const n = D ? await D.setSettings(patch) : { ...settings.get(), ...patch }; settings.set(n);
+  settings.set(patch);
+  const n = D ? await D.setSettings(patch) : { ...settings.get(), ...patch };
+  settings.set(n);
   if ('audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch) switchOutput();
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
   if ('volBalance' in patch || 'fixedVolume' in patch) applyBalance();
   applyEngineConfig(n, Object.keys(patch));
 }
 /** The interface language (its font and its words), saved. */
-export async function setLang(l: Lang) { await applyUiFont(l, undefined, words(l)); setI18n(l); settings.set({ lang: l }); await D?.setSettings({ lang: l }); }
+export async function setLang(l: Lang) {
+  await applyUiFont(l, undefined, words(l));
+  setI18n(l);
+  settings.set({ lang: l });
+  await D?.setSettings({ lang: l });
+}

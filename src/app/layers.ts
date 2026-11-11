@@ -15,31 +15,66 @@ import { ASPECTS } from '../engine';
 import { fxAspect } from './playback/player';
 
 export const refs = {
-  stage: null as HTMLElement | null, np: null as HTMLElement | null, npAmb: null as HTMLElement | null, npCover: null as HTMLElement | null, npParts: [] as (HTMLElement | null)[],
-  card: null as HTMLElement | null, mini: null as HTMLElement | null, fxUi: null as HTMLElement | null,
+  stage: null as HTMLElement | null,
+  np: null as HTMLElement | null,
+  npAmb: null as HTMLElement | null,
+  npCover: null as HTMLElement | null,
+  npParts: [] as (HTMLElement | null)[],
+  card: null as HTMLElement | null,
+  mini: null as HTMLElement | null,
+  fxUi: null as HTMLElement | null,
 };
 
 /* ---------- none ⇄ np ---------- */
-let A: Box | null = null, B: Box | null = null, C: Box | null = null, R: Box | null = null, coverR = 0, miniR = 9;
+let A: Box | null = null,
+  B: Box | null = null,
+  C: Box | null = null,
+  R: Box | null = null,
+  coverR = 0,
+  miniR = 9;
 /** the window's own corner radius (Windows 11's, for a window neither maximised nor full screen) */
 const WIN_R = 8;
 /* the two covers' own shadows, every layer of each (colour, offset, blur, spread), as the page's styles draw them: the
    flying cover's shadow is the one fading into the other, so at either end it is exactly what the style there draws and
    nothing jumps when the style takes over */
-interface ShL { c: string; a: number; x: number; y: number; b: number; s: number }
+interface ShL {
+  c: string;
+  a: number;
+  x: number;
+  y: number;
+  b: number;
+  s: number;
+}
 const SH_RE = /(rgba?\([^)]*\))\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+(-?[\d.]+)px(?:\s+(-?[\d.]+)px)?/g;
-const parseSh = (v: string): ShL[] => [...(v || '').matchAll(SH_RE)].map(m => { const n = (m[1].match(/-?[\d.]+/g) || []).map(Number);
-  return { c: n.slice(0, 3).join(','), a: n[3] ?? 1, x: +m[2], y: +m[3], b: +m[4], s: +(m[5] || 0) }; });
+const parseSh = (v: string): ShL[] =>
+  [...(v || '').matchAll(SH_RE)].map((m) => {
+    const n = (m[1].match(/-?[\d.]+/g) || []).map(Number);
+    return { c: n.slice(0, 3).join(','), a: n[3] ?? 1, x: +m[2], y: +m[3], b: +m[4], s: +(m[5] || 0) };
+  });
 let miniSh: ShL[] = [];
 /** the mini cover's shadow, every layer of it, scaled by k (the flying cover's layer is drawn at the page cover's size) */
-const miniShadow = (k: number) => miniSh.map(l => `${(l.x * k).toFixed(2)}px ${(l.y * k).toFixed(2)}px ${(l.b * k).toFixed(2)}px ${(l.s * k).toFixed(2)}px rgba(${l.c},${l.a.toFixed(3)})`).join(', ') || 'none';
-const radiusOf = (el: Element) => { const v = parseFloat(getComputedStyle(el).borderTopLeftRadius); return Number.isFinite(v) ? v : 0; };
+const miniShadow = (k: number) =>
+  miniSh
+    .map(
+      (l) =>
+        `${(l.x * k).toFixed(2)}px ${(l.y * k).toFixed(2)}px ${(l.b * k).toFixed(2)}px ${(l.s * k).toFixed(2)}px rgba(${l.c},${l.a.toFixed(3)})`,
+    )
+    .join(', ') || 'none';
+const radiusOf = (el: Element) => {
+  const v = parseFloat(getComputedStyle(el).borderTopLeftRadius);
+  return Number.isFinite(v) ? v : 0;
+};
 const measure = () => {
   const { mini, npCover, card, stage } = refs;
   A = mini && mini.isConnected && mini.offsetParent ? rectOf(mini) : null;
   B = npCover ? restRect(npCover) : null;
   C = card && card.isConnected ? rectOf(card) : null;
-  if (stage) { const keep = stage.style.clipPath; stage.style.clipPath = ''; R = rectOf(stage); stage.style.clipPath = keep; }
+  if (stage) {
+    const keep = stage.style.clipPath;
+    stage.style.clipPath = '';
+    R = rectOf(stage);
+    stage.style.clipPath = keep;
+  }
   // the resting corners, read with the flight's own inline corner set aside (a reversal mid-way must not read its own value)
   if (npCover) coverR = radiusOf(npCover);
   if (mini) miniR = radiusOf(mini) || 9;
@@ -47,51 +82,78 @@ const measure = () => {
   // size that is the mini cover's on screen when the flight starts (the layer is scaled with the cover)
   if (mini) miniSh = parseSh(getComputedStyle(mini).boxShadow);
   const shM = npCover?.querySelector<HTMLElement>('[data-sh=mini]');
-  if (shM && A && B) { const k = B.width / Math.max(1, A.width), sh = miniShadow(k), rr = `${(miniR * k).toFixed(2)}px`;
-    if (shM.style.boxShadow !== sh) shM.style.boxShadow = sh; if (shM.style.borderRadius !== rr) shM.style.borderRadius = rr; }
+  if (shM && A && B) {
+    const k = B.width / Math.max(1, A.width),
+      sh = miniShadow(k),
+      rr = `${(miniR * k).toFixed(2)}px`;
+    if (shM.style.boxShadow !== sh) shM.style.boxShadow = sh;
+    if (shM.style.borderRadius !== rr) shM.style.borderRadius = rr;
+  }
 };
 function applyNp(p: number) {
-  const { stage, np, npCover, mini } = refs; if (!stage || !np) return;
-  const on = p > 0.0005, H = innerHeight;
-  np.dataset.vis = String(on); stage.dataset.vis = String(on || engine.view === 'effect');
+  const { stage, np, npCover, mini } = refs;
+  if (!stage || !np) return;
+  const on = p > 0.0005,
+    H = innerHeight;
+  np.dataset.vis = String(on);
+  stage.dataset.vis = String(on || engine.view === 'effect');
   // the mini cover back in the card: its own shadow comes in as it does on hover (the card's transition), from none —
   // the flying cover's shadow has faded out on its way down, so nothing jumps where the two hand over
   if (mini) mini.style.visibility = on ? 'hidden' : '';
   // the cover: from the card to its place, its corners from the card's to the page's
   let coverTop = 0;
   if (npCover && B) {
-    const from = A || { left: B.left + B.width * 0.3, top: H, width: B.width * 0.4, height: B.height * 0.4 }, u = p;
-    const x = from.left + (B.left - from.left) * u, y = from.top + (B.top - from.top) * u, w = from.width + (B.width - from.width) * u, sc = w / B.width;
+    const from = A || { left: B.left + B.width * 0.3, top: H, width: B.width * 0.4, height: B.height * 0.4 },
+      u = p;
+    const x = from.left + (B.left - from.left) * u,
+      y = from.top + (B.top - from.top) * u,
+      w = from.width + (B.width - from.width) * u,
+      sc = w / B.width;
     coverTop = y;
-    npCover.style.transform = p >= 0.9995 ? '' : `translate(${(x - B.left).toFixed(2)}px, ${(y - B.top).toFixed(2)}px) scale(${sc.toFixed(4)})`;
+    npCover.style.transform =
+      p >= 0.9995 ? '' : `translate(${(x - B.left).toFixed(2)}px, ${(y - B.top).toFixed(2)}px) scale(${sc.toFixed(4)})`;
     // (its corners on the clip inside it — a clip that paints nothing: the picture, a layer of its own, is not drawn again)
-    const r = miniR + (coverR - miniR) * part(p, 0, 1), clip = npCover.querySelector<HTMLElement>('[data-clip]');
+    const r = miniR + (coverR - miniR) * part(p, 0, 1),
+      clip = npCover.querySelector<HTMLElement>('[data-clip]');
     if (clip) clip.style.borderRadius = p >= 0.9995 ? '' : `${(r / Math.max(0.05, sc)).toFixed(2)}px`;
     // its shadow: the mini cover's crossing into the page's as it flies — two shadows each drawn once (measure), in the
     // cover's own transform, crossed by their opacity: at either end exactly that end's own shadow, so neither end jumps,
     // and no frame of the flight repaints a shadow
-    const k = part(p, 0, 1), shM = npCover.querySelector<HTMLElement>('[data-sh=mini]'), shP = npCover.querySelector<HTMLElement>('[data-sh=page]');
+    const k = part(p, 0, 1),
+      shM = npCover.querySelector<HTMLElement>('[data-sh=mini]'),
+      shP = npCover.querySelector<HTMLElement>('[data-sh=page]');
     if (shM) shM.style.opacity = p >= 0.9995 || !A ? '' : (1 - k).toFixed(3);
     if (shP) shP.style.opacity = p >= 0.9995 || !A ? '' : k.toFixed(3);
     npCover.style.opacity = A ? '1' : String(part(p, 0, 0.4));
   }
   // the page: from the card's bottom edge upward over the area (its own box), sides and bottom following the top
-  const Rb = R || rectOf(stage), c = C || { left: Rb.left + Rb.width * 0.1, top: Rb.top + Rb.height - 90, width: Rb.width * 0.8, height: 76 };
+  const Rb = R || rectOf(stage),
+    c = C || { left: Rb.left + Rb.width * 0.1, top: Rb.top + Rb.height - 90, width: Rb.width * 0.8, height: 76 };
   // (every edge on the same spring as the cover: the page and the cover land together)
-  const tp = p, bp = p;
+  const tp = p,
+    bp = p;
   // the sheet rises out of the bar's top edge (the bar stays itself under it until the sheet has nearly landed, then the
   // sheet covers it too) and, closing, sinks back into that edge to nothing: it never lingers above the bar, nor lies over it
   // as a veil at the end. Its top leads the flying cover a little — never below the bar's top edge
-  const barTop = c.top - Rb.top, barH = Rb.top + Rb.height - c.top;
-  let top = barTop * (1 - tp); if (npCover && B && p < 0.999) top = Math.min(top, Math.max(barTop, coverTop - Rb.top - 26 * (1 - p)));
+  const barTop = c.top - Rb.top,
+    barH = Rb.top + Rb.height - c.top;
+  let top = barTop * (1 - tp);
+  if (npCover && B && p < 0.999) top = Math.min(top, Math.max(barTop, coverTop - Rb.top - 26 * (1 - p)));
   // (straight up: the page is as wide as the window from the start — the bar it rises out of runs the whole width)
-  const left = 0, right = 0, bottom = barH * (1 - part(bp, 0.3, 0.9));
+  const left = 0,
+    right = 0,
+    bottom = barH * (1 - part(bp, 0.3, 0.9));
   // the corners: the rising edge is rounded as the window itself is (Windows 11 rounds a window's corners; a maximised or
   // full-screen one is square), so the sheet reaches the top already the window's shape; the bottom is the window's own
   // edge all along (the bar it rises from runs along it), square — the window's corners clip it as they clip everything
-  const W = ui.get().win, rTop = W.max || W.full ? 0 : WIN_R;
-  const clip = p >= 0.9995 ? '' : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTop}px ${rTop}px 0 0)`;
-  stage.style.clipPath = clip; stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
+  const W = ui.get().win,
+    rTop = W.max || W.full ? 0 : WIN_R;
+  const clip =
+    p >= 0.9995
+      ? ''
+      : `inset(${Math.max(0, top).toFixed(1)}px ${Math.max(0, right).toFixed(1)}px ${Math.max(0, bottom).toFixed(1)}px ${Math.max(0, left).toFixed(1)}px round ${rTop}px ${rTop}px 0 0)`;
+  stage.style.clipPath = clip;
+  stage.style.opacity = p >= 0.9995 ? '' : part(p, 0, 0.12).toFixed(3);
   // (the play page's own shade and grain go with the picture: the same shape, the same fade)
   // (and the page's own content: nothing of it shows outside the sheet as it rises — its header never over the library)
   // (the page's own content is cut at the sheet's top only: the flying cover passes over the bar's edge on its way to the
@@ -99,43 +161,92 @@ function applyNp(p: number) {
   // (no clip-path on these two: changed each frame, it repainted the whole page — its blurred light too — every frame.
   // Each is a box that cuts, moved down to the sheet's edge, around a layer moved back up by as much: the edge moves,
   // nothing in them is drawn again)
-  const rest = p >= 0.9995, y = rest ? 0 : Math.max(0, top);
+  const rest = p >= 0.9995,
+    y = rest ? 0 : Math.max(0, top);
   cutBox(np, y, rest ? null : 0, rTop);
-  const amb = refs.npAmb; if (amb) { amb.dataset.vis = String(on); cutBox(amb, y, rest ? null : Math.max(0, bottom), rTop); amb.style.opacity = rest ? '' : part(p, 0, 0.3).toFixed(3); }
+  const amb = refs.npAmb;
+  if (amb) {
+    amb.dataset.vis = String(on);
+    cutBox(amb, y, rest ? null : Math.max(0, bottom), rTop);
+    amb.style.opacity = rest ? '' : part(p, 0, 0.3).toFixed(3);
+  }
   // while it rises, the page casts a soft shade up onto what it is covering: a wide falloff above its leading edge,
   // fading out at the sides, deepest mid-way through the move and gone once it has landed (or closed) — a sheet sliding
   // over the library, not a line drawn on it
-  { const sh = edgeShade(), k2 = on && p < 0.9995 ? Math.sin(Math.PI * Math.min(1, p)) ** 0.8 : 0;
-    if (k2 < 0.01) sh.style.display = 'none'; else { const h = Math.min(140, 40 + Rb.height * 0.12), L = Rb.left + Math.max(0, left), Wd = Rb.width - Math.max(0, left) - Math.max(0, right);
+  {
+    const sh = edgeShade(),
+      k2 = on && p < 0.9995 ? Math.sin(Math.PI * Math.min(1, p)) ** 0.8 : 0;
+    if (k2 < 0.01) sh.style.display = 'none';
+    else {
+      const h = Math.min(140, 40 + Rb.height * 0.12),
+        L = Rb.left + Math.max(0, left),
+        Wd = Rb.width - Math.max(0, left) - Math.max(0, right);
       // (moved by a transform on a layer of its own, its box set only when the window changes: placed by top and left, each
       // frame repainted the whole library under it — four or five full-window paints a frame while the sheet moved)
       const box = `${L.toFixed(1)}|${Math.max(0, Wd).toFixed(1)}|${h.toFixed(1)}`;
-      if (sh.dataset.box !== box) { sh.dataset.box = box; Object.assign(sh.style, { left: L.toFixed(1) + 'px', width: Math.max(0, Wd).toFixed(1) + 'px', top: '0px', height: h.toFixed(1) + 'px' }); }
-      Object.assign(sh.style, { display: '', transform: `translate3d(0,${(Rb.top + Math.max(0, top) - h + 2).toFixed(1)}px,0)`, opacity: (0.9 * k2).toFixed(3) }); } }
+      if (sh.dataset.box !== box) {
+        sh.dataset.box = box;
+        Object.assign(sh.style, {
+          left: L.toFixed(1) + 'px',
+          width: Math.max(0, Wd).toFixed(1) + 'px',
+          top: '0px',
+          height: h.toFixed(1) + 'px',
+        });
+      }
+      Object.assign(sh.style, {
+        display: '',
+        transform: `translate3d(0,${(Rb.top + Math.max(0, top) - h + 2).toFixed(1)}px,0)`,
+        opacity: (0.9 * k2).toFixed(3),
+      });
+    }
+  }
   // the page's controls and lyrics arrive once the cover has nearly landed
   const q = part(p, 0.45, 0.95);
-  for (const el of refs.npParts) if (el) { el.style.opacity = String(q); el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`; }
+  for (const el of refs.npParts)
+    if (el) {
+      el.style.opacity = String(q);
+      el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`;
+    }
   // (the parts with a fade of their own in the style — the cover's light — take this one through a variable, so both apply)
   // (set on the light itself, not on the page — a variable changed on the page restyles everything in it each frame — and
   // the light is a layer of its own, so a new opacity is not a repaint)
-  np.querySelectorAll<HTMLElement>('[data-q]').forEach(el => el.style.setProperty('--q', q.toFixed(3)));
+  np.querySelectorAll<HTMLElement>('[data-q]').forEach((el) => el.style.setProperty('--q', q.toFixed(3)));
 }
 /** A box cut to the sheet's shape: its top edge `y` down (a transform), its bottom `bottom` up from the window's (its
  *  height; null: at rest, as laid out), its top corners rounded; the layer in it ([data-in]) moved back up by `y`. */
 function cutBox(el: HTMLElement, y: number, bottom: number | null, r: number) {
   const inner = el.querySelector<HTMLElement>(':scope > [data-in]');
-  if (bottom === null) { el.style.transform = el.style.height = el.style.borderRadius = el.style.overflow = ''; if (inner) inner.style.transform = ''; return; }
-  el.style.transform = `translate3d(0,${y.toFixed(1)}px,0)`; el.style.height = `${Math.max(0, innerHeight - y - bottom).toFixed(1)}px`;
-  el.style.borderRadius = r ? `${r}px ${r}px 0 0` : ''; el.style.overflow = 'clip';
+  if (bottom === null) {
+    el.style.transform = el.style.height = el.style.borderRadius = el.style.overflow = '';
+    if (inner) inner.style.transform = '';
+    return;
+  }
+  el.style.transform = `translate3d(0,${y.toFixed(1)}px,0)`;
+  el.style.height = `${Math.max(0, innerHeight - y - bottom).toFixed(1)}px`;
+  el.style.borderRadius = r ? `${r}px ${r}px 0 0` : '';
+  el.style.overflow = 'clip';
   if (inner) inner.style.transform = `translate3d(0,${(-y).toFixed(1)}px,0)`;
 }
 let shadeEl: HTMLDivElement | null = null;
-function edgeShade() { if (shadeEl) return shadeEl; const d = document.createElement('div'); d.setAttribute('aria-hidden', 'true');
-  Object.assign(d.style, { position: 'fixed', zIndex: '39', pointerEvents: 'none', display: 'none', willChange: 'transform, opacity',
-    background: 'linear-gradient(to top, rgba(6,4,12,0.32), rgba(6,4,12,0.14) 35%, rgba(6,4,12,0.04) 70%, rgba(6,4,12,0))',
-    WebkitMaskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)', maskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)' });
-  document.body.appendChild(d); return (shadeEl = d); }
-const np = new Drive(0, x => applyNp(x), { stiffness: 150, damping: 23 });
+function edgeShade() {
+  if (shadeEl) return shadeEl;
+  const d = document.createElement('div');
+  d.setAttribute('aria-hidden', 'true');
+  Object.assign(d.style, {
+    position: 'fixed',
+    zIndex: '39',
+    pointerEvents: 'none',
+    display: 'none',
+    willChange: 'transform, opacity',
+    background:
+      'linear-gradient(to top, rgba(6,4,12,0.32), rgba(6,4,12,0.14) 35%, rgba(6,4,12,0.04) 70%, rgba(6,4,12,0))',
+    WebkitMaskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)',
+    maskImage: 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent)',
+  });
+  document.body.appendChild(d);
+  return (shadeEl = d);
+}
+const np = new Drive(0, (x) => applyNp(x), { stiffness: 150, damping: 23 });
 export const npProgress = () => np.x;
 /** for the tests: the expand progress itself */
 export const npDrive = np;
@@ -144,73 +255,145 @@ export const npDrive = np;
    its large text, its blurs, the picture's canvas and the engine's first ambient frame. Each song, at an idle moment
    while the page is closed, the page and its picture are shown for two frames at an opacity nobody can see (and never
    under the pointer), so all of that is made before the page opens for real. */
-let warmed: unknown = null, warming = false;
-const idleCb = (fn: () => void) => (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
+let warmed: unknown = null,
+  warming = false;
+const idleCb = (fn: () => void) =>
+  typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200);
 function warmPage() {
-  const { np: el, stage } = refs, s = engine.session; if (!el || !stage || !s || warming || warmed === s) return;
+  const { np: el, stage } = refs,
+    s = engine.session;
+  if (!el || !stage || !s || warming || warmed === s) return;
   warming = true;
   idleCb(() => {
     const closed = () => ui.get().layer === 'none' && np.x === 0 && np.target === 0 && engine.view === 'hidden';
-    if (!closed()) { warming = false; return; }
-    if (!engine.warmPicture()) { warming = false; return; }                // (the song isn't ready yet: try again on a later frame)
+    if (!closed()) {
+      warming = false;
+      return;
+    }
+    if (!engine.warmPicture()) {
+      warming = false;
+      return;
+    } // (the song isn't ready yet: try again on a later frame)
     warmed = s;
-    el.style.opacity = stage.style.opacity = '0.001'; el.style.pointerEvents = stage.style.pointerEvents = 'none'; el.dataset.vis = stage.dataset.vis = 'true';
+    el.style.opacity = stage.style.opacity = '0.001';
+    el.style.pointerEvents = stage.style.pointerEvents = 'none';
+    el.dataset.vis = stage.dataset.vis = 'true';
     // (put back after two frames — or, should the window be hidden meanwhile and draw no frames, a moment later anyway:
     // a picture left shown at an unseen opacity would sit over the page and take its clicks)
-    let back = false; const settle = () => { if (back) return; back = true;
-      el.style.opacity = el.style.pointerEvents = stage.style.pointerEvents = ''; warming = false;
-      if (closed()) { applyNp(0); stage.style.opacity = ''; } else stage.style.opacity = '';      // (opening meanwhile: the page's own progress has taken over)
+    let back = false;
+    const settle = () => {
+      if (back) return;
+      back = true;
+      el.style.opacity = el.style.pointerEvents = stage.style.pointerEvents = '';
+      warming = false;
+      if (closed()) {
+        applyNp(0);
+        stage.style.opacity = '';
+      } else stage.style.opacity = ''; // (opening meanwhile: the page's own progress has taken over)
     };
-    requestAnimationFrame(() => requestAnimationFrame(settle)); setTimeout(settle, 250);
+    requestAnimationFrame(() => requestAnimationFrame(settle));
+    setTimeout(settle, 250);
   });
 }
-engine.on('frame', () => { if (np.x === 0) warmPage(); });
-addEventListener('resize', () => { if (np.x > 0 && engine.view !== 'effect') { measure(); applyNp(np.x); } });
+engine.on('frame', () => {
+  if (np.x === 0) warmPage();
+});
+addEventListener('resize', () => {
+  if (np.x > 0 && engine.view !== 'effect') {
+    measure();
+    applyNp(np.x);
+  }
+});
 
 /* ---------- np ⇄ fx: a full-screen blur ---------- */
 /** The song's own deepest tone (its cover's base colour, sunk most of the way to black): the effect view's letterbox
  *  and the blur's veil take it, so they sit with the play page instead of a fixed near-black. */
-function deepTone(): [number, number, number] { const A = engine.session?.ambient; const b = A ? A.base : [10, 8, 16]; return [0, 1, 2].map(i => Math.round(b[i] * 0.22 + 4)) as [number, number, number]; }
-const hex = (c: number[]) => '#' + c.map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+function deepTone(): [number, number, number] {
+  const A = engine.session?.ambient;
+  const b = A ? A.base : [10, 8, 16];
+  return [0, 1, 2].map((i) => Math.round(b[i] * 0.22 + 4)) as [number, number, number];
+}
+const hex = (c: number[]) => '#' + c.map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
 const veil = document.createElement('div');
 Object.assign(veil.style, { position: 'fixed', inset: '0', zIndex: '60', pointerEvents: 'none', display: 'none' });
 document.body.appendChild(veil);
 let veilK = 0;
-const setVeil = (k: number) => { veilK = k; veil.style.display = k > 0.002 ? '' : 'none'; const b = (k * 26).toFixed(1);
+const setVeil = (k: number) => {
+  veilK = k;
+  veil.style.display = k > 0.002 ? '' : 'none';
+  const b = (k * 26).toFixed(1);
   // (lite: no backdrop blur — the veil dims a little more instead)
   const lite = document.documentElement.dataset.gfx === 'lite';
-  veil.style.backdropFilter = lite ? 'none' : `blur(${b}px) saturate(${(1 + 0.15 * k).toFixed(3)})`; veil.style.background = `rgba(${deepTone().join(',')}, ${((lite ? 0.62 : 0.18) * k).toFixed(3)})`; };
-const frame = () => new Promise<number>(r => requestAnimationFrame(r));
+  veil.style.backdropFilter = lite ? 'none' : `blur(${b}px) saturate(${(1 + 0.15 * k).toFixed(3)})`;
+  veil.style.background = `rgba(${deepTone().join(',')}, ${((lite ? 0.62 : 0.18) * k).toFixed(3)})`;
+};
+const frame = () => new Promise<number>((r) => requestAnimationFrame(r));
 // (one tween drives the veil at a time: a newer one, of this request or a later one, takes it over from where it is)
 let veilTok = 0;
 async function tween(to: number, ms: number, ease: (u: number) => number, my: number) {
-  const from = veilK, t0 = performance.now(), mine = ++veilTok;
-  for (;;) { const u = Math.min(1, (performance.now() - t0) / ms); setVeil(from + (to - from) * ease(u)); if (u >= 1) return true; await frame(); if (my !== tok || mine !== veilTok) return false; }
+  const from = veilK,
+    t0 = performance.now(),
+    mine = ++veilTok;
+  for (;;) {
+    const u = Math.min(1, (performance.now() - t0) / ms);
+    setVeil(from + (to - from) * ease(u));
+    if (u >= 1) return true;
+    await frame();
+    if (my !== tok || mine !== veilTok) return false;
+  }
 }
-const easeIn = (u: number) => u * u * (3 - 2 * u) * 0.4 + u * u * 0.6, easeOut = (u: number) => 1 - (1 - u) ** 3;
+const easeIn = (u: number) => u * u * (3 - 2 * u) * 0.4 + u * u * 0.6,
+  easeOut = (u: number) => 1 - (1 - u) ** 3;
 /** Soften everything, change what is underneath, give it two frames to draw, and bring it back into focus. */
 async function blurSwap(swap: () => void, my: number) {
   if (!(await tween(1, 300, easeIn, my))) return false;
-  swap(); await frame(); await frame();
+  swap();
+  await frame();
+  await frame();
   // the title bar follows the clearing, not the swap: it shows again only once the blur starts to lift (two slow first
   // frames of the new view would otherwise let it fade in over a picture still fully blurred)
-  document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode; if (my !== tok) return false;
+  document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode;
+  if (my !== tok) return false;
   return tween(0, 460, easeOut, my);
 }
 /** The effect lyrics' frame shape (Settings: 16:9, 16:10, 9:16, 1:1), as a ratio. */
 const fxRatio = () => ASPECTS[fxAspect()] || 16 / 9;
-const toFx = () => { document.documentElement.dataset.fxmode = 'true'; if (refs.stage) refs.stage.style.clipPath = ''; engine.setAspectBox(fxRatio(), hex(deepTone())); engine.setView('effect', {}, { instant: true }); syncFx(); };
-const toNp = () => { document.documentElement.dataset.fxmode = 'false'; engine.setAspectBox({ cover: fxRatio() }); engine.setView('ambient', {}, { instant: true }); syncFx(); applyNp(np.x); };
+const toFx = () => {
+  document.documentElement.dataset.fxmode = 'true';
+  if (refs.stage) refs.stage.style.clipPath = '';
+  engine.setAspectBox(fxRatio(), hex(deepTone()));
+  engine.setView('effect', {}, { instant: true });
+  syncFx();
+};
+const toNp = () => {
+  document.documentElement.dataset.fxmode = 'false';
+  engine.setAspectBox({ cover: fxRatio() });
+  engine.setView('ambient', {}, { instant: true });
+  syncFx();
+  applyNp(np.x);
+};
 // the page and the effect controls follow the view (the page hides under the effect lyrics; their controls show)
 function syncFx() {
-  const h = engine.view === 'effect' ? 1 : 0, el = refs.np, s = String(h);
-  if (el) { el.style.setProperty('--h', s); el.dataset.flying = 'false'; el.dataset.fx = String(h > 0); }
+  const h = engine.view === 'effect' ? 1 : 0,
+    el = refs.np,
+    s = String(h);
+  if (el) {
+    el.style.setProperty('--h', s);
+    el.dataset.flying = 'false';
+    el.dataset.fx = String(h > 0);
+  }
   if (refs.fxUi) refs.fxUi.style.setProperty('--h', s);
 }
 engine.setAspectBox({ cover: 16 / 9 });
 // (the shape changed while the effect lyrics are up: the picture's box takes it at once)
-settings.subscribe((x, y) => { if (x.fxAspect !== y.fxAspect) engine.setAspectBox(engine.view === 'effect' ? fxRatio() : { cover: fxRatio() }, hex(deepTone())); });
-engine.on('frame', () => { const el = refs.np; if (el && el.dataset.fx !== String(engine.view === 'effect')) syncFx(); });
+settings.subscribe((x, y) => {
+  if (x.fxAspect !== y.fxAspect)
+    engine.setAspectBox(engine.view === 'effect' ? fxRatio() : { cover: fxRatio() }, hex(deepTone()));
+});
+engine.on('frame', () => {
+  const el = refs.np;
+  if (el && el.dataset.fx !== String(engine.view === 'effect')) syncFx();
+});
 
 /* ---------- the requests ---------- */
 let tok = 0;
@@ -219,33 +402,78 @@ async function go(target: 'none' | 'np' | 'fx') {
   // a request that interrupts a blur leaves the veil wherever it was: when this one does not go straight into a blur of
   // its own (which starts from the veil as it is), the veil clears now instead of staying over everything
   const swapsNow = engine.view === 'effect' ? target !== 'fx' : target === 'fx' && np.x >= 0.999 && np.target === 1;
-  if (!swapsNow && veilK > 0) { document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode; void tween(0, 360, easeOut, my); }
+  if (!swapsNow && veilK > 0) {
+    document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode;
+    void tween(0, 360, easeOut, my);
+  }
   if (target === 'none') {
-    if (engine.view === 'effect') { if (!(await blurSwap(toNp, my))) return; }
-    measure(); const done = await np.to(0); if (!done || my !== tok) return;
-    engine.setView('hidden'); applyNp(0);
+    if (engine.view === 'effect') {
+      if (!(await blurSwap(toNp, my))) return;
+    }
+    measure();
+    const done = await np.to(0);
+    if (!done || my !== tok) return;
+    engine.setView('hidden');
+    applyNp(0);
     return;
   }
   if (engine.view === 'hidden') engine.setView('ambient');
   if (np.x < 0.999 || np.target !== 1) {
-    if (engine.view === 'effect') { if (!(await blurSwap(toNp, my))) return; }
-    if (np.x < 0.0005) { applyNp(0.0006); await frame(); if (my !== tok) return; }
-    measure(); const done = np.to(1);
-    if (target === 'np') { await done; return; }
+    if (engine.view === 'effect') {
+      if (!(await blurSwap(toNp, my))) return;
+    }
+    if (np.x < 0.0005) {
+      applyNp(0.0006);
+      await frame();
+      if (my !== tok) return;
+    }
+    measure();
+    const done = np.to(1);
+    if (target === 'np') {
+      await done;
+      return;
+    }
     if (!(await done) || my !== tok) return;
   }
-  if (target === 'np') { if (engine.view === 'effect') await blurSwap(toNp, my); return; }
+  if (target === 'np') {
+    if (engine.view === 'effect') await blurSwap(toNp, my);
+    return;
+  }
   if (engine.view !== 'effect') await blurSwap(toFx, my);
 }
 // (which layer is up, for the stylesheet: with none, the picture never takes the pointer — the page under it does)
 document.documentElement.dataset.layer = ui.get().layer;
 // back in a window that was hidden (closed to the tray, minimised): a close the hidden window never finished drawing is
 // finished now, so nothing half-shown is left over the page
-document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible' || ui.get().layer !== 'none') return;
-  if (np.target === 0) { if (np.x > 0) np.jump?.(0); if (engine.view !== 'effect') { engine.setView('hidden'); applyNp(0); } if (refs.stage) refs.stage.style.opacity = ''; } });
-ui.subscribe((s, prev) => { if (s.layer !== prev.layer) { document.documentElement.dataset.layer = s.layer; go(s.layer); } if (s.win.full !== prev.win.full) { document.documentElement.dataset.winfull = String(s.win.full); if (np.x > 0 && engine.view !== 'effect') { measure(); applyNp(np.x); } } });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || ui.get().layer !== 'none') return;
+  if (np.target === 0) {
+    if (np.x > 0) np.jump?.(0);
+    if (engine.view !== 'effect') {
+      engine.setView('hidden');
+      applyNp(0);
+    }
+    if (refs.stage) refs.stage.style.opacity = '';
+  }
+});
+ui.subscribe((s, prev) => {
+  if (s.layer !== prev.layer) {
+    document.documentElement.dataset.layer = s.layer;
+    go(s.layer);
+  }
+  if (s.win.full !== prev.win.full) {
+    document.documentElement.dataset.winfull = String(s.win.full);
+    if (np.x > 0 && engine.view !== 'effect') {
+      measure();
+      applyNp(np.x);
+    }
+  }
+});
 document.documentElement.dataset.winfull = String(ui.get().win.full);
 export const openNp = () => ui.set({ layer: 'np', queue: false });
 export const openFx = () => ui.set({ layer: 'fx', queue: false });
 /** One step back: effect lyrics → now playing → the page. */
-export const back = () => { const l = ui.get().layer; ui.set({ layer: l === 'fx' ? 'np' : 'none' }); };
+export const back = () => {
+  const l = ui.get().layer;
+  ui.set({ layer: l === 'fx' ? 'np' : 'none' });
+};

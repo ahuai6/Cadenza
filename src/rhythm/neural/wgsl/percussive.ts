@@ -80,68 +80,79 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 /** Per frame (50 fps, the spectrogram's): percussive and total energy. */
 export interface PercussiveEnergyFrames {
-    percussive: Float32Array;
-    total: Float32Array;
+  percussive: Float32Array;
+  total: Float32Array;
 }
 
 const pipelines = new WeakMap<GPUDevice, GPUComputePipeline>();
 
 /** The percussive and total energy of every frame of `mel` ([frames, 128], row-major). */
-export const runPercussiveEnergy = async (device: GPUDevice, mel: Float32Array, frames: number): Promise<PercussiveEnergyFrames> => {
-    if (frames < 1 || mel.length < frames * MEL_BINS) throw new Error(`percussive: ${mel.length} floats for ${frames} frames`);
-    let pipeline = pipelines.get(device);
-    if (!pipeline) {
-        pipeline = await device.createComputePipelineAsync({
-            layout: 'auto',
-            compute: { module: device.createShaderModule({ code: PERCUSSIVE_WGSL }), entryPoint: 'main' },
-        });
-        pipelines.set(device, pipeline);
+export const runPercussiveEnergy = async (
+  device: GPUDevice,
+  mel: Float32Array,
+  frames: number,
+): Promise<PercussiveEnergyFrames> => {
+  if (frames < 1 || mel.length < frames * MEL_BINS)
+    throw new Error(`percussive: ${mel.length} floats for ${frames} frames`);
+  let pipeline = pipelines.get(device);
+  if (!pipeline) {
+    pipeline = await device.createComputePipelineAsync({
+      layout: 'auto',
+      compute: { module: device.createShaderModule({ code: PERCUSSIVE_WGSL }), entryPoint: 'main' },
+    });
+    pipelines.set(device, pipeline);
+  }
+  const input = device.createBuffer({
+    size: frames * MEL_BINS * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  const output = device.createBuffer({ size: frames * 2 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  const slices = Math.ceil(frames / SLICE_FRAMES);
+  // One uniform slot per slice (256-byte aligned, the dynamic-offset-free way: a bind group each).
+  const params = device.createBuffer({ size: slices * 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const readback = device.createBuffer({
+    size: frames * 2 * 4,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+  try {
+    device.queue.writeBuffer(input, 0, mel.buffer, mel.byteOffset, frames * MEL_BINS * 4);
+    for (let slice = 0; slice < slices; slice += 1) {
+      const first = slice * SLICE_FRAMES;
+      const count = Math.min(SLICE_FRAMES, frames - first);
+      device.queue.writeBuffer(params, slice * 256, new Uint32Array([frames, first, count, 0]));
+      const group = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: input } },
+          { binding: 1, resource: { buffer: output } },
+          { binding: 2, resource: { buffer: params, offset: slice * 256, size: 16 } },
+        ],
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(Math.ceil(count / WORKGROUP));
+      pass.end();
+      if (slice === slices - 1) encoder.copyBufferToBuffer(output, 0, readback, 0, frames * 2 * 4);
+      device.queue.submit([encoder.finish()]);
+      // One slice on the GPU at a time.
+      await device.queue.onSubmittedWorkDone();
     }
-    const input = device.createBuffer({ size: frames * MEL_BINS * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    const output = device.createBuffer({ size: frames * 2 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-    const slices = Math.ceil(frames / SLICE_FRAMES);
-    // One uniform slot per slice (256-byte aligned, the dynamic-offset-free way: a bind group each).
-    const params = device.createBuffer({ size: slices * 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    const readback = device.createBuffer({ size: frames * 2 * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-    try {
-        device.queue.writeBuffer(input, 0, mel.buffer, mel.byteOffset, frames * MEL_BINS * 4);
-        for (let slice = 0; slice < slices; slice += 1) {
-            const first = slice * SLICE_FRAMES;
-            const count = Math.min(SLICE_FRAMES, frames - first);
-            device.queue.writeBuffer(params, slice * 256, new Uint32Array([frames, first, count, 0]));
-            const group = device.createBindGroup({
-                layout: pipeline.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: { buffer: input } },
-                    { binding: 1, resource: { buffer: output } },
-                    { binding: 2, resource: { buffer: params, offset: slice * 256, size: 16 } },
-                ],
-            });
-            const encoder = device.createCommandEncoder();
-            const pass = encoder.beginComputePass();
-            pass.setPipeline(pipeline);
-            pass.setBindGroup(0, group);
-            pass.dispatchWorkgroups(Math.ceil(count / WORKGROUP));
-            pass.end();
-            if (slice === slices - 1) encoder.copyBufferToBuffer(output, 0, readback, 0, frames * 2 * 4);
-            device.queue.submit([encoder.finish()]);
-            // One slice on the GPU at a time.
-            await device.queue.onSubmittedWorkDone();
-        }
-        await readback.mapAsync(GPUMapMode.READ);
-        const interleaved = new Float32Array(readback.getMappedRange().slice(0));
-        readback.unmap();
-        const percussive = new Float32Array(frames);
-        const total = new Float32Array(frames);
-        for (let frame = 0; frame < frames; frame += 1) {
-            percussive[frame] = interleaved[2 * frame];
-            total[frame] = interleaved[2 * frame + 1];
-        }
-        return { percussive, total };
-    } finally {
-        input.destroy();
-        output.destroy();
-        params.destroy();
-        readback.destroy();
+    await readback.mapAsync(GPUMapMode.READ);
+    const interleaved = new Float32Array(readback.getMappedRange().slice(0));
+    readback.unmap();
+    const percussive = new Float32Array(frames);
+    const total = new Float32Array(frames);
+    for (let frame = 0; frame < frames; frame += 1) {
+      percussive[frame] = interleaved[2 * frame];
+      total[frame] = interleaved[2 * frame + 1];
     }
+    return { percussive, total };
+  } finally {
+    input.destroy();
+    output.destroy();
+    params.destroy();
+    readback.destroy();
+  }
 };

@@ -10,11 +10,14 @@ const PHI = 0.6180339887;
 /** Where thing i of n starts its loop (0..1): evenly staggered, so the things are spread along the loop at any time. */
 export const stagger = (i: number, n: number) => (i * PHI + 0.5 / n) % 1;
 /** Thing i of n in its life `life`: across the frame (0..1) inside its own band, jittered per life. */
-export const band = (i: number, n: number, life: number, lo = 0, hi = 1) => lo + (hi - lo) * ((i + 0.15 + 0.7 * rnd(i * 7.31 + life * 3.17 + 0.5)) / n);
+export const band = (i: number, n: number, life: number, lo = 0, hi = 1) =>
+  lo + (hi - lo) * ((i + 0.15 + 0.7 * rnd(i * 7.31 + life * 3.17 + 0.5)) / n);
 /** How visible a thing is at phase u (0..1) of its life: fading in over the first `fin`, out over the last `fout`. */
-export const lifeFade = (u: number, fin = 0.12, fout = 0.12) => sstep(clamp(u / fin)) * (1 - sstep(clamp((u - (1 - fout)) / fout)));
+export const lifeFade = (u: number, fin = 0.12, fout = 0.12) =>
+  sstep(clamp(u / fin)) * (1 - sstep(clamp((u - (1 - fout)) / fout)));
 /** A loop of length `span` (in loop units) at clock time t: which life, and how far through it (0..1). */
 export function loop(t: number, speed: number, start: number, span = 1) {
-  const u = start * span + t * speed, life = Math.floor(u / span);
+  const u = start * span + t * speed,
+    life = Math.floor(u / span);
   return { life, u: u / span - life };
 }

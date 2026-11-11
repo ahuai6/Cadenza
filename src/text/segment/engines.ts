@@ -20,41 +20,44 @@ const MAX_HMM_WORD_LENGTH = 2;
  * simplified form is a single BMP character (the plugin guarantees it), so lengths always match.
  */
 const createSimplifier = (pairs: string) => {
-    const map = new Map<string, string>();
-    for (let index = 0; index + 1 < pairs.length; index += 2) map.set(pairs[index], pairs[index + 1]);
-    return (text: string) => Array.from(text, char => map.get(char) ?? char).join('');
+  const map = new Map<string, string>();
+  for (let index = 0; index + 1 < pairs.length; index += 2) map.set(pairs[index], pairs[index + 1]);
+  return (text: string) => Array.from(text, (char) => map.get(char) ?? char).join('');
 };
 
 export const loadIcuFoliaEngines = async (): Promise<IcuFoliaEngines> => {
-    const [dict, hmm, { createJapaneseParser }] = await Promise.all([
-        import('virtual:icu-folia-dict'),
-        import('virtual:icu-folia-hmm'),
-        import('./budouxJapanese'),
-    ]);
+  const [dict, hmm, { createJapaneseParser }] = await Promise.all([
+    import('virtual:icu-folia-dict'),
+    import('virtual:icu-folia-hmm'),
+    import('./budouxJapanese'),
+  ]);
 
-    const jieba = createJieba({
-        words: dict.DICT_WORDS,
-        freqs: dict.DICT_FREQS,
-        total: dict.DICT_TOTAL,
-        hmm: { start: hmm.HMM_START, trans: hmm.HMM_TRANS, emit: hmm.HMM_EMIT },
-    }, { maxHmmWordLength: MAX_HMM_WORD_LENGTH });
-    CHINESE_EXTRA_WORDS.forEach(word => jieba.addWord(word));
-    CHINESE_DEMOTED_WORDS.forEach(word => jieba.addWord(word, 1));
+  const jieba = createJieba(
+    {
+      words: dict.DICT_WORDS,
+      freqs: dict.DICT_FREQS,
+      total: dict.DICT_TOTAL,
+      hmm: { start: hmm.HMM_START, trans: hmm.HMM_TRANS, emit: hmm.HMM_EMIT },
+    },
+    { maxHmmWordLength: MAX_HMM_WORD_LENGTH },
+  );
+  CHINESE_EXTRA_WORDS.forEach((word) => jieba.addWord(word));
+  CHINESE_DEMOTED_WORDS.forEach((word) => jieba.addWord(word, 1));
 
-    const simplify = createSimplifier(hmm.T2S_PAIRS);
-    const japanese = createJapaneseParser();
+  const simplify = createSimplifier(hmm.T2S_PAIRS);
+  const japanese = createJapaneseParser();
 
-    return {
-        cutChinese(text) {
-            // Offsets line up (see the simplifier), so each simplified word's length is also its
-            // length in the original text.
-            let cursor = 0;
-            return jieba.cut(simplify(text)).map(word => {
-                const original = text.slice(cursor, cursor + word.length);
-                cursor += word.length;
-                return original;
-            });
-        },
-        parseJapanese: text => japanese.parse(text),
-    };
+  return {
+    cutChinese(text) {
+      // Offsets line up (see the simplifier), so each simplified word's length is also its
+      // length in the original text.
+      let cursor = 0;
+      return jieba.cut(simplify(text)).map((word) => {
+        const original = text.slice(cursor, cursor + word.length);
+        cursor += word.length;
+        return original;
+      });
+    },
+    parseJapanese: (text) => japanese.parse(text),
+  };
 };

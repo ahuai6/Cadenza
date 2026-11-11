@@ -19,35 +19,99 @@ import './space.css';
 import s from './SpaceShell.module.css';
 
 // every face the scene's textures and the HUD draw with, loaded before the first texture is drawn
-const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設定播放中清晨的光'], ['notosans', '聖堂中殿全部歌曲'], ['sansmed', '聖堂中殿全部歌曲清晨的光落在窗邊 Morning light'], ['tiempos', 'The Nave Crossing']];
+const FACES: [string, string][] = [
+  ['serif', '聖堂中殿全部歌曲歌單設定播放中清晨的光'],
+  ['notosans', '聖堂中殿全部歌曲'],
+  ['sansmed', '聖堂中殿全部歌曲清晨的光落在窗邊 Morning light'],
+  ['tiempos', 'The Nave Crossing'],
+];
 
 export function SpaceShell() {
-  const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }), [gen, setGen] = useState(0), [panel, setPanel] = useState<Panel>(null), [extra, setExtra] = useState<HTMLElement | null>(null), [detail, setDetail] = useState<Detail>(null), [winHost, setWinHost] = useState<HTMLElement | null>(null);
+  const root = useRef<HTMLDivElement>(null),
+    [ready, setReady] = useState(false),
+    [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }),
+    [gen, setGen] = useState(0),
+    [panel, setPanel] = useState<Panel>(null),
+    [extra, setExtra] = useState<HTMLElement | null>(null),
+    [detail, setDetail] = useState<Detail>(null),
+    [winHost, setWinHost] = useState<HTMLElement | null>(null);
   const world = useRef<{ dispose(): void; takePointer(): void; closed(): void; pause(on: boolean): void } | null>(null);
-  const lang = useStore(langStore, x => x.lang), lite = useStore(settings, x => x.gfx === 'lite'), mini = useStore(ui, x => !!x.win.mini), away = useStore(ui, x => !!x.win.min);
+  const lang = useStore(langStore, (x) => x.lang),
+    lite = useStore(settings, (x) => x.gfx === 'lite'),
+    mini = useStore(ui, (x) => !!x.win.mini),
+    away = useStore(ui, (x) => !!x.win.min);
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(() => {
     if (!ready || !root.current) return;
     let gone = false;
     Promise.all(FACES.map(([k, t]) => ensureFont(k, t).catch(() => {}))).then(() => {
       if (gone) return;
-      setExtra(document.getElementById('p-extra')); setWinHost(document.getElementById('win-btns'));
-      world.current = createWorld(createBind(), { openSettings: (section) => { setPanel(null); setDetail(null); setCfg({ open: true, section }); },
-        show: (d) => { setDetail(d); if (d) { setPanel(null); setCfg(c => c.open ? { open: false } : c); } }, closeSettings: () => setCfg(c => c.open ? { open: false } : c),
+      setExtra(document.getElementById('p-extra'));
+      setWinHost(document.getElementById('win-btns'));
+      world.current = createWorld(createBind(), {
+        openSettings: (section) => {
+          setPanel(null);
+          setDetail(null);
+          setCfg({ open: true, section });
+        },
+        show: (d) => {
+          setDetail(d);
+          if (d) {
+            setPanel(null);
+            setCfg((c) => (c.open ? { open: false } : c));
+          }
+        },
+        closeSettings: () => setCfg((c) => (c.open ? { open: false } : c)),
         // a lost graphics context: a fresh canvas and scene a moment later (the HUD remounts with it)
-        lost: () => setTimeout(() => setGen(g => g + 1), 600) });
+        lost: () => setTimeout(() => setGen((g) => g + 1), 600),
+      });
     });
-    return () => { gone = true; world.current?.dispose(); world.current = null; };
+    return () => {
+      gone = true;
+      world.current?.dispose();
+      world.current = null;
+    };
   }, [ready, lang, gen]);
-  useEffect(() => { document.getElementById('mini')?.setAttribute('aria-pressed', String(mini)); world.current?.pause(mini || away); }, [mini, away, gen, lang, ready]);
-  const close = () => { setCfg({ open: false }); world.current?.takePointer(); };
+  useEffect(() => {
+    document.getElementById('mini')?.setAttribute('aria-pressed', String(mini));
+    world.current?.pause(mini || away);
+  }, [mini, away, gen, lang, ready]);
+  const close = () => {
+    setCfg({ open: false });
+    world.current?.takePointer();
+  };
   return (
-    <div className={`space-root ${s.space}${cfg.open ? ' space-cfg' : ''}${lite ? ' space-lite' : ''}${mini ? ' space-mini' : ''}`} data-test="space">
+    <div
+      className={`space-root ${s.space}${cfg.open ? ' space-cfg' : ''}${lite ? ' space-lite' : ''}${mini ? ' space-mini' : ''}`}
+      data-test="space"
+    >
       {/* a language change rebuilds the HUD and the scene's labels */}
-      {ready && <div key={lang + ':' + gen} ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hudHtml() }} />}
+      {ready && (
+        <div key={lang + ':' + gen} ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hudHtml() }} />
+      )}
       {ready && cfg.open && <SpaceSettings section={cfg.section} onClose={close} />}
-      {ready && <PlayerExtras host={extra} panel={panel} setPanel={p => { if (p) { setCfg({ open: false }); setDetail(null); } setPanel(p); }} />}
-      {ready && detail && <SpaceDetail detail={detail} onClose={() => { setDetail(null); world.current?.closed(); }} />}
+      {ready && (
+        <PlayerExtras
+          host={extra}
+          panel={panel}
+          setPanel={(p) => {
+            if (p) {
+              setCfg({ open: false });
+              setDetail(null);
+            }
+            setPanel(p);
+          }}
+        />
+      )}
+      {ready && detail && (
+        <SpaceDetail
+          detail={detail}
+          onClose={() => {
+            setDetail(null);
+            world.current?.closed();
+          }}
+        />
+      )}
       {ready && <Toast />}
       {ready && <WinButtons host={winHost} />}
       {ready && mini && <MiniLyrics />}

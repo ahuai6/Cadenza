@@ -1,22 +1,138 @@
-.panel { right: max(16px, env(safe-area-inset-right, 0px)); top: calc(84px + env(safe-area-inset-top, 0px)); bottom: calc(112px + env(safe-area-inset-bottom, 0px));
-  width: min(420px, calc(100% - 32px)); display: flex; flex-direction: column; border-radius: var(--r-3); padding: 0; overflow: clip; z-index: 5; }   /* (clip: a focused control or a jump to a section can never scroll the card itself, header and all, out of sight) */
-.head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px 8px; }
-.head h2 { margin: 0; font-size: 20px; letter-spacing: .08em; }
-.close { width: 36px; height: 36px; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, .16); color: #fff; cursor: pointer; font: inherit; }
-.scroll { overflow: auto; padding: 0 18px 18px; display: flex; flex-direction: column; gap: 18px; overscroll-behavior: contain; }
-.group h3 { margin: 6px 0 8px; font-size: 13px; letter-spacing: .2em; opacity: .9; }
-.body { display: flex; flex-direction: column; gap: 10px; }
-.field { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
-.field > div:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 140px; }
-.field small { font-size: 12px; opacity: .85; font-weight: 500; }
-.keys { margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.row { display: flex; gap: 8px; flex-wrap: wrap; }
-.color { width: 44px; height: 32px; padding: 0; border: 0; border-radius: var(--r-2); background: none; cursor: pointer; }
-.folders { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.folders li { display: flex; gap: 8px; align-items: center; } .folders span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folders button { border: 0; background: none; color: inherit; cursor: pointer; }
+.panel {
+  right: max(16px, env(safe-area-inset-right, 0px));
+  top: calc(84px + env(safe-area-inset-top, 0px));
+  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  width: min(420px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-3);
+  padding: 0;
+  overflow: clip;
+  z-index: 5;
+} /* (clip: a focused control or a jump to a section can never scroll the card itself, header and all, out of sight) */
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px 8px;
+}
+.head h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+}
+.close {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+.scroll {
+  overflow: auto;
+  padding: 0 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overscroll-behavior: contain;
+}
+.group h3 {
+  margin: 6px 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  opacity: 0.9;
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.field > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 140px;
+}
+.field small {
+  font-size: 12px;
+  opacity: 0.85;
+  font-weight: 500;
+}
+.keys {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.color {
+  width: 44px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  cursor: pointer;
+}
+.folders {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.folders li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.folders span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folders button {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
 /* the kit's segmented choices on the glass: a clear track, the chosen one a solid clay chip (no grey on grey) */
-.panel :global([role="radiogroup"]), .panel :global([role="tablist"]) { background: rgba(255, 255, 255, .14) !important; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35); }
-.panel :global([role="radiogroup"]) > i, .panel :global([role="tablist"]) > i { background: #C4603F !important; box-shadow: 0 1px 4px rgba(38, 28, 18, .35) !important; }
-.panel :global([role="radiogroup"]) button:not([aria-checked="true"]) span { opacity: .78; }
-.panel :global([role="radiogroup"]) button[aria-checked="true"] span { opacity: 1; text-shadow: none !important; }
+.panel :global([role='radiogroup']),
+.panel :global([role='tablist']) {
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.panel :global([role='radiogroup']) > i,
+.panel :global([role='tablist']) > i {
+  background: #c4603f !important;
+  box-shadow: 0 1px 4px rgba(38, 28, 18, 0.35) !important;
+}
+.panel :global([role='radiogroup']) button:not([aria-checked='true']) span {
+  opacity: 0.78;
+}
+.panel :global([role='radiogroup']) button[aria-checked='true'] span {
+  opacity: 1;
+  text-shadow: none !important;
+}

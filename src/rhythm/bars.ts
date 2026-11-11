@@ -9,18 +9,31 @@ export interface BarIndexer {
 }
 export function barIndexer(meter: number, downbeat: number, bars?: number[] | null): BarIndexer {
   const m = Math.max(1, meter);
-  const uniform = (i: number, from: number, bar0: number) => { const r = i - from, b = Math.floor(r / m); return { bar: bar0 + b, inBar: r - b * m, len: m }; };
+  const uniform = (i: number, from: number, bar0: number) => {
+    const r = i - from,
+      b = Math.floor(r / m);
+    return { bar: bar0 + b, inBar: r - b * m, len: m };
+  };
   if (!bars || bars.length < 2) {
     const d = bars && bars.length ? bars[0] : downbeat;
-    const f = ((i: number) => uniform(i, d, 0)) as BarIndexer; f.start = b => d + b * m; return f;
+    const f = ((i: number) => uniform(i, d, 0)) as BarIndexer;
+    f.start = (b) => d + b * m;
+    return f;
   }
-  const B = bars, n = B.length;
+  const B = bars,
+    n = B.length;
   const f = ((i: number) => {
     if (i < B[0]) return uniform(i, B[0], 0);
     if (i >= B[n - 1]) return uniform(i, B[n - 1], n - 1);
-    let lo = 0, hi = n - 1; while (lo < hi) { const k = (lo + hi + 1) >> 1; if (B[k] <= i) lo = k; else hi = k - 1; }
+    let lo = 0,
+      hi = n - 1;
+    while (lo < hi) {
+      const k = (lo + hi + 1) >> 1;
+      if (B[k] <= i) lo = k;
+      else hi = k - 1;
+    }
     return { bar: lo, inBar: i - B[lo], len: B[lo + 1] - B[lo] };
   }) as BarIndexer;
-  f.start = b => (b < 0 ? B[0] + b * m : b >= n ? B[n - 1] + (b - n + 1) * m : B[b]);
+  f.start = (b) => (b < 0 ? B[0] + b * m : b >= n ? B[n - 1] + (b - n + 1) * m : B[b]);
   return f;
 }

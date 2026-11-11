@@ -160,11 +160,15 @@ ${weights}
 @group(0) @binding(3) var<storage, read_write> y: array<f32>;
 @group(0) @binding(4) var<storage, read> table: array<f32>; // [pos][16][cos, sin]
 @group(0) @binding(5) var<uniform> p: P;
-${f16 ? `var<workgroup> as_: array<vec4h, 256>; // [16 k][16 row quads]
+${
+  f16
+    ? `var<workgroup> as_: array<vec4h, 256>; // [16 k][16 row quads]
 var<workgroup> bs_: array<vec4h, 256>; // [16 k][16 col quads]
 var<workgroup> sums_: array<vec4f, 256>; // per-loader row sums of squares
-const A_SCALE = 64.0;` : `var<workgroup> as_: array<vec4f, 256>; // [16 k][16 row quads]; afterwards the per-loader row sums of squares
-var<workgroup> bs_: array<vec4f, 256>; // [16 k][16 col quads]`}
+const A_SCALE = 64.0;`
+    : `var<workgroup> as_: array<vec4f, 256>; // [16 k][16 row quads]; afterwards the per-loader row sums of squares
+var<workgroup> bs_: array<vec4f, 256>; // [16 k][16 col quads]`
+}
 @compute @workgroup_size(16, 16)
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) l: vec3u, @builtin(local_invocation_index) li: u32) {
   let row0 = wg.y * 64u;
@@ -193,28 +197,36 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) l: vec3u
     if (bk < p.k && bc < p.n) { bv = weightQuad((bk * p.wStride + bc) / 4u); }
     bs_[bK * 16u + bQuad] = bv;
     workgroupBarrier();
-${f16 ? `${mode === 'math' ? '    var part: array<vec4h, 4>;\n' : ''}    for (var kk = 0u; kk < 16u; kk++) {
+${
+  f16
+    ? `${mode === 'math' ? '    var part: array<vec4h, 4>;\n' : ''}    for (var kk = 0u; kk < 16u; kk++) {
       let a = as_[kk * 16u + l.y];
       let b = bs_[kk * 16u + l.x];
-${mode === 'math' ? `      part[0] = fma(a, vec4h(b.x), part[0]);
+${
+  mode === 'math'
+    ? `      part[0] = fma(a, vec4h(b.x), part[0]);
       part[1] = fma(a, vec4h(b.y), part[1]);
       part[2] = fma(a, vec4h(b.z), part[2]);
       part[3] = fma(a, vec4h(b.w), part[3]);
     }
-    for (var j = 0u; j < 4u; j++) { acc[j] += vec4f(part[j]); }` : `      let af = vec4f(a);
+    for (var j = 0u; j < 4u; j++) { acc[j] += vec4f(part[j]); }`
+    : `      let af = vec4f(a);
       let bf = vec4f(b);
       acc[0] = fma(af, vec4f(bf.x), acc[0]);
       acc[1] = fma(af, vec4f(bf.y), acc[1]);
       acc[2] = fma(af, vec4f(bf.z), acc[2]);
       acc[3] = fma(af, vec4f(bf.w), acc[3]);
-    }`}` : `    for (var kk = 0u; kk < 16u; kk++) {
+    }`
+}`
+    : `    for (var kk = 0u; kk < 16u; kk++) {
       let a = as_[kk * 16u + l.y];
       let b = bs_[kk * 16u + l.x];
       acc[0] = fma(a, vec4f(b.x), acc[0]);
       acc[1] = fma(a, vec4f(b.y), acc[1]);
       acc[2] = fma(a, vec4f(b.z), acc[2]);
       acc[3] = fma(a, vec4f(b.w), acc[3]);
-    }`}
+    }`
+}
     workgroupBarrier();
   }
   // The 16 loaders of row quad q are invocations 16q..16q+15; their partial sums meet in ${f16 ? 'sums_' : 'as_'}.
@@ -348,18 +360,22 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) l: vec3u
     sum *= r;
     for (var d = 0u; d < 8u; d++) { acc[d] *= r; }
     m = mNew;
-${f16?.pv ? `    var part: array<vec4h, 8>;
+${
+  f16?.pv
+    ? `    var part: array<vec4h, 8>;
     for (var j = 0u; j < TILE; j++) {
       let e = exp(s[j] - m);
       sum += e;
       let eh = vec4h(f16(e));
       for (var d = 0u; d < 8u; d++) { part[d] = fma(eh, vs[j * 8u + d], part[d]); }
     }
-    for (var d = 0u; d < 8u; d++) { acc[d] += vec4f(part[d]); }` : `    for (var j = 0u; j < TILE; j++) {
+    for (var d = 0u; d < 8u; d++) { acc[d] += vec4f(part[d]); }`
+    : `    for (var j = 0u; j < TILE; j++) {
       let e = exp(s[j] - m);
       sum += e;
       for (var d = 0u; d < 8u; d++) { acc[d] = fma(vec4f(e), ${f16 ? 'vec4f(vs[j * 8u + d])' : 'vs[j * 8u + d]'}, acc[d]); }
-    }`}
+    }`
+}
     workgroupBarrier();
   }
   if (!valid) { return; }

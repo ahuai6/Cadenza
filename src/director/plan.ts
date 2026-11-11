@@ -19,47 +19,102 @@ import { project, NO_FX } from './project';
 import type { PLine, CameraPlan } from './types';
 
 /** The frame shapes a picture can have (the scene is planned for the shape: it changes size, it is never cropped). */
-export const ASPECTS: Record<string, number> = { '16:9': 16 / 9, '16:10': 16 / 10, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
+export const ASPECTS: Record<string, number> = {
+  '16:9': 16 / 9,
+  '16:10': 16 / 10,
+  '9:16': 9 / 16,
+  '1:1': 1,
+  '4:5': 4 / 5,
+};
 export interface PlanInput {
-  doc: LyricDoc; map: RhythmMap; style: Style; measure: Measurer;
+  doc: LyricDoc;
+  map: RhythmMap;
+  style: Style;
+  measure: Measurer;
   /** the frame's aspect ratio (width / height) */
   aspect: number;
   /** where the music ends (song time); the ending follows for endLen seconds */
-  musicEnd: number; endLen: number;
-  song: SongInfo; labels: { composer: string; lyricist: string; artist: string };
+  musicEnd: number;
+  endLen: number;
+  song: SongInfo;
+  labels: { composer: string; lyricist: string; artist: string };
 }
 
 export function plan(inp: PlanInput): ScenePlan {
-  const H = REF_H, W = Math.round(REF_H * inp.aspect), { doc, map, style } = inp;
+  const H = REF_H,
+    W = Math.round(REF_H * inp.aspect),
+    { doc, map, style } = inp;
   let lay = layout({ doc, map, style, measure: inp.measure, W, H, musicEnd: inp.musicEnd });
   const first = doc.lines.length ? doc.lines[0].t : null;
   const titles = planTitles(inp.song, first, map, inp.musicEnd, inp.labels);
   const introHold = titles.intro && titles.intro.kind === 'card' ? titles.intro.t1 : 0;
-  const cam = () => planCamera({ lines: lay.lines, words: lay.words, passages: lay.passages, map, style, W, H, musicEnd: inp.musicEnd, dur: inp.musicEnd + inp.endLen, introHold });
+  const cam = () =>
+    planCamera({
+      lines: lay.lines,
+      words: lay.words,
+      passages: lay.passages,
+      map,
+      style,
+      W,
+      H,
+      musicEnd: inp.musicEnd,
+      dur: inp.musicEnd + inp.endLen,
+      introHold,
+    });
   let { camera, extraPassages } = cam();
   // the camera's own transitions (a move too long to make) are transitions like any: the lines turn their way there
   // too — so the lines are laid out once more knowing them, and the camera planned again on that (its transitions now
   // part of the layout's — a few rounds, while the new layout still brings new ones; any it adds after stay as they are)
   for (let round = 0, more: typeof extraPassages = []; round < 3 && extraPassages.length; round++) {
-    more = [...more, ...extraPassages.filter(q => !more.some(x => x.line === q.line))];
-    lay = layout({ doc, map, style, measure: inp.measure, W, H, musicEnd: inp.musicEnd, more }); ({ camera, extraPassages } = cam()); }
+    more = [...more, ...extraPassages.filter((q) => !more.some((x) => x.line === q.line))];
+    lay = layout({ doc, map, style, measure: inp.measure, W, H, musicEnd: inp.musicEnd, more });
+    ({ camera, extraPassages } = cam());
+  }
   const passages = [...lay.passages, ...extraPassages].sort((a, b) => a.t - b.t);
-  assignSections(lay.lines, passages); dropShortFrames(lay.lines);
+  assignSections(lay.lines, passages);
+  dropShortFrames(lay.lines);
   // (lines the layout gave a leaving time of their own: the centred stage's groups)
-  for (const q of lay.leaves || []) { const P = lay.lines[q.line]; if (P && q.t < P.secEnd) { P.secEnd = q.t; P.secIn = q.inn; } }
+  for (const q of lay.leaves || []) {
+    const P = lay.lines[q.line];
+    if (P && q.t < P.secEnd) {
+      P.secEnd = q.t;
+      P.secIn = q.inn;
+    }
+  }
   // a line fades out before its passage's transition; a word is over by then too
-  for (const P of lay.lines) if (isFinite(P.secEnd)) { P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd - 0.4) }; }
+  for (const P of lay.lines)
+    if (isFinite(P.secEnd)) {
+      P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd - 0.4) };
+    }
   // every lyric frame wholly in the picture while it is up, the word being sung with it (fit.ts) — before the clears,
   // which judge what the camera sees on the path as it finally is
-  fitFrames(camera, lay.words, W, H); cutJumps(camera);
+  fitFrames(camera, lay.words, W, H);
+  cutJumps(camera);
   applySweeps(lay.lines, lay.sweeps, camera, W, H);
   if (lyricType(style.ltype).orbit) sweepUnseen(lay.lines, camera, W, H);
   fadeOverlapped(lay.lines);
   applyCurtains(lay.lines, inp.doc.curtains || []);
   const cues = planCues(map, style, lay.lines, inp.musicEnd, camera.idle, inp.doc.marks || []);
   const drawOrder = [...lay.words].sort((a, b) => a.order - b.order);
-  const out: ScenePlan = { doc, map, style, W, H, dur: inp.musicEnd + inp.endLen, endLen: inp.endLen, musicEnd: inp.musicEnd,
-    lines: lay.lines, words: lay.words, drawOrder, passages, camera, cues, titles, dmin: lay.dmin, hasSubs: doc.lines.some(L => !!L.reads?.length || L.subs.length > 0) };
+  const out: ScenePlan = {
+    doc,
+    map,
+    style,
+    W,
+    H,
+    dur: inp.musicEnd + inp.endLen,
+    endLen: inp.endLen,
+    musicEnd: inp.musicEnd,
+    lines: lay.lines,
+    words: lay.words,
+    drawOrder,
+    passages,
+    camera,
+    cues,
+    titles,
+    dmin: lay.dmin,
+    hasSubs: doc.lines.some((L) => !!L.reads?.length || L.subs.length > 0),
+  };
   planEntries(out);
   pickEmphasis(lay.lines);
   return out;
@@ -69,89 +124,152 @@ export function plan(inp: PlanInput): ScenePlan {
  *  lays the words out from (text/metrics.ts, tableMeasurer). */
 export function measuresFor(doc: LyricDoc, style: Style, measure: Measurer): Record<string, WordBox> {
   const out: Record<string, WordBox> = {};
-  const add = (units: string[], o: { vertical: boolean; rtl: boolean }) => { const k = measureKey(units, o); if (!(k in out)) out[k] = measure.word(units, o); };
-  for (const L of doc.lines) for (const Wd of L.words) {
-    const us = layoutUnits(Wd, style).map(u => u.c);
-    add(us, { vertical: false, rtl: L.rtl }); add(us, { vertical: true, rtl: L.rtl });
-    if (Wd.harm) add(Wd.harm.units.map(u => u.c), { vertical: false, rtl: L.rtl });
-  }
+  const add = (units: string[], o: { vertical: boolean; rtl: boolean }) => {
+    const k = measureKey(units, o);
+    if (!(k in out)) out[k] = measure.word(units, o);
+  };
+  for (const L of doc.lines)
+    for (const Wd of L.words) {
+      const us = layoutUnits(Wd, style).map((u) => u.c);
+      add(us, { vertical: false, rtl: L.rtl });
+      add(us, { vertical: true, rtl: L.rtl });
+      if (Wd.harm)
+        add(
+          Wd.harm.units.map((u) => u.c),
+          { vertical: false, rtl: L.rtl },
+        );
+    }
   return out;
 }
 /** A plan's effect cues made anew for its style as it is now (the rest of the plan as it was): what a trigger's
  *  sensitivity, or an effect struck on accents, changes. */
-export function planCuesFor(P: ScenePlan): ScenePlan['cues'] { return planCues(P.map, P.style, P.lines, P.musicEnd, P.camera.idle, P.doc.marks || []); }
+export function planCuesFor(P: ScenePlan): ScenePlan['cues'] {
+  return planCues(P.map, P.style, P.lines, P.musicEnd, P.camera.idle, P.doc.marks || []);
+}
 /** Round a centre (the 圓心 type) the lines stay close together and the camera keeps coming back past them: a line
  *  once sung is taken away the moment the camera no longer sees it, so the picture never fills up with old lines as it
  *  swings round (on top of the page's cap, which still holds). */
 function sweepUnseen(lines: PLine[], cam: CameraPlan, W: number, H: number) {
   for (const P of lines) {
     if (!P.words.length) continue;
-    const from = Math.max(P.words[P.words.length - 1].end, Math.min(P.L.sung, P.L.end)) + 0.3, until = Math.min(P.secEnd, from + 60);
-    for (let t = from; t < until; t += 0.05) if (!seenBy(cam, P, t, W, H)) { P.secEnd = t; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, t + 0.15) }; break; }
+    const from = Math.max(P.words[P.words.length - 1].end, Math.min(P.L.sung, P.L.end)) + 0.3,
+      until = Math.min(P.secEnd, from + 60);
+    for (let t = from; t < until; t += 0.05)
+      if (!seenBy(cam, P, t, W, H)) {
+        P.secEnd = t;
+        P.secIn = 0.01;
+        P.L = { ...P.L, end: Math.min(P.L.end, t + 0.15) };
+        break;
+      }
   }
 }
 /** Old words under new ones: as each new word comes in, any line still up from before whose words it covers too much (a
  *  third of the smaller box) starts to fade out at once, over a quarter second — never one still being sung. The page's
  *  other ways of clearing (transitions, the cap of lines, the sweeps) leave the picture tidy in time; this is for the
  *  moment one line lands on another before they do. */
-export const OVERLAP_FADE = 0.25, OVERLAP_SHARE = 0.3;
-const aabb = (S: { x: number; y: number; lw: number; lh: number; tilt: number }) => { const a = Math.abs(S.tilt) * Math.PI / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a)), w = S.lw * c + S.lh * s, h = S.lw * s + S.lh * c;
-  return { x0: S.x - w / 2, x1: S.x + w / 2, y0: S.y - h / 2, y1: S.y + h / 2, area: Math.max(1, S.lw * S.lh) }; };
+export const OVERLAP_FADE = 0.25,
+  OVERLAP_SHARE = 0.3;
+const aabb = (S: { x: number; y: number; lw: number; lh: number; tilt: number }) => {
+  const a = (Math.abs(S.tilt) * Math.PI) / 180,
+    c = Math.abs(Math.cos(a)),
+    s = Math.abs(Math.sin(a)),
+    w = S.lw * c + S.lh * s,
+    h = S.lw * s + S.lh * c;
+  return { x0: S.x - w / 2, x1: S.x + w / 2, y0: S.y - h / 2, y1: S.y + h / 2, area: Math.max(1, S.lw * S.lh) };
+};
 export function fadeOverlapped(lines: PLine[]) {
   for (let i = 1; i < lines.length; i++) {
-    const B = lines[i]; if (!B.words.length) continue;
-    for (const S of B.words) { const t = S.show, a = aabb(S);
-      for (let j = 0; j < i; j++) { const P = lines[j];
-        if (!P.words.length || !(P.secEnd - P.secIn > t + 1e-3) || P.words[0].show > t) continue;     // (gone already, or not yet up)
-        if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue;                                          // (still being sung: it stays)
-        const hit = P.words.some(Q => { const b = aabb(Q), ix = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), iy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
-          return ix > 0 && iy > 0 && ix * iy > OVERLAP_SHARE * Math.min(a.area, b.area); });
-        if (hit) { P.secEnd = Math.min(P.secEnd, t + OVERLAP_FADE); P.secIn = Math.max(0.01, P.secEnd - t); P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) }; } } }
+    const B = lines[i];
+    if (!B.words.length) continue;
+    for (const S of B.words) {
+      const t = S.show,
+        a = aabb(S);
+      for (let j = 0; j < i; j++) {
+        const P = lines[j];
+        if (!P.words.length || !(P.secEnd - P.secIn > t + 1e-3) || P.words[0].show > t) continue; // (gone already, or not yet up)
+        if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue; // (still being sung: it stays)
+        const hit = P.words.some((Q) => {
+          const b = aabb(Q),
+            ix = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0),
+            iy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+          return ix > 0 && iy > 0 && ix * iy > OVERLAP_SHARE * Math.min(a.area, b.area);
+        });
+        if (hit) {
+          P.secEnd = Math.min(P.secEnd, t + OVERLAP_FADE);
+          P.secIn = Math.max(0.01, P.secEnd - t);
+          P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) };
+        }
+      }
+    }
   }
 }
 /** A curtain the lyrics ask for ('@N') clears the scene as it comes down: every line begun before it — its words and
  *  its captions — is gone at that moment (under the curtain, closed at once), so it opens onto the lines from there on
  *  only. The line it is written on (and any after) stays. */
 function applyCurtains(lines: PLine[], curtains: { t: number; kind: number }[]) {
-  for (const q of curtains) { const down = curtainDown(q.kind, q.t); if (down == null) continue; const c = { t: down };
-   for (const P of lines) {
-    if (!P.words.length || P.L.t >= q.t - 0.05 || P.secEnd <= c.t) continue;
-    // (the words at once; the captions, which fade out over a quarter second from a little before their end, end just
-    // after it — under the curtain either way)
-    P.secEnd = c.t; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, c.t + 0.15) };
-  } }
+  for (const q of curtains) {
+    const down = curtainDown(q.kind, q.t);
+    if (down == null) continue;
+    const c = { t: down };
+    for (const P of lines) {
+      if (!P.words.length || P.L.t >= q.t - 0.05 || P.secEnd <= c.t) continue;
+      // (the words at once; the captions, which fade out over a quarter second from a little before their end, end just
+      // after it — under the curtain either way)
+      P.secEnd = c.t;
+      P.secIn = 0.01;
+      P.L = { ...P.L, end: Math.min(P.L.end, c.t + 0.15) };
+    }
+  }
 }
 /** Clears without a blur: at a sweep, every earlier line of the page the camera does not see is taken away there and
  *  then (unseen, so nothing visibly vanishes); a line still in view stays until the camera has left it. */
 /** Does the camera see any of the line at t (on its planned path, a margin round the frame)? */
 function seenBy(cam: CameraPlan, P: PLine, t: number, W: number, H: number) {
-  const b = basePose(cam, t), c = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
-  return P.words.some(S => { const p = project(S.x, S.y, S.d, c, NO_FX, W, H), half = Math.hypot(S.lw, S.lh) * 0.5 * p.k; return Math.abs(p.sx) - half < W * 0.56 && Math.abs(p.sy) - half < H * 0.56; });
+  const b = basePose(cam, t),
+    c = { x: b.x, y: b.y, z: b.z, r: b.r, d: b.d, yaw: 0, pitch: 0 };
+  return P.words.some((S) => {
+    const p = project(S.x, S.y, S.d, c, NO_FX, W, H),
+      half = Math.hypot(S.lw, S.lh) * 0.5 * p.k;
+    return Math.abs(p.sx) - half < W * 0.56 && Math.abs(p.sy) - half < H * 0.56;
+  });
 }
 function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam: CameraPlan, W: number, H: number) {
   const seen = (P: PLine, t: number) => seenBy(cam, P, t, W, H);
   for (const sw of sweeps) {
-    const B = lines[sw.line]; if (!B) continue;
-    for (let j = 0; j < sw.line; j++) { const P = lines[j]; if (P.sec !== B.sec || !P.words.length || P.secEnd <= sw.t) continue;
-      if (Math.min(P.L.sung, P.L.end) > sw.t - 0.05) continue;                 // (still being sung: it stays)
-      let tv = sw.t; const until = Math.min(P.secEnd, sw.t + 30);
+    const B = lines[sw.line];
+    if (!B) continue;
+    for (let j = 0; j < sw.line; j++) {
+      const P = lines[j];
+      if (P.sec !== B.sec || !P.words.length || P.secEnd <= sw.t) continue;
+      if (Math.min(P.L.sung, P.L.end) > sw.t - 0.05) continue; // (still being sung: it stays)
+      let tv = sw.t;
+      const until = Math.min(P.secEnd, sw.t + 30);
       while (tv < until && seen(P, tv)) tv += 0.1;
       if (tv >= until) continue;
-      P.secEnd = tv; P.secIn = 0.01; P.L = { ...P.L, end: Math.min(P.L.end, tv) };
+      P.secEnd = tv;
+      P.secIn = 0.01;
+      P.L = { ...P.L, end: Math.min(P.L.end, tv) };
     }
   }
   // the page's cap, whatever the camera does: as a line starts, its page holds at most PAGE_UNITS of its words and line
   // breaks (it among them); the oldest lines beyond that go — at once where the camera does not see them, else fading
   // out over half a second
   for (let i = 0; i < lines.length; i++) {
-    const B = lines[i]; if (!B.words.length) continue; const t = B.words[0].show;
-    const up = lines.slice(0, i).filter(P => P.sec === B.sec && P.words.length && P.secEnd - P.secIn > t + 1e-3);
+    const B = lines[i];
+    if (!B.words.length) continue;
+    const t = B.words[0].show;
+    const up = lines.slice(0, i).filter((P) => P.sec === B.sec && P.words.length && P.secEnd - P.secIn > t + 1e-3);
     let extra = up.reduce((a, P) => a + pageUnits(P), 0) + pageUnits(B) - PAGE_UNITS;
-    for (const P of up) { if (extra <= 0) break;
-      if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue;                    // (still being sung: it stays)
+    for (const P of up) {
+      if (extra <= 0) break;
+      if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue; // (still being sung: it stays)
       const fade = seen(P, t) ? 0.5 : 0.01;
       // (it starts to go now; one already ending sooner keeps its end, fading from now to it)
-      P.secEnd = Math.min(P.secEnd, t + fade); P.secIn = Math.max(0.01, P.secEnd - t); P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) }; extra -= pageUnits(P); }
+      P.secEnd = Math.min(P.secEnd, t + fade);
+      P.secIn = Math.max(0.01, P.secEnd - t);
+      P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) };
+      extra -= pageUnits(P);
+    }
   }
 }
 /** A lit word now and then: one line in every three or four, one of its words — a word as the segmenter (or the
@@ -163,12 +281,18 @@ function pickEmphasis(lines: ScenePlan['lines']) {
   let next = 1 + Math.floor(rnd(lines.length * 1.7) * 3);
   lines.forEach((P, i) => {
     if (i < next) return;
-    const content = P.words.filter(S => /[\p{L}\p{N}]/u.test(S.w.text));
-    if (content.length < 2) { next = i + 1; return; }
+    const content = P.words.filter((S) => /[\p{L}\p{N}]/u.test(S.w.text));
+    if (content.length < 2) {
+      next = i + 1;
+      return;
+    }
     // (a word of two to four characters where there is one — a phrase the singing joined may be longer: lit whole, it
     // would be most of the line)
-    const long = content.filter(S => S.w.latin || S.units.length >= 2), mid = long.filter(S => S.w.latin || S.units.length <= 4), pool = mid.length ? mid : long.length ? long : content;
-    const S = pool[Math.floor(rnd(i * 5.17 + 0.3) * pool.length)]; S.emph = [0, S.units.length];
+    const long = content.filter((S) => S.w.latin || S.units.length >= 2),
+      mid = long.filter((S) => S.w.latin || S.units.length <= 4),
+      pool = mid.length ? mid : long.length ? long : content;
+    const S = pool[Math.floor(rnd(i * 5.17 + 0.3) * pool.length)];
+    S.emph = [0, S.units.length];
     next = i + 3 + (rnd(i * 2.9 + 1) < 0.5 ? 1 : 0);
   });
 }

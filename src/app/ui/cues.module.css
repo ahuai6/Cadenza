@@ -1,8 +1,42 @@
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.label { color: var(--fg-3); font-size: 12px; margin-right: 2px; }
-.key { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: var(--r-2); border: 1px solid var(--line-2); color: var(--fg-2); font-size: 12px;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
-.key:hover { background: var(--hover); color: var(--fg); border-color: var(--line-2); }
-.key:active { background: var(--press); }
-.key code { font: 600 12px/1 var(--font-mono); color: var(--accent-ink); }
-.key kbd { font: 10.5px/1 var(--font-ui); color: var(--fg-3); }
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.label {
+  color: var(--fg-3);
+  font-size: 12px;
+  margin-right: 2px;
+}
+.key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--line-2);
+  color: var(--fg-2);
+  font-size: 12px;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.key:hover {
+  background: var(--hover);
+  color: var(--fg);
+  border-color: var(--line-2);
+}
+.key:active {
+  background: var(--press);
+}
+.key code {
+  font: 600 12px/1 var(--font-mono);
+  color: var(--accent-ink);
+}
+.key kbd {
+  font: 10.5px/1 var(--font-ui);
+  color: var(--fg-3);
+}

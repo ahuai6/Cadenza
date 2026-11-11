@@ -19,111 +19,238 @@ import s from './NowPlaying.module.css';
 
 export function Stage() {
   const el = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { refs.stage = el.current; engine.mount(el.current!); return () => { refs.stage = null; }; }, []);
+  useLayoutEffect(() => {
+    refs.stage = el.current;
+    engine.mount(el.current!);
+    return () => {
+      refs.stage = null;
+    };
+  }, []);
   return <div data-test="stage" className={s.stage} ref={el} data-vis="false" aria-hidden="true" />;
 }
 
 export function NowPlaying() {
-  const album = useStore(player, x => !!x.album), dir = useStore(player, x => x.dir), shownId = useStore(player, x => x.shownId), hasLyrics = useStore(player, x => x.hasLyrics), session = useStore(player, x => x.session), instr = useStore(lib, () => !!trackOf(shownId)?.instrumental);
-  useStore(lib, x => x.tracks);
+  const album = useStore(player, (x) => !!x.album),
+    dir = useStore(player, (x) => x.dir),
+    shownId = useStore(player, (x) => x.shownId),
+    hasLyrics = useStore(player, (x) => x.hasLyrics),
+    session = useStore(player, (x) => x.session),
+    instr = useStore(lib, () => !!trackOf(shownId)?.instrumental);
+  useStore(lib, (x) => x.tracks);
   const t = trackOf(shownId);
-  const amb = useRef<HTMLDivElement>(null), root = useRef<HTMLElement>(null), cover = useRef<HTMLDivElement>(null), top = useRef<HTMLElement>(null), info = useRef<HTMLDivElement>(null), right = useRef<HTMLDivElement>(null), halo = useRef<HTMLDivElement>(null);
-  const layer = useStore(ui, x => x.layer), queueOpen = useStore(ui, x => x.queue), qn = useStore(player, x => x.queue.length);
-  useLayoutEffect(() => { refs.np = root.current; refs.npAmb = amb.current; refs.npCover = cover.current; refs.npParts = [top.current, info.current, right.current]; });
-  useEffect(() => () => { refs.np = null; refs.npAmb = null; refs.npCover = null; refs.npParts = []; }, []);
+  const amb = useRef<HTMLDivElement>(null),
+    root = useRef<HTMLElement>(null),
+    cover = useRef<HTMLDivElement>(null),
+    top = useRef<HTMLElement>(null),
+    info = useRef<HTMLDivElement>(null),
+    right = useRef<HTMLDivElement>(null),
+    halo = useRef<HTMLDivElement>(null);
+  const layer = useStore(ui, (x) => x.layer),
+    queueOpen = useStore(ui, (x) => x.queue),
+    qn = useStore(player, (x) => x.queue.length);
+  useLayoutEffect(() => {
+    refs.np = root.current;
+    refs.npAmb = amb.current;
+    refs.npCover = cover.current;
+    refs.npParts = [top.current, info.current, right.current];
+  });
+  useEffect(
+    () => () => {
+      refs.np = null;
+      refs.npAmb = null;
+      refs.npCover = null;
+      refs.npParts = [];
+    },
+    [],
+  );
   // the song's own light, for the glow under the cover and the tint of the shade at the edges (the engine's palette)
-  const tone = useMemo(() => { const A = session?.ambient; if (!A) return {}; const c = A.cols[0] || A.base, rgb = (v: number[]) => v.map(x => Math.round(x)).join(',');
-    return { '--amb': rgb(c), '--amb-base': rgb(A.base) } as React.CSSProperties; }, [session]);
+  const tone = useMemo(() => {
+    const A = session?.ambient;
+    if (!A) return {};
+    const c = A.cols[0] || A.base,
+      rgb = (v: number[]) => v.map((x) => Math.round(x)).join(',');
+    return { '--amb': rgb(c), '--amb-base': rgb(A.base) } as React.CSSProperties;
+  }, [session]);
   // full screen: the controls rest out of sight while the pointer does (any move, key or wheel brings them back)
-  const full = useStore(ui, x => x.win.full);
+  const full = useStore(ui, (x) => x.win.full);
   useEffect(() => {
-    const el = root.current; if (!el || !full || layer !== 'np') { if (el) el.dataset.idle = 'false'; return; }
-    let tm = 0; const wake = () => { el.dataset.idle = 'false'; clearTimeout(tm); tm = window.setTimeout(() => { if (!el.querySelector(':focus-visible, [aria-expanded="true"]')) el.dataset.idle = 'true'; }, 2600); };
-    wake(); const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const; evs.forEach(e => addEventListener(e, wake, { passive: true }));
-    return () => { clearTimeout(tm); evs.forEach(e => removeEventListener(e, wake)); el.dataset.idle = 'false'; };
+    const el = root.current;
+    if (!el || !full || layer !== 'np') {
+      if (el) el.dataset.idle = 'false';
+      return;
+    }
+    let tm = 0;
+    const wake = () => {
+      el.dataset.idle = 'false';
+      clearTimeout(tm);
+      tm = window.setTimeout(() => {
+        if (!el.querySelector(':focus-visible, [aria-expanded="true"]')) el.dataset.idle = 'true';
+      }, 2600);
+    };
+    wake();
+    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const;
+    evs.forEach((e) => addEventListener(e, wake, { passive: true }));
+    return () => {
+      clearTimeout(tm);
+      evs.forEach((e) => removeEventListener(e, wake));
+      el.dataset.idle = 'false';
+    };
   }, [full, layer]);
   if (!t) return null;
-  const more = (e: React.MouseEvent) => openMenu(e, [
-    { label: tx('np.findLyr'), icon: 'search', run: () => npSettings('lyrics') },
-    { label: tx('np.set') + '…', icon: 'lyrics', run: () => npSettings('view') },
-    '-',
-    { label: tx('s.addToPl'), icon: 'plus', run: () => pickPlaylist([t.id]) },
-    { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
-  ]);
+  const more = (e: React.MouseEvent) =>
+    openMenu(e, [
+      { label: tx('np.findLyr'), icon: 'search', run: () => npSettings('lyrics') },
+      { label: tx('np.set') + '…', icon: 'lyrics', run: () => npSettings('view') },
+      '-',
+      { label: tx('s.addToPl'), icon: 'plus', run: () => pickPlaylist([t.id]) },
+      { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
+    ]);
   const live = layer === 'np';
   // above the title: the album, its year and the track's place on it
   const kicker = [t.album, t.year, t.track ? tx('np.trackNo', { n: t.track }) : ''].filter(Boolean).join(' · ');
   return (
     <>
-    {/* the cinema around the picture: a shade at the edges in the song's own dark, and a fine grain over the colour */}
-    {/* (each as a box that cuts and a layer inside it moving the other way — layers.ts: the opening moves them, it never
+      {/* the cinema around the picture: a shade at the edges in the song's own dark, and a fine grain over the colour */}
+      {/* (each as a box that cuts and a layer inside it moving the other way — layers.ts: the opening moves them, it never
         repaints them) */}
-    <div className={s.amb} ref={amb} style={tone} data-vis="false" aria-hidden="true"><div className={s.ambIn} data-in /></div>
-    <section data-test="np" className={s.np + ' on-picture'} ref={root} style={tone} data-vis="false" aria-hidden={layer === 'none'} inert={layer !== 'np'}>
-      <div className={s.sheet} data-in>
-      <header className={s.top} ref={top}>
-        <div className={s.fade}><IconButton n="chevronDown" label={tx('s.collapse')} onClick={back} /></div>
-        {/* what this page shows: its lyrics, the effect lyrics, or the queue over it (the page itself says what is playing) */}
-        <nav className={s.views + ' ' + s.fade} aria-label={tx('np.views')}>
-          <button type="button" aria-current="page">{tx('np.tab.lyrics')}</button>
-          <button type="button" onClick={openFx}><Icon n="sparkles" size={15} />{tx('s.fxLyrics')}</button>
-          <button type="button" data-queue-button aria-label={tx('s.queue')} aria-expanded={queueOpen} aria-pressed={queueOpen} onClick={e => toggleQueue(e.currentTarget)}>{tx('np.tab.queue')}{qn > 0 && <i>{qn}</i>}</button>
-        </nav>
-        <div className={s.topR + ' ' + s.fade}>
-          <IconButton n="more" label={tx('s.more')} onClick={more} />
-        </div>
-      </header>
-      <div className={s.main}>
-        <div className={s.left}>
-          {/* (the cover's own light spilling behind it: the left column's weight against the lyrics) */}
-          <div className={s.coverBox}>
-            <div className={s.halo + ' ' + s.fade} ref={halo} data-q aria-hidden="true"><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full /></Swap></div>
-            <div className={s.cover} ref={cover} data-test="np-cover">
-              {/* (its shadows — the mini cover's and its own — and its picture each on a layer of their own, in its
+      <div className={s.amb} ref={amb} style={tone} data-vis="false" aria-hidden="true">
+        <div className={s.ambIn} data-in />
+      </div>
+      <section
+        data-test="np"
+        className={s.np + ' on-picture'}
+        ref={root}
+        style={tone}
+        data-vis="false"
+        aria-hidden={layer === 'none'}
+        inert={layer !== 'np'}
+      >
+        <div className={s.sheet} data-in>
+          <header className={s.top} ref={top}>
+            <div className={s.fade}>
+              <IconButton n="chevronDown" label={tx('s.collapse')} onClick={back} />
+            </div>
+            {/* what this page shows: its lyrics, the effect lyrics, or the queue over it (the page itself says what is playing) */}
+            <nav className={s.views + ' ' + s.fade} aria-label={tx('np.views')}>
+              <button type="button" aria-current="page">
+                {tx('np.tab.lyrics')}
+              </button>
+              <button type="button" onClick={openFx}>
+                <Icon n="sparkles" size={15} />
+                {tx('s.fxLyrics')}
+              </button>
+              <button
+                type="button"
+                data-queue-button
+                aria-label={tx('s.queue')}
+                aria-expanded={queueOpen}
+                aria-pressed={queueOpen}
+                onClick={(e) => toggleQueue(e.currentTarget)}
+              >
+                {tx('np.tab.queue')}
+                {qn > 0 && <i>{qn}</i>}
+              </button>
+            </nav>
+            <div className={s.topR + ' ' + s.fade}>
+              <IconButton n="more" label={tx('s.more')} onClick={more} />
+            </div>
+          </header>
+          <div className={s.main}>
+            <div className={s.left}>
+              {/* (the cover's own light spilling behind it: the left column's weight against the lyrics) */}
+              <div className={s.coverBox}>
+                <div className={s.halo + ' ' + s.fade} ref={halo} data-q aria-hidden="true">
+                  <Swap k={t.cover || ''} dir={dir} fill>
+                    <Cover k={t.cover} full />
+                  </Swap>
+                </div>
+                <div className={s.cover} ref={cover} data-test="np-cover">
+                  {/* (its shadows — the mini cover's and its own — and its picture each on a layer of their own, in its
                   transform: the opening crosses the shadows and rounds the clip, it never repaints the picture) */}
-              <i className={s.shM} data-sh="mini" aria-hidden="true" /><i className={s.shP} data-sh="page" aria-hidden="true" />
-              <div className={s.coverClip} data-clip><Swap k={t.cover || ''} dir={dir} fill><Cover k={t.cover} full eager /></Swap></div>
+                  <i className={s.shM} data-sh="mini" aria-hidden="true" />
+                  <i className={s.shP} data-sh="page" aria-hidden="true" />
+                  <div className={s.coverClip} data-clip>
+                    <Swap k={t.cover || ''} dir={dir} fill>
+                      <Cover k={t.cover} full eager />
+                    </Swap>
+                  </div>
+                </div>
+              </div>
+              <div className={s.info} ref={info}>
+                <div className={s.fade + ' ' + s.infoIn}>
+                  <div className={s.meta}>
+                    <Swap k={t.id} dir={dir}>
+                      <div>
+                        {/* (nothing ends in an ellipsis here: a long one scrolls) */}
+                        {kicker && <Marquee className={s.kicker}>{kicker}</Marquee>}
+                        <Marquee className={s.title}>{t.title}</Marquee>
+                        <Marquee className={s.artist}>{t.artist || tx('s.unknownArtist')}</Marquee>
+                        <HifiBadge />
+                      </div>
+                    </Swap>
+                    <span className={s.heart}>
+                      <Heart id={t.id} />
+                    </span>
+                  </div>
+                  <div className={s.progWrap}>
+                    <Progress />
+                    <div className={s.qrow}>
+                      <QualityTag t={t} look="glass" />
+                      {album && <Badge>{tx('s.albumOn')}</Badge>}
+                    </div>
+                  </div>
+                  <div className={s.ctl}>
+                    <div>
+                      <ModeButton />
+                    </div>
+                    <Transport big />
+                    <div />
+                  </div>
+                  <div className={s.volRow}>
+                    <Volume />
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className={s.info} ref={info}>
-            <div className={s.fade + ' ' + s.infoIn}>
-              <div className={s.meta}>
-                <Swap k={t.id} dir={dir}><div>
-                  {/* (nothing ends in an ellipsis here: a long one scrolls) */}
-                  {kicker && <Marquee className={s.kicker}>{kicker}</Marquee>}
-                  <Marquee className={s.title}>{t.title}</Marquee>
-                  <Marquee className={s.artist}>{t.artist || tx('s.unknownArtist')}</Marquee>
-                  <HifiBadge />
-                </div></Swap>
-                <span className={s.heart}><Heart id={t.id} /></span>
+            <div className={s.right} ref={right}>
+              {/* a new song's lyrics come in from the side the queue went (a replan of the same song: in place, at once) */}
+              <div key={shownId || ''} className={s.swapIn} style={{ ['--sd' as string]: dir }}>
+                {instr ? (
+                  <div className={s.fade}>
+                    <Instrumental />
+                  </div>
+                ) : hasLyrics && session ? (
+                  <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} />
+                ) : (
+                  <div className={s.fade}>
+                    <NoLyrics />
+                  </div>
+                )}
               </div>
-              <div className={s.progWrap}>
-                <Progress />
-                <div className={s.qrow}><QualityTag t={t} look="glass" />{album && <Badge>{tx('s.albumOn')}</Badge>}</div>
-              </div>
-              <div className={s.ctl}>
-                <div><ModeButton /></div>
-                <Transport big />
-                <div />
-              </div>
-              <div className={s.volRow}><Volume /></div>
             </div>
           </div>
         </div>
-        <div className={s.right} ref={right}>
-          {/* a new song's lyrics come in from the side the queue went (a replan of the same song: in place, at once) */}
-          <div key={shownId || ''} className={s.swapIn} style={{ ['--sd' as string]: dir }}>
-            {instr ? <div className={s.fade}><Instrumental /></div> : hasLyrics && session ? <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} /> : <div className={s.fade}><NoLyrics /></div>}
-          </div>
-        </div>
-      </div>
-      </div>
-    </section>
+      </section>
     </>
   );
 }
 /** A song marked as an instrumental: this, in place of lyrics. */
-function Instrumental() { return <div className={s.none}><Icon n="note" size={30} /><b>{tx('s.instr.text')}</b></div>; }
-function NoLyrics() { return <div className={s.none}><Icon n="lyrics" size={30} /><b>{tx('s.noLyrics')}</b><p>{tx('s.noLyricsHelp')}</p></div>; }
+function Instrumental() {
+  return (
+    <div className={s.none}>
+      <Icon n="note" size={30} />
+      <b>{tx('s.instr.text')}</b>
+    </div>
+  );
+}
+function NoLyrics() {
+  return (
+    <div className={s.none}>
+      <Icon n="lyrics" size={30} />
+      <b>{tx('s.noLyrics')}</b>
+      <p>{tx('s.noLyricsHelp')}</p>
+    </div>
+  );
+}
 
 export { Drive };

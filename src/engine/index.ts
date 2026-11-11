@@ -9,13 +9,37 @@ export { PLAN_STATS } from './planner';
 export { DEBUG } from './debug';
 export { GPU_STATS } from '../render/lyrics';
 export type { PerfStats } from './engine';
-export { exportVideo, openFrameSource, estimate, exportSize, blobSink, type ExportOptions, type ExportResult, type Sink } from './export';
+export {
+  exportVideo,
+  openFrameSource,
+  estimate,
+  exportSize,
+  blobSink,
+  type ExportOptions,
+  type ExportResult,
+  type Sink,
+} from './export';
 
 /* ---- what the interface may use from the layers under the engine ----
    The app imports only from here (and from core, theme and i18n): a rebuilt interface needs nothing else, and
    tests/unit/arch.test.ts keeps it so. */
 export { accentClock } from '../rhythm';
-export { analyzeInBackground, analyzeHead, loudnessInBackground, RHYTHM_VERSION, isCurrent, checkAnalysis, balanceDb, rhythmEngine, neuralDrums, neuralStatus, neuralRecheck, type RhythmAnalysis, type RhythmEngine, type NativeRuntime } from '../rhythm';
+export {
+  analyzeInBackground,
+  analyzeHead,
+  loudnessInBackground,
+  RHYTHM_VERSION,
+  isCurrent,
+  checkAnalysis,
+  balanceDb,
+  rhythmEngine,
+  neuralDrums,
+  neuralStatus,
+  neuralRecheck,
+  type RhythmAnalysis,
+  type RhythmEngine,
+  type NativeRuntime,
+} from '../rhythm';
 export { parseLyrics, CUE_SYMBOLS } from '../lyrics/parse';
 export { isTtml, ttmlToLrc } from '../lyrics/ttml';
 export { subLines, splitBrackets } from '../lyrics/subs';

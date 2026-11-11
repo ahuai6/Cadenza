@@ -10,7 +10,9 @@ const DICT = data.dict as Record<Lang, Record<string, string>>;
 
 export const lang = createStore({ lang: 'zh-Hant' as Lang });
 export const currentLang = () => lang.get().lang;
-export function setLang(l: Lang) { if (DICT[l]) lang.set({ lang: l }); }
+export function setLang(l: Lang) {
+  if (DICT[l]) lang.set({ lang: l });
+}
 
 export function tx(key: string, vars?: Record<string, string | number>): string {
   const l = lang.get().lang;
@@ -22,11 +24,16 @@ export function tx(key: string, vars?: Record<string, string | number>): string 
 export const words = (l: Lang) => Object.values(DICT[l] || {}).join('');
 export const has = (key: string) => key in DICT.en || key in DICT['zh-Hant'];
 export function add(words: Record<string, string[]>) {
-  for (const [k, arr] of Object.entries(words)) ORDER.forEach((l, i) => { if (arr[i] != null) DICT[l][k] = arr[i]; });
+  for (const [k, arr] of Object.entries(words))
+    ORDER.forEach((l, i) => {
+      if (arr[i] != null) DICT[l][k] = arr[i];
+    });
 }
 
 /** The interface language from the system's preference, falling back to Traditional Chinese. */
-export function detectLang(pref: readonly string[] = (typeof navigator !== 'undefined' ? navigator.languages : []) as string[]): Lang {
+export function detectLang(
+  pref: readonly string[] = (typeof navigator !== 'undefined' ? navigator.languages : []) as string[],
+): Lang {
   for (const p of pref) {
     const s = p.toLowerCase();
     if (s.startsWith('zh')) return /hans|cn|sg/.test(s) ? 'zh-Hans' : 'zh-Hant';

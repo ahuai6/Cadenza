@@ -37,14 +37,17 @@ export const GEMM_GELU = 1;
 export const GEMM_RESIDUAL = 2;
 
 /** The weight read, from an f32 export or from fp16 pairs packed in u32 (the --f16 export). */
-const weightRead = (f16: boolean) => (f16 ? /* wgsl */ `
+const weightRead = (f16: boolean) =>
+  f16
+    ? /* wgsl */ `
 @group(0) @binding(1) var<storage, read> w: array<u32>;
 fn wload(e: u32) -> f32 {
   let pair = unpack2x16float(w[e >> 1u]);
   return select(pair.x, pair.y, (e & 1u) == 1u);
-}` : /* wgsl */ `
+}`
+    : /* wgsl */ `
 @group(0) @binding(1) var<storage, read> w: array<f32>;
-fn wload(e: u32) -> f32 { return w[e]; }`);
+fn wload(e: u32) -> f32 { return w[e]; }`;
 
 /**
  * How a GEMM multiplies. 'f32': f32 tiles and f32 FMAs. 'f16' (needs shader-f16): both tiles are kept
@@ -74,19 +77,22 @@ const tiles = (mode: GemmMode) => /* wgsl */ `
 var<workgroup> as_: array<${mode === 'f16' ? 'vec4h' : 'vec4f'}, 256>;
 var<workgroup> bs_: array<${mode === 'f16' ? 'vec4h' : 'vec4f'}, 256>;`;
 const tileVector = (mode: GemmMode, value: string) => `${mode === 'f16' ? 'vec4h' : 'vec4f'}(${value})`;
-const kStep = (mode: GemmMode) => (mode === 'f16' ? /* wgsl */ `
+const kStep = (mode: GemmMode) =>
+  mode === 'f16'
+    ? /* wgsl */ `
     var part: array<vec4h, 4>;
     for (var kk = 0u; kk < 16u; kk++) {
       let a = as_[kk * 16u + l.y];
       let bb = bs_[kk * 16u + l.x];
       for (var i = 0u; i < 4u; i++) { part[i] = fma(vec4h(a[i]), bb, part[i]); }
     }
-    for (var i = 0u; i < 4u; i++) { acc[i] += vec4f(part[i]); }` : /* wgsl */ `
+    for (var i = 0u; i < 4u; i++) { acc[i] += vec4f(part[i]); }`
+    : /* wgsl */ `
     for (var kk = 0u; kk < 16u; kk++) {
       let a = as_[kk * 16u + l.y];
       let bb = bs_[kk * 16u + l.x];
       for (var i = 0u; i < 4u; i++) { acc[i] = fma(vec4f(a[i]), bb, acc[i]); }
-    }`);
+    }`;
 const enableF16 = (mode: GemmMode) => (mode === 'f16' ? 'enable f16;' : '');
 
 /**
