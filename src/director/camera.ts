@@ -45,6 +45,11 @@ export const EASES: Record<string, Ease> = {
 const MAX_PAN = 1.1; // frames: a move that must travel further than about a screen becomes a transition
 const MAX_PAN_CLOSE = 0.55; // (close up, half a screen: more of the way is crossed by blur transitions)
 const MAX_SPEED = 3.4; // frames per second
+const FRAMED_PAN = 0.5; // frames: with a lyric frame up, a move further than this becomes a transition
+const FRAMED_ZOOM = Math.log(1.7); // …and a push or pull of more than this (as a ratio of closeness)
+const AHEAD_SOON = 0.8; // seconds: a new line this close to coming in is 'about to appear'
+const AHEAD_DWELL = 0.3; // seconds: less time than this on the words before leaving again is not worth the trip
+const AHEAD_FAR = 0.45; // frames: …and this far from where the camera would go is 'far away'
 const SAFE_X = 0.43,
   SAFE_Y = 0.4; // half-extent of the safe area, share of the frame
 
@@ -522,10 +527,12 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       // a lyric frame still drawn when the camera comes here (the words after it are sung while it shows): this framing
       // holds it too — the camera pulls back and moves over it and the words, holding still — or, were that too far,
       // the frame fades as the camera leaves it, never left cut off at the edge
+      let frameUp = false;
       for (const [F, fi] of frameStop) {
         if (fi >= i) continue;
         const fEnd = Math.min(F.until ?? Infinity, F.words[0].line.L.end - 0.8) + 0.8;
         if (arrive >= fEnd || F.ts > arrive + 2) continue;
+        frameUp = true;
         const fb = F.words.map((S) => ({
             x: S.x,
             y: S.y,
@@ -564,8 +571,15 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         D = (Math.hypot(B.x - A.x, B.y - A.y) * zm) / W; // apparent travel: the log-mean closeness
       // (only for a move far beyond what a camera can make, and only when the pause leaves room: a long move is better
       //  than a needless clear, and no clear may hide words still being sung)
+      // (with a lyric frame up the camera stands back, and from back there a long pan or a large push or pull sweeps the
+      // whole picture: half the reach is already a transition then — still only where the pause leaves room, so no word
+      // being sung is ever cut into; with no room the camera keeps its height and goes on as it would)
+      const farFramed =
+        frameUp &&
+        (D > FRAMED_PAN || Math.abs(Math.log(B.z / A.z)) > FRAMED_ZOOM) &&
+        roomForQuick(A.sungEnd, B.words[0].show);
       if (
-        (D > (close ? MAX_PAN_CLOSE : MAX_PAN) || D / Math.max(0.05, arrive - s) > MAX_SPEED) &&
+        (D > (close ? MAX_PAN_CLOSE : MAX_PAN) || D / Math.max(0.05, arrive - s) > MAX_SPEED || farFramed) &&
         roomForQuick(A.sungEnd, B.words[0].show) &&
         B.words[0].k === 0
       ) {
@@ -597,8 +611,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     // them visited on the way; never past a cut or a roll)
     {
       const C = stops[i + 1];
+      let j = -1;
       if (C && !C.cut && !roll && !B.cut && arrive > B.t + 0.3 && arrive >= Math.min(B.sungEnd - 0.1, C.t - 0.15)) {
-        let j = i + 1;
+        j = i + 1;
         while (
           stops[j + 1] &&
           !stops[j + 1].cut &&
@@ -607,6 +622,29 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
           stops[j + 1].t <= arrive + 0.15
         )
           j++;
+      }
+      // looking ahead: these are words further along a line (never its first), and a new line is about to come in far
+      // from here — so soon that the camera, having come to these words (on time or behind), would have to leave them
+      // at once for a long way. They are let go: the camera goes straight to where the new line will be, and is there
+      // when it comes (never past a cut or a roll).
+      if (j < 0 && C && !roll && !B.cut && B.words[0].k !== 0) {
+        let n = i + 1;
+        while (stops[n] && !stops[n].cut && !stops[n].roll && stops[n].words[0].k !== 0) n++;
+        const N = stops[n];
+        // (only when there would be next to no time on these words: the camera lands and has to leave within AHEAD_DWELL)
+        if (
+          N &&
+          !N.cut &&
+          !N.roll &&
+          N.words[0].k === 0 &&
+          N.t - arrive < AHEAD_SOON &&
+          N.t - lead - arrive < AHEAD_DWELL
+        ) {
+          const zm = Math.abs(N.z - B.z) > 1e-6 ? (N.z - B.z) / Math.log(N.z / B.z) : B.z;
+          if ((Math.hypot(N.x - B.x, N.y - B.y) * zm) / W > AHEAD_FAR) j = n;
+        }
+      }
+      if (j > 0) {
         const T = stops[j];
         B.x = T.x;
         B.y = T.y;

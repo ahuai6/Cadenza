@@ -742,6 +742,33 @@ describe('roller', () => {
   });
 });
 
+describe('a line shown whole (timed only as a line)', () => {
+  // (3.0.4) its words are all there at once, so they are laid in reading order: each next word to the right of the one
+  // before or below it — never above it and to its left
+  it('lays its words rightward or downward only', () => {
+    for (const cut of ['glide', 'waltz', 'punch'] as const) {
+      const P = make(cut, LRC, { frame: false });
+      let pairs = 0;
+      for (const L of P.lines) {
+        if (L.vert || L.words.some((S) => S.w.timed || S.roll)) continue;
+        const d = [Math.cos((L.words[0].ang * Math.PI) / 180), Math.sin((L.words[0].ang * Math.PI) / 180)],
+          n = [-d[1], d[0]];
+        for (let k = 1; k < L.words.length; k++) {
+          const A = L.words[k - 1],
+            B = L.words[k];
+          if (Math.abs(B.ang - A.ang) > 1) continue; // (the line turned a corner between them)
+          const along = (B.x - A.x) * d[0] + (B.y - A.y) * d[1],
+            down = (B.x - A.x) * n[0] + (B.y - A.y) * n[1];
+          pairs++;
+          expect(down > -(A.lh + B.lh) * 0.4 || along > 0, `${cut}: ${A.w.text} → ${B.w.text}`).toBe(true);
+          expect(down > -(A.lh + B.lh) * 0.55, `${cut}: ${B.w.text} not set above ${A.w.text}`).toBe(true);
+        }
+      }
+      expect(pairs, cut).toBeGreaterThan(10);
+    }
+  });
+});
+
 describe('centred stage (the record theme)', () => {
   const map = RhythmMap.grid(112, 0.3, 160),
     p = parse(LRC),
@@ -776,12 +803,13 @@ describe('centred stage (the record theme)', () => {
       expect(Math.hypot(b.x, b.y)).toBeLessThan(1);
     }
   });
-  /** The groups the stage shows (a transition before each but the first): the lines of each, in order. */
+  /** The groups the stage shows: the lines of each, in order. A group begins with the line set in the middle. (3.0.4:
+   *  no longer told by the transitions — a group that follows close on the one before only fades in its place.) */
   const groups = (Q: typeof P) => {
     const sung = Q.lines.filter((L) => L.words.length),
       gs: (typeof sung)[] = [];
     for (const L of sung) {
-      if (!gs.length || Q.passages.some((x) => x.line === L.i)) gs.push([]);
+      if (!gs.length || Math.abs(L.ay) < L.bh * 0.6) gs.push([]);
       gs[gs.length - 1].push(L);
     }
     return gs;
@@ -804,7 +832,7 @@ describe('centred stage (the record theme)', () => {
     }); // (below it)
     return gs;
   };
-  it('sets every line level and inside the frame, as many at a time as fit in three rows: the middle, above it, below it; a transition after each group', () => {
+  it('sets every line level and inside the frame, as many at a time as fit in three rows: the middle, above it, below it', () => {
     const sung = P.lines.filter((L) => L.words.length);
     sung.forEach((L) => {
       for (const S of L.words) expect(S.tilt).toBe(0);
@@ -841,7 +869,7 @@ describe('centred stage (the record theme)', () => {
     const gs = inTurn(Q);
     expect(gs[0].length).toBeLessThan(3);
   });
-  it('a group goes together in the transition before the next — none before, all of it by its height', () => {
+  it('a group goes together before the next: across a pause in a transition, close on by fading — none before, all of it gone as the next is there', () => {
     const ctx = {
       enter: 0.4,
       tempo: 1,
@@ -854,13 +882,29 @@ describe('centred stage (the record theme)', () => {
     };
     const up = (L: (typeof P.lines)[0], t: number) => L.words.some((S) => wordState(S, t, 0, false, ctx) != null),
       gs = groups(P);
+    let blurred = 0,
+      faded = 0;
     for (let g = 0; g + 1 < gs.length; g++) {
-      const q = P.passages.find((x) => x.line === gs[g + 1][0].i)!;
-      for (const L of gs[g]) {
-        expect(up(L, q.t - q.inn - 0.05), L.L.text).toBe(true);
-        expect(up(L, q.t + 0.01), L.L.text).toBe(false);
+      const N = gs[g + 1][0],
+        q = P.passages.find((x) => x.line === N.i),
+        A = gs[g][gs[g].length - 1],
+        gap = N.words[0].show - Math.min(A.L.sung, A.L.end);
+      if (q) {
+        blurred++;
+        expect(gap, 'a transition only across a pause').toBeGreaterThanOrEqual(1.6);
+        for (const L of gs[g]) {
+          expect(up(L, q.t - q.inn - 0.05), L.L.text).toBe(true);
+          expect(up(L, q.t + 0.01), L.L.text).toBe(false);
+        }
+      } else {
+        faded++;
+        for (const L of gs[g]) {
+          expect(up(L, N.words[0].show - 0.45), L.L.text).toBe(true);
+          expect(up(L, N.words[0].show + 0.05), L.L.text).toBe(false);
+        }
       }
     }
+    expect(faded, 'groups that follow close on fade').toBeGreaterThan(0);
   });
 });
 
@@ -1433,6 +1477,38 @@ describe('a camera held up', () => {
         expect(B.words.includes(now), 'not its own words').toBe(false);
       }
     });
+  // (3.0.4) looking ahead: a quick run of words keeps the camera behind, and the next line comes in at once, far away —
+  // the camera lets the last words go and is at the new line instead of touching them and leaving
+  it('on the last words with a new line about to come in far away, it goes to the new line', () => {
+    const run = kar(4, [
+      ['one', 4],
+      ['two', 4.12],
+      ['three', 4.24],
+      ['four', 4.36],
+      ['five', 4.48],
+      ['six', 4.6],
+      ['seven', 4.72],
+      ['eight', 4.84],
+    ]);
+    const src2 = [
+      ts(1) + 'the night is young',
+      run,
+      ts(5.1) + 'under the city lights tonight we go',
+      ts(9) + 'home',
+    ].join('\n');
+    let ahead = 0;
+    for (const cut of ['glide', 'waltz'] as const) {
+      const S = make(cut, src2, { frame: false }).camera.stops;
+      S.forEach((B, i) => {
+        if (!B.skipped) return;
+        ahead++;
+        const N = S.slice(i + 1).find((x) => x.words[0].k === 0)!;
+        expect([B.x, B.y], 'framed as the new line is').toEqual([N.x, N.y]);
+        expect(N.t - B.arrive, 'the new line is about to come in').toBeLessThan(0.8);
+      });
+    }
+    expect(ahead, 'the case arises').toBeGreaterThan(0);
+  });
   it('an ordinary song is never skipped through', () => {
     for (const cut of styles) expect(make(cut).camera.stops.filter((s) => s.skipped).length, cut).toBe(0);
   });

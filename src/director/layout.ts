@@ -503,6 +503,10 @@ export function layout(inp: LayoutInput): LayoutResult {
       }
       r -= wt;
     }
+    // (a line whose words are all there at once — timed only as a whole, or a type that brings lines in whole — is read
+    // off the picture, not followed with the voice: its words only ever go on rightward or downward, so which comes
+    // after which is never in doubt. Up is for words that arrive one by one.)
+    if (LT.together || !S.w.timed) mode = mode === 'above' ? 'below' : mode === 'climb' ? 'stair' : mode;
     const down = Q.lh / 2 + gap * 1.3 + h / 2;
     if (mode === 'below') {
       const al = rnd(i * 5.1 + k * 7.7),
@@ -1055,8 +1059,11 @@ export function layout(inp: LayoutInput): LayoutResult {
         // (a passage gone far from where it began is nudged up, down, or back towards it — never further on)
         const sd = far && secO ? Math.sign((secO[0] - ox) * d[0] + (secO[1] - oy) * d[1]) || -1 : 1;
         // (up or down: away from the line before, on the side it is already on — never always down)
-        const vs =
-          prevLine && prevLine !== Lp
+        // (a word further along a line shown whole is only ever nudged onward or down: reading order holds)
+        const inOrder = k > 0 && (LT.together || !S.w.timed);
+        const vs = inOrder
+          ? 1
+          : prevLine && prevLine !== Lp
             ? Math.sign((ox - prevLine.ax) * n[0] + (oy - prevLine.ay) * n[1]) || (rnd(i * 2.1 + k) < 0.5 ? -1 : 1)
             : rnd(i * 2.1 + k) < 0.5
               ? -1
@@ -1065,7 +1072,7 @@ export function layout(inp: LayoutInput): LayoutResult {
           far
             ? [
                 [n[0] * h * 0.45 * s2, n[1] * h * 0.45 * s2],
-                [-n[0] * h * 0.45 * s2, -n[1] * h * 0.45 * s2],
+                ...(inOrder ? [] : [[-n[0] * h * 0.45 * s2, -n[1] * h * 0.45 * s2]]),
                 [sd * d[0] * w * 0.3 * s2, sd * d[1] * w * 0.3 * s2],
               ]
             : [
@@ -1381,6 +1388,8 @@ export function centerZoom(words: PWord[], H: number, T: number) {
     h0 = hs.length ? hs[hs.length >> 1] : EM;
   return clamp((H * 0.12) / (h0 * T), 0.15, 2);
 }
+/** seconds: on the centred stage, a gap at least this long (and three beats) between groups is a pause — a transition */
+const STAGE_PAUSE = 1.6;
 /** The centred stage (camera style 'center'): every line is set level, wrapped into rows that fit the frame, as many
  *  lines at a time as fit in three rows, in a set order — the middle, above it, below it — then a transition, the
  *  group leaving in it, and the next begins; no depth and no turns. */
@@ -1472,8 +1481,8 @@ function centerLayout(
     P.prot = 0;
     P.d = 0;
   });
-  // after each group, a transition (the group goes in it, the next comes in after it) — a quick one where the next
-  // line follows close on; with transitions off, the group only fades out together just before the next comes in
+  // after each group: across a pause, a transition (the group goes in it, the next comes in after it); where the next
+  // line follows close on — or with transitions off — the group fades out together just before the next comes in
   const passages: Passage[] = [],
     leaves: { line: number; t: number; inn: number }[] = [];
   sung.forEach((B, k) => {
@@ -1481,8 +1490,10 @@ function centerLayout(
     const A = sung[k - 1],
       end = Math.min(A.L.sung, A.L.end),
       t = B.words[0].show;
-    if (trans)
-      passages.push({ ...timePassage(end, t, map, t - end < 1.2), line: B.i, quick: t - end < 1.2, reason: 'layout' });
+    // (a transition is for a pause: where the next line follows on — less than a bar's breath — the group simply
+    // fades as the next comes in, and the stage is not blurred away between every few lines)
+    if (trans && t - end >= Math.max(STAGE_PAUSE, 3 * map.beatLen(t)))
+      passages.push({ ...timePassage(end, t, map, false), line: B.i, quick: false, reason: 'layout' });
     else
       for (const P of sung.filter((Q) => groupOf.get(Q) === groupOf.get(A))) leaves.push({ line: P.i, t, inn: 0.35 });
   });
