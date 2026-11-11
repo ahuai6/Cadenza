@@ -124,3 +124,8 @@
 .top { -webkit-app-region: drag; } .top > * { -webkit-app-region: no-drag; }
 .winbtns { display: flex; gap: 2px; padding: 4px; border-radius: var(--r-pill); }
 .winbtns:empty { display: none; }
+/* the progress line: a taller place to press, the line itself as fine as before; dragging moves through the song */
+.player .bar { position: relative; height: 14px; background: none; cursor: pointer; touch-action: none; outline: none; }
+.player .bar::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 2px; border-radius: var(--r-pill); background: rgba(255,255,255,.4); transition: height var(--t-fast), top var(--t-fast); }
+.player .bar i { position: absolute; left: 0; top: 6px; height: 2px; border-radius: var(--r-pill); transition: height var(--t-fast), top var(--t-fast); }
+.player .bar:hover::before, .player .bar:hover i, .player .bar.drag::before, .player .bar.drag i, .player .bar:focus-visible::before, .player .bar:focus-visible i { top: 4px; height: 6px; }

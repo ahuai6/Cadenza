@@ -53,6 +53,10 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   const roll = (cf.fx.r - cf.cont.r) * settle, zoom = 1 + (cf.fx.z * (1 + Math.min(0.15, mb * 0.01)) - 1) * hold, ra = Math.abs(roll * D2R), zz = Math.max(0.05, zoom), E = Math.max(W, H) * 0.7;
   const Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(ra)) + H / 2 * Math.abs(Math.sin(ra))) / zz - W / 2, (W / 2 * Math.abs(Math.sin(ra)) + H / 2 * Math.abs(Math.cos(ra))) / zz - H / 2)) + 4);
   const bd: BackdropView = { roll, zoom, ox: (cf.fx.x * 0.5 - cf.hand[0] * 0.35) * hold, oy: (cf.fx.y * 0.5 - cf.hand[1] * 0.35) * hold, E, Ev, fit, rest };
+  // (album play: the backdrop — the cover — goes on from where the song before left it, easing to this song's own camera)
+  if (f.bdFrom && f.bdFrom.k > 0) { const B = f.bdFrom, k = B.k; bd.roll += (B.roll - bd.roll) * k; bd.zoom += (B.zoom - bd.zoom) * k; bd.ox += (B.ox - bd.ox) * k; bd.oy += (B.oy - bd.oy) * k;
+    const r2 = Math.abs(bd.roll * D2R), z2 = Math.max(0.05, bd.zoom); bd.Ev = Math.min(E, Math.ceil(Math.max(0, (W / 2 * Math.abs(Math.cos(r2)) + H / 2 * Math.abs(Math.sin(r2))) / z2 - W / 2, (W / 2 * Math.abs(Math.sin(r2)) + H / 2 * Math.abs(Math.cos(r2))) / z2 - H / 2)) + 4); }
+  f.bdOut = { roll: bd.roll, zoom: bd.zoom, ox: bd.ox, oy: bd.oy };
   // (an MV is one layer over the song's own theme: one that has run out fades away and leaves the song as it is without
   // it — its theme, whatever it is changed to, and no MV framing — never a stand-in backdrop)
   const bgFx = effect(st.bgStyle) || effect('minimal')!, sameAsAmbient = st.bgStyle === 'cover';

@@ -38,6 +38,9 @@ export interface LayoutResult { lines: PLine[]; words: PWord[]; passages: Passag
 export const tsz = (st: Style) => clamp(st.m.tsize ?? 1, 0.5, 2.5);
 /** How close the camera frames one word: about 68 % of the width or 46 % of the height, against the line's typical
  *  word height so small words are not blown up; never more than the frame can hold. */
+/** Which way each passage's lines go, in turn: rightward three times for every two leftward (reading the way the eye
+ *  reads is the calmer of the two; going back is the change). */
+const FLOW_TURNS = [1, -1, 1, 1, -1];
 export function wordZoom(S: { lw: number; lh: number }, medLh: number, W: number, H: number, T: number) {
   // a long word is not shrunk to fit: the camera frames a stretch of it (five or so characters, four down a column)
   // and travels along it as it is sung (camera.ts)
@@ -250,7 +253,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     S0.P = [sx, up ? y0 - BASE * (3 + rnd(secN * 2.2) * 1.5) : y1 + BASE * (2 + rnd(secN * 2.2) * 1.5)]; S0.lineStart = [...S0.P] as [number, number];
     // (round a centre: a new passage opens on the same centre — the passage before is gone under the transition)
     if (ORBIT) { S0.P = [-BASE * 3 * T, 0]; S0.lineStart = [...S0.P] as [number, number]; }
-    S0.th = ORBIT ? 0 : [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = secN % 2 ? -1 : 1; S0.flowFrom = null; S0.backN = 0; };
+    S0.th = ORBIT ? 0 : [0, -10, 8, -16, 14][Math.floor(rnd(secN * 5.7) * 5)] * TK * 0.6; S0.prevLine = null; S0.prevSeg = null; S0.lastTurn = -9; S0.secFirst = true; S0.flow = FLOW_TURNS[secN % FLOW_TURNS.length]; S0.flowFrom = null; S0.backN = 0; };
 
   /** (the 圓心 type: which try at a line's angle round the line before this placement is, or null for the ordinary ones) */
   let orbitTry: number | null = null;

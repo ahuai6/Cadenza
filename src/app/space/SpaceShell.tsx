@@ -24,7 +24,7 @@ const FACES: [string, string][] = [['serif', '聖堂中殿全部歌曲歌單設�
 export function SpaceShell() {
   const root = useRef<HTMLDivElement>(null), [ready, setReady] = useState(false), [cfg, setCfg] = useState<{ open: boolean; section?: string }>({ open: false }), [gen, setGen] = useState(0), [panel, setPanel] = useState<Panel>(null), [extra, setExtra] = useState<HTMLElement | null>(null), [detail, setDetail] = useState<Detail>(null), [winHost, setWinHost] = useState<HTMLElement | null>(null);
   const world = useRef<{ dispose(): void; takePointer(): void; closed(): void; pause(on: boolean): void } | null>(null);
-  const lang = useStore(langStore, x => x.lang), lite = useStore(settings, x => x.gfx === 'lite'), mini = useStore(ui, x => !!x.win.mini);
+  const lang = useStore(langStore, x => x.lang), lite = useStore(settings, x => x.gfx === 'lite'), mini = useStore(ui, x => !!x.win.mini), away = useStore(ui, x => !!x.win.min);
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(() => {
     if (!ready || !root.current) return;
@@ -39,7 +39,7 @@ export function SpaceShell() {
     });
     return () => { gone = true; world.current?.dispose(); world.current = null; };
   }, [ready, lang, gen]);
-  useEffect(() => { document.getElementById('mini')?.setAttribute('aria-pressed', String(mini)); world.current?.pause(mini); }, [mini, gen, lang, ready]);
+  useEffect(() => { document.getElementById('mini')?.setAttribute('aria-pressed', String(mini)); world.current?.pause(mini || away); }, [mini, away, gen, lang, ready]);
   const close = () => { setCfg({ open: false }); world.current?.takePointer(); };
   return (
     <div className={`space-root ${s.space}${cfg.open ? ' space-cfg' : ''}${lite ? ' space-lite' : ''}${mini ? ' space-mini' : ''}`} data-test="space">

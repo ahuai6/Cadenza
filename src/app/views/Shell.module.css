@@ -9,7 +9,7 @@
 .shell[data-layer="fx"] .tb { position: fixed; left: 0; right: 0; top: 0; height: var(--tb-h); }
 /* full screen, the pointer still: the window's buttons fade away (any movement brings them back) */
 .shell[data-idle="true"] .tb { opacity: 0; pointer-events: none; transition: opacity var(--t-exit) var(--ease); }
-.shell[data-top="modal"] .tb, .shell[data-top="menu"] .tb { -webkit-app-region: no-drag; app-region: no-drag; }
+.shell[data-top="modal"] .tb, .shell[data-top="menu"] .tb, .shell[data-mini="true"] .tb { -webkit-app-region: no-drag; app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 10px; padding-left: 22px; }
 .brand img { width: 18px; height: 18px; display: block; }
 .brand span { font-size: 19px; font-weight: 460; letter-spacing: -0.02em; font-style: italic; }

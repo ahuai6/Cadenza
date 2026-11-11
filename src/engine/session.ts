@@ -10,7 +10,7 @@ import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis
 import { planCuesFor, recommendMotion, ASPECTS, type ScenePlan } from '../director';
 import { planSong, type MapOrigin } from './planner';
 import type { SongInfo } from '../director/titles';
-import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, withLook, withMotion, withSavedMotion, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style, type SavedMotion } from '../theme/style';
+import { styleFromStored, presetStyle, normalizeStyle, knobbed, isCustom, withLook, withMotion, withSavedMotion, motionOf, PROJECT_KEYS, KNOB_REBUILD, REPLAN, RECUE, LOOK_KEYS, type Style, type SavedMotion } from '../theme/style';
 import { canvasMeasurer, EM } from '../text/metrics';
 import { fontStack, ensureFontSoon } from '../text/fonts';
 import { paletteOf, paletteFromImage, paletteVinyl, paletteForPreset, ambientFromImage, ambientFromName, type Palette, type Ambient } from '../render/palette';
@@ -79,8 +79,12 @@ export class Session {
     if (!a && buf && buf.getChannelData && !buf.load) { a = await analyzeInBackground(buf as AudioBuffer).catch(() => null); if (a) env.onAnalysis?.(a); }
     s.analysis = a;
     await s.build();
+    // a song with no style of its own takes the motion style that fits it (director/recommend.ts), not one for all
+    if (!spec.style) { const rec = s.recommended; if (motionOf(s.style) !== rec) { s.style = withMotion(s.style, rec); await s.replan(); } }
     return s;
   }
+  /** Back to what a new song gets: its look (the record for an instrumental, else the cover) and the motion style that fits it. */
+  resetStyle() { this.applyPreset(this.spec.instrumental ? 'vinyl' : 'cover'); this.style = withMotion(this.style, this.recommended); this.dirty |= BUILD; }
   analysis: RhythmAnalysis | null = null;
   /** the song's own look while it wears another one (see spec.look): what is kept with the song */
   ownLook: Partial<Style> | null = null;

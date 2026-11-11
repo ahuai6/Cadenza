@@ -86,7 +86,7 @@ describe.each(styles)('directions (%s)', cut => {
     for (const ls of secs) for (let k = 1; k < ls.length; k++) { if (ls[k].west && ls[k].ax < ls[k - 1].ax) leftSecs.add(ls[k].sec); else if (ls[k].ax > ls[k - 1].ax) right++; }
     expect(right).toBeGreaterThan(3); expect(leftSecs.size).toBeGreaterThanOrEqual(2);
   });
-  it('every transition turns the way the lines set off: rightward, leftward, …', () => {
+  it('transitions turn the way the lines set off, rightward a little more often than leftward', () => {
     if (cut === 'close' || cut === 'hover') return;   // (close up most moves are crossed by quick transitions of the camera's own; hovering, no follow to turn)
     // (how a passage sets off: its first step along among its first lines — steps up or down, or of columns, passed
     // over; a passage with none says no way and is passed over)
@@ -94,7 +94,9 @@ describe.each(styles)('directions (%s)', cut => {
       if (A.vert || B.vert || Math.abs(B.ay - A.ay) > Math.abs(B.ax - A.ax)) continue; return B.ax > A.ax ? 1 : -1; } return 0; };
     const ways = secs.map(way); let pairs = 0, turns = 0;
     for (let k = 1; k < ways.length; k++) if (ways[k] && ways[k - 1]) { pairs++; if (ways[k] !== ways[k - 1]) turns++; }
-    expect(pairs).toBeGreaterThanOrEqual(2); expect(turns / pairs).toBeGreaterThanOrEqual(0.6);
+    // (3.0.3: three passages go rightward for every two leftward — right, left, right, right, left — so four changes in
+    // five are turns over a long song; in a short one, at least half)
+    expect(pairs).toBeGreaterThanOrEqual(2); expect(turns / pairs).toBeGreaterThanOrEqual(0.5);
   });
   it('a passage keeps near where it began: no long run one way — it goes on above and below instead', () => {
     if (cut === 'close') return;   // (close up, every line is a long way across the frame)
@@ -515,7 +517,7 @@ describe('where a new line goes', () => {
         // (one carrying on in a passage that goes onward: a row above or below, its middle never left of the line before's)
         n++; if (along([B.ax, B.ay]) >= along([A.ax, A.ay]) - Math.max(A.bh, B.bh) * 0.5) ok++; }
       // (a passage gone far from where it began steps a little back towards there on purpose: a few lines do)
-      expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThanOrEqual(0.6);   // (2.17: lines set above as often as below — more of them in passages gone far, which step back on purpose)
+      expect(n + nb, cut).toBeGreaterThanOrEqual(3); if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThanOrEqual(0.5);   // (3.0.3: 0.5 — two rightward passages in a row now, the second gone further from where it began)   // (2.17: lines set above as often as below — more of them in passages gone far, which step back on purpose)
       // a line laid heading back: a row above or below (or wholly to its left), starting before the line before began, its middle left of that one's
       // (most of them: one nudged clear of an earlier word may sit a little off its row)
       expect(nb, cut).toBeGreaterThanOrEqual(1); expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75); }

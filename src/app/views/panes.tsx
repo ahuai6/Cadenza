@@ -35,7 +35,7 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
   const presets = ctx === 'song' ? ['cover', 'vinyl', 'liquid', 'gothic'] : Object.keys(PRESETS);
   // a look keeps the motion style and the knobs (a custom theme); a locked preset in the workshop is taken whole
   const usePreset = (k: string) => edit(x => { if (x.custom) x.applyLook(k); else x.applyPreset(k); });
-  const resetCover = () => edit(x => { x.applyPreset('cover'); if (ctx === 'song') x.makeCustom(); });
+  const resetCover = () => edit(x => { x.resetStyle(); if (ctx === 'song') x.makeCustom(); });
   const save = (asNew: boolean) => { const n = name.trim() || tx('th.untitled'), id = saveTheme(st, n, asNew); edit(x => { x.style.id = id; x.style.name = n; x.style.edited = false; }); toast(tx('th.saved', { name: n })); };
   return (
     <Section title={tx('th.h')} note={!custom && ctx === 'workshop' ? tx('th.locked') : tx('th.help')}>
@@ -119,7 +119,7 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
   const resetGroup = (g: string) => edit(x => { for (const [k, gg] of KNOBS) if (gg === g && k !== 'size') x.setKnob(k, 1); });
   const resetTune = () => edit(x => { for (const [k] of MACROS) x.setKnob(k, 1); });
   // (all back to the motion style as it comes: its own settings, every knob at 1)
-  const resetAll = () => edit(x => { x.applyMotion(motionOf(x.style)); for (const [k] of [...KNOBS, ...MACROS]) if (k !== 'size') x.setKnob(k, 1); x.setStyle('trans', 'auto'); x.setStyle('future', 'dim'); });
+  const resetAll = () => edit(x => { x.applyMotion(x.recommended); for (const [k] of [...KNOBS, ...MACROS]) if (k !== 'size') x.setKnob(k, 1); x.setStyle('trans', 'auto'); x.setStyle('future', 'dim'); });
   return (
     <>
       {!custom && <Note>{tx('th.locked')}</Note>}

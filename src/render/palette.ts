@@ -20,17 +20,19 @@ export function paletteFromImage(img: Img): Pick<Style, 'bg' | 'bg2' | 'text' | 
   return { bg: hexOf(bg), bg2: hexOf(bg2), text: hexOf(text), accent: hexOf(accent), flash: hexOf(flash) };
 }
 /** The record theme's colours from a cover: the ground is the cover's own dominant colour, deepened (the record and white
- *  lyrics sit on it); everything drawn on it — the second tone, the accent, the flash — leans to the cover's opposite
- *  hue, so the lines and shapes stand out against the cover's colour instead of melting into it. */
+ *  lyrics sit on it); what is drawn on it — the second tone, the accent, the flash — takes the cover's own vivid colour
+ *  (or, of a one-colour cover, a neighbouring hue), lightened until it stands clear of the ground: the stage reads as
+ *  the cover's, not as its opposite. */
 export function paletteVinyl(img: Img): Pick<Style, 'bg' | 'bg2' | 'text' | 'accent' | 'flash'> {
-  const { dom, acc } = coverColours(img), [h, s] = toHsl(dom), [ha, sa] = toHsl(acc), hue = ((sa > s + 0.15 ? ha : h) + 180) % 360, sat = Math.max(0.5, Math.min(0.85, Math.max(s, sa)));
+  const { dom, acc } = coverColours(img), [h, s] = toHsl(dom), [ha, sa] = toHsl(acc), hue = sa > 0.2 && Math.abs(((ha - h + 540) % 360) - 180) < 150 ? ha : (h + 32) % 360,   /* (the cover's own second colour; a cover of one colour: its neighbour) */ sat = Math.max(0.5, Math.min(0.85, Math.max(s, sa)));
   const bg = mix(dom, K3, 0.74), bg2 = mix(bg, hsl(hue, sat * 0.7, 0.32), 0.42);
   let accent = hsl(hue, sat, 0.62); for (let k = 0; k < 8 && contrast(accent, bg) < 3.2; k++) accent = mix(accent, W3, 0.18);
   let text = mix(W3, accent, 0.05); for (let k = 0; k < 8 && contrast(text, bg) < 7; k++) text = mix(text, W3, 0.35);
   return { bg: hexOf(bg), bg2: hexOf(bg2), text: hexOf(text), accent: hexOf(accent), flash: hexOf(hsl(hue, sat * 0.6, 0.84)) };
 }
 /** The colours a theme takes from the cover (null: the theme keeps its own). */
-export const paletteForPreset = (id: string, img: Img) => (id === 'cover' ? paletteFromImage(img) : id === 'vinyl' ? paletteVinyl(img) : null);
+/* (every look takes the cover's colours — the record its own reading of them; only the video keeps its own, over a film) */
+export const paletteForPreset = (id: string, img: Img) => (id === 'vinyl' ? paletteVinyl(img) : id === 'video' ? null : paletteFromImage(img));
 /** A cover's dominant colour (its largest area), its most vivid usable colour and its average. */
 function coverColours(img: Img) {
   const c = makeCanvas(40, 40), g = c.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D; g.drawImage(img, 0, 0, 40, 40);

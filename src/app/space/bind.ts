@@ -15,7 +15,7 @@ export interface NowLine { t: number; end: number; sung: number; text: string; /
   /** the harmony sung with the line (its words' harmonies together), from when it is sung */ harm: { text: string; t: number } | null }
 export interface SpaceNow {
   id: string | null; title: string; artist: string; album: string; cover: string | null; coverFull: string | null;
-  playing: boolean; t: number; dur: number; lines: NowLine[];
+  playing: boolean; /** a song is on its way (asked for, still loading): what plays for it steps aside already */ busy: boolean; t: number; dur: number; lines: NowLine[];
 }
 export interface SpaceBind {
   library(): SpaceLibrary;
@@ -23,7 +23,8 @@ export interface SpaceBind {
   onLibrary(f: (l: SpaceLibrary) => void): () => void;
   now(): SpaceNow;
   play(ids: string[], index?: number): void;
-  toggle(): void; next(): void; prev(): void;
+  toggle(): void; next(): void; prev(): void; /** to a moment of the song (seconds) */ seek(t: number): void;
+  /** the window to the taskbar: nothing is drawn until it is back (energy saving) */ rest(): void;
   /** the small window on top of every other (the app kept in the foreground), and back */
   mini(): void;
   /** a cover's address: the small one (walls, collages) or the full one (the nave's frames, the sanctuary) */
@@ -79,10 +80,11 @@ export function createBind(): SpaceBind {
             harm: hw.length ? { text: hw.map(w => w.harm!.text.trim()).join(' '), t: Math.min(...hw.map(w => isFinite(w.harm!.t) ? w.harm!.t : L.t)) } : null,
             kar: !!L.kar, times: L.kar ? L.words.flatMap(w => w.units.map(u => u.t ?? w.t)) : [] }; }); }
       return { id: id ?? null, title: t?.title || '', artist: t?.albumArtist || t?.artist || '', album: t?.album || '', cover: coverUrl(t?.cover) || null, coverFull: coverUrl(t?.cover, true) || null,
-        playing: p.playing, t: engine.time, dur: s?.musicEnd || t?.duration || 0, lines };
+        playing: p.playing, busy: p.playing || p.loading, t: engine.time, dur: s?.musicEnd || t?.duration || 0, lines };
     },
     play(ids, index = 0) { if (ids.length) playIds(ids, index).catch(() => {}); },
-    mini: () => { D?.win('mini'); },
+    mini: () => { D?.win('mini'); }, rest: () => { D?.win('min'); },
+    seek: (t) => { const s = player.get().session; if (s) engine.seek(Math.max(0, Math.min(s.musicEnd, t))); },
     toggle, next: () => { next().catch(() => {}); }, prev: () => { prev().catch(() => {}); },
     cover: (key, full = false) => coverUrl(key, full) || null,
     rhythm: (t) => rhythmAt(accentClock, player.get().session, t),

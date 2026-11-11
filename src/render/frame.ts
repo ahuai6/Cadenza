@@ -18,7 +18,11 @@ export interface ViewMix {
   effect: number;
   /** words and screen effects fade with it; the backdrop crossfades */
 }
+/** Where the backdrop's camera stands (its roll, push and shift): written by each drawn frame, and, in album play, the
+ *  one the song before ended on, eased away from (`k`: 1 at the change, 0 once the new song's own camera has it). */
+export interface BackdropPose { roll: number; zoom: number; ox: number; oy: number }
 export interface RenderFrame {
+  bdFrom?: BackdropPose & { k: number }; bdOut?: BackdropPose;
   plan: ScenePlan; style: Style; pal: Palette; ambient: Ambient;
   t: number; dt: number;
   /** reference frame size (720 tall) and the device-pixel scale from it */

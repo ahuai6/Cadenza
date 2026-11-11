@@ -31,6 +31,8 @@ const W: Record<string, Row> = {
   'fx.pulse': ['場景明暗強度', '场景明暗强度', 'Room pulse', '空間の明滅', '공간 명암', 'Pulso de la sala'],
   'fx.tint': ['封面色彩強度', '封面色彩强度', 'Cover colour', 'ジャケット色の強さ', '표지 색 강도', 'Color de la portada'],
   'fx.beams': ['光束亮度', '光束亮度', 'Beam brightness', '光線の明るさ', '빛줄기 밝기', 'Brillo de los haces'],
+  'seek': ['播放進度', '播放进度', 'Position in the song', '再生位置', '재생 위치', 'Posición'],
+  'rest': ['節能：收到工作列並停止繪製，回到視窗時自動恢復', '节能：收到任务栏并停止绘制，回到窗口时自动恢复', 'Rest: down to the taskbar, nothing drawn until you are back', '省エネ：タスクバーに収め、戻るまで描画を止める', '절전: 작업 표시줄로 내리고 돌아올 때까지 그리지 않음', 'Reposo: a la barra de tareas, sin dibujar hasta que vuelvas'],
   'reach': ['走近一點才能互動', '走近一点才能互动', 'Walk closer to use it', '近づくと操作できます', '가까이 가야 쓸 수 있어요', 'Acércate para usarlo'],
   'settings': ['設定', '设置', 'Settings', '設定', '설정', 'Ajustes'], 'close': ['關閉', '关闭', 'Close', '閉じる', '닫기', 'Cerrar'],
   'tip.sit': ['坐下', '坐下', 'Sit down', '座る', '앉기', 'Sentarse'], 'tip.sitSub': ['從這裡看', '从这里看', 'See from here', 'ここから眺める', '여기서 보기', 'Mirar desde aquí'],

@@ -11,7 +11,7 @@ import { cameraAt, settleAt, type CamFrame } from '../director/evaluate';
 import { pathDiag, basePose } from '../director/camera';
 import { drawFrame, PROFILE } from '../render/renderer';
 import { setGpuLyrics, gpuLyrics } from '../render/gfx';
-import { MV_LOOK, type RenderFrame, type MvLook } from '../render/frame';
+import { MV_LOOK, type RenderFrame, type MvLook, type BackdropPose } from '../render/frame';
 import { makeCanvas } from '../render/palette';
 import type { RhythmSample } from '../rhythm/signals';
 import { AudioClock, type ExternalOut } from './audio';
@@ -39,6 +39,7 @@ export interface RenderSettings { scale: 'auto' | number; fps: number; prerender
  *  and per layer, smoothed; what the GPU lyric layer drew; the last plan. */
 export interface PerfStats { fps: number; frameMs: number; drawMs: number; layers: Record<string, number>; w: number; h: number }
 
+const BD_CARRY = 2.6;       // seconds the backdrop takes from the old song's pose to the new one's, in album play
 const CARRY = 3.2;          // seconds the song before stays on in album play
 const SWAP_FADE = 0.9;      // seconds a newer rhythm's picture takes over from the one before (with no blur to hide it)
 const SWAP_UNDER = 0.4;     // … and at a blur's peak (the picture before, nearly all blur, dissolves into the new one)
@@ -159,9 +160,9 @@ export class Engine extends Emitter<EngineEvents> {
    *  the new one's (the same look) without a blur, and its last words stay on, drifting with its camera and fading,
    *  while the new song begins; the audio is not touched. */
   show(s: Session, o: { transition?: 'song' | 'album' | 'none'; at?: number; play?: boolean } = {}) {
-    const was = this.playing; this.stopAudio(); this.carry = null; this.goodCf = null; this.badFrames = 0;
+    const was = this.playing; this.stopAudio(); this.carry = null; this.bdCarry = null; this.goodCf = null; this.badFrames = 0;
     if (DEBUG.on) { DEBUG.event('song shown', { title: s.spec.song?.title, at: o.at ?? 0 }); this.debugSetup(s); }
-    if (o.transition === 'album' && this.session && this.view === 'effect') this.carry = { s: this.session, t0: this.t, at: performance.now() };
+    if (o.transition === 'album' && this.session && this.view === 'effect') { this.carry = { s: this.session, t0: this.t, at: performance.now() }; this.bdCarry = this.lastBd ? { ...this.lastBd, at: performance.now() } : null; }
     else if (o.transition && o.transition !== 'none' && this.session && this.view !== 'hidden') { const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement; cv.getContext('2d')!.drawImage(this.canvas, 0, 0); this.fadeOut = { cv, t0: performance.now() }; }
     this.session = s; this.t = clamp(o.at ?? 0, 0, Math.max(0, s.dur - 0.01)); this.endedFired = false; this.musicEndFired = false;
     this.clock.hold(this.t); this.dirty = true; this.emit('session', s); this.emit('change', undefined);
@@ -299,13 +300,17 @@ export class Engine extends Emitter<EngineEvents> {
   private goodCf: CamFrame | null = null; badFrames = 0; private lastBad = ''; private loggedPlan: unknown = null;
   private rsCache: { t: number; v: RhythmSample } | null = null;
   private frameRs(s: Session) { if (this.rsCache && this.rsCache.t === this.t) return this.rsCache.v; const v = s.sig.sample(this.t); this.rsCache = { t: this.t, v }; return v; }
+  /** album play: the backdrop's pose the song before ended on, eased away from over BD_CARRY seconds (renderer.ts) */
+  private lastBd: BackdropPose | null = null; private bdCarry: (BackdropPose & { at: number }) | null = null;
   private draw(s: Session) {
     const f = this.frameAt(this.t); if (!f) return; const g = this.g, cw = this.canvas.width, ch = this.canvas.height;
+    if (this.bdCarry) { const u = (performance.now() - this.bdCarry.at) / 1000 / BD_CARRY; if (u >= 1) this.bdCarry = null; else { f.bdFrom = { ...this.bdCarry, k: 1 - sstep(u) }; this.dirty = true; } }
     const N = !this.playing ? ssFactor(s.style.aa, cw, ch) : 1, target = N > 1 ? this.ssCanvas(cw * N, ch * N) : null, tg = target ? target.getContext('2d')! : g;
     tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalAlpha = 1; tg.globalCompositeOperation = 'source-over';
     f.px = ch * N / s.plan.H;
     const t0 = this.render.stats ? performance.now() : 0, t1 = DEBUG.on ? performance.now() : 0;
     drawFrame(tg, f, { sig: s.sig, captions: true, capSubs: this.render.capSubs !== false, capReads: this.render.capReads !== false, captionBottom: s.plan.H * 0.9, under: (gg, ff) => this.handoff.drawCover(gg, ff), overlay: (gg, ff) => this.handoff.draw(gg, ff) });
+    this.lastBd = f.bdOut || null;
     if (this.render.stats) { const P = this.perf, now = performance.now(), k = 0.1, dt = this.lastFrameAt ? now - this.lastFrameAt : 0; this.lastFrameAt = now;
       // (smoothed; each starts at its first reading)
       P.drawMs = P.drawMs ? P.drawMs + (now - t0 - P.drawMs) * k : now - t0; if (dt > 0 && dt < 1000) { P.frameMs = P.frameMs ? P.frameMs + (dt - P.frameMs) * k : dt; P.fps = 1000 / Math.max(1, P.frameMs); }

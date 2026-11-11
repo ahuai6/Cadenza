@@ -54,7 +54,7 @@ export interface DesktopApi {
   openWrite(path: string): Promise<number>; write(id: number, data: Uint8Array, pos: number): Promise<void>; close(id: number): Promise<number>; abort(id: number): Promise<void>;
   saveText(path: string, text: string): Promise<void>; showItem(path: string): Promise<void>;
   platform: string; win(op: 'min' | 'max' | 'close' | 'full' | 'mini'): Promise<{ max: boolean; full: boolean; mini?: boolean } | null>;
-  onWin(f: (s: { max: boolean; full: boolean; mini?: boolean }) => void): Off; onMedia(f: (op: 'toggle' | 'next' | 'prev') => void): Off;
+  onWin(f: (s: { max: boolean; full: boolean; mini?: boolean; min?: boolean }) => void): Off; /** whether a song is playing (the taskbar's play / pause button shows it) */ playing?(on: boolean): Promise<void>; onMedia(f: (op: 'toggle' | 'next' | 'prev') => void): Off;
   settings(): Promise<Settings>; setSettings(p: Partial<Settings>): Promise<Settings>;
   /** restart the app (the interface mode takes effect at start) */ relaunch(): Promise<void>;
 }

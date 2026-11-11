@@ -35,6 +35,9 @@ export function boot(ready: () => void): () => void {
   // the GPU to itself then; it goes on in the library, on the play page, or paused
   const watch = () => pauseAnalysis(ui.get().layer === 'fx' && playerApi.player.get().playing, 'watching');
   const offW = [ui.subscribe(watch), playerApi.player.subscribe(watch)];
+  // (the taskbar's play / pause button shows what a click would do)
+  let wasPlaying: boolean | null = null; const tell = () => { const on = playerApi.player.get().playing; if (on !== wasPlaying) { wasPlaying = on; d.playing?.(on)?.catch?.(() => {}); } };
+  offW.push(playerApi.player.subscribe(tell)); tell();
   const offs = [l.onChanged(v => lib.set({ ...v, analysis: null })), l.onProgress(p => lib.set({ progress: p })), l.onAnalysis(a => lib.set({ analysis: a })),
     d.onWin(win => ui.set({ win }))];
   return () => { offs.forEach(f => f()); offW.forEach(f => f()); };

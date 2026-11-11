@@ -63,15 +63,18 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false, backgroundThrottling: false },
   });
   const hidden = process.argv.includes('--hidden') && settings.closeToTray;      // started at login into the tray
-  win.once('ready-to-show', () => { if (!hidden) win.show(); });
+  win.once('ready-to-show', () => { if (!hidden) win.show(); setThumbar(); });
+  win.on('show', setThumbar); win.on('restore', setThumbar);   // (Windows forgets them when the window has been hidden)
   setTimeout(() => { if (win && !win.isDestroyed() && !win.isVisible() && !hidden) win.show(); }, 3000);   // some GPUs never report ready
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', e => e.preventDefault());
   // on Windows isFullScreen() can still report the old state while its own event fires: each event says what it means,
   // and the state is read again once the window has settled
-  const send = (o = {}) => win && !win.isDestroyed() && win.webContents.send('win:state', { max: win.isMaximized() && !win.isFullScreen(), full: win.isFullScreen(), mini: !!miniFrom, ...o });
+  const send = (o = {}) => win && !win.isDestroyed() && win.webContents.send('win:state', { max: win.isMaximized() && !win.isFullScreen(), full: win.isFullScreen(), mini: !!miniFrom, min: win.isMinimized(), ...o });
   let settle = 0; const state = o => { send(o); clearTimeout(settle); settle = setTimeout(() => send(), 250); };
   win.on('maximize', () => state({ max: true })); win.on('unmaximize', () => state({ max: false }));
+  // (minimised: the page is told, and draws nothing until the window is back — the space's energy saving is this)
+  win.on('minimize', () => send({ min: true })); win.on('restore', () => send({ min: false }));
   win.on('enter-full-screen', () => state({ full: true })); win.on('leave-full-screen', () => state({ full: false }));
   win.on('resize', () => state());
   win.on('close', e => { if (settings.closeToTray && !quitting) { e.preventDefault(); win.hide(); } });
@@ -85,6 +88,22 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 ]));
 
 /* ---------- window buttons and settings ---------- */
+// the taskbar preview's buttons (Windows): previous, play / pause, next. Their pictures are drawn here, white on clear.
+function thumbIcon(kind) {
+  const N = 32, buf = Buffer.alloc(N * N * 4), put = (x, y) => { if (x < 0 || y < 0 || x >= N || y >= N) return; const o = (y * N + x) * 4; buf[o] = buf[o + 1] = buf[o + 2] = 255; buf[o + 3] = 255; };
+  const rect = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) put(x, y); };
+  const tri = (x0, x1, dir) => { for (let y = 7; y < 25; y++) { const k = 1 - Math.abs(y - 15.5) / 9, w = Math.round((x1 - x0) * k); for (let i = 0; i < w; i++) put(dir > 0 ? x0 + i : x1 - i, y); } };
+  if (kind === 'play') tri(10, 25, 1); else if (kind === 'pause') { rect(9, 7, 14, 25); rect(18, 7, 23, 25); }
+  else if (kind === 'next') { tri(7, 21, 1); rect(22, 7, 25, 25); } else { tri(10, 24, -1); rect(7, 7, 10, 25); }
+  return nativeImage.createFromBitmap(buf, { width: N, height: N, scaleFactor: 2 });
+}
+let thumbPlaying = false;
+function setThumbar() {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  const send = op => () => win && win.webContents.send('media', op);
+  try { win.setThumbarButtons([{ tooltip: 'Previous', icon: thumbIcon('prev'), click: send('prev') }, { tooltip: thumbPlaying ? 'Pause' : 'Play', icon: thumbIcon(thumbPlaying ? 'pause' : 'play'), click: send('toggle') }, { tooltip: 'Next', icon: thumbIcon('next'), click: send('next') }]); } catch (e) { /* no taskbar */ }
+}
+ipcMain.handle('win:playing', (_e, on) => { if (!!on !== thumbPlaying) { thumbPlaying = !!on; setThumbar(); } });
 // the small window: kept on top of every other window in a corner of the screen, so the app stays in the foreground
 // (Windows throttles a background app's audio over Bluetooth); the window's size and place before it come back after
 let miniFrom = null;

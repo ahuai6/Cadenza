@@ -72,7 +72,7 @@ export const MOTIONS: Record<string, MotionRecipe> = {
   /** 敘事: glides from word to word — mid-tempo pop, ballads (the cover theme's own motion: new songs) */
   story: mo('cover', 'glide', 'flow', 'drift', 'none'),
   /** 圓舞: steady, on curves, floating — slow songs, 3/4, gentle ones */
-  waltz: mo('liquid', 'waltz', 'flow', 'rise', 'drift'),
+  waltz: mo('liquid', 'waltz', 'flow', 'rise', 'drift', { shake: .1, sway: .62, punch: .36, impk: .42, speed: .68, tilt: .82, turn: .36 }),   // (softer than the liquid look's own: a waltz sways, it does not hit)
   /** 律動: quick and hard on the beat — fast songs, electronic, rock */
   groove: mo('gothic', 'punch', 'flow', 'pop', 'none'),
   /** 特寫: close on every character — rap, spoken words, dense lyrics (a quick entrance: a word this large, this close,

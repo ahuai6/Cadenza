@@ -198,6 +198,9 @@ export async function resumeLast() {
 }
 /** The output was switched in the settings: the same song, from the same moment, through the other one. */
 export async function switchOutput() {
+  // (leaving the Hi-Fi output: its player lets go of the device at once — held exclusively, it would otherwise keep the
+  // standard output silent until it gave the device up on its own, some twenty seconds later)
+  if (!hifiOn() && engine.clock.external) { engine.pause(); hifiStop(); hifiRelease(); await new Promise(r => setTimeout(r, 300)); }
   await hifiRefresh();
   const p = player.get(); if (!p.id) return;
   await loadAt(p.index, p.playing, engine.time);

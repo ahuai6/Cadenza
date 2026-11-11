@@ -1,5 +1,6 @@
 /* the small window: the lyrics on a liquid of the cover's colours */
-.mini { position: fixed; inset: 0; z-index: 400; overflow: hidden; color: #fff; -webkit-app-region: drag; user-select: none; }
+.mini { position: fixed; inset: 0; z-index: 400; overflow: hidden; color: #fff; user-select: none; }
+/* the window is dragged by its top strip (clear of the button) and by the song's name: never by anything a button sits in */
 .liquid { position: absolute; inset: -30%; filter: blur(34px) saturate(1.15); }
 .liquid i { position: absolute; width: 70%; height: 70%; border-radius: 50%; opacity: .9; animation: drift 19s ease-in-out infinite alternate; }
 .liquid i:nth-child(1) { left: 0; top: 0; }
@@ -9,12 +10,12 @@
 @keyframes drift { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(12%, 8%) scale(1.15); } 66% { transform: translate(-8%, 14%) scale(.9); } 100% { transform: translate(6%, -10%) scale(1.08); } }
 @media (prefers-reduced-motion: reduce) { .liquid i { animation: none; } }
 .mini::after { content: ""; position: absolute; inset: 0; background: rgba(20, 14, 10, .22); pointer-events: none; }
-.grab { position: absolute; left: 0; right: 0; top: 0; height: 26px; z-index: 2; }
-.lyr { position: absolute; left: 0; right: 0; top: 18px; bottom: 50px; z-index: 1; -webkit-app-region: no-drag; mask-image: linear-gradient(transparent, #000 16%, #000 80%, transparent); --np-fs: .95; }
+.grab { position: absolute; left: 0; right: 48px; top: 0; height: 26px; z-index: 2; -webkit-app-region: drag; app-region: drag; }
+.lyr { position: absolute; left: 0; right: 0; top: 18px; bottom: 50px; z-index: 1; mask-image: linear-gradient(transparent, #000 16%, #000 80%, transparent); --np-fs: .95; }
 .none { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; font-size: 18px; font-weight: 700; }
-.back { position: absolute; top: 6px; right: 6px; z-index: 3; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, .18); color: #fff; cursor: pointer; -webkit-app-region: no-drag; }
+.back { position: absolute; top: 6px; right: 6px; z-index: 3; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, .18); color: #fff; cursor: pointer; }
 .back:hover { background: rgba(255, 255, 255, .3); }
 .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 50px; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 0 12px; }
-.pp { width: 34px; height: 34px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, .22); color: #fff; cursor: pointer; -webkit-app-region: no-drag; }
-.t { min-width: 0; display: flex; flex-direction: column; text-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
+.pp { width: 34px; height: 34px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, .22); color: #fff; cursor: pointer; }
+.t { flex: 1; -webkit-app-region: drag; app-region: drag; min-width: 0; display: flex; flex-direction: column; text-shadow: 0 1px 6px rgba(0, 0, 0, .3); }
 .t b, .t small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .t b { font-size: 13px; } .t small { font-size: 11px; opacity: .8; }

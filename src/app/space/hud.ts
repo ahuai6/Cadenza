@@ -37,8 +37,9 @@ export const hudHtml = () => `
 <div class="hud reticle" id="reticle" hidden></div>
 <div class="hud player card" aria-label="${esc(ts('room.altar.sub'))}">
   <button class="btn solid" id="pp" aria-label="${esc(ts('play'))}">▶</button>
-  <div class="t"><b id="p-title">${esc(ts('nothing'))}</b><span id="p-sub"></span><div class="bar"><i id="p-bar"></i></div></div>
+  <div class="t"><b id="p-title">${esc(ts('nothing'))}</b><span id="p-sub"></span><div class="bar" id="p-seek" role="slider" tabindex="0" aria-label="${esc(ts('seek'))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="p-bar"></i></div></div>
   <button class="btn hp" id="hp" aria-pressed="true" title="${esc(ts('phones.onHelp'))}">${esc(ts('phones.on'))}</button>
   <span class="extras" id="p-extra"></span>
+  <button class="btn mini" id="rest" title="${esc(ts('rest'))}" aria-label="${esc(ts('rest'))}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 14.2A7.8 7.8 0 0 1 9.8 4.5 7.8 7.8 0 1 0 19.5 14.2z"/></svg></button>
   <button class="btn mini" id="mini" aria-pressed="false" title="${esc(ts('mini'))}" aria-label="${esc(ts('mini'))}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><rect x="4" y="5.5" width="16" height="13" rx="3"/><rect x="11.5" y="11" width="6.5" height="5" rx="1.4"/></svg></button>
 </div>`;

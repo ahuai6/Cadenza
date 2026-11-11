@@ -434,7 +434,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     const el = document.createElement('div'); el.className = 'cb in'; el.style.fontFamily = bind.capFace(parts.map(p => p.s).join(''));
     for (const p of parts) { const d = document.createElement('div'), lat = LAT.test(p.s); d.className = `cap ${p.kind}${lat ? ' lat' : ''}`; d.textContent = lat ? p.s.toLowerCase() : p.s; el.append(d); }
     box.append(el); capEl = el; requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('in'))); }
-  let fakeNow = null, fakeBeats = null, paused = false;   // (tests: a song without the player; a steady beat without an analysis)
+  let fakeNow = null, fakeBeats = null, paused = false, barW = '';   // (tests: a song without the player; a steady beat without an analysis)
   let lastRailKey = '', bowlDirty = true;   // the wall is laid out again when it moves, its hover changes or it is rebuilt
   let shadowDirty = true;   // the shadow map is redrawn only when something that casts a shadow has changed
   const pickables = [], albumMeshes = [];
@@ -961,7 +961,15 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   onW('keyup', e => keys.delete(e.code)); onW('blur', () => keys.clear());
   function togglePlay() { bind.toggle(); }
 
-  $('mini').onclick = () => bind.mini();
+  $('mini').onclick = () => bind.mini(); $('rest').onclick = () => bind.rest();
+  // the progress line: press or drag to move through the song (the song follows when let go; the line follows the hand)
+  let seeking = null;
+  { const bar = $('p-seek'), at = (e) => { const r = bar.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width))); };
+    bar.addEventListener('pointerdown', (e) => { if (!NOW.dur) return; e.preventDefault(); bar.setPointerCapture(e.pointerId); bar.classList.add('drag'); seeking = at(e); });
+    bar.addEventListener('pointermove', (e) => { if (seeking != null) seeking = at(e); });
+    const up = (e) => { if (seeking == null) return; const u = seeking; seeking = null; bar.classList.remove('drag'); if (e.type === 'pointerup') bind.seek(u * NOW.dur); };
+    bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
+    bar.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); bind.seek(NOW.t + (e.key === 'ArrowRight' ? 5 : -5)); } }); }
   $('pp').onclick = togglePlay;
   Object.keys(PLACES).forEach(k => $('go-' + k).onclick = () => { hideCards(); setPlace(k); });
   $('f-close').onclick = () => { hideCards(); takePointer(); }; $('f-play').onclick = () => { onPlay && onPlay(); takePointer(); };
@@ -1030,7 +1038,7 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     // the song comes in here when the room plays it (Cadenza's engine sends it after its own gain: volume, balance, fades)
     au.songIn = ctx.createGain(); au.songIn.connect(au.direct); au.songIn.connect(au.scene); au.ready = true; routeSong();
     try { const ab = await ctx.decodeAudioData(await (await fetch(AMBIENT)).arrayBuffer());
-      au.buf = seamless(ab, ctx); const src = ctx.createBufferSource(); src.buffer = au.buf; src.loop = true; src.connect(au.amb); src.start(); au.ambSrc = src;
+      au.buf = seamless(ab, ctx);   // (played by ambientTick, only while no song plays or is on its way)
       // build the rooms' responses one at a time when the page is idle, so the picture never waits on them
       const rooms = Object.keys(RT60), next = () => { const r = rooms.shift(); if (!r) return; au.verbs[r].cv.buffer = makeIR(ctx, RT60[r]); later(next); }, later = (f) => window.requestIdleCallback ? window.requestIdleCallback(f, { timeout: 600 }) : setTimeout(f, 200); next();
       updateAmbient(); } catch (e) { au.failed = true; } }
@@ -1038,8 +1046,15 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   function startSong() { return; if (!au.ready) return; stopSong(); const src = au.ctx.createBufferSource(); src.buffer = au.buf; src.loop = true; src.connect(au.direct); src.connect(au.scene); src.start(); au.song = src; }
   function stopSong(delay = 0) { const s = au.song; au.song = null; if (s) try { s.stop(au.ctx.currentTime + delay); } catch (e) {} }
   function aramp(p, v, sec) { const t = au.ctx.currentTime; p.cancelScheduledValues(t); p.setValueAtTime(p.value, t); p.linearRampToValueAtTime(v, t + sec); }
-  function updateAmbient() { if (!au.ready) return; const vol = +(S.musicVol ?? .6);
-    aramp(au.amb.gain, (!playing && S.music !== false) ? vol : 0, playing ? 1.2 : 3.5); }
+  // the room's own music exists only between songs: the moment a song is asked for (before it has even been read) it
+  // fades and its source is stopped — nothing of it runs under a song — and it comes back, from a new source, a few
+  // seconds after the song is paused or over
+  let ambOn = false, ambAt = 0, songSeen = false;
+  function ambientTick(now) { if (!au.ready || !au.buf) return; const want = !NOW.busy && S.music !== false; if (NOW.busy) songSeen = true;
+    if (!want) { ambAt = 0; if (ambOn) { ambOn = false; aramp(au.amb.gain, 0, .45); const src = au.ambSrc; au.ambSrc = null; if (src) setTimeout(() => { try { src.stop(); src.disconnect(); } catch (e) {} }, 600); } return; }
+    if (ambOn) return; if (!ambAt) ambAt = now + (songSeen ? 4000 : 0); if (now < ambAt) return;
+    ambOn = true; const src = au.ctx.createBufferSource(); src.buffer = au.buf; src.loop = true; src.connect(au.amb); src.start(); au.ambSrc = src; aramp(au.amb.gain, +(S.musicVol ?? .6), 3.5); }
+  function updateAmbient() { if (au.ready && ambOn) aramp(au.amb.gain, +(S.musicVol ?? .6), .4); }
   // headphones: the song leaves Cadenza exactly as it always does (the engine's own path, untouched); taking them off
   // sends it into the room, the clean sound muffled away as the speakers come in. The Hi-Fi output never enters the page,
   // so with it the headphones stay on.
@@ -1290,8 +1305,10 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
   const fwd = new V3(), right = new V3(), acc = new V3(), tng = new V3(), gp = new V3(), gd = new V3(), camDir = new V3();
   function frame(now) {
     if (!alive) return; requestAnimationFrame(frame); frameN++; const dt = Math.max(0, Math.min(.05, (now - last) / 1000)); last = now;   // (the first frame can be stamped before the loop began)
-    NOW = fakeNow ? { ...fakeNow, t: (performance.now() - fakeNow.t0) / 1000 * (fakeNow.rate || 1) } : bind.now(); songT = NOW.t; $('p-bar').style.width = `${NOW.dur ? Math.min(100, NOW.t / NOW.dur * 100) : 0}%`;
-    if (NOW.playing !== playing) { playing = NOW.playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', ts(playing ? 'pause' : 'play')); updateAmbient(); }
+    NOW = fakeNow ? { ...fakeNow, t: (performance.now() - fakeNow.t0) / 1000 * (fakeNow.rate || 1) } : bind.now(); songT = NOW.t; { const u = seeking != null ? seeking : NOW.dur ? Math.min(1, NOW.t / NOW.dur) : 0, w = (u * 100).toFixed(2); if (w !== barW) { barW = w; $('p-bar').style.width = w + '%'; $('p-seek').setAttribute('aria-valuenow', String(Math.round(u * 100))); } }
+    if (NOW.playing !== playing) { playing = NOW.playing; $('pp').textContent = playing ? '❚❚' : '▶'; $('pp').setAttribute('aria-label', ts(playing ? 'pause' : 'play')); }
+    ambientTick(now);
+    if (paused) return;   // (the small window, or the window down in the taskbar: nothing of the scene is worked out or drawn)
     if (NOW.id !== nowId) { nowId = NOW.id; $('p-title').textContent = NOW.title || ts('nothing'); $('p-sub').textContent = [NOW.artist, NOW.album].filter(Boolean).join(' · ');
       altarArt.material.map = covers.get(NOW.coverFull, NOW.id || 'none'); altarArt.material.needsUpdate = true;
       lineTex.forEach(t => t.dispose()); lineTex.clear(); lyricMeshes.forEach(L => { L.idx = -1; L.m.visible = false; }); scene3.lastIdx = -1; }
@@ -1359,7 +1376,6 @@ export function createWorld(bind: SpaceBind, ui: SpaceUi): { dispose(): void; ta
     wallTick(dt);
     if (shadowDirty) { shadowDirty = false; renderer.shadowMap.needsUpdate = true; } atlas.flush(now);
     // one bad frame (a texture the GPU refuses, say) must not stop the picture: it is reported, the next frame tries again
-    if (paused) return;   // (the small window shows only the lyrics: the scene rests)
     try { composer.render(); renderErrors = 0; } catch (e) { if (renderErrors++ < 3) console.error('[space] frame', e); }
   }
   window.__cad = { fakeNow: (o) => { fakeNow = o ? { ...o, t0: performance.now() } : null; }, fakeBeats: (bl) => { fakeBeats = bl ? { bl } : null; }, tint: () => [tintAmt, tintNow.getHexString(), MAT.paper.color.getHexString(), JSON.stringify(bind.tint())], scene: () => scene, lights: () => { if (!LIGHTS) lightsBuild(); return LIGHTS.map(L => [L.room, +L.p.x.toFixed(1), +L.p.y.toFixed(1), +L.p.z.toFixed(1), +L.size.toFixed(1)]); }, faceLight: (k) => { const L = LIGHTS[k], d = L.p.clone().sub(me.pos); me.yaw = Math.atan2(-d.x, -d.z); me.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }, exp: () => [dream.exposure, dream.lum], overlaps: () => { world.updateMatrixWorld(true); const bx = furniture.map(g => { const b = new THREE.Box3(); g.traverse(o => { if (o.isMesh && !o.userData.thin && !noLine.includes(o)) b.expandByObject(o); }); return b.expandByScalar(-.04); }), out = [];

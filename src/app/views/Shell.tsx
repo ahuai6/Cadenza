@@ -57,7 +57,7 @@ export function Shell() {
   const top = modal ? 'modal' : menu ? 'menu' : layer;
   return (
     // a language change rebuilds the interface (every label is read again)
-    <div key={lng} className={s.shell} data-page={page} data-layer={layer} data-top={top} data-idle={idle || undefined} data-card={(page !== 'workshop' && hasTrack) || undefined}>
+    <div key={lng} className={s.shell} data-page={page} data-layer={layer} data-top={top} data-idle={idle || undefined} data-mini={mini || undefined} data-card={(page !== 'workshop' && hasTrack) || undefined}>
       <TitleBar />
       <div className={s.body}>
         <Sidebar />
