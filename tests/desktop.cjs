@@ -132,15 +132,13 @@ const ok = (name, pass, detail) => {
   let st = null;
   for (;;) {
     st = await C(() =>
-      window.cadenzaLib
-        .get()
-        .then((v) => ({
-          n: v.tracks.length,
-          prot: v.tracks.filter((t) => t.protected).length,
-          an: v.tracks.filter((t) => t.analyzed > 0).length,
-          covers: v.tracks.filter((t) => t.cover).length,
-          lrc: v.tracks.filter((t) => t.lrc).length,
-        })),
+      window.cadenzaLib.get().then((v) => ({
+        n: v.tracks.length,
+        prot: v.tracks.filter((t) => t.protected).length,
+        an: v.tracks.filter((t) => t.analyzed > 0).length,
+        covers: v.tracks.filter((t) => t.cover).length,
+        lrc: v.tracks.filter((t) => t.lrc).length,
+      })),
     );
     if (st.an >= 3 || Date.now() - t0 > 90000) break;
     await W(500);
@@ -160,19 +158,17 @@ const ok = (name, pass, detail) => {
   );
   const cached = await C(
     (id) =>
-      window.cadenzaLib
-        .analysis(id, 3)
-        .then(
-          (a) =>
-            a && {
-              v: a.version,
-              engine: a.engine,
-              beats: a.beats.length,
-              events: a.events.length,
-              bpm: Math.round(a.tempo.bpm),
-              spec: (a.spec || []).length,
-            },
-        ),
+      window.cadenzaLib.analysis(id, 3).then(
+        (a) =>
+          a && {
+            v: a.version,
+            engine: a.engine,
+            beats: a.beats.length,
+            events: a.events.length,
+            bpm: Math.round(a.tempo.bpm),
+            spec: (a.spec || []).length,
+          },
+      ),
     ids['晨光'],
   );
   ok(
@@ -1707,12 +1703,10 @@ const ok = (name, pass, detail) => {
     await win.locator('[data-test=modal]').getByRole('button', { name: '取消' }).click();
     await W(400);
     const after = await C(() =>
-      window.cadenzaLib
-        .get()
-        .then((v) => ({
-          modal: !!document.querySelector('[data-test=modal]'),
-          an: v.tracks.filter((t) => t.analyzed > 0).length,
-        })),
+      window.cadenzaLib.get().then((v) => ({
+        modal: !!document.querySelector('[data-test=modal]'),
+        an: v.tracks.filter((t) => t.analyzed > 0).length,
+      })),
     );
     const warn = await C(() => document.body.innerText.includes('光敏性癲癇提醒'));
     ok(

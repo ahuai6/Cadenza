@@ -101,13 +101,11 @@ const ok = (name, pass, detail) => {
   let st;
   for (;;) {
     st = await C(() =>
-      window.cadenzaLib
-        .get()
-        .then((v) => ({
-          n: v.tracks.length,
-          an: v.tracks.filter((t) => t.analyzed > 0).length,
-          ids: Object.fromEntries(v.tracks.map((t) => [t.title, t.id])),
-        })),
+      window.cadenzaLib.get().then((v) => ({
+        n: v.tracks.length,
+        an: v.tracks.filter((t) => t.analyzed > 0).length,
+        ids: Object.fromEntries(v.tracks.map((t) => [t.title, t.id])),
+      })),
     );
     if (st.an >= 2 || Date.now() - t0 > 90000) break;
     await W(800);
