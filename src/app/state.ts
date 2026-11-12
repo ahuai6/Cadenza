@@ -3,6 +3,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { createStore, type Store } from '../core/emitter';
 import type { LibView, Settings, Track } from './bridge';
+import { DEFAULTS } from './settings/schema';
 
 export function useStore<T extends object, R = T>(s: Store<T>, sel?: (v: T) => R): R {
   return useSyncExternalStore(s.subscribe, () => (sel ? sel(s.get()) : (s.get() as unknown as R)));
@@ -65,29 +66,7 @@ export const lib = createStore({
   /** how far the song being analysed now is (0..1), null between songs */ analysisNow: null as null | number,
   /** which song that is */ analysisFor: null as null | string,
 });
-export const settings = createStore<Settings>({
-  theme: 'system',
-  scanOnLaunch: true,
-  openAtLogin: false,
-  closeToTray: false,
-  lang: '',
-  scale: 'auto',
-  fps: 0,
-  prerender: true,
-  audioOut: 'standard',
-  audioMode: 'exclusive',
-  audioDevice: '',
-  fixedVolume: true,
-  volBalance: true,
-  mvDark: 0.34,
-  mvBlur: 0.12,
-  mvDesat: 0,
-  mvFit: false,
-  rhythmEngine: 'auto',
-  rhythmDrums: true,
-  gfx: 'default',
-  version: '',
-});
+export const settings = createStore<Settings>({ ...DEFAULTS, version: '' });
 
 let toastTm = 0;
 export function toast(text: string, ms = 2600) {

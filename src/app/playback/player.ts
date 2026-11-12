@@ -22,8 +22,9 @@ import {
 } from '../../engine';
 import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
-import { Lib, D, coverUrl, mediaUrl, type SongData, type Track } from '../bridge';
+import { Lib, D, coverUrl, mediaUrl, type Settings, type SongData, type Track } from '../bridge';
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
+import { SCHEMA } from '../settings/schema';
 import { engine, sessionEnv } from './stage';
 import { analyzeNow, decodeForAnalysis } from './analysis';
 import { traceBegin, tracePhase, traceEnd } from './trace';
@@ -483,14 +484,15 @@ lib.subscribe((L, prev) => {
  *  samples after all (the balance is on: the songs are evened out, the output is then not bit-perfect). */
 /** The effect lyrics' frame shapes: the scene is planned for the shape (changed in size, never cropped), in the window,
  *  full screen and in an export alike. */
-export const FX_ASPECTS = ['16:9', '16:10', '9:16', '1:1'];
+export const FX_ASPECTS: string[] = [...SCHEMA.fxAspect.options];
 export const fxAspect = () => {
   const a = settings.get().fxAspect;
   return a && FX_ASPECTS.includes(a) ? a : '16:9';
 };
 /** Change the shape: kept for every song, and the song shown is planned again for it at once. */
-export function setFxAspect(a: string) {
-  if (!FX_ASPECTS.includes(a)) return;
+export function setFxAspect(shape: string) {
+  if (!FX_ASPECTS.includes(shape)) return;
+  const a = shape as Settings['fxAspect'];
   settings.set({ fxAspect: a });
   D?.setSettings({ fxAspect: a });
   const s = player.get().session;

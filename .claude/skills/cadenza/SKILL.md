@@ -65,6 +65,8 @@ defineCommand({
 
 **設定綱要 `src/app/settings/schema.ts`**：每個設定宣告一次（鍵、預設值、型別、分組、是否進階、作用範圍）。主程序的預設值、`Settings` 型別、兩種介面的設定頁都由它產生。`advanced: true` 的設定只在「進階」裡出現。
 
+現況：`Settings` 型別、介面的預設值、主程序的預設值（`electron/settings.defaults.json`，由 `npm run gen:settings` 產生，單元測試會檢查是否過期）已由綱要產生。**新增設定只做兩件事：在綱要加一項，跑 `npm run gen:settings`。** 設定頁仍是手寫，第 3 階段重做介面時改由綱要產生。
+
 **空間的場景是資料 `src/app/space/`**：
 
 ```

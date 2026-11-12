@@ -1,3 +1,4 @@
+import type { SettingValues } from './settings/schema';
 // What the page may ask the desktop for (electron/preload.cjs), typed. In the web build there is no desktop: files are
 // handed over as downloads and nothing else exists.
 
@@ -100,79 +101,8 @@ export interface CoverFound {
   thumb: string;
   full: string;
 }
-export interface Settings {
-  /** the interface's typeface (uifont.ts) */ uiFont?: string;
-  /** where edited lyrics are saved: into the song's own tags (default), or as the .lrc beside it */ lyricsTarget?:
-    | 'tag'
-    | 'lrc';
-  /** the effect lyrics' frame shape, in the window, full screen and in exports: 16:9, 16:10, 9:16, 1:1 */ fxAspect?: string;
-  theme: 'system' | 'light' | 'dark';
-  /** the light theme's ground: paper (warm) or the earlier white */ tone?: 'paper' | 'white';
-  scanOnLaunch: boolean;
-  openAtLogin: boolean;
-  closeToTray: boolean;
-  lang: string;
-  scale: 'auto' | number;
-  fps: number;
-  prerender: boolean;
-  audioOut: 'standard' | 'hifi';
-  audioMode: 'exclusive' | 'shared';
-  audioDevice: string;
-  fixedVolume: boolean;
-  /** the volume balance: every song at a like loudness */ volBalance?: boolean;
-  platform?: string;
-  version?: string;
-  /** the song's own video (MV mode): shade, soft focus, desaturation, and whether it is kept upright to crop it least */
-  mvDark: number;
-  mvBlur: number;
-  mvDesat: number;
-  mvFit: boolean;
-  /** which engine finds the beats ('auto': the neural one where it can run), and whether it separates the drums */
-  rhythmEngine?: 'auto' | 'neural' | 'dsp';
-  rhythmDrums?: boolean;
-  /** where the neural networks run: natively when their models are there (auto), or always in WebGPU; natively on the GPU (auto) or the CPU */ rhythmRuntime?:
-    | 'auto'
-    | 'webgpu';
-  rhythmDevice?: 'auto' | 'cpu';
-  /** an unanalysed song: played at once on a reading of its opening, the full one taking over (stream), or after it (full) */
-  rhythmStream?: 'stream' | 'full';
-  /** the picture-quality mode (render/gfx.ts): as designed, optimised (cheap stand-ins for blurs and glass), or lite */
-  gfx?: 'default' | 'optimized' | 'lite';
-  /** the lyric layer drawn on the GPU (default on) */ gpuLyrics?: boolean;
-  /** the performance overlay over the effect lyrics */ perfHud?: boolean;
-  /** the detailed debug log (engine/debug.ts) */ debugLog?: boolean;
-  /** the effect lyrics' captions: translations shown, readings shown */ fxCapSubs?: boolean;
-  fxCapReads?: boolean;
-  /** the interface: the classic pages, or the space (a cathedral to walk through); read once at start */ ui?:
-    | 'classic'
-    | 'space';
-  /** the space's own: light beams, scene lyrics follow the view, the background music and its volume, immersive (pointer lock) */
-  spaceBeams?: boolean;
-  spaceFollow?: boolean;
-  spaceAmbient?: boolean;
-  spaceAmbientVol?: number;
-  spaceImmersive?: boolean;
-  /** the space's colour: from the playing song's cover, or one fixed colour; beams lighting on the accents; the scene's soft pulse */
-  spaceTint?: 'cover' | 'fixed';
-  spaceTintColor?: string;
-  spaceBeatBeams?: boolean;
-  spacePulse?: boolean;
-  /** the space's picture and walking: dream (exposure, haze, glow), ink weight, shadow quality, render scale, walking speed,
-   *  look sensitivity, the sanctuary's lyric size, reduced motion */
-  spaceDream?: boolean;
-  spaceLine?: 'thin' | 'mid' | 'bold';
-  spaceShadow?: 'high' | 'mid' | 'low';
-  spaceScale?: number;
-  spaceWalk?: number;
-  spaceLook?: number;
-  spaceLyric?: 's' | 'm' | 'l';
-  spaceReduced?: boolean;
-  /** the scene lyrics' face (a FONTS key) */ spaceFont?: string;
-  /** the scene's response, each 0..2 (1 as designed; the colour 0..1): to the beat, the room's pulse, the cover's colour, the beams' brightness */ spaceFxBeat?: number;
-  spaceFxPulse?: number;
-  spaceFxTint?: number;
-  spaceFxBeams?: number;
-}
+/** The app's settings (settings/schema.ts declares each), and what the desktop adds when it hands them over. */
+export type Settings = SettingValues & { platform?: string; version?: string };
 type Off = () => void;
 export interface DesktopApi {
   saveDialog(o: { defaultPath: string; filters: { name: string; extensions: string[] }[] }): Promise<string | null>;

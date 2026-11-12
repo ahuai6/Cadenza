@@ -15,6 +15,7 @@
     "build:web": "vite build --mode web",
     "build:app": "vite build --mode app && node scripts/fonts.mjs dist-app/fonts",
     "fonts:previews": "node scripts/font-previews.mjs",
+    "gen:settings": "node scripts/settings.mjs",
     "build:native": "cargo build --release --manifest-path native/cadenza-audio/Cargo.toml --target x86_64-pc-windows-gnu",
     "test:render": "node tests/render.cjs",
     "test:desktop": "node tests/desktop.cjs",
