@@ -2,15 +2,15 @@
 import { memo, useMemo, useState } from 'react';
 import { tx } from '../../i18n';
 import { Lib, type Track } from '../bridge';
-import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match, type MenuItem } from '../state';
-import { player, playIds, enqueue, setMode, shufflePick, setInstrumental, forgetPrepared } from '../playback/player';
+import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match } from '../state';
+import { player, playIds, enqueue, setMode, shufflePick } from '../playback/player';
 import { Icon } from '../ui/icons';
 import { Button, IconButton, Cover, Mosaic, Empty, Badge, Dropdown, Turn } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
 import { QualityTag, quality } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
-import { askText, editMeta, exportTrack } from './Modals';
-import { sendToWorkshop } from './workshop/Workshop';
+import { menuFor, run } from '../commands';
+import { askText } from './Modals';
 import s from './Library.module.css';
 
 export const SECTIONS: [string, string, string][] = [
@@ -218,68 +218,21 @@ export function locatePlaying() {
     row.dataset.flash = 'false';
   }, 1600);
 }
-export function trackMenu(e: React.MouseEvent, t: Track, list: Track[], extra?: MenuItem | null) {
-  const fav = lib.get().favorites.includes(t.id),
-    ids = list.map((x) => x.id);
-  openMenu(e, [
-    !t.protected && { label: tx('s.play'), icon: 'play', run: () => playIds(ids, ids.indexOf(t.id)) },
-    !t.protected && { label: tx('s.queue.add'), icon: 'queue', run: () => enqueue([t.id]) },
-    { label: tx(fav ? 's.unfav' : 's.fav'), icon: 'heart', run: () => Lib!.favorite(t.id, !fav) },
-    // (into a playlist: a submenu of them, and a new one)
-    {
-      label: tx('s.addToPl'),
-      icon: 'plus',
-      sub: [
-        ...lib.get().playlists.map((p) => ({
-          label: p.name,
-          icon: 'lyrics',
-          run: () => {
-            Lib!.playlist('add', p.id, [t.id]);
-            toast(tx('s.addedTo', { name: p.name }));
-          },
-        })),
-        ...(lib.get().playlists.length ? ['-' as const] : []),
-        {
-          label: tx('s.newPlaylist') + '…',
-          icon: 'plus',
-          run: async () => {
-            const n = await askText(tx('s.newPlaylist'), tx('s.plName'), tx('s.untitledPl'));
-            if (n != null) Lib!.playlist('create', n || tx('s.untitledPl'), [t.id]);
-          },
-        },
-      ],
-    },
-    extra,
-    '-',
-    !t.protected && { label: tx('s.toWorkshop'), icon: 'workshop', run: () => sendToWorkshop(t) },
-    !t.protected && { label: tx('s.exportMp4'), icon: 'film', run: () => exportTrack(t, list) },
-    { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
-    !t.protected && {
-      label: tx('s.reanalyze'),
-      icon: 'refresh',
-      run: () => {
-        forgetPrepared(t.id);
-        Lib!.reanalyze([t.id]);
-        toast(tx('s.reanalyzed', { name: t.title }));
-      },
-    },
-    !t.protected && {
-      label: tx(t.instrumental ? 's.instr.off' : 's.instr.on'),
-      icon: 'note',
-      run: () => setInstrumental(t.id, !t.instrumental),
-    },
-  ]);
+/** A song's menu (commands/library.ts says what is in it). `playlist`: the playlist it is listed in, if any. */
+export function trackMenu(e: React.MouseEvent, t: Track, list: Track[], playlist?: string) {
+  openMenu(e, menuFor({ kind: 'track', track: t, list, playlist }));
 }
 /** onReorder: the rows can be dragged into a new order (playlists). */
 export const TrackList = memo(function TrackList({
   tracks,
   numbered,
-  menuExtra,
+  playlist,
   onReorder,
 }: {
   tracks: Track[];
   numbered?: boolean;
-  menuExtra?: (t: Track) => MenuItem;
+  /** the playlist these are the songs of, if they are */
+  playlist?: string;
   onReorder?: ((ids: string[]) => void) | null;
 }) {
   const cur = useStore(player, (x) => x.id),
@@ -325,7 +278,7 @@ export const TrackList = memo(function TrackList({
             onKeyDown={(e) => {
               if (e.key === 'Enter') play(t);
             }}
-            onContextMenu={(e) => trackMenu(e, t, shown, menuExtra?.(t))}
+            onContextMenu={(e) => trackMenu(e, t, shown, playlist)}
           >
             <span className={s.grip} aria-hidden="true">
               {onReorder && <Icon n="grip" size={15} />}
@@ -394,7 +347,7 @@ export const TrackList = memo(function TrackList({
               size="sm"
               className={s.hide}
               label={tx('s.more')}
-              onClick={(e) => trackMenu(e, t, shown, menuExtra?.(t))}
+              onClick={(e) => trackMenu(e, t, shown, playlist)}
             />
           </div>
         );
@@ -448,21 +401,7 @@ function Playlists({ idx, search }: { idx: Idx; search: string }) {
             type="button"
             className={s.card}
             onClick={() => ui.set({ detail: { kind: 'playlist', key: p.id } })}
-            onContextMenu={(e) =>
-              openMenu(e, [
-                { label: tx('s.play'), icon: 'play', run: () => playIds(p.tracks, 0) },
-                {
-                  label: tx('s.rename'),
-                  icon: 'lyrics',
-                  run: async () => {
-                    const n = await askText(tx('s.rename'), tx('s.plName'), p.name);
-                    if (n) Lib!.playlist('rename', p.id, n);
-                  },
-                },
-                '-',
-                { label: tx('s.delete'), icon: 'trash', danger: true, run: () => Lib!.playlist('delete', p.id) },
-              ])
-            }
+            onContextMenu={(e) => openMenu(e, menuFor({ kind: 'playlist', id: p.id, name: p.name, ids: p.tracks }))}
           >
             <Mosaic keys={p.tracks.map((id) => idx.byId.get(id)?.cover || null)} />
             <b>{p.name}</b>
@@ -501,19 +440,7 @@ function CardGrid({ items, kind }: { items: Idx['albums']; kind: 'album' | 'arti
             type="button"
             className={s.card}
             onClick={() => ui.set({ detail: { kind, key: g.key } })}
-            onContextMenu={(e) =>
-              openMenu(e, [
-                {
-                  label: tx('s.play'),
-                  icon: 'play',
-                  run: () =>
-                    playIds(
-                      g.tracks.map((t) => t.id),
-                      0,
-                    ),
-                },
-              ])
-            }
+            onContextMenu={(e) => openMenu(e, menuFor({ kind: 'tracks', ids: g.tracks.map((t) => t.id) }))}
           >
             {kind === 'genre' ? (
               <Mosaic keys={g.tracks.map((t) => t.cover)} />
@@ -587,7 +514,6 @@ function Detail({
     cover: string | null = null,
     round = false,
     tracks: Track[] = [],
-    extra: ((t: Track) => MenuItem) | undefined,
     numbered = false,
     mosaic: (string | null)[] | null = null;
   if (detail.kind === 'playlist') {
@@ -596,7 +522,6 @@ function Detail({
     title = p.name;
     tracks = p.tracks.map((id) => idx.byId.get(id)).filter((t): t is Track => !!t);
     mosaic = tracks.map((t) => t.cover);
-    extra = (t) => ({ label: tx('s.removeFromPl'), icon: 'close', run: () => Lib!.playlist('remove', p.id, [t.id]) });
   } else {
     const g = (detail.kind === 'album' ? idx.albums : detail.kind === 'artist' ? idx.artists : idx.genres).find(
       (x) => x.key === detail.key,
@@ -654,10 +579,7 @@ function Detail({
                 <Button
                   kind="ghost"
                   size="sm"
-                  onClick={async () => {
-                    const n = await askText(tx('s.rename'), tx('s.plName'), title);
-                    if (n) Lib!.playlist('rename', detail.key, n);
-                  }}
+                  onClick={() => run('playlist.rename', { kind: 'playlist', id: detail.key, name: title, ids: [] })}
                 >
                   {tx('s.rename')}
                 </Button>
@@ -665,7 +587,7 @@ function Detail({
                   kind="danger"
                   size="sm"
                   onClick={() => {
-                    Lib!.playlist('delete', detail.key);
+                    run('playlist.delete', { kind: 'playlist', id: detail.key, name: title, ids: [] });
                     ui.set({ detail: null });
                   }}
                 >
@@ -683,7 +605,7 @@ function Detail({
           <TrackList
             tracks={shown}
             numbered={numbered}
-            menuExtra={extra}
+            playlist={detail.kind === 'playlist' ? detail.key : undefined}
             onReorder={detail.kind === 'playlist' && !search ? (ids) => Lib!.playlist('order', detail.key, ids) : null}
           />
         ) : (

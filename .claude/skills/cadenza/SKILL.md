@@ -49,19 +49,24 @@ native    Rust 的 Hi-Fi 播放核心。
 
 現況的問題：同一個功能在經典與空間各寫一份（佇列、歌詞列表、專輯展開、設定頁）。之後一律照下面做。
 
-**指令登記表 `src/app/commands/`**：每個使用者動作定義一次。
+**指令登記表 `src/app/commands/`**：每個使用者動作定義一次（名稱、圖示、何時適用、做什麼）。
 
 ```ts
-defineCommand({
+// commands/library.ts
+define({
   id: 'track.favorite',
-  label: (ctx) => tx(ctx.isFav ? 'cmd.unfavorite' : 'cmd.favorite'),
+  on: 'track',                 // 作用對象：track（一首歌）、tracks（一組歌）、playlist
+  section: 'collect',          // play / collect / make / remove；選單在不同段之間畫線
   icon: 'heart',
-  when: (ctx) => ctx.kind === 'track',
-  run: (ctx) => Lib.favorite(ctx.id, !ctx.isFav),
+  label: (t) => tx(isFav(t.track.id) ? 's.unfav' : 's.fav'),
+  when: (t, host) => true,     // 不適用就不出現
+  run: (t, host) => Lib?.favorite(t.track.id, !isFav(t.track.id)),
 });
 ```
 
-右鍵選單、空間的準星選單、快捷鍵、按鈕都從登記表取，不各自寫 `onClick` 裡的邏輯。
+畫面元件只做兩件事：`menuFor(target)` 取得選單，`run('track.favorite', target)` 執行。不在 `onClick` 裡重寫邏輯、名稱或提示。需要介面配合的動作（問一個名字、開標籤編輯器）透過 `host`：每個介面啟動時用 `setHost` 說自己能做什麼，做不到的指令在那個介面自動不出現。
+
+現況：歌曲、一組歌、歌單的指令已登記；經典介面的右鍵選單與空間介面的卡片按鈕都從登記表取。還沒接上的：播放控制（上一首、循環方式）、快捷鍵、空間的準星選單（第 4 階段第 22 項）。**新增一個歌曲庫動作：在 `commands/library.ts` 加一個 `define`，兩種介面的選單就都有了。**
 
 **設定綱要 `src/app/settings/schema.ts`**：每個設定宣告一次（鍵、預設值、型別、分組、是否進階、作用範圍）。主程序的預設值、`Settings` 型別、兩種介面的設定頁都由它產生。`advanced: true` 的設定只在「進階」裡出現。
 

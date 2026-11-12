@@ -3,11 +3,12 @@
 // the queue, favourites, playlists made, renamed, deleted, songs added and taken out.
 import { useEffect, useMemo, useState } from 'react';
 import { tx } from '../../i18n';
-import { Lib } from '../bridge';
-import { lib, useStore, useIndex, fmtTime, toast } from '../state';
+import { Lib, type Track } from '../bridge';
+import { lib, useStore, useIndex, fmtTime } from '../state';
 import { Icon } from '../ui/icons';
 import { Cover } from '../ui/kit';
-import { player, playIds, enqueue } from '../playback/player';
+import { player, playIds } from '../playback/player';
+import { addToPlaylist, renamePlaylist, run, type Target } from '../commands';
 import { ts } from './i18n';
 import s from './SpacePanels.module.css';
 
@@ -80,6 +81,8 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
     one = detail.kind === 'song';
   const fav = (id: string) => idx.fav.has(id),
     setFav = (id: string, on: boolean) => Lib?.favorite(id, on);
+  // (a song of this card, as the commands take it)
+  const song = (t: Track): Target => ({ kind: 'track', track: t, list: view.tracks, playlist: view.list?.id });
   const play = (i: number) => {
     playIds(ids, i).catch(() => {});
   };
@@ -95,7 +98,7 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (rename.trim() && view.list) Lib?.playlist('rename', view.list.id, rename.trim());
+                if (view.list) renamePlaylist(view.list.id, rename);
                 setRename(null);
               }}
             >
@@ -126,10 +129,7 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
           type="button"
           className={s.ghost}
           disabled={!ids.length}
-          onClick={() => {
-            enqueue(ids);
-            toast(tx('s.queue.addedN', { n: ids.length }));
-          }}
+          onClick={() => run('tracks.enqueue', { kind: 'tracks', ids })}
         >
           <Icon n="queue" size={15} />
           {tx('s.queue.add')}
@@ -166,7 +166,7 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
               type="button"
               className={s.ghost + ' ' + s.danger}
               onClick={() => {
-                Lib?.playlist('delete', view.list!.id);
+                run('playlist.delete', { kind: 'playlist', id: view.list!.id, name: view.title, ids });
                 onClose();
               }}
             >
@@ -213,9 +213,7 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
                 <button
                   type="button"
                   className={s.rm}
-                  onClick={() =>
-                    view.list!.fav ? setFav(t.id, false) : Lib?.playlist('remove', view.list!.id, [t.id])
-                  }
+                  onClick={() => run('track.removeFromPlaylist', song(t))}
                   aria-label={tx('s.removeFromPl')}
                   title={tx('s.removeFromPl')}
                 >
@@ -235,14 +233,11 @@ function AddTo({ ids, onDone }: { ids: string[]; onDone: () => void }) {
   const playlists = useStore(lib, (x) => x.playlists),
     [name, setName] = useState('');
   const add = async (id: string, nm: string) => {
-    await Lib?.playlist('add', id, ids);
-    toast(tx('s.addedTo', { name: nm }));
+    await addToPlaylist(ids, { id, name: nm });
     onDone();
   };
   const create = async () => {
-    const n = name.trim() || tx('s.untitledPl');
-    await Lib?.playlist('create', n, ids);
-    toast(tx('s.addedTo', { name: n }));
+    await addToPlaylist(ids, { create: name });
     onDone();
   };
   return (

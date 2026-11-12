@@ -19,8 +19,9 @@ import { boot, bindKeys, go } from '../actions/boot';
 import { PlayerCard, QueuePanel } from './Player';
 import { Stage, NowPlaying } from './NowPlaying';
 import { EffectView } from './Effect';
-import { ModalHost } from './Modals';
-import { WorkshopPage } from './workshop/Workshop';
+import { ModalHost, askText, editMeta, exportTrack } from './Modals';
+import { WorkshopPage, sendToWorkshop } from './workshop/Workshop';
+import { setHost } from '../commands';
 import { Guard } from '../ui/Guard';
 import { MiniLyrics } from '../ui/MiniLyrics';
 import s from './Shell.module.css';
@@ -57,6 +58,11 @@ export function Shell() {
   // start (the settings, the library, the last song, the analysis) and the keys: actions/boot.ts
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(bindKeys, []);
+  // (what this interface can do for the library's commands: ask a name, open the tag editor, the export, the workshop)
+  useEffect(
+    () => setHost({ ask: askText, editTags: editMeta, exportVideo: exportTrack, toWorkshop: sendToWorkshop }),
+    [],
+  );
   // full screen over the picture: the window's buttons (leaving full screen) show only while the pointer moves, as the
   // play page's and the effect view's own controls do
   const full = useStore(ui, (x) => x.win.full),

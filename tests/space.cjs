@@ -238,6 +238,12 @@ const SONG = `(() => {
     !!(await p.$('[data-test="space-detail"]')) && before === after,
   );
   await shot('detail');
+  // (the card's buttons run the library's commands: adding to the queue says so)
+  await p.click('[data-test="space-detail"] button:has-text("加入播放佇列")');
+  await wait(200);
+  // (the notice keeps its words after it fades: on a slow machine the click alone can outlast it)
+  const said = await p.$eval('[role="status"]', (e) => e.textContent);
+  ok('commands: a card adds its songs to the queue, and says so', /\d+ 首加入播放佇列/.test(said), said);
   await p.evaluate(() => __cad.stand(0, -30, 0, 0));
   await wait(700);
   ok('reach: walking away closes it', !(await p.$('[data-test="space-detail"]')));
