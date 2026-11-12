@@ -10,6 +10,7 @@ import { PRESETS, KNOBS, MACROS, MOTIONS, KNOB_REBUILD, motionOf, presetStyle, t
 import { effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
+import { Icon } from '../ui/icons';
 import { Button, Section, Row, Select, Slider, Check, TextField, Note, kit } from '../ui/kit';
 import { ColorField } from '../ui/color';
 import { FontPicker } from '../ui/fonts';
@@ -46,6 +47,13 @@ const Swatch = ({ st }: { st: Partial<Style> }) => (
     ))}
   </span>
 );
+const LOOK_ICON: Record<string, string> = {
+  cover: 'image',
+  vinyl: 'disc',
+  liquid: 'liquid',
+  gothic: 'arch',
+  video: 'film',
+};
 /** The presets, the saved custom themes, and the theme being edited (save, save as, delete). */
 export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
   const st = ss.style,
@@ -89,7 +97,10 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
             aria-pressed={custom ? st.from === k && !st.id && !st.edited : st.preset === k}
             onClick={() => usePreset(k)}
           >
-            <Swatch st={PRESETS[k]} />
+            {/* (a look is known by its mark, not by colours: every look takes its colours from the cover) */}
+            <span className={s.lookIcon} aria-hidden="true">
+              <Icon n={LOOK_ICON[k] || 'palette'} size={22} />
+            </span>
             <span>{tx('preset.' + k)}</span>
           </button>
         ))}

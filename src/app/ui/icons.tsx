@@ -337,6 +337,9 @@ const ICONS: Record<string, { fill?: boolean; d: ReactNode }> = {
     ),
   },
   wave: { d: P('M4 11v2M8 8v8M12 5v14M16 9v6M20 11v2') },
+  // (a liquid surface; a pointed arch with its rose — the looks' own marks)
+  liquid: { d: P('M3 9c3-3 6 3 9 0s6-3 9 0M3 15c3-3 6 3 9 0s6-3 9 0') },
+  arch: { d: P('M6 20V11a6 6 0 0 1 12 0v9M12 13.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM9.5 20v-3.5h5V20') },
   locate: {
     d: (
       <>

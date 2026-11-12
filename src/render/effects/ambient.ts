@@ -16,6 +16,8 @@ const small = makeCanvas(SW, SH) as HTMLCanvasElement,
   sx = small.getContext('2d')!;
 const soft = makeCanvas(SW, SH) as HTMLCanvasElement,
   so = soft.getContext('2d')!;
+/** how fast the colours wander (radians a second, the slowest of them) */
+const FLOW = 0.12;
 let lastKey = '';
 /** Paint the ambient field for time t into the small canvas (blurred) and return it. */
 export function ambientField(f: RenderFrame): HTMLCanvasElement {
@@ -44,17 +46,26 @@ export function ambientField(f: RenderFrame): HTMLCanvasElement {
       sx.drawImage(img, -s / 2, -s / 2, s, s);
       sx.restore();
     }
+  // the colours as a liquid: each a long soft shape that wanders the field on a path of two turnings (so it never
+  // simply circles), stretching along its own way and turning as it goes — they pour past one another rather than hover
   sx.globalCompositeOperation = 'screen';
   pal.cols.forEach((col, i) => {
-    const a = t * (0.07 + i * 0.023) + i * 1.7,
-      x = SW * (0.5 + 0.38 * Math.cos(a) * Math.cos(a * 0.6 + i)),
-      y = SH * (0.5 + 0.42 * Math.sin(a * 1.3 + i * 0.8));
-    const r = SW * (0.42 + 0.1 * Math.sin(t * 0.21 + i)) * (1 + pulse * (i === 0 ? 1.5 : 0.6));
-    const gr = sx.createRadialGradient(x, y, 0, x, y, r);
+    const a = t * (FLOW + i * 0.037) + i * 1.7,
+      b = t * (FLOW * 0.62 + i * 0.021) + i * 2.9,
+      x = SW * (0.5 + 0.3 * Math.cos(a) + 0.2 * Math.cos(b * 1.7 + i)),
+      y = SH * (0.5 + 0.3 * Math.sin(a * 1.3 + i * 0.8) + 0.2 * Math.sin(b + i));
+    const r = SW * (0.4 + 0.1 * Math.sin(t * 0.33 + i)) * (1 + pulse * (i === 0 ? 1.5 : 0.6)),
+      stretch = 1.35 + 0.3 * Math.sin(b * 0.9 + i);
+    sx.save();
+    sx.translate(x, y);
+    sx.rotate(a * 0.8 + i);
+    sx.scale(stretch, 1 / stretch);
+    const gr = sx.createRadialGradient(0, 0, 0, 0, 0, r);
     gr.addColorStop(0, `rgba(${col.map(Math.round)},${0.75 - i * 0.08})`);
     gr.addColorStop(1, `rgba(${col.map(Math.round)},0)`);
     sx.fillStyle = gr;
-    sx.fillRect(0, 0, SW, SH);
+    sx.fillRect(-r, -r, 2 * r, 2 * r);
+    sx.restore();
   });
   sx.globalCompositeOperation = 'source-over';
   // (lite: no blur — the colours are soft gradients already, drawn up from a small picture)

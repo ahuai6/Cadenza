@@ -27,7 +27,14 @@
   background: var(--surface-3);
 }
 .preset[aria-pressed='true'] {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--pick);
+  color: var(--on-pick);
+  box-shadow: none;
+}
+.lookIcon {
+  display: grid;
+  place-items: center;
+  height: 34px;
 }
 .swatch {
   display: grid;
