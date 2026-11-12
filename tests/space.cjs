@@ -137,7 +137,15 @@ const SONG = `(() => {
   });
   await wait(1000);
   await p.evaluate(SONG);
-  await wait(6000);
+  // (waited for, not timed: a slow machine draws the first line later)
+  await p
+    .waitForFunction(
+      () => __cad.lyr().lines.some((l) => !l.falling) && document.querySelector('#subs .cb:not(.out) .cap'),
+      null,
+      { timeout: 30000 },
+    )
+    .catch(() => {});
+  await wait(800);
   await shot('lyrics-1');
   const first = await p.evaluate(() => ({
     air: __cad.lyr().lines.filter((l) => !l.falling).length,

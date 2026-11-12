@@ -11,7 +11,8 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
-import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import { InkPass, ShaftsPass, DreamPass, GlassPass } from './render/passes';
+import { RoomAudio } from './systems/audio';
 import type { SpaceBind, SpaceNow } from './bind';
 import { navePage, navePages, letterSpan, NAVE_SLOTS, LIST_SLOTS } from './data';
 import { CoverCache, CoverAtlas } from './covers';
@@ -2481,113 +2482,6 @@ export function createWorld(
   }
 
   /* ---------- ink: edges from depth and normals, drawn over the flat colour ---------- */
-  const FSV = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`;
-  class Ink extends Pass {
-    constructor() {
-      super();
-      this.needsSwap = true;
-      this.rt = new THREE.WebGLRenderTarget(2, 2, {
-        depthTexture: new THREE.DepthTexture(2, 2),
-        type: THREE.HalfFloatType,
-      });
-      this.ids = new WeakMap(); // one outline material per surface material, kept as long as that material lives: the boundary is between materials, not objects, so coplanar
-      // pieces of one material (overlapping rug motifs, a sofa's arm meeting its back) never fight over a line
-      // (decals lying flat on a floor, rugs and their motifs, stay out: a grazing outline there only crawls)
-      this.idMat = (m) => {
-        const hit = this.ids.get(m);
-        if (hit) return hit;
-        const side = m.side,
-          bias = m.userData.bias || 0,
-          tr = m.transparent || bias > 0 ? 1 : 0;
-        // materials that only differ by a depth bias (decal clones) are the same surface; they share their source's colour
-        const tag = (m.color ? m.color.getHexString() : m.uuid) + (m.map ? m.map.uuid : '');
-        let hsh = 2166136261;
-        for (let i = 0; i < tag.length; i++) hsh = Math.imul(hsh ^ tag.charCodeAt(i), 16777619);
-        const im = new THREE.ShaderMaterial({
-          side,
-          uniforms: {
-            bias: { value: bias * 2e-5 },
-            tr: { value: tr },
-            mid: { value: ((hsh >>> 0) % 1000003) / 1000003 },
-          },
-          vertexShader: `#include <common>\n#include <logdepthbuf_pars_vertex>\nvarying vec3 vN; void main(){ vec3 n = normal; mat4 M = modelMatrix;\n#ifdef USE_INSTANCING\n n = mat3(instanceMatrix)*n; M = modelMatrix*instanceMatrix;\n#endif\n vN = normalize(normalMatrix*n); gl_Position = projectionMatrix*viewMatrix*M*vec4(position, 1.);\n#include <logdepthbuf_vertex>\n}`,
-          fragmentShader: `#include <common>\n#include <logdepthbuf_pars_fragment>\nuniform float bias, tr, mid; varying vec3 vN; void main(){\n#include <logdepthbuf_fragment>\n#ifdef USE_LOGDEPTHBUF\n gl_FragDepth -= bias;\n#endif\n vec3 n = normalize(vN)*(gl_FrontFacing ? 1. : -1.); gl_FragColor = vec4(n*.5+.5, tr > .5 ? -1. : mid); }`,
-        });
-        this.ids.set(m, im);
-        return im;
-      };
-      this.swap = [];
-      this.mat = new THREE.ShaderMaterial({
-        depthTest: false,
-        depthWrite: false,
-        vertexShader: FSV,
-        uniforms: {
-          tDiffuse: { value: null },
-          tN: { value: this.rt.texture },
-          tD: { value: this.rt.depthTexture },
-          px: { value: new V2() },
-          w: { value: 1 },
-          two: { value: 1 },
-          near: { value: 0.1 },
-          far: { value: 300 },
-          ink: { value: new THREE.Color(C.ink) },
-        },
-        fragmentShader: `uniform sampler2D tDiffuse, tN, tD; uniform vec2 px; uniform float w, two, near, far; uniform vec3 ink; varying vec2 vUv;
-          float L(vec2 uv){ return exp2(texture2D(tD, uv).x*log2(far+1.)) - 1.; }
-          vec3 N(vec2 uv){ return texture2D(tN, uv).xyz*2.-1.; }
-          // material boundaries: two different surfaces always meet in a line, however flush and parallel they are (a plate on a wall, a relief)
-          float I(vec2 uv, float id0){ float a = texture2D(tN, uv).a; return (a < 0. || id0 < 0.) ? 0. : step(.002, abs(a - id0)); }
-          // depth edges from the second difference of 1/depth (zero on any plane, so slanted floors and walls never sparkle);
-          // measured at 1 and 2 pixels and averaged, so thin or distant edges fade in smoothly instead of popping between frames
-          float edgeAt(vec2 o, float i0, vec3 n0){ float lx = abs(1./L(vUv+vec2(o.x,0.)) + 1./L(vUv-vec2(o.x,0.)) - 2.*i0), ly = abs(1./L(vUv+vec2(0.,o.y)) + 1./L(vUv-vec2(0.,o.y)) - 2.*i0);
-            float e = smoothstep(.06, .2, max(lx, ly)/i0);
-            float nn = max(max(1.-dot(N(vUv+vec2(o.x,0.)), n0), 1.-dot(N(vUv-vec2(o.x,0.)), n0)), max(1.-dot(N(vUv+vec2(0.,o.y)), n0), 1.-dot(N(vUv-vec2(0.,o.y)), n0)));
-            float id0 = texture2D(tN, vUv).a, ie = max(max(I(vUv+vec2(o.x,0.), id0), I(vUv-vec2(o.x,0.), id0)), max(I(vUv+vec2(0.,o.y), id0), I(vUv-vec2(0.,o.y), id0)));
-            return max(max(e, smoothstep(.2, .45, nn)), ie); }
-          void main(){ vec4 c = texture2D(tDiffuse, vUv); float d0 = L(vUv); vec3 n0 = N(vUv); float i0 = 1./d0;
-            float e1 = edgeAt(px*w, i0, n0), e = two > .5 ? .6*e1 + .4*edgeAt(px*w*2., i0, n0) : e1;
-            float fade = 1.-smoothstep(14., 40., d0)*.85;
-            float grain = (fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898,78.233)))*43758.5453)-.5)*.022;
-            gl_FragColor = vec4(mix(c.rgb, ink, e*fade*.92)+grain, c.a); }`,
-      });
-      this.q = new FullScreenQuad(this.mat);
-    }
-    setSize(w, h) {
-      this.rt.setSize(w, h);
-      this.mat.uniforms.px.value.set(1 / w, 1 / h);
-    }
-    render(r, write, read) {
-      const bg = scene.background,
-        ov = scene.overrideMaterial,
-        hid = noLine.filter((o) => o.visible);
-      hid.forEach((o) => (o.visible = false));
-      scene.background = null;
-      const sw = this.swap;
-      sw.length = 0;
-      scene.traverseVisible((o) => {
-        if (o.isMesh && !Array.isArray(o.material)) {
-          sw.push(o, o.material);
-          o.material = this.idMat(o.material);
-        }
-      });
-      const cc = r.getClearColor(new THREE.Color()),
-        ca = r.getClearAlpha();
-      r.setClearColor(0x8080ff, 1);
-      r.setRenderTarget(this.rt);
-      r.clear();
-      r.render(scene, camera);
-      r.setClearColor(cc, ca);
-      for (let k = 0; k < sw.length; k += 2) sw[k].material = sw[k + 1];
-      scene.background = bg;
-      hid.forEach((o) => (o.visible = true));
-      const u = this.mat.uniforms;
-      u.tDiffuse.value = read.texture;
-      u.near.value = camera.near;
-      u.far.value = camera.far;
-      r.setRenderTarget(this.renderToScreen ? null : write);
-      this.q.render(r);
-    }
-  }
   /* ---------- the dream: the eye adjusts to the light, the edges darken, distance softens into wheat ---------- */
   // how much light you are looking straight into: windows and skylights of the room you stand in, 25 m at most,
   // weighted by how close the centre of view is to them and how squarely they face you (the same terms the glass shader uses)
@@ -2659,230 +2553,28 @@ export function createWorld(
     return I;
   }
   let lightFrame = 0;
-  class Dream extends Pass {
-    constructor() {
-      super();
-      this.needsSwap = true;
-      this.exposure = 1;
-      this.small = new THREE.WebGLRenderTarget(8, 8);
-      this.buf = new Uint8Array(8 * 8 * 4);
-      this.n = 0; // brightness is stored /4, so up to 4x white still reads
-      this.probe = new THREE.ShaderMaterial({
-        depthTest: false,
-        depthWrite: false,
-        vertexShader: FSV,
-        uniforms: { t: { value: null } },
-        fragmentShader: `uniform sampler2D t; varying vec2 vUv; void main(){ vec2 uv = .3 + vUv*.4; vec3 c = (texture2D(t, uv).rgb + texture2D(t, uv+vec2(.02,.03)).rgb + texture2D(t, uv-vec2(.03,.02)).rgb)/3.; gl_FragColor = vec4(vec3(dot(c, vec3(.2126,.7152,.0722))/4.), 1.); }`,
-      });
-      const lin3 = (h) => new THREE.Color(h);
-      this.mat = new THREE.ShaderMaterial({
-        depthTest: false,
-        depthWrite: false,
-        vertexShader: FSV,
-        uniforms: {
-          tDiffuse: { value: null },
-          tD: { value: null },
-          near: { value: 0.3 },
-          far: { value: 160 },
-          exposure: { value: 1 },
-          aspect: { value: 1 },
-          haze: { value: lin3(C.wheat) },
-          edge: { value: lin3('#9C8B74') },
-        },
-        fragmentShader: `uniform sampler2D tDiffuse, tD; uniform float near, far, exposure, aspect; uniform vec3 haze, edge; varying vec2 vUv;
-          void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb; float lum = dot(col, vec3(.2126, .7152, .0722));
-            float d = exp2(texture2D(tD, vUv).x*log2(far+1.)) - 1.;
-            float fog = smoothstep(16., 72., d)*.42; col = mix(col, mix(vec3(lum), col, .7), fog*.7); col = mix(col, haze, fog*.55);
-            col *= exposure * .94;
-            float v = smoothstep(.42, 1.08, length((vUv-.5)*vec2(aspect, 1.))); col = mix(col, col*edge/max(max(edge.r, edge.g), edge.b), v*.55);
-            vec3 g = col/(1.+col*.12); float l2 = dot(g, vec3(.2126,.7152,.0722)); g = mix(g, g*vec3(1.04,1.,.93), smoothstep(.55, 1., l2)); g = mix(g, g*vec3(.97,.96,1.03), 1.-smoothstep(.15, .6, l2));
-            g = mix(vec3(l2), g, 1.06); g = g*.965 + .02; gl_FragColor = vec4(g, c.a); }`,
-      });
-      this.q = new FullScreenQuad(this.mat);
-      this.pq = new FullScreenQuad(this.probe);
-    }
-    setSize(w, h) {
-      this.mat.uniforms.aspect.value = w / h;
-    }
-    render(r, write, read) {
-      const u = this.mat.uniforms;
-      if (false) {
-        this.probe.uniforms.t.value = read.texture;
-        r.setRenderTarget(this.small);
-        this.pq.render(r);
-        r.readRenderTargetPixels(this.small, 0, 0, 8, 8, this.buf);
-        let s = 0,
-          mx = 0;
-        for (let i = 0; i < 64; i++) {
-          const l = (this.buf[i * 4] / 255) * 4;
-          s += l;
-          mx = Math.max(mx, l);
-        }
-        this.lum = (0.55 * s) / 64 + 0.45 * mx;
-      }
-      u.tDiffuse.value = read.texture;
-      u.tD.value = ink.rt.depthTexture;
-      u.near.value = camera.near;
-      u.far.value = camera.far;
-      u.exposure.value = this.exposure * (1 + (this.pulse || 0));
-      r.setRenderTarget(this.renderToScreen ? null : write);
-      this.q.render(r);
-    }
-    // the brighter the light in view, the harder the eye stops down: up to about 80% darker around a window seen straight on
-    step(dt) {
-      this.lum = lightInView();
-      const L = this.lum,
-        goal = Math.max(0.2, 1 / (1 + 1.55 * Math.max(0, L - 0.55)));
-      this.exposure += (goal - this.exposure) * (1 - Math.exp(-dt / (goal < this.exposure ? 0.7 : 1.4)));
-    }
-  }
-  class Shafts extends Pass {
-    constructor() {
-      super();
-      this.needsSwap = true;
-      this.mat = new THREE.ShaderMaterial({
-        depthTest: false,
-        depthWrite: false,
-        vertexShader: FSV,
-        uniforms: {
-          tDiffuse: { value: null },
-          tD: { value: null },
-          segs: { value: null },
-          nSeg: { value: 0 },
-          far: { value: 160 },
-          projInv: { value: new THREE.Matrix4() },
-          camWorld: { value: new THREE.Matrix4() },
-          camPos: { value: new V3() },
-          col: { value: new THREE.Color(C.apricot) },
-          colS: { value: new THREE.Color('#EEF3F2') },
-          gain: { value: 0.06 },
-          time: { value: 0 },
-        },
-        fragmentShader: `uniform sampler2D tDiffuse, tD, segs; uniform int nSeg; uniform float far, gain, time; uniform mat4 projInv, camWorld; uniform vec3 camPos, col, colS; varying vec2 vUv;
-          void main(){ vec4 base = texture2D(tDiffuse, vUv);
-            vec4 v = projInv*vec4(vUv*2.-1., 1., 1.); vec3 dir = normalize((camWorld*vec4(v.xyz/v.w, 0.)).xyz); vec3 fwd = normalize((camWorld*vec4(0.,0.,-1.,0.)).xyz);
-            float L = (exp2(texture2D(tD, vUv).x*log2(far+1.)) - 1.)/max(.05, dot(dir, fwd));
-            float acc = 0., accS = 0.;
-            for (int i = 0; i < 64; i++) { if (i >= nSeg) break; vec4 a = texelFetch(segs, ivec2(i,0), 0), b = texelFetch(segs, ivec2(i,1), 0); vec2 kk = texelFetch(segs, ivec2(i,2), 0).xy; float k = kk.x;
-              vec3 u = b.xyz-a.xyz, w0 = camPos-a.xyz; float bb = dot(dir,u), cc = dot(u,u), dd = dot(dir,w0), ee = dot(u,w0), den = max(cc-bb*bb, 1e-4);
-              float tu = (ee-bb*dd)/den, t = clamp(tu, 0., 1.); vec3 q = a.xyz+u*t; float s = clamp(dot(q-camPos, dir), 0., L);
-              vec3 p = camPos+dir*s; float r = mix(a.w, b.w, t), d = length(p-q), sn = sqrt(max(1.-bb*bb/cc, .03));
-              float near = smoothstep(.8, 4., s);
-              // a narrow bright core inside a faint wide halo; thickness no longer adds brightness, so every beam reads the same
-              float prof = kk.y > .5 ? .7*exp(-d*d/(r*r)*1.1) : exp(-d*d/(r*r)*7.) + .38*exp(-d*d/(r*r)*1.4);
-              // each beam breathes on its own slow, unrelated rhythm
-              float fi = float(i), breathe = 1. + .09*sin(time*.21 + fi*1.71)*sin(time*.133 + fi*4.13) + .05*sin(time*.47 + fi*2.93);
-              float add = k*breathe*prof*min(1.25/sn, 3.2)*smoothstep(0., .2, tu)*(1.-.35*t)*near; if (kk.y > .5) accS += add; else acc += add; }   // fade softly past the window end (a hard cut there left a ring)
-            float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898,78.233)))*43758.5453)*.04;
-            gl_FragColor = vec4(base.rgb + (col*acc + colS*accS)*gain*(1.+n), base.a); }`,
-      });
-      this.q = new FullScreenQuad(this.mat);
-    }
-    render(r, write, read) {
-      const u = this.mat.uniforms;
-      u.time.value = performance.now() / 1000;
-      u.tDiffuse.value = read.texture;
-      u.tD.value = ink.rt.depthTexture;
-      u.segs.value = segTex();
-      u.nSeg.value = Math.min(64, segs.length);
-      u.far.value = camera.far;
-      u.projInv.value.copy(camera.projectionMatrixInverse);
-      u.camWorld.value.copy(camera.matrixWorld);
-      u.camPos.value.setFromMatrixPosition(camera.matrixWorld);
-      r.setRenderTarget(this.renderToScreen ? null : write);
-      this.q.render(r);
-    }
-  }
   const composer = new EffectComposer(
     renderer,
     new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 }),
   );
   composer.addPass(new RenderPass(scene, camera));
-  const ink = new Ink();
+  const ink = new InkPass(scene, camera, () => noLine, C.ink);
   composer.addPass(ink);
-  const shafts = new Shafts();
+  const shafts = new ShaftsPass(
+    camera,
+    () => ink.rt.depthTexture,
+    () => ({ tex: segTex(), count: segs.length }),
+    C.apricot,
+  );
   composer.addPass(shafts);
-  const dream = new Dream();
+  const dream = new DreamPass(camera, () => ink.rt.depthTexture, lightInView, C.wheat);
   composer.addPass(dream);
   const glow = new UnrealBloomPass(new V2(4, 4), 0.32, 0.7, 1.1);
   composer.addPass(glow);
   composer.addPass(new OutputPass());
   const fxaa = new ShaderPass(FXAAShader);
   composer.addPass(fxaa);
-  class UiGlass extends Pass {
-    constructor() {
-      super();
-      this.needsSwap = true;
-      this.rects = Array.from({ length: 12 }, () => new THREE.Vector4());
-      this.radii = new Array(12).fill(0);
-      this.mat = new THREE.ShaderMaterial({
-        depthTest: false,
-        depthWrite: false,
-        vertexShader: FSV,
-        uniforms: {
-          tDiffuse: { value: null },
-          res: { value: new V2(1, 1) },
-          rects: { value: this.rects },
-          radii: { value: this.radii },
-          n: { value: 0 },
-          block: { value: 14 },
-          lw: { value: 1.5 },
-          tint: { value: new THREE.Color(0.98, 0.96, 0.92) },
-        },
-        fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec4 rects[12]; uniform float radii[12]; uniform int n; uniform float block, lw; uniform vec3 tint; varying vec2 vUv;
-          void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 p = vUv*res; float inside = 0., ring = 0.; vec4 own = vec4(0.);
-            for (int i = 0; i < 12; i++) { if (i >= n) break; vec4 r = rects[i]; vec2 hs = r.zw*.5; float rad = min(radii[i], min(hs.x, hs.y)); vec2 q = abs(p-(r.xy+hs))-hs+rad;
-              float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - rad, k = 1.-smoothstep(-1., 1., d); if (k > inside) { inside = k; own = r; }
-              // the card's white frame, from the very same shape as its glass: it sits over the glass's edge like a mask
-              ring = max(ring, 1. - smoothstep(lw*.5 - .7, lw*.5 + .7, abs(d - lw*.25))); }
-            // the mosaic glass: each block shows the average of what is behind it
-            // (the blocks are laid from the card's own corner and sized so whole blocks fill it exactly: no cut-off row at
-            // its top or bottom, no column cut at its sides)
-            if (inside > 0.) { vec2 bs = own.zw / max(vec2(1.), floor(own.zw/block + .5)), b = own.xy + (floor((p - own.xy)/bs) + .5)*bs; vec3 m = vec3(0.);
-              for (int k = 0; k < 16; k++) { vec2 o = (vec2(float(k - (k/4)*4), float(k/4)) - 1.5)/4.*bs*1.6; m += texture2D(tDiffuse, (b+o)/res).rgb; }
-              m = m/16.; m = mix(m, vec3(dot(m, vec3(.3,.55,.15))), .25); c.rgb = mix(c.rgb, m, inside); }
-            c.rgb = mix(c.rgb, vec3(1.), ring * .82);
-            gl_FragColor = c; }`,
-      });
-      this.q = new FullScreenQuad(this.mat);
-    }
-    setSize(w, h) {
-      this.mat.uniforms.res.value.set(w, h);
-    }
-    collect() {
-      const pr = renderer.getPixelRatio();
-      let n = 0;
-      for (const el of document.querySelectorAll('.card')) {
-        if (n >= 12 || el.hidden || (!el.offsetParent && getComputedStyle(el).position !== 'fixed')) continue;
-        const r = el.getBoundingClientRect();
-        if (r.width < 2 || r.height < 2 || el.closest('[hidden]')) continue;
-        // (its corner read again whenever its size changes: a radius in % or a pill depends on the size, and one read before
-        // the styles had loaded stayed wrong)
-        const sz = (r.width | 0) + 'x' + (r.height | 0);
-        if (el.dataset.sz !== sz) {
-          el.dataset.sz = sz;
-          const cs = getComputedStyle(el),
-            v = cs.borderTopLeftRadius;
-          el.dataset.rad = String(
-            v.endsWith('%') ? (parseFloat(v) / 100) * Math.min(r.width, r.height) : parseFloat(v) || 0,
-          );
-        }
-        this.rects[n].set(r.left * pr, (innerHeight - r.bottom) * pr, r.width * pr, r.height * pr);
-        this.radii[n] = +el.dataset.rad * pr;
-        n++;
-      }
-      this.mat.uniforms.n.value = n;
-      this.mat.uniforms.block.value = 22 * pr;
-      this.mat.uniforms.lw.value = 1.6 * pr;
-    }
-    render(r, write, read) {
-      this.collect();
-      this.mat.uniforms.tDiffuse.value = read.texture;
-      r.setRenderTarget(this.renderToScreen ? null : write);
-      this.q.render(r);
-    }
-  }
-  const uiGlass = new UiGlass();
+  const uiGlass = new GlassPass(() => renderer.getPixelRatio());
   composer.addPass(uiGlass);
 
   function fitSun(size) {
@@ -3176,7 +2868,7 @@ export function createWorld(
     quality();
     if (!S.immersive && document.pointerLockElement === canvas && !looking) document.exitPointerLock?.();
     beams.visible = !!S.beams;
-    if (typeof updateAmbient === 'function') updateAmbient();
+    updateAmbient();
     dream.enabled = S.dream !== false;
     glow.enabled = S.dream !== false && S.gfx !== 'lite';
     ink.mat.uniforms.w.value = { thin: 0.8, mid: 1.2, bold: 1.8 }[S.line] || 1.2;
@@ -3594,10 +3286,8 @@ export function createWorld(
     blob(s.pos.x, s.pos.z, 1.1, 1.1);
   });
 
-  /* ---------- spatial audio ----------
-     one decoded track, many outputs. Every speaker is fed the same signal, so moving between them is only a change of gain.
-     Sound from another room is heard from the doorway on the path to it, darker and further, as in games' portal propagation. */
-  const RT60 = { nave: 3.2, dome: 4.5, lists: 1.8, settings: 1.8, altar: 2.4 };
+  /* ---------- the song in the rooms, and the rooms' own music (systems/audio.ts): this scene's part is its speakers,
+     its rooms' reverb times, and the way sound walks through its doorways ---------- */
   const doorOf = (r) =>
     r === 'nave' ? new V3(0, EYE, NAVE.z1 - T / 2) : at(VEST.find((v) => v[0] === r)[1], CROSS.r + T + 3 + T / 2); // the room's own doorway
   const crossDoorOf = (r) =>
@@ -3608,270 +3298,29 @@ export function createWorld(
     if (Sroom === 'dome') return [L, doorOf(Lroom), crossDoorOf(Lroom), S];
     return [L, doorOf(Lroom), crossDoorOf(Lroom), crossDoorOf(Sroom), doorOf(Sroom), S];
   }
-  const au = { ctx: null, ready: false, phones: true, song: null, songT0: 0 };
-  function makeIR(ctx, rt) {
-    const sr = ctx.sampleRate,
-      n = Math.floor(sr * rt * 1.1),
-      ir = ctx.createBuffer(2, n, sr);
-    for (let c = 0; c < 2; c++) {
-      const d = ir.getChannelData(c);
-      let lp = 0,
-        seed = 1 + c * 7;
-      for (let i = 0; i < n; i++) {
-        seed = (seed * 16807) % 2147483647;
-        const w = (seed / 2147483647) * 2 - 1,
-          t = i / sr,
-          k = Math.min(0.92, 0.25 + (t / rt) * 0.7); // the tail darkens as it decays
-        lp = lp * k + w * (1 - k);
-        d[i] = lp * Math.exp((-6.9 * t) / rt) * (t < 0.004 ? t / 0.004 : 1);
-      }
-      for (const [ms, a] of [
-        [11, 0.5],
-        [19, 0.38],
-        [29, 0.3],
-        [43, 0.22],
-        [61, 0.16],
-      ])
-        d[Math.floor((sr * (ms + c * 3)) / 1000)] += a * (c ? -1 : 1);
-    } // a few early reflections
-    return ir;
-  }
-  function seamless(ab, ctx) {
-    const chs = Array.from({ length: ab.numberOfChannels }, (_, c) => ab.getChannelData(c));
-    let a = 0,
-      b = ab.length - 1;
-    const loud = (i) => chs.some((d) => Math.abs(d[i]) > 1e-5);
-    while (a < b && !loud(a)) a++;
-    while (b > a && !loud(b)) b--;
-    const L = b - a + 1,
-      X = Math.min(Math.round(ab.sampleRate * 0.025), L >> 4),
-      out = ctx.createBuffer(chs.length, L - X, ab.sampleRate);
-    chs.forEach((d, c) => {
-      const o = out.getChannelData(c);
-      for (let i = 0; i < L - X; i++) o[i] = d[a + i];
-      for (let i = 0; i < X; i++) {
-        const u = i / X;
-        o[i] = d[a + i] * Math.sin((u * Math.PI) / 2) + d[a + L - X + i] * Math.cos((u * Math.PI) / 2);
-      }
-    });
-    return out;
-  }
-  // a speaker chain: input → wall/air filter → gain → HRTF panner → dry; and a reverb send by distance
-  function chain(ctx, s) {
-    const input = ctx.createGain(),
-      lp = ctx.createBiquadFilter(),
-      g = ctx.createGain(),
-      pan = ctx.createPanner(),
-      send = ctx.createGain();
-    lp.type = 'lowpass';
-    lp.frequency.value = 18000;
-    g.gain.value = 0;
-    send.gain.value = 0;
-    Object.assign(pan, {
-      panningModel: 'HRTF',
-      distanceModel: 'linear',
-      refDistance: 1,
-      maxDistance: 1e4,
-      rolloffFactor: 0,
-    }); // distance is ours (by path), the panner only places it
-    input.connect(lp);
-    lp.connect(g);
-    g.connect(pan);
-    pan.connect(au.dry);
-    g.connect(send);
-    send.connect(au.verbIn);
-    return { s, input, lp, g, pan, send, want: 0 };
-  }
-  async function initAudio() {
-    if (au.ctx) {
-      au.ctx.resume?.();
-      return;
-    }
-    const A = bind.audio();
-    const ctx = A.ctx;
-    au.ctx = ctx;
-    ctx.resume?.();
-    au.master = ctx.createGain();
-    au.an = ctx.createAnalyser();
-    au.an.fftSize = 1024;
-    au.bins = new Uint8Array(au.an.frequencyBinCount);
-    au.master.connect(au.an);
-    au.an.connect(ctx.destination);
-    au.dry = ctx.createGain();
-    au.dry.connect(au.master);
-    au.verbIn = ctx.createGain();
-    au.verbs = {};
-    for (const r in RT60) {
-      const cv = ctx.createConvolver(),
-        gg = ctx.createGain();
-      gg.gain.value = 0;
-      au.verbIn.connect(cv);
-      cv.connect(gg);
-      gg.connect(au.master);
-      au.verbs[r] = { cv, g: gg };
-    }
-    // the headphone path: straight to the output, with a filter that closes as you take them off
-    au.direct = ctx.createGain();
-    au.directLP = ctx.createBiquadFilter();
-    au.directLP.type = 'lowpass';
-    au.directLP.frequency.value = 20000;
-    au.direct.gain.value = 0;
-    au.direct.connect(au.directLP);
-    au.directLP.connect(au.master);
-    au.scene = ctx.createGain();
-    au.scene.gain.value = 0; // the song as heard in the room
-    au.chains = SPEAKERS.map((s) => chain(ctx, s));
-    au.chains.forEach((c) => au.scene.connect(c.input));
-    au.pool = chain(ctx, SPEAKERS[1]);
-    au.amb = ctx.createGain();
-    au.amb.gain.value = 0;
-    au.amb.connect(au.pool.input); // the room's own music lives in the pool
-    // the song comes in here when the room plays it (Cadenza's engine sends it after its own gain: volume, balance, fades)
-    au.songIn = ctx.createGain();
-    au.songIn.connect(au.direct);
-    au.songIn.connect(au.scene);
-    au.ready = true;
-    routeSong();
-    try {
-      const ab = await ctx.decodeAudioData(await (await fetch(AMBIENT)).arrayBuffer());
-      au.buf = seamless(ab, ctx); // (played by ambientTick, only while no song plays or is on its way)
-      // build the rooms' responses one at a time when the page is idle, so the picture never waits on them
-      const rooms = Object.keys(RT60),
-        next = () => {
-          const r = rooms.shift();
-          if (!r) return;
-          au.verbs[r].cv.buffer = makeIR(ctx, RT60[r]);
-          later(next);
-        },
-        later = (f) =>
-          window.requestIdleCallback ? window.requestIdleCallback(f, { timeout: 600 }) : setTimeout(f, 200);
-      next();
-      updateAmbient();
-    } catch (e) {
-      au.failed = true;
-    }
-  }
-  // in the prototype the demo songs are silent, so the room's music stands in for them (marked as such in the player)
-  function startSong() {
-    return;
-    if (!au.ready) return;
-    stopSong();
-    const src = au.ctx.createBufferSource();
-    src.buffer = au.buf;
-    src.loop = true;
-    src.connect(au.direct);
-    src.connect(au.scene);
-    src.start();
-    au.song = src;
-  }
-  function stopSong(delay = 0) {
-    const s = au.song;
-    au.song = null;
-    if (s)
-      try {
-        s.stop(au.ctx.currentTime + delay);
-      } catch (e) {}
-  }
-  function aramp(p, v, sec) {
-    const t = au.ctx.currentTime;
-    p.cancelScheduledValues(t);
-    p.setValueAtTime(p.value, t);
-    p.linearRampToValueAtTime(v, t + sec);
-  }
-  // the room's own music exists only between songs: the moment a song is asked for (before it has even been read) it
-  // fades and its source is stopped — nothing of it runs under a song — and it comes back, from a new source, a few
-  // seconds after the song is paused or over
-  let ambOn = false,
-    ambAt = 0,
-    songSeen = false;
-  function ambientTick(now) {
-    if (!au.ready || !au.buf) return;
-    const want = !NOW.busy && S.music !== false;
-    if (NOW.busy) songSeen = true;
-    if (!want) {
-      ambAt = 0;
-      if (ambOn) {
-        ambOn = false;
-        aramp(au.amb.gain, 0, 0.45);
-        const src = au.ambSrc;
-        au.ambSrc = null;
-        if (src)
-          setTimeout(() => {
-            try {
-              src.stop();
-              src.disconnect();
-            } catch (e) {}
-          }, 600);
-      }
-      return;
-    }
-    if (ambOn) return;
-    if (!ambAt) ambAt = now + (songSeen ? 4000 : 0);
-    if (now < ambAt) return;
-    ambOn = true;
-    const src = au.ctx.createBufferSource();
-    src.buffer = au.buf;
-    src.loop = true;
-    src.connect(au.amb);
-    src.start();
-    au.ambSrc = src;
-    aramp(au.amb.gain, +(S.musicVol ?? 0.6), 3.5);
+  const sound = new RoomAudio({
+    audio: () => bind.audio(),
+    sources: SPEAKERS,
+    ambientFrom: SPEAKERS[1],
+    ambientUrl: AMBIENT,
+    reverb: { nave: 3.2, dome: 4.5, lists: 1.8, settings: 1.8, altar: 2.4 },
+    path: soundPath,
+    onPhones: (on) => {
+      const b = $('hp');
+      b.setAttribute('aria-pressed', String(on));
+      b.textContent = ts(on ? 'phones.on' : 'phones.off');
+      b.title = ts(on ? 'phones.onHelp' : 'phones.offHelp');
+    },
+  });
+  function initAudio() {
+    sound.start();
   }
   function updateAmbient() {
-    if (au.ready && ambOn) aramp(au.amb.gain, +(S.musicVol ?? 0.6), 0.4);
-  }
-  // headphones: the song leaves Cadenza exactly as it always does (the engine's own path, untouched); taking them off
-  // sends it into the room, the clean sound muffled away as the speakers come in. The Hi-Fi output never enters the page,
-  // so with it the headphones stay on.
-  let routed = false,
-    unrouteAt = 0;
-  const engineHifi = () => bind.audio().hifi;
-  function routeSong() {
-    if (!au.ready) return;
-    const A = bind.audio();
-    if (A.hifi && !au.phones) setPhones(true);
-    if (au.phones) {
-      aramp(au.direct.gain, 1, 0.6);
-      aramp(au.scene.gain, 0, 0.6);
-      if (routed) {
-        clearTimeout(unrouteAt);
-        unrouteAt = setTimeout(() => {
-          if (au.phones) {
-            A.route(null);
-            routed = false;
-          }
-        }, 700);
-      }
-    } else {
-      clearTimeout(unrouteAt);
-      if (!routed) {
-        au.direct.gain.value = 1;
-        au.scene.gain.value = 0;
-        A.route(au.songIn);
-        routed = true;
-      }
-      aramp(au.direct.gain, 0, 0.8);
-      aramp(au.scene.gain, 1.15, 0.8);
-    }
-  }
-  // taking the headphones off: the clean sound is muffled away while the room fades in; only the audio does this
-  function setPhones(on) {
-    au.phones = on;
-    const b = $('hp');
-    b.setAttribute('aria-pressed', String(on));
-    b.textContent = ts(on ? 'phones.on' : 'phones.off');
-    b.title = ts(on ? 'phones.onHelp' : 'phones.offHelp');
-    if (!au.ready) return;
-    const t = au.ctx.currentTime,
-      f = au.directLP.frequency;
-    f.cancelScheduledValues(t);
-    f.setValueAtTime(f.value, t);
-    f.exponentialRampToValueAtTime(on ? 20000 : 700, t + 0.6);
-    routeSong();
+    sound.setAmbient(S.music !== false, +(S.musicVol ?? 0.6));
   }
   $('hp').onclick = () => {
     initAudio();
-    if (au.phones && bind.audio().hifi) {
+    if (sound.phones && bind.audio().hifi) {
       showFocus(ts('hifi.eye'), ts('hifi.title'), ts('hifi.body'), async () => {
         hideCards();
         await bind.audio().useStandard();
@@ -3879,97 +3328,17 @@ export function createWorld(
       $('f-play').textContent = ts('hifi.use');
       return;
     }
-    setPhones(!au.phones);
+    sound.setPhones(!sound.phones);
   };
   onW('pointerdown', initAudio);
   onW('keydown', initAudio);
-  // every frame: place the listener, route each speaker through the doorways, keep only the two nearest awake
-  const _f = new V3(),
-    _u = new V3();
-  let audioAcc = 0;
-  // ten times a second is enough: every value below glides to its target on its own time constant
+  const _listener = { pos: camera.position, quat: camera.quaternion, room: 'nave' };
   function audioTick(dt) {
-    if (!au.ready) return;
-    audioAcc += dt;
-    if (audioAcc < 0.1) return;
-    audioAcc = 0;
-    if (!au.phones && engineHifi()) setPhones(true);
-    const ctx = au.ctx,
-      t = ctx.currentTime,
-      L = camera.position,
-      lsn = ctx.listener;
-    _f.set(0, 0, -1).applyQuaternion(camera.quaternion);
-    _u.set(0, 1, 0).applyQuaternion(camera.quaternion);
-    if (lsn.positionX) {
-      for (const [p, v] of [
-        [lsn.positionX, L.x],
-        [lsn.positionY, L.y],
-        [lsn.positionZ, L.z],
-        [lsn.forwardX, _f.x],
-        [lsn.forwardY, _f.y],
-        [lsn.forwardZ, _f.z],
-        [lsn.upX, _u.x],
-        [lsn.upY, _u.y],
-        [lsn.upZ, _u.z],
-      ])
-        p.setTargetAtTime(v, t, 0.03);
-    } else {
-      lsn.setPosition(L.x, L.y, L.z);
-      lsn.setOrientation(_f.x, _f.y, _f.z, _u.x, _u.y, _u.z);
-    }
-    const place = (c) => {
-      const path = soundPath(L.clone(), room, c.s.pos, c.s.room);
-      let dist = 0;
-      for (let i = 1; i < path.length; i++) dist += path[i].distanceTo(path[i - 1]);
-      const doors = path.length === 2 ? 0 : path.length === 4 ? 1 : 2,
-        at1 = path[1],
-        P = c.pan;
-      const px = at1.x,
-        py = at1.y,
-        pz = at1.z;
-      if (P.positionX) {
-        P.positionX.setTargetAtTime(px, t, 0.12);
-        P.positionY.setTargetAtTime(py, t, 0.12);
-        P.positionZ.setTargetAtTime(pz, t, 0.12);
-      } else P.setPosition(px, py, pz);
-      c.gainNow = (3 / (3 + Math.max(0, dist - 3) * 0.9)) * Math.pow(0.55, doors); // full within 3 m, then falls with the walked distance
-      c.lp.frequency.setTargetAtTime(
-        Math.max(500, (doors ? (doors === 1 ? 2600 : 1100) : 18000) * (1 - Math.min(0.6, dist / 80))),
-        t,
-        0.25,
-      );
-      c.send.gain.setTargetAtTime(0.18 + 0.55 * Math.min(1, dist / 16) + doors * 0.2, t, 0.3);
-      return c.gainNow;
-    };
-    // the song: of the five speakers, only the two strongest sound
-    const g = au.chains.map(place),
-      keep = g
-        .map((v, i) => [v, i])
-        .sort((a, b) => b[0] - a[0])
-        .slice(0, 2)
-        .map((x) => x[1]);
-    au.chains.forEach((c, i) => {
-      const v = keep.includes(i) ? g[i] : 0;
-      c.g.gain.setTargetAtTime(v, t, 0.35);
-      c.s.lit = v > 0.02 && !au.phones && playing;
-    });
-    place(au.pool);
-    au.pool.g.gain.setTargetAtTime(au.pool.gainNow, t, 0.35);
-    for (const r in au.verbs) au.verbs[r].g.gain.setTargetAtTime(r === room ? 0.55 : 0, t, 0.6); // the room you stand in rings
+    _listener.room = room;
+    sound.tick(dt, _listener, playing);
     SPEAKERS.forEach((s) => {
       if (s.led) s.led.visible = !!s.lit;
     });
-  }
-  function hearAccent(now) {
-    if (!au.ready) return false;
-    au.an.getByteFrequencyData(au.bins);
-    let e = 0;
-    for (let i = 1; i < 6; i++) e += au.bins[i];
-    e /= 5;
-    const hit = e > (au.avg || 0) * 1.25 + 8 && e > 70 && now - (au.last || 0) > 450;
-    au.avg = (au.avg || 0) * 0.96 + e * 0.04;
-    if (hit) au.last = now;
-    return hit;
   }
 
   /* ---------- scene lyrics: lines peel off the sanctuary wall and hang in the air in front of you; then they bleach, tip over and fall ---------- */
@@ -4707,7 +4076,7 @@ export function createWorld(
       $('pp').textContent = playing ? '❚❚' : '▶';
       $('pp').setAttribute('aria-label', ts(playing ? 'pause' : 'play'));
     }
-    ambientTick(now);
+    sound.ambientTick(now, !!NOW.busy);
     if (paused) return; // (the small window, or the window down in the taskbar: nothing of the scene is worked out or drawn)
     if (NOW.id !== nowId) {
       nowId = NOW.id;
@@ -4881,7 +4250,7 @@ export function createWorld(
       accent = RM() ? 0 : R.dip;
     } else {
       lastClock = null;
-      if (!playing && hearAccent(now)) accent = 1;
+      if (!playing && sound.hearAccent(now)) accent = 1;
       accent = RM() ? 0 : accent * Math.exp(-dt / 1.1);
       motion += dt * (1 - 0.85 * accent);
     }
@@ -5006,7 +4375,7 @@ export function createWorld(
         flight = null;
       }
     },
-    au: () => au,
+    sound: () => sound,
     lyr: () => scene3,
     room: () => room,
     regionAt: (x, y, z) => regionAt(new V3(x, y, z)),
@@ -5101,13 +4470,7 @@ export function createWorld(
       thumbs.dispose();
       hiCovers.dispose();
       atlas.dispose();
-      try {
-        clearTimeout(unrouteAt);
-        if (routed) bind.audio().route(null);
-        au.ambSrc?.stop();
-        au.master?.disconnect();
-        au.songIn?.disconnect();
-      } catch (e) {}
+      sound.dispose();
       composer.dispose?.();
       renderer.dispose();
       delete window.__cad;

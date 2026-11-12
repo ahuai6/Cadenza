@@ -69,10 +69,13 @@ defineCommand({
 
 ```
 scene/      場景描述：房間、物件、光源、可站立區域（純資料＋建造函式）
-systems/    render、input、audio、camera、lyrics、interact —— 各自一個檔，有型別
+render/     後製：墨線、光束、曝光與霧、介面玻璃（現況：已拆出，`render/passes.ts`）
+systems/    input、audio、camera、lyrics、interact —— 各自一個檔，有型別（現況：`systems/audio.ts` 已拆出）
 entities/   可互動物件：統一介面 { hover, use, hold?, sound? }
 rigs/       鏡頭控制器：walk（自由行走）、director（固定視角／自動運鏡）
 ```
+
+拆出的模組不認識建築：需要的東西（場景、鏡頭、聲源、聲音怎麼穿過門）在建立時交給它。這是之後換場景、加收音機與多聲道的前提。
 
 新增一個場景＝新增一份場景描述；新增一個可拿起的物件＝實作 entity 介面並登記。不允許再往單一閉包裡加東西。
 
