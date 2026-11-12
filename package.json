@@ -18,6 +18,7 @@
     "build:native": "cargo build --release --manifest-path native/cadenza-audio/Cargo.toml --target x86_64-pc-windows-gnu",
     "test:render": "node tests/render.cjs",
     "test:desktop": "node tests/desktop.cjs",
+    "test:space": "node tests/space.cjs",
     "test:hifi": "cargo build --release --manifest-path native/cadenza-audio/Cargo.toml && node tests/hifi.cjs && node tests/desktop-hifi.cjs",
     "electron": "npm run build:app && electron .",
     "models": "node scripts/models.mjs",

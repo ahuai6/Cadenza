@@ -126,12 +126,12 @@ npm run build:app
 |---|---|
 | 導演、渲染 | `npm run test:render`（對照畫面） |
 | 經典介面 | `npm run test:desktop` |
-| 空間介面 | 截圖腳本（目標：`npm run test:space`；現況：見下） |
+| 空間介面 | `npm run test:space <截圖資料夾>`（約 5 分鐘），跑完**打開截圖看** |
 | 主程序、Hi-Fi | 只能在 Windows 實機確認，回報時明說 |
 
-空間的截圖測試方法（現況，待整理入庫）：用 Playwright＋SwiftShader 開 `dist-app/index.html`，注入假的 `window.cadenzaDesktop` 與 `cadenzaLib`，用 `window.__cad` 的鉤子（`go`、`stand`、`look`、`fakeNow`、`fakeBeats`、`hits`）擺位置與假歌曲，截圖後**親自看圖**。
+空間測試（`tests/space.cjs`）的做法：用 Playwright＋SwiftShader 開 `dist-app/index.html`，注入假的 `window.cadenzaDesktop` 與 `cadenzaLib`，用 `window.__cad` 的鉤子（`go`、`stand`、`look`、`fakeNow`、`fakeBeats`、`hits`）擺位置與假歌曲。它檢查：各房間、空中歌詞與字幕、進度條拖曳、互動距離、設定卡、播放列、小窗的可點區域、30 秒堆積大小、頁面無錯誤。新增空間功能時在這裡加一段檢查。
 
-記憶體：任何每幀邏輯的改動後，跑 30 秒量堆積大小，前後差應在 1 MB 內。
+記憶體：`test:space` 會量 30 秒的堆積大小（差距須小於 1.5 MB）；經典介面的每幀邏輯改動後也要另外量一次。
 
 **回報時必須區分**：「測過且通過」「只改了邏輯、沒有驗證」「這個環境無法驗證（實體顯示卡、聲音、Windows 視窗行為）」。不把沒驗證的寫成已完成。
 
