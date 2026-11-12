@@ -128,6 +128,33 @@ const SONG = `(() => {
     await shot('room-' + room);
     ok(`room: ${room} is where the scene says it is`, (await p.evaluate(() => __cad.room())) === room);
   }
+  // the rigs: a flight to another room goes by its doorways and arrives; a set of shots takes the view and gives it back
+  await p.evaluate(() => {
+    __cad.go('nave');
+    __cad.fly('lists');
+  });
+  await p.waitForFunction(() => __cad.room() === 'lists', null, { timeout: 30000 }).catch(() => {});
+  ok('rig: a flight through the doorways arrives', (await p.evaluate(() => __cad.room())) === 'lists');
+  await wait(2500);
+  const eye = () =>
+    p.evaluate(() =>
+      __cad
+        .camera()
+        .position.toArray()
+        .map((v) => +v.toFixed(1)),
+    );
+  const walked = await eye();
+  await p.evaluate(() => __cad.rig('shots', 3));
+  await wait(4000);
+  const framed = await eye();
+  await shot('rig-shot');
+  await p.evaluate(() => __cad.rig('walk'));
+  await wait(300);
+  ok(
+    'rig: a shot takes the view elsewhere; walking has it back where it was',
+    Math.hypot(framed[0] - walked[0], framed[2] - walked[2]) > 10 && (await eye()).join() === walked.join(),
+    JSON.stringify([walked, framed]),
+  );
   ok('window buttons: minimise, maximise, full screen, close', (await p.$$('#win-btns button')).length === 4);
 
   // the lyrics in the air, and their captions

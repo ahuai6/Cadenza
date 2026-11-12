@@ -70,7 +70,7 @@ defineCommand({
 ```
 scene/      場景描述：房間、物件、光源、可站立區域（純資料＋建造函式）
 render/     後製：墨線、光束、曝光與霧、介面玻璃（現況：已拆出，`render/passes.ts`）
-systems/    input、audio、camera、lyrics、interact —— 各自一個檔，有型別（現況：`systems/audio.ts`、`systems/lyrics.ts` 已拆出）
+systems/    input、audio、camera、lyrics、interact —— 各自一個檔，有型別（現況：`systems/audio.ts`、`systems/lyrics.ts` 已拆出；鏡頭在 `rigs/`：`walk.ts` 自由行走、`shots.ts` 定點鏡位，場景只讀取目前控制器的姿態）
 entities/   可互動物件：統一介面 { hover, use, hold?, sound? }
 rigs/       鏡頭控制器：walk（自由行走）、director（固定視角／自動運鏡）
 ```

@@ -14,6 +14,9 @@ import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { InkPass, ShaftsPass, DreamPass, GlassPass } from './render/passes';
 import { RoomAudio } from './systems/audio';
 import { AirLyrics } from './systems/lyrics';
+import { smooth } from './rigs/rig';
+import { ShotRig } from './rigs/shots';
+import { WalkRig } from './rigs/walk';
 import type { SpaceBind, SpaceNow } from './bind';
 import { navePage, navePages, letterSpan, NAVE_SLOTS, LIST_SLOTS } from './data';
 import { CoverCache, CoverAtlas } from './covers';
@@ -2688,67 +2691,37 @@ export function createWorld(
   }
 
   /* ---------- walking, looking, flying ---------- */
-  const me = { pos: PLACES.nave.pos.clone(), yaw: 0, pitch: 0.05, vel: new V3() };
+  // (rigs/walk.ts walks; this scene's part is where one may stand, the way through its doorways, and the veil that
+  // stands in for a flight under reduced motion)
+  const walk = new WalkRig({
+    start: { pos: PLACES.nave.pos, yaw: 0, pitch: 0.05 },
+    eye: EYE,
+    region: regionAt,
+    route: (to) => route(room, regionAt(to)?.room || room),
+    speed: () => S.walk,
+    sensitivity: () => S.look,
+    onWalk: () => hideCards(),
+  });
+  const veiled = (arrive) => {
+    $('veil').style.opacity = 1;
+    setTimeout(() => {
+      arrive();
+      $('veil').style.opacity = 0;
+    }, 360);
+  };
+  const me = walk.pose;
+  // the view is the rig's in use: walking, unless a set of shots has it (the rooms, one framing each)
+  const shots = new ShotRig({ shots: Object.values(PLACES), reduced: () => RM() });
+  let rig = walk;
   const keys = new Set();
   let looking = false,
     locked = false,
-    flight = null,
     place = 'nave',
     room = 'nave';
-  const ease = (u) => (u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);
-  const sstep = (a, b, x) => {
-    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
-    return t * t * (3 - 2 * t);
-  };
-  const wrapTo = (a, b) => {
-    let d = (b - a) % (Math.PI * 2);
-    if (d > Math.PI) d -= Math.PI * 2;
-    if (d < -Math.PI) d += Math.PI * 2;
-    return a + d;
-  };
+  const sstep = smooth;
   function fly(pos, yaw, pitch, dur, out = false) {
-    const target = regionAt(pos)?.room || room,
-      ways = route(room, target);
-    if (RM()) {
-      $('veil').style.opacity = 1;
-      flight = null;
-      setTimeout(() => {
-        me.pos.copy(pos);
-        me.yaw = yaw;
-        me.pitch = pitch;
-        me.vel.set(0, 0, 0);
-        $('veil').style.opacity = 0;
-      }, 360);
-      return;
-    }
-    if (!ways.length) {
-      const d = me.pos.distanceTo(pos);
-      flight = {
-        t0: performance.now(),
-        dur: (dur ?? Math.min(2.4, 0.8 + d * 0.06)) * 1000,
-        from: me.pos.clone(),
-        to: pos.clone(),
-        y0: me.yaw,
-        y1: wrapTo(me.yaw, yaw),
-        p0: me.pitch,
-        p1: pitch,
-        out,
-      };
-      return;
-    }
-    // a walk through the doorways, not through the walls
-    const pts = [me.pos.clone(), ...ways, pos.clone()].filter((p, i, a) => i === 0 || p.distanceTo(a[i - 1]) > 0.4);
-    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5),
-      len = curve.getLength();
-    flight = {
-      curve,
-      t0: performance.now(),
-      dur: Math.max(1.6, Math.min(6.5, len / 10)) * 1000,
-      y0: me.yaw,
-      p0: me.pitch,
-      yaw,
-      pitch,
-    };
+    if (RM()) veiled(() => walk.put(pos, yaw, pitch));
+    else walk.fly(pos, yaw, pitch, dur, out);
   }
   function setPlace(p, go = true) {
     place = p;
@@ -2787,8 +2760,9 @@ export function createWorld(
     }
     /* the nearest point of the ring, facing out */ hideCards();
     ui.closeSettings();
-    fly(s.seat.clone(), s.yaw, -0.04, Math.min(1.1, 0.4 + me.pos.distanceTo(s.seat) * 0.05), true);
-    seated = true;
+    if (RM()) fly(s.seat.clone(), s.yaw, -0.04);
+    else walk.sit(s.seat, s.yaw);
+    walk.seated = true;
   }
   function hideCards() {
     $('focus').hidden = true;
@@ -2835,8 +2809,7 @@ export function createWorld(
     $('focus').hidden = false;
   }
   let playing = false,
-    songT = 0,
-    seated = false;
+    songT = 0;
   // Cadenza plays; the scene follows (the card, the cover, the lyrics change when the player says so, in frame())
   function play(ids, index) {
     bind.play(ids, index);
@@ -2944,7 +2917,6 @@ export function createWorld(
     }
   });
   let lockAt = 0,
-    lookDrift = 0,
     relock = false;
   // cards with buttons need the pointer: let it out, and take it back when the card is done
   function freePointer() {
@@ -2962,7 +2934,6 @@ export function createWorld(
   onD('pointerlockchange', () => {
     locked = document.pointerLockElement === canvas;
     lockAt = performance.now();
-    lookDrift = 0;
     $('reticle').hidden = !(locked && immersive());
     if (!locked) {
       $('tip').hidden = true;
@@ -3013,18 +2984,7 @@ export function createWorld(
     if (looking || locked) {
       // pointer lock sometimes reports one huge jump (on lock, unlock or focus): drop those, they are what 'reset' the view
       if (performance.now() - lockAt < 120 || Math.abs(e.movementX) > 160 || Math.abs(e.movementY) > 160) return;
-      // a flight is only cancelled by a deliberate look, not by the hand resting on the mouse
-      if (flight) {
-        lookDrift += Math.abs(e.movementX) + Math.abs(e.movementY);
-        if (lookDrift < 40) return;
-        flight = null;
-      }
-      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) {
-        followTo = null;
-        followV = 0;
-      }
-      me.yaw -= e.movementX * 0.0024 * S.look;
-      me.pitch = Math.max(-1.25, Math.min(1.25, me.pitch - e.movementY * 0.0022 * S.look));
+      rig.look(e.movementX, e.movementY);
       return;
     }
     hoverAt = [e.clientX, e.clientY]; // (looked up once a frame, not on every move: a fast mouse sends hundreds)
@@ -3055,7 +3015,7 @@ export function createWorld(
       if (room === 'dome' && octIn(me.pos, CROSS, 1)) {
         tierGoal = Math.max(-0.35, Math.min(TIERS - 0.65, tierGoal + d / 110));
         wheelRest = performance.now();
-      } else me.vel.addScaledVector(new V3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)), -d * 0.02);
+      } else walk.push(-d * 0.02);
     },
     { passive: false },
   );
@@ -3093,9 +3053,7 @@ export function createWorld(
       return;
     }
     if (e.code === 'KeyR') {
-      rise = true;
-      seated = false;
-      flight = null;
+      walk.stand();
       return;
     }
     if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'nave') {
@@ -3372,9 +3330,6 @@ export function createWorld(
     } // (the subtitles sit just over the player)
     return { yTop: 1 - (2 * top) / H, yBot: 1 - (2 * bot) / H };
   }
-  // following a line: the view turns on a critically damped spring, from rest — it eases in, never starts with a jerk
-  let followTo = null,
-    followV = 0;
   const air = new AirLyrics({
     scene,
     camera,
@@ -3398,7 +3353,8 @@ export function createWorld(
     reduced: RM,
     origin: () => (room === 'altar' ? lyricMeshes[0].m.getWorldPosition(new V3()) : null),
     onSpawn: (pos) => {
-      if (S.follow) followTo = Math.atan2(-(pos.x - camera.position.x), -(pos.z - camera.position.z));
+      // (the view turns to follow a line, if asked to)
+      if (S.follow) walk.follow(Math.atan2(-(pos.x - camera.position.x), -(pos.z - camera.position.z)));
     },
     unlisted: {
       add: (o) => noLine.push(o),
@@ -3414,16 +3370,6 @@ export function createWorld(
     _song.t = NOW.t;
     _song.lines = NOW.lines;
     air.tick(now, dt, _song, curLine);
-    if (followTo != null) {
-      const err = wrapTo(me.yaw, followTo) - me.yaw,
-        w = 2.6;
-      followV += (w * w * err - 2 * w * followV) * dt;
-      me.yaw += followV * dt;
-      if (Math.abs(err) < 0.003 && Math.abs(followV) < 0.01) {
-        followTo = null;
-        followV = 0;
-      }
-    }
   }
 
   /* ---------- the frame ---------- */
@@ -3443,7 +3389,6 @@ export function createWorld(
     last = performance.now(),
     accent = 0,
     motion = 0,
-    rise = false,
     swell = 0,
     lastClock = null,
     beatPush = 0,
@@ -3537,11 +3482,7 @@ export function createWorld(
     tone(_b, tintNow, 0.78, 1, 0.3, 0.85);
     beatFloor.material.uniforms.hot.value.set(C.apricot).lerp(_b, A * 0.8);
   }
-  const fwd = new V3(),
-    right = new V3(),
-    acc = new V3(),
-    tng = new V3(),
-    gp = new V3(),
+  const gp = new V3(),
     gd = new V3(),
     camDir = new V3();
   function frame(now) {
@@ -3584,66 +3525,15 @@ export function createWorld(
     }
     curLine = lineAt(NOW.t);
     capTick();
-    if (flight) {
-      const u = Math.max(0, Math.min(1, (now - flight.t0) / flight.dur)),
-        k = flight.out ? 1 - Math.pow(1 - u, 3) : ease(u); // (sitting: under way at once, settling at the end)
-      if (flight.curve) {
-        flight.curve.getPointAt(k, me.pos);
-        flight.curve.getTangentAt(Math.min(1, k + 0.03), tng);
-        const ty = Math.atan2(-tng.x, -tng.z);
-        const yw = wrapTo(flight.y0, ty),
-          endw = sstep(0.72, 1, k),
-          startw = sstep(0, 0.14, k);
-        let y = flight.y0 + (yw - flight.y0) * startw;
-        y = y + (wrapTo(y, flight.yaw) - y) * endw;
-        me.yaw = y;
-        me.pitch = flight.p0 * (1 - startw) + flight.pitch * endw;
-      } else {
-        me.pos.lerpVectors(flight.from, flight.to, k);
-        me.yaw = flight.y0 + (flight.y1 - flight.y0) * k;
-        me.pitch = flight.p0 + (flight.p1 - flight.p0) * k;
-      }
-      me.vel.set(0, 0, 0);
-      if (u >= 1) flight = null;
-    } else {
-      fwd.set(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
-      right.set(-fwd.z, 0, fwd.x);
-      acc.set(0, 0, 0);
-      if (keys.has('KeyW') || keys.has('ArrowUp')) acc.add(fwd);
-      if (keys.has('KeyS') || keys.has('ArrowDown')) acc.sub(fwd);
-      if (keys.has('KeyD') || keys.has('ArrowRight')) acc.add(right);
-      if (keys.has('KeyA') || keys.has('ArrowLeft')) acc.sub(right);
-      const upKey = keys.has('KeyE') || (locked && immersive() && keys.has('Space')),
-        downKey = keys.has('KeyQ') || (locked && immersive() && (keys.has('ShiftLeft') || keys.has('ShiftRight')));
-      if (upKey) acc.y += 1;
-      if (downKey) acc.y -= 1;
-      if (acc.lengthSq()) {
-        acc.normalize().multiplyScalar(26 * S.walk);
-        hideCards();
-        if (seated && (acc.x || acc.z)) {
-          seated = false;
-          rise = true;
-        }
-      }
-      if (upKey || downKey) rise = false;
-      if (rise) {
-        me.pos.y += (EYE - me.pos.y) * Math.min(1, dt * 5);
-        me.pitch *= Math.pow(0.2, dt);
-        if (Math.abs(me.pos.y - EYE) < 0.005) {
-          me.pos.y = EYE;
-          rise = false;
-        }
-      }
-      me.vel.addScaledVector(acc, dt);
-      me.vel.multiplyScalar(Math.pow(0.02, dt));
-      for (const axis of ['x', 'z', 'y']) {
-        const next = me.pos.clone();
-        next[axis] += me.vel[axis] * dt;
-        const reg = regionAt(next);
-        if (reg && next.y >= EYE * 0.55 && next.y <= reg.top) me.pos.copy(next);
-        else me.vel[axis] *= 0.2;
-      }
-    }
+    const afloat = locked && immersive();
+    walk.steer({
+      forward: (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0),
+      right: (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
+      up:
+        (keys.has('KeyE') || (afloat && keys.has('Space')) ? 1 : 0) -
+        (keys.has('KeyQ') || (afloat && (keys.has('ShiftLeft') || keys.has('ShiftRight'))) ? 1 : 0),
+    });
+    rig.step(now, dt);
     const reg = regionAt(me.pos);
     if (reg && !reg.door && reg.room !== room) onRoom(reg.room);
     if (shownAt && me.pos.distanceTo(shownAt) > REACH + 3) {
@@ -3652,8 +3542,9 @@ export function createWorld(
       ui.show(null);
     }
     const bob = RM() ? 0 : Math.sin((now / 1000) * 0.7) * 0.02;
-    camera.position.set(me.pos.x, me.pos.y + bob, me.pos.z);
-    camera.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+    const view = rig.pose;
+    camera.position.set(view.pos.x, view.pos.y + bob, view.pos.z);
+    camera.rotation.set(view.pitch, view.yaw, 0, 'YXZ');
     stepRail(dt, now);
     const railKey = hoverSong + ':' + chosenSong;
     if (liftTick(dt) || (frameN % 15 === 0 && room === 'dome')) bowlDirty = true;
@@ -3861,11 +3752,17 @@ export function createWorld(
         me.pos.copy(s.seat);
         me.yaw = s.yaw;
         me.pitch = -0.04;
-        seated = true;
-        flight = null;
+        walk.seated = true;
+        walk.halt();
       }
     },
     sound: () => sound,
+    // (the view: 'walk', or the rooms as a set of shots — `shot` goes to one)
+    rig: (name, shot) => {
+      rig = name === 'shots' ? shots : walk;
+      if (shot != null) shots.go(shot);
+      return rig;
+    },
     lyr: () => air,
     room: () => room,
     regionAt: (x, y, z) => regionAt(new V3(x, y, z)),
@@ -3886,14 +3783,14 @@ export function createWorld(
       me.pos.set(x, EYE, z);
       me.yaw = yaw;
       me.pitch = pitch;
-      flight = null;
+      walk.halt();
     },
     go: (k) => {
       const P = PLACES[k];
       me.pos.copy(P.pos);
       me.yaw = P.yaw;
       me.pitch = P.pitch;
-      flight = null;
+      walk.halt();
     },
     fly: (k) => setPlace(k),
     look: (y, p) => {
