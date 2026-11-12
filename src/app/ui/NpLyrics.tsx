@@ -42,6 +42,9 @@ interface LS {
 /** A style written only when it changes: the sung line is painted every frame, but most of its words are sung already or
  *  not yet — writing their same values again made the browser restyle them all each frame for nothing. */
 const wrote = new WeakMap<HTMLElement, Record<string, string>>();
+/** a wait worth marking: at least this long (seconds), and beginning this long after the last line is over */
+const WAIT_MIN = 4,
+  WAIT_AFTER = 0.8;
 function put(el: HTMLElement, k: string, v: string) {
   let m = wrote.get(el);
   if (!m) wrote.set(el, (m = {}));
@@ -66,7 +69,16 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     );
     return { fontFamily: f.stack, fontWeight: f.w };
   }, [view.font, lines]);
-  const st = useRef({ tops: [] as number[], ls: [] as (LS | null)[], cur: -2, manual: 0, raf: 0, last: 0, mTm: 0 });
+  const st = useRef({
+    tops: [] as number[],
+    ls: [] as (LS | null)[],
+    cur: -2,
+    manual: 0,
+    raf: 0,
+    last: 0,
+    mTm: 0,
+    wait: -1,
+  });
   // when each line becomes the current one: as it starts — or, as Apple Music does, half a beat early when the line
   // before is sung well before it (a breath of a beat or more): the page is already there when the voice comes in
   const starts = useMemo(() => {
@@ -230,6 +242,28 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         S.cur = i;
         mark(i);
         aim(i, !S.manual, false);
+      }
+      // a long wait (the intro, a break): the line to come is already in its place, three dots over it filling with the
+      // wait itself — when the voice comes in the line only lights, it does not arrive
+      {
+        const N = lines[i + 1],
+          from = i < 0 ? 0 : Math.max(lines[i].end, lines[i].sung) + WAIT_AFTER,
+          to = N ? starts[i + 1] : 0,
+          w = N && to - from >= WAIT_MIN && p.t >= from && p.t < to ? i + 1 : -1;
+        if (w !== S.wait) {
+          const was = lineEls.current[S.wait];
+          if (was) delete was.dataset.wait;
+          S.wait = w;
+          const el = lineEls.current[w];
+          if (el) {
+            el.dataset.wait = 'true';
+            if (!S.manual) aim(w, true, false);
+          }
+        }
+        if (w >= 0) {
+          const el = lineEls.current[w];
+          if (el) put(el, '--wait', Math.min(1, (p.t - from) / (to - from)).toFixed(3));
+        }
       }
       // (the current line — and a line already begun under it, still waiting to be current: its words are sung meanwhile)
       paint(i);

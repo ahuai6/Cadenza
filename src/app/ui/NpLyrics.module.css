@@ -6,6 +6,7 @@
   padding: 0 8px;
 }
 .line {
+  position: relative;
   display: block;
   width: 100%;
   padding: 12px 14px;
@@ -104,4 +105,32 @@
 .compact .line {
   font-size: calc(17px * var(--np-fs, 1));
   padding: 7px 10px;
+}
+
+/* a line waited for (the intro, a long break): in its place already, a little lit, three dots over it that fill as the
+   wait runs out (--wait: 0..1, the wait's own progress, set from the song's time) */
+.line[data-wait='true'] {
+  opacity: 0.6;
+  filter: none;
+}
+.line[data-wait='true']::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: -14px;
+  width: 52px;
+  height: 12px;
+  background: radial-gradient(circle at 6px 6px, #fff 5px, transparent 6px),
+    radial-gradient(circle at 26px 6px, #fff 5px, transparent 6px),
+    radial-gradient(circle at 46px 6px, #fff 5px, transparent 6px);
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wait, 0) * 100%),
+    rgba(0, 0, 0, 0.28) calc(var(--wait, 0) * 100% + 1px)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wait, 0) * 100%),
+    rgba(0, 0, 0, 0.28) calc(var(--wait, 0) * 100% + 1px)
+  );
 }
