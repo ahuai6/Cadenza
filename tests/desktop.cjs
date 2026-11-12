@@ -1463,7 +1463,7 @@ const ok = (name, pass, detail) => {
   {
     await win.locator('[role=listitem]', { hasText: '晨光' }).click({ button: 'right' });
     await W(300);
-    await win.getByRole('menuitem', { name: '重新掃描' }).click();
+    await win.getByRole('menuitem', { name: '重新讀取節奏' }).click();
     await W(400);
     const an = () => C(() => window.cadenzaLib.get().then((v) => v.tracks.find((t) => t.title === '晨光').analyzed));
     const dropped = await an();
