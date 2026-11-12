@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { tx, LANGS, currentLang, words, type Lang } from '../../i18n';
 import { UI_FONTS, applyUiFont } from '../uifont';
 import { D, Lib, Infer, type Settings } from '../bridge';
-import { settings, lib, useStore } from '../state';
+import { settings, lib, useStore, remember, keep } from '../state';
 import { Icon } from '../ui/icons';
 import { Button, Seg, Toggle, Note, Slider, Dropdown } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
@@ -59,12 +59,12 @@ export function SettingsView() {
     D?.settings().then((v) => settings.set(v));
   }, []);
   const set = setSettings;
+  const [adv, setAdv] = useState(() => remember('setAdv', false));
   return (
     <div className={s.settings}>
       <SettingsIndex />
       <div className={s.doc + ' stagger'}>
         <header className={s.head}>
-          <span className="kicker">Cadenza {st.version || ''}</span>
           <h1 className="display">{tx('s.settings')}</h1>
         </header>
         <Group title={tx('s.set.look')}>
@@ -168,82 +168,106 @@ export function SettingsView() {
           <Toggle label={tx('s.set.tray')} on={st.closeToTray} set={(v) => set({ closeToTray: v })} />
         </Group>
         <AudioGroup st={st} />
-        <RhythmGroup st={st} />
         <Group title={tx('s.set.mv')} help={tx('s.set.mvHelp')}>
           <Note>
             <Icon n="alert" size={14} /> {tx('s.set.photosens')}
           </Note>
           <MvLook />
         </Group>
-        <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
-          <Field label={tx('s.set.gfx')}>
-            <Seg
-              size="sm"
-              fit
-              value={st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default'}
-              onChange={(v) => set({ gfx: v })}
-              options={[
-                ['default', tx('s.set.gfx.default')],
-                ['optimized', tx('s.set.gfx.optimized')],
-                ['lite', tx('s.set.gfx.lite')],
-              ]}
-            />
-          </Field>
-          <Note>{tx('s.set.gfx.' + (st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default') + 'Help')}</Note>
-          <Field label={tx('s.set.scale')}>
-            <Seg
-              size="sm"
-              fit
-              value={String(st.scale)}
-              onChange={(v) => set({ scale: v === 'auto' ? 'auto' : +v })}
-              options={SCALES.map((v) => [
-                String(v),
-                v === 'auto' ? tx('s.set.scale.auto') : tx('s.set.scale.p', { n: Math.round(v * 100) }),
-              ])}
-            />
-          </Field>
-          <Field label={tx('s.set.fps')}>
-            <Seg
-              size="sm"
-              fit
-              value={+st.fps}
-              onChange={(v) => set({ fps: v })}
-              options={FPS.map((v) => [v, v ? `${v} fps` : tx('s.set.fps.none')])}
-            />
-          </Field>
-          <Toggle
-            label={tx('s.set.prerender')}
-            help={tx('s.set.prerenderHelp')}
-            on={st.prerender !== false}
-            set={(v) => set({ prerender: v })}
-          />
-          <Toggle
-            label={tx('s.set.gpuLyrics')}
-            help={tx('s.set.gpuLyricsHelp')}
-            on={st.gpuLyrics !== false}
-            set={(v) => set({ gpuLyrics: v })}
-          />
-          <Toggle
-            label={tx('s.set.perfHud')}
-            help={tx('s.set.perfHudHelp')}
-            on={!!st.perfHud}
-            set={(v) => set({ perfHud: v })}
-          />
-          <Toggle
-            label={tx('s.set.debugLog')}
-            help={tx('s.set.debugLogHelp')}
-            on={!!st.debugLog}
-            set={(v) => set({ debugLog: v })}
-          />
-          {st.debugLog && (
-            <div>
-              <Button size="sm" icon="download" onClick={() => saveDebugLog(st.version || '')}>
-                {tx('s.set.debugExport')}
-              </Button>
-            </div>
-          )}
-        </Group>
-        <DataGroup />
+        {/* what most people never need: how the rhythm is read, how the picture is drawn, the stored data. One press away,
+            and it stays open once opened */}
+        <button
+          type="button"
+          className={s.adv}
+          aria-expanded={adv}
+          data-test="advanced"
+          onClick={() => {
+            setAdv(!adv);
+            keep('setAdv', !adv);
+          }}
+        >
+          <span>
+            <b>{tx('s.set.advanced')}</b>
+            <small>{tx('s.set.advancedHelp')}</small>
+          </span>
+          <Icon n="chevronDown" size={18} />
+        </button>
+        {adv && (
+          <>
+            <RhythmGroup st={st} />
+            <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
+              <Field label={tx('s.set.gfx')}>
+                <Seg
+                  size="sm"
+                  fit
+                  value={st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default'}
+                  onChange={(v) => set({ gfx: v })}
+                  options={[
+                    ['default', tx('s.set.gfx.default')],
+                    ['optimized', tx('s.set.gfx.optimized')],
+                    ['lite', tx('s.set.gfx.lite')],
+                  ]}
+                />
+              </Field>
+              <Note>
+                {tx('s.set.gfx.' + (st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default') + 'Help')}
+              </Note>
+              <Field label={tx('s.set.scale')}>
+                <Seg
+                  size="sm"
+                  fit
+                  value={String(st.scale)}
+                  onChange={(v) => set({ scale: v === 'auto' ? 'auto' : +v })}
+                  options={SCALES.map((v) => [
+                    String(v),
+                    v === 'auto' ? tx('s.set.scale.auto') : tx('s.set.scale.p', { n: Math.round(v * 100) }),
+                  ])}
+                />
+              </Field>
+              <Field label={tx('s.set.fps')}>
+                <Seg
+                  size="sm"
+                  fit
+                  value={+st.fps}
+                  onChange={(v) => set({ fps: v })}
+                  options={FPS.map((v) => [v, v ? `${v} fps` : tx('s.set.fps.none')])}
+                />
+              </Field>
+              <Toggle
+                label={tx('s.set.prerender')}
+                help={tx('s.set.prerenderHelp')}
+                on={st.prerender !== false}
+                set={(v) => set({ prerender: v })}
+              />
+              <Toggle
+                label={tx('s.set.gpuLyrics')}
+                help={tx('s.set.gpuLyricsHelp')}
+                on={st.gpuLyrics !== false}
+                set={(v) => set({ gpuLyrics: v })}
+              />
+              <Toggle
+                label={tx('s.set.perfHud')}
+                help={tx('s.set.perfHudHelp')}
+                on={!!st.perfHud}
+                set={(v) => set({ perfHud: v })}
+              />
+              <Toggle
+                label={tx('s.set.debugLog')}
+                help={tx('s.set.debugLogHelp')}
+                on={!!st.debugLog}
+                set={(v) => set({ debugLog: v })}
+              />
+              {st.debugLog && (
+                <div>
+                  <Button size="sm" icon="download" onClick={() => saveDebugLog(st.version || '')}>
+                    {tx('s.set.debugExport')}
+                  </Button>
+                </div>
+              )}
+            </Group>
+            <DataGroup />
+          </>
+        )}
         <Group title={tx('s.set.about')}>
           <Note>{tx('s.set.aboutText', { v: st.version || '' })}</Note>
         </Group>

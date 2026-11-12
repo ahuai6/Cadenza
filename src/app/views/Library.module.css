@@ -1,5 +1,5 @@
-/* The library, set like a record collection's catalogue: a kicker and a large serif title, hairline-ruled tables,
-   sharp-cornered covers, generous space between groups. */
+/* The library, on the sheet (docs/DESIGN.md): a large title with its facts under it, lists without rules — a row is
+   only a row until the pointer is on it —, covers whole and clear. */
 .libWrap {
   container-type: inline-size;
 }
@@ -9,27 +9,32 @@
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
-  padding-bottom: 22px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
 }
 .headText {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 .headActs {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-bottom: 6px;
+  padding-bottom: 4px;
 }
 .head h1,
 .detailHead h1 {
   margin: 0;
-  font-size: clamp(44px, 5vw, 66px);
-  line-height: 0.98;
-  letter-spacing: -0.02em;
+  font-size: 44px;
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.headFacts {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 .tools {
   display: flex;
@@ -60,46 +65,26 @@
   height: 30px;
 }
 
-/* the song list: one grid for every row (and its column heads), so the columns line up whatever a row holds */
+/* the song list: one grid for every row, so the columns line up whatever a row holds. No rules between rows: a row
+   shows its shape (a rounded ground) only under the pointer or the focus */
 .tracks {
   display: grid;
-  gap: 0;
-}
-.row,
-.colHead {
-  display: grid;
-  grid-template-columns: var(--grip, 0px) 40px minmax(0, 1.6fr) minmax(0, 1fr) 168px 30px 30px 48px 30px;
-  align-items: center;
-  column-gap: 14px;
-  padding: 0 10px;
-}
-.colHead {
-  height: 34px;
-  border-bottom: 1px solid var(--line-2);
-  font: var(--kicker);
-  letter-spacing: var(--kicker-track);
-  text-transform: uppercase;
-  color: var(--fg-3);
-  animation: none !important;
-}
-.colHead > .lead {
-  height: auto;
-  width: 40px;
-  justify-content: center;
-  font-size: 10.5px;
+  gap: 2px;
 }
 .row {
-  height: 56px;
-  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: var(--grip, 0px) 56px minmax(0, 1.6fr) minmax(0, 1fr) 28px 30px 30px 52px 30px;
+  align-items: center;
+  column-gap: 16px;
+  height: 72px;
+  padding: 0 12px;
+  border-radius: var(--r-2);
   position: relative;
   transition: background var(--t-fast) var(--ease);
 }
 .tracks[data-reorder='true'] .row {
   --grip: 18px;
   cursor: grab;
-}
-.tracks[data-reorder='true'] .colHead {
-  --grip: 18px;
 }
 .row:hover,
 .row:focus-within {
@@ -110,7 +95,6 @@
   background: var(--float);
   box-shadow: var(--shadow-2);
   cursor: grabbing;
-  border-radius: var(--r-2);
 }
 .row[data-protected='true'] {
   opacity: 0.55;
@@ -122,26 +106,24 @@
 }
 .lead {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   display: grid;
   place-items: center;
   color: var(--fg-3);
-  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .lead > span:first-child {
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
+  --cover-r: var(--r-1);
 }
-/* (an album's track number, in the cover's place, in the display face) */
+/* (an album's track number, in the cover's place) */
 .lead > .num {
   display: grid;
   place-items: center;
-  font-family: var(--font-display);
-  font-style: italic;
-  font-size: 18px;
-  font-weight: var(--display-wm, 400);
+  font-size: 15px;
+  font-weight: 550;
   color: var(--fg-3);
 }
 .lead .playOver {
@@ -159,7 +141,7 @@
 .lead .playOver:focus-visible {
   opacity: 1;
 }
-/* the playing song: marked in the accent (its title and its live meter), no block of colour */
+/* the playing song: marked in the song's colour (its title and its live meter), no block of colour */
 .row[data-cur='true'] .lead .playOver {
   background: rgba(10, 10, 9, 0.55);
 }
@@ -169,18 +151,19 @@
 .main {
   display: grid;
   min-width: 0;
-  gap: 1px;
+  gap: 2px;
 }
 .main b {
-  font-weight: 580;
+  font-size: 16px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .main small,
 .album {
-  color: var(--fg-3);
-  font-size: 12.5px;
+  color: var(--fg-2);
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -190,12 +173,17 @@
 }
 .badges {
   display: flex;
-  gap: 6px;
-  justify-content: flex-start;
+  justify-content: center;
+}
+.noWords {
+  display: grid;
+  place-items: center;
+  color: var(--fg-3);
+  opacity: 0.7;
 }
 .time {
-  color: var(--fg-3);
-  font-size: 12.5px;
+  color: var(--fg-2);
+  font-size: 14px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -209,15 +197,11 @@
   opacity: 1;
 }
 @container (max-width: 760px) {
-  .row,
-  .colHead {
-    grid-template-columns: var(--grip, 0px) 40px minmax(0, 1fr) 140px 30px 48px 30px;
+  .row {
+    grid-template-columns: var(--grip, 0px) 56px minmax(0, 1fr) 28px 30px 52px 30px;
   }
   .album,
   .qadd {
-    display: none;
-  }
-  .colHead > span:nth-child(6) {
     display: none;
   }
 }
@@ -359,12 +343,12 @@
   grid-template-columns: minmax(180px, 1fr) minmax(0, 3fr);
   gap: 44px; /* (the cover a quarter of the page's width) */
   align-items: end;
-  padding-bottom: 28px;
-  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
 }
 .detailHead > span:first-child {
   width: 100%;
   height: auto;
+  --cover-r: var(--r-3);
   box-shadow: var(--shadow-2);
 }
 .detailHead > div {
@@ -375,8 +359,8 @@
 }
 .detailHead h1 {
   overflow-wrap: anywhere;
-  font-size: clamp(48px, 6vw, 84px);
-  line-height: 0.95;
+  font-size: clamp(44px, 4.6vw, 64px);
+  line-height: 1.02;
 }
 .detailHead p {
   margin: 0;

@@ -71,8 +71,9 @@
 }
 .head h1 {
   margin: 0;
-  font-size: clamp(40px, 4.6vw, 60px);
-  line-height: 1;
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.05;
 }
 .group {
   display: grid;
@@ -173,4 +174,40 @@
   .index {
     display: none;
   }
+}
+
+/* the way into what most people never need: one wide row, opened once and left open */
+.adv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  margin-top: 40px;
+  padding: 18px 20px;
+  border-radius: var(--r-2);
+  background: var(--hover);
+  text-align: left;
+  transition: background var(--t-fast) var(--ease);
+}
+.adv:hover {
+  background: var(--press);
+}
+.adv > span {
+  display: grid;
+  gap: 3px;
+}
+.adv b {
+  font-size: 16px;
+  font-weight: 600;
+}
+.adv small {
+  color: var(--fg-2);
+  font-size: 14px;
+}
+.adv svg {
+  transition: transform var(--t-med) var(--ease);
+}
+.adv[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }

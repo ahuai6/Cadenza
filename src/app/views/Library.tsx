@@ -5,9 +5,9 @@ import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match } from '../state';
 import { player, playIds, enqueue, setMode, shufflePick } from '../playback/player';
 import { Icon } from '../ui/icons';
-import { Button, IconButton, Cover, Mosaic, Empty, Badge, Dropdown, Turn } from '../ui/kit';
+import { Button, IconButton, Cover, Mosaic, Empty, Dropdown, Turn } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
-import { QualityTag, quality } from '../ui/quality';
+import { quality } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
 import { menuFor, run } from '../commands';
 import { askText } from './Modals';
@@ -144,8 +144,8 @@ function ShelfHead({ kicker, title, actions }: { kicker: string; title: string; 
   return (
     <header className={s.head}>
       <div className={s.headText}>
-        <span className="kicker">{kicker}</span>
         <h1 className="display">{title}</h1>
+        <p className={s.headFacts}>{kicker}</p>
       </div>
       {actions && <div className={s.headActs}>{actions}</div>}
     </header>
@@ -283,17 +283,6 @@ export const TrackList = memo(function TrackList({
   };
   return (
     <div className={s.tracks + ' stagger'} role="list" data-reorder={!!onReorder} {...listProps}>
-      <div className={s.colHead} aria-hidden="true">
-        <span />
-        <span className={s.lead}>{numbered ? '#' : ''}</span>
-        <span>{tx('s.col.title')}</span>
-        <span className={s.album}>{tx('s.col.album')}</span>
-        <span className={s.badges}>{tx('s.col.format')}</span>
-        <span />
-        <span />
-        <span className={s.time}>{tx('s.col.time')}</span>
-        <span />
-      </div>
       {shown.map((t, i) => {
         const on = fav.has(t.id),
           isCur = t.id === cur;
@@ -337,20 +326,16 @@ export const TrackList = memo(function TrackList({
             <span className={s.album}>{t.album}</span>
             <span className={s.badges}>
               {t.protected ? (
-                <Badge k="warn">
-                  <Icon n="lock" size={11} />
-                  {tx('s.badge.protected')}
-                </Badge>
+                <span className={s.noWords} title={tx('s.badge.protected')} aria-label={tx('s.badge.protected')}>
+                  <Icon n="lock" size={14} />
+                </span>
               ) : (
-                <>
-                  <QualityTag t={t} look="text" />
-                  {t.lrc || t.embedded || t.ttml || t.instrumental ? null : (
-                    <Badge>
-                      <Icon n="lyrics" size={11} />
-                      {tx('s.badge.noLyrics')}
-                    </Badge>
-                  )}
-                </>
+                // (a song with no words yet: a quiet mark. What the file is — its format, its rate — is on the play page)
+                !(t.lrc || t.embedded || t.ttml || t.instrumental) && (
+                  <span className={s.noWords} title={tx('s.badge.noLyrics')} aria-label={tx('s.badge.noLyrics')}>
+                    <Icon n="lyrics" size={14} />
+                  </span>
+                )
               )}
             </span>
             {t.protected ? (

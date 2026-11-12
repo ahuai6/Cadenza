@@ -1545,6 +1545,8 @@ const ok = (name, pass, detail) => {
   await W(900);
   await shot('wall');
   await win.getByRole('button', { name: '設定' }).click();
+  // (3.1.1: the rhythm, the picture and the stored data are behind "advanced")
+  await win.locator('[data-test=advanced]').click();
   await W(600);
   await shot('settings');
   // the index: the last parts (which can never reach the top) are marked when picked, and at the very bottom
