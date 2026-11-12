@@ -7,7 +7,7 @@
    - builds lean in toward the drop, and everything holds still in the half beat before it;
    - after a cut the new passage opens a touch wide and eases in.
    All of it is a function of t: preview, export and look-ahead see the same frame. */
-import { clamp, sstep, lerp, D2R } from '../core/math';
+import { clamp, sstep, lerp, D2R, angDiff } from '../core/math';
 import { eIO } from '../core/ease';
 import { impulse } from '../core/spring';
 import type { Signals, RhythmSample } from '../rhythm/signals';
@@ -84,6 +84,9 @@ export function settleAt(plan: ScenePlan, t: number): number {
   }
   return z;
 }
+/** degrees the camera turns its head per frame-a-second of travel across the screen, and the most it turns */
+const TURN_HEAD = 3.2,
+  TURN_MAX = 4.5;
 export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): CamFrame {
   const c = plan.camera,
     b = basePose(c, t),
@@ -117,8 +120,36 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   cam.r += Math.sin(t * 0.19 + 0.7) * 0.9 * A;
   cam.yaw = Math.sin(t * 0.21 + 0.4) * 2.2 * A;
   cam.pitch = Math.cos(t * 0.17 + 1.1) * 2.6 * A;
-  cam.yaw = clamp(cam.yaw, -4, 4);
-  cam.pitch = clamp(cam.pitch, -4, 4);
+  // the camera's own move, as a rate: each depth takes it a moment apart (project.ts), and the camera turns its head a
+  // little the way it travels — the far side of the picture drawn in, the near side out — so a pan is a turn in a space,
+  // not a sheet slid across. Nothing of it across a cut, and nothing at rest.
+  {
+    const h = 1 / 30,
+      cutIn = c.cuts.some((k) => k.t > t - h - 1e-6 && k.t <= t + 1e-6);
+    if (!cutIn && t > h) {
+      const p = basePose(c, t - h),
+        vx = (b.x - p.x) / h,
+        vy = (b.y - p.y) / h,
+        vr = angDiff(b.r, p.r) / h,
+        vz = Math.log(b.z / p.z) / h;
+      if ([vx, vy, vr, vz].every(Number.isFinite)) {
+        const k = motion * hold;
+        cam.vx = vx * k;
+        cam.vy = vy * k;
+        cam.vr = clamp(vr, -120, 120) * k;
+        cam.vz = clamp(vz, -3, 3) * k;
+        // (its travel across the screen, in frames a second, seen level: the roll taken out)
+        const cr = Math.cos(-b.r * D2R),
+          sr = Math.sin(-b.r * D2R),
+          sx = ((vx * cr - vy * sr) * b.z) / W,
+          sy = ((vx * sr + vy * cr) * b.z) / W;
+        cam.yaw += clamp(sx * TURN_HEAD, -TURN_MAX, TURN_MAX) * k;
+        cam.pitch += clamp(sy * TURN_HEAD, -TURN_MAX, TURN_MAX) * k;
+      }
+    }
+  }
+  cam.yaw = clamp(cam.yaw, -7, 7);
+  cam.pitch = clamp(cam.pitch, -7, 7);
   // idle drift
   if (ik > 0.001) {
     const k = ik * motion * (1 - 0.65 * drive);

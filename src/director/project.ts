@@ -21,7 +21,23 @@ export interface Cam {
   d: number;
   yaw: number;
   pitch: number;
+  /** how the camera is moving now, per second: its pan (world units), its roll (degrees) and its push (log of the
+   *  closeness). With these a word takes the camera's move a moment early or late by its depth (DEPTH_LAG): near things
+   *  swing ahead, far things trail — things at their own distances, not one sheet turning as a whole. At rest they are
+   *  nothing, so a framing held still is exactly the planned one. */
+  vx?: number;
+  vy?: number;
+  vr?: number;
+  vz?: number;
 }
+/** seconds a word's view of the camera's move is shifted, per unit its parallax scale is off 1 (near: earlier; far: later) */
+const DEPTH_LAG = 0.42;
+/** …and never more than this either way */
+const DEPTH_LAG_MAX = 0.16;
+/** the most a depth's own view of the move differs: of the frame's width, in degrees, in log size */
+const LAG_PAN = 0.018,
+  LAG_ROLL = 2.5,
+  LAG_ZOOM = 0.035;
 /** the frame's own motion: offset, roll, scale, and a slight shear (b, c of a canvas transform) that rocks the lyric plane in depth */
 export interface Fx {
   x: number;
@@ -42,10 +58,19 @@ export interface Projected {
 export function project(X: number, Y: number, D: number, cam: Cam, fx: Fx, W: number, H: number): Projected {
   const rz = Math.max(D - cam.d, -FOCAL * 0.55),
     kp = FOCAL / (FOCAL + rz);
-  const wx = (X - cam.x) * kp * cam.z,
-    wy = (Y - cam.y) * kp * cam.z;
-  const c = Math.cos(-cam.r * D2R),
-    s = Math.sin(-cam.r * D2R);
+  // (the camera's move as this depth sees it: `ahead` seconds on for what is near, back for what is far)
+  // (bounded on the screen, so a quick hard move never throws a word or a frame out of the framing it was planned in:
+  // a few hundredths of the frame, a couple of degrees, a few per cent of the size)
+  const ahead = clamp((kp - 1) * DEPTH_LAG, -DEPTH_LAG_MAX, DEPTH_LAG_MAX),
+    pm = (LAG_PAN * W) / (kp * cam.z),
+    cx = cam.x + clamp((cam.vx ?? 0) * ahead, -pm, pm),
+    cy = cam.y + clamp((cam.vy ?? 0) * ahead, -pm, pm),
+    cz = cam.z * Math.exp(clamp((cam.vz ?? 0) * ahead, -LAG_ZOOM, LAG_ZOOM)),
+    cr = cam.r + clamp((cam.vr ?? 0) * ahead, -LAG_ROLL, LAG_ROLL);
+  const wx = (X - cx) * kp * cz,
+    wy = (Y - cy) * kp * cz;
+  const c = Math.cos(-cr * D2R),
+    s = Math.sin(-cr * D2R);
   let qx = wx * c - wy * s,
     qy = wx * s + wy * c;
   const nx = clamp(qx / (W / 2), -1.6, 1.6),
@@ -65,8 +90,8 @@ export function project(X: number, Y: number, D: number, cam: Cam, fx: Fx, W: nu
   return {
     sx: (rx + c2 * ry) * fz + fx.x * g,
     sy: (b * rx + ry) * fz + fx.y * g,
-    k: kp * cam.z * kt * fz,
-    rot: -cam.r + fr,
+    k: kp * cz * kt * fz,
+    rot: -cr + fr,
     kp,
   };
 }
