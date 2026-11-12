@@ -133,68 +133,49 @@
   font-size: 10.5px;
 }
 
-/* the player: a bar along the whole foot of the window (the sidebar ends above it) — the now-playing page rises straight
-   up out of it like a sheet, its cover over the bar's own */
+/* the player: the stage's apron, a bar along the whole foot of the window, there under the stage and under the sheet.
+   --stage (layers.ts): 0 the sheet is up, 1 the stage is whole */
 .card {
+  --stage: 0;
   position: fixed;
-  z-index: 30;
+  z-index: 60;
   left: 0;
   right: 0;
   bottom: 0;
   height: var(--card-h);
-  /* the first column ends where the cover begins: the cover's centre on --np-cx, the play page cover's */
-  /* (two even sides about the transport, so it sits on the ½ line; the left side: the volume in the room before the cover,
-     the cover's centre on the ¼ line) */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--bar-mid) minmax(0, 1fr);
-  align-items: center;
-  column-gap: 0;
-  padding: 0;
-  /* the transport column's width; the song's title has its own room, from where its text begins (right of the cover, whose
-     centre is --np-cx) to 12 px short of the progress track's left end (the column's edge, its 12 px padding, the 34 px time
-     and the 10 px gap) — it reaches into the column's top row, empty beside the centred buttons; the artist stops 12 px
-     short of the column (the time is on its row) */
-  --bar-mid: max(280px, min(360px, 25vw));
-  --bar-title-w: max(60px, calc(50vw - var(--bar-mid) / 2 - var(--np-cx) + 5px));
-  --bar-artist-w: max(60px, calc(50vw - var(--bar-mid) / 2 - var(--np-cx) - 51px));
-  background: color-mix(in oklab, var(--bg) 86%, transparent);
-  -webkit-backdrop-filter: blur(22px) saturate(1.4);
-  backdrop-filter: blur(22px) saturate(1.4);
-  border-top: 1px solid var(--line);
-}
-/* the volume, in the room before the cover */
-.side {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.lead {
-  flex: none;
-  width: max(0px, calc(var(--np-cx) - 29px));
-  min-width: 0;
-  display: flex;
-  justify-content: center;
-  padding: 0 clamp(14px, 2vw, 32px);
+  grid-template-rows: 18px 1fr;
+  padding: 0 22px 6px;
   box-sizing: border-box;
+  background: color-mix(in oklab, var(--bg) calc((1 - var(--stage)) * 100%), transparent);
+  color: var(--fg);
 }
-.lead > .vol {
-  width: 100%;
-  max-width: 200px;
+:global(html[data-layer='fx']) .card,
+:global(html[data-fxmode='true']) .card {
+  visibility: hidden;
 }
-.lead > .vol input {
-  flex: 1;
-  width: auto;
-  min-width: 40px;
+/* the progress: one line along the bar's top edge, the times at its ends */
+.line {
+  align-self: start;
+  margin-top: -9px;
 }
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 0;
+}
+/* the song, small: only while the sheet is up (the stage says it otherwise) */
 .id {
-  flex: none;
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 4px 0 4px 4px;
+  min-width: 0;
+  opacity: calc(1 - var(--stage) * 1.6);
 }
-.side {
-  overflow: visible;
+.card[data-stage='true'] .id,
+.card[data-stage='true'] .barLyr {
+  pointer-events: none;
 }
 .miniBtn {
   flex: none;
@@ -203,14 +184,14 @@
   line-height: 0;
   border-radius: var(--r-1);
   cursor: pointer;
-} /* (exactly the cover's box: its resting place is where the flying cover lands) */
+}
 .miniBtn:focus-visible {
   outline: none;
   box-shadow: var(--focus);
 }
 .mini {
-  width: 50px;
-  height: 50px;
+  width: 52px;
+  height: 52px;
   border-radius: var(--r-1);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   flex: none;
@@ -233,10 +214,8 @@
 .text {
   display: grid;
   gap: 1px;
-  width: var(--bar-title-w);
-}
-.text > :last-child {
-  width: var(--bar-artist-w);
+  min-width: 0;
+  width: min(280px, 22vw);
 }
 /* (the song's title and artist never end in an ellipsis: too long, they scroll — Marquee) */
 .tTitle {
@@ -247,31 +226,29 @@
   color: var(--fg-3);
   font-size: 12.5px;
 }
+/* the transport, on the window's centre line: the mode before it, as much room after it */
 .center {
-  display: grid;
-  justify-items: center;
-  gap: 0;
-  min-width: 0;
-  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
 }
-.center > .trans {
-  height: 38px;
-}
-.center > .prog {
-  width: 100%;
-  margin-top: -2px;
+.even {
+  width: 36px;
 }
 .center .playb {
-  width: 38px;
-  height: 38px;
+  width: 48px;
+  height: 48px;
 }
 /* the right side: the line being sung, then the queue and the favourite */
 .right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   min-width: 0;
 }
 .barLyr {
+  opacity: calc(1 - var(--stage) * 1.6);
   flex: 1;
   min-width: 0;
   position: relative;
@@ -309,11 +286,13 @@
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  padding-right: 22px;
   flex: none;
 }
+.end > .vol input {
+  width: 96px;
+}
 @media (max-width: 1100px) {
-  .lead > .vol input {
+  .end > .vol input {
     display: none;
   }
 }

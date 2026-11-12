@@ -187,7 +187,7 @@
 }
 .main {
   position: absolute;
-  inset: calc(var(--pad-t) + 64px) 0 0 0;
+  inset: calc(var(--tb-h) + 8px) 0 var(--card-h) 0;
   display: grid;
   grid-template-columns: max(calc(var(--np-cover) + 40px), calc(50vw - var(--np-x) - 22px)) minmax(340px, 1fr);
   gap: 0;
@@ -200,7 +200,7 @@
   display: grid;
   align-content: center;
   justify-items: start;
-  gap: 40px;
+  gap: 28px;
   min-height: 0;
 }
 /* the cover: large, nearly square-cornered, lifted on a long shadow in its own colour */
@@ -299,7 +299,7 @@
 }
 .infoIn {
   display: grid;
-  gap: 24px;
+  gap: 12px;
 }
 /* the song as a record sleeve's notes: a small-caps line (album, year, track), the title set large in the display face,
    the artist under it */
@@ -446,7 +446,7 @@
 /* the sound's label, centred just above the progress bar */
 .qrow {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   min-height: 20px;
@@ -454,4 +454,35 @@
 }
 .qrow:empty {
   display: none;
+}
+
+/* under the song's name: its effect lyrics (the one filled button of the stage), and the rest */
+.acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.fx {
+  height: 44px;
+  padding: 0 20px 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--r-pill);
+  background: var(--pick);
+  color: var(--on-pick);
+  font-weight: 620;
+  font-size: 14.5px;
+  transition: transform var(--t-fast) var(--ease);
+}
+.fx:hover {
+  transform: scale(1.03);
+}
+.fx:active {
+  transform: scale(0.97);
+}
+.fx:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
 }

@@ -11,6 +11,7 @@ import { QualityTag, quality } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
 import { menuFor, run } from '../commands';
 import { askText } from './Modals';
+import { AlbumLine } from './AlbumLine';
 import s from './Library.module.css';
 
 export const SECTIONS: [string, string, string][] = [
@@ -42,8 +43,9 @@ export function LibraryView() {
           <Detail detail={detail} idx={idx} search={search} />
         ) : (
           <>
+            <Shelves section={section} />
             {/* (the songs' and the favourites' heads carry their play buttons, on the right: they draw their own) */}
-            {section !== 'songs' && section !== 'favorites' && (
+            {section !== 'songs' && section !== 'favorites' && section !== 'albums' && (
               <ShelfHead
                 kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}
                 title={tx(SECTIONS.find((x) => x[0] === section)?.[1] || 's.library')}
@@ -65,9 +67,7 @@ export function LibraryView() {
                   kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}
                 />
               )}
-              {section === 'albums' && (
-                <CardGrid items={idx.albums.filter((a) => match(search, a.name, a.artist))} kind="album" />
-              )}
+              {section === 'albums' && <AlbumLine items={idx.albums.filter((a) => match(search, a.name, a.artist))} />}
               {section === 'artists' && (
                 <CardGrid items={idx.artists.filter((a) => match(search, a.name))} kind="artist" />
               )}
@@ -78,6 +78,39 @@ export function LibraryView() {
           </>
         )}
       </Turn>
+    </div>
+  );
+}
+/** The library's shelves, as a row of pills (the chosen one in reverse), and the search beside them. */
+function Shelves({ section }: { section: string }) {
+  const search = useStore(ui, (x) => x.search);
+  return (
+    <div className={s.shelves}>
+      <nav className={s.pills} aria-label={tx('s.library')} data-test="shelves">
+        {SECTIONS.map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            data-section={k}
+            aria-current={section === k ? 'page' : undefined}
+            onClick={() => {
+              ui.set({ section: k, detail: null });
+              keep('section', k);
+            }}
+          >
+            {tx(label)}
+          </button>
+        ))}
+      </nav>
+      <label className={s.search}>
+        <Icon n="search" size={16} />
+        <input
+          type="search"
+          placeholder={tx('s.search')}
+          value={search}
+          onChange={(e) => ui.set({ search: e.target.value })}
+        />
+      </label>
     </div>
   );
 }

@@ -181,13 +181,20 @@ const ok = (name, pass, detail) => {
       cached.spec === 6,
     JSON.stringify(cached),
   );
-  await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '歌曲', exact: true }).click();
+  // (3.1: with a song to show, the app opens on it — the stage is home; the library is one press away, in the title bar)
+  if (await C(() => window.__cadenza.ui.get().layer !== 'none')) {
+    await shot('opens-on-stage');
+    await win.locator('[data-test=places]').getByRole('button', { name: '音樂庫', exact: true }).click();
+    ok('places: from the stage, the library rises', await layerIs('none'));
+  }
+  await win.locator('[data-test=shelves]').getByRole('button', { name: '歌曲', exact: true }).click();
   await W(500);
   await shot('songs');
   ok(
-    "sidebar: the library's sections listed right under it, the chosen one marked",
+    // (3.1: the sections are a row of pills at the head of the sheet, the sidebar is gone)
+    "shelves: the library's sections as a row of pills, the chosen one marked",
     (await win
-      .locator('nav[aria-label=Cadenza]')
+      .locator('[data-test=shelves]')
       .getByRole('button', { name: '歌曲', exact: true })
       .getAttribute('aria-current')) === 'page' && (await win.locator('h1', { hasText: '歌曲' }).count()) > 0,
   );
@@ -202,10 +209,10 @@ const ok = (name, pass, detail) => {
     cols.length === 4 && cols.every((r) => r.join() === cols[0].join()),
     JSON.stringify(cols.map((r) => r.slice(1, 6))),
   );
-  await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '專輯', exact: true }).click();
+  await win.locator('[data-test=shelves]').getByRole('button', { name: '專輯', exact: true }).click();
   await W(400);
   await shot('albums');
-  await win.locator('nav[aria-label=Cadenza]').getByRole('button', { name: '歌曲', exact: true }).click();
+  await win.locator('[data-test=shelves]').getByRole('button', { name: '歌曲', exact: true }).click();
   await W(300);
 
   /* ---------- play ---------- */
@@ -342,44 +349,34 @@ const ok = (name, pass, detail) => {
   /* ---------- the card opens into now playing: one progress, reversible at any moment ---------- */
   await win.locator('[data-test=card]').getByTitle('展開').first().click();
   await W(140);
+  // (3.1: the cover no longer flies. The sheet — the library's paper — slides away below the window while the stage comes
+  // forward from behind it, both on the one progress; each is moved by a transform alone)
   const mid = await C(() => {
     const st = document.querySelector('[data-test=stage]'),
-      cv = document.querySelector('[data-test=np-cover]');
-    const m = /inset\(([\d.]+)px/.exec(st.style.clipPath || '');
-    const np = document.querySelector('[data-test=np]'),
-      sheet = np.querySelector(':scope > [data-in]'),
-      ty = (el) => new DOMMatrix(getComputedStyle(el).transform).m42;
-    // (the frame rate: the sheet is cut by moving layers, never by a clip-path or a cover style that repaints them each frame)
-    const fast = {
-      npClip: np.style.clipPath,
-      npY: Math.round(ty(np)),
-      sheetY: Math.round(ty(sheet)),
-      coverShadow: cv.style.boxShadow,
-      coverRadius: cv.style.borderRadius,
-    };
+      np = document.querySelector('[data-test=np]'),
+      sheet = document.querySelector('[data-test=sheet]'),
+      m = (el) => new DOMMatrix(getComputedStyle(el).transform);
     return {
       p: window.__cadenza.layers.npProgress(),
-      clipTop: m ? +m[1] : null,
-      coverTop: cv.getBoundingClientRect().top,
-      coverCx: ((r) => r.left + r.width / 2)(cv.getBoundingClientRect()),
-      moved: !!cv.style.transform,
-      fast,
+      sheetY: Math.round(m(sheet).m42),
+      stageScale: +m(st).a.toFixed(3),
+      npScale: +m(np).a.toFixed(3),
+      stageLight: +(+getComputedStyle(st).opacity).toFixed(2),
+      clips: [st.style.clipPath, np.style.clipPath, sheet.style.clipPath].filter(Boolean).length,
     };
   });
   await shot('np-opening');
   ok(
-    "opening, at the display's rate: the sheet cut by moving layers (no clip-path), the cover's shadow and corners not restyled",
-    !mid.fast.npClip &&
-      mid.fast.npY > 0 &&
-      Math.abs(mid.fast.npY + mid.fast.sheetY) <= 1 &&
-      Math.abs(mid.fast.npY - (mid.clipTop ?? -99)) <= 1 &&
-      !mid.fast.coverShadow &&
-      !mid.fast.coverRadius,
-    JSON.stringify(mid.fast),
-  );
-  ok(
-    'opening: the picture comes out with the cover (its top edge led by the cover), the cover flies',
-    mid.p > 0.05 && mid.p < 0.98 && mid.moved && mid.clipTop != null && mid.clipTop <= mid.coverTop + 1,
+    'opening: the sheet slides away as the stage comes forward, on one progress, by transforms alone (no clip-path)',
+    mid.p > 0.05 &&
+      mid.p < 0.98 &&
+      Math.abs(mid.sheetY - mid.p * 900) <= 60 &&
+      mid.stageScale >= 0.9 &&
+      mid.stageScale < 1 &&
+      mid.npScale === mid.stageScale &&
+      mid.stageLight > 0.18 &&
+      mid.stageLight < 1 &&
+      mid.clips === 0,
     JSON.stringify(mid),
   );
   await win.keyboard.press('Escape');
@@ -409,7 +406,7 @@ const ok = (name, pass, detail) => {
   const np = await C(() => ({
     lines: document.querySelectorAll('[data-test=np] [data-test=line]').length,
     cur: !!document.querySelector('[data-test=np] [data-test=line][data-on="true"]'),
-    queue: !!document.querySelector('[data-test=np] [aria-label="播放佇列"]'),
+    queue: !!document.querySelector('[data-test=card] [aria-label="播放佇列"]'),
     ambient: window.__cadenza.engine.view,
     same: window.__cadenza.engine.session === window.__cadenza.player.get().session,
   }));
@@ -419,7 +416,7 @@ const ok = (name, pass, detail) => {
     JSON.stringify(np),
   );
   // the queue from the now-playing page: modes on one line, rows lined up with the header
-  await win.locator('[data-test=np] [aria-label="播放佇列"]').click();
+  await win.locator('[data-test=card] [aria-label="播放佇列"]').click();
   await W(600);
   await shot('np-queue');
   const qp = await C(() => {
@@ -1069,8 +1066,9 @@ const ok = (name, pass, detail) => {
       lateIn = seen.filter((x) => x.view !== 'effect' && x.b > 18 && x.o > 0.6);
     const shown = seen.filter((x) => x.o > 0.02);
     ok(
-      'back to now playing: the brand and search stay away over the play page (never shown on the way)',
-      !early.length && !shown.length,
+      // (3.1: the title bar's places belong to the stage too — they are away only over the effect lyrics)
+      'back to now playing: the brand and the places stay away over the effect lyrics, and are back on the stage',
+      !early.length && shown.length > 0,
       JSON.stringify({ early: early.length, shown: shown.length, last: seen[seen.length - 1] }),
     );
   }
@@ -1112,31 +1110,9 @@ const ok = (name, pass, detail) => {
         const W = innerWidth,
           ln = document.querySelector('[data-test=np] [data-test=line]').getBoundingClientRect(),
           card = document.querySelector('[data-test=card]'),
-          mid = card.children[1].getBoundingClientRect(),
-          mini = card.querySelector('[title*="展開"]').getBoundingClientRect();
-        return {
-          W,
-          lyricsX: Math.round(ln.left + 14),
-          barMid: Math.round(mid.left + mid.width / 2),
-          barCover: Math.round(mini.left + mini.width / 2),
-          barTitle: Math.round(
-            card.querySelector('[title*="展開"]').parentElement.lastElementChild.getBoundingClientRect().width,
-          ),
-          ...(() => {
-            const box = card.querySelector('[data-test=bar-text]'),
-              t1 = box.firstElementChild.getBoundingClientRect(),
-              t2 = box.lastElementChild.getBoundingClientRect(),
-              track = card.querySelector('[data-test=progress]').getBoundingClientRect();
-            return {
-              titleRight: Math.round(t1.right),
-              trackLeft: Math.round(track.left),
-              artistRight: Math.round(t2.right),
-              colLeft: Math.round(mid.left),
-            };
-          })(),
-        };
+          mid = card.querySelector('[data-test=transport]').getBoundingClientRect();
+        return { W, lyricsX: Math.round(ln.left + 14), barMid: Math.round(mid.left + mid.width / 2) };
       })(),
-      mainTop: Math.round(document.querySelector('main[data-scroll]').getBoundingClientRect().top),
       coverCx: Math.round(
         ((r) => r.left + r.width / 2)(document.querySelector('[data-test=np-cover]').getBoundingClientRect()),
       ),
@@ -1149,60 +1125,23 @@ const ok = (name, pass, detail) => {
       close: !!(hit && b.contains(hit)),
     };
   });
-  // (the play page covers the whole window; the window's own buttons stay above it)
-  ok(
-    "now playing: it opens straight up — the cover in flight keeps the centre line it lands on (the bar's cover's)",
-    Math.abs(mid.coverCx - npEdge.coverCx) <= 2,
-    JSON.stringify({ flying: mid.coverCx, landed: npEdge.coverCx }),
-  );
+  // (3.1: the layout's lines — docs/DESIGN.md, 版面: the stage's cover on the ¼ line and its lyrics from the ½ line, as
+  // before; the bar's transport on the ½ line; the bar's small cover now at the bar's left end, not on the ¼ line)
   {
     const L = npEdge.lines,
       q = L.W / 4,
       h = L.W / 2;
     ok(
-      "layout lines: the play page cover on the ¼ line, its lyrics from the ½ line; the bar's cover on ¼, its transport on ½; the title's own room to the progress track, the artist's to the column",
-      Math.abs(npEdge.coverCx - q) <= 2 &&
-        Math.abs(L.lyricsX - h) <= 2 &&
-        Math.abs(L.barCover - q) <= 2 &&
-        Math.abs(L.barMid - h) <= 2 &&
-        L.barTitle >= 24 &&
-        Math.abs(L.titleRight - (L.trackLeft - 12)) <= 2 &&
-        Math.abs(L.artistRight - (L.colLeft - 12)) <= 2,
+      "layout lines: the stage's cover on the ¼ line, its lyrics from the ½ line; the bar's transport on the ½ line",
+      Math.abs(npEdge.coverCx - q) <= 2 && Math.abs(L.lyricsX - h) <= 2 && Math.abs(L.barMid - h) <= 2,
       JSON.stringify({ ...L, coverCx: npEdge.coverCx }),
     );
   }
-  ok(
-    'now playing: the library under it stays where it is (nothing under the sheet moves)',
-    npEdge.mainTop === 44,
-    JSON.stringify({ mainTop: npEdge.mainTop }),
-  );
   ok(
     'now playing: nothing on the page cut off with an ellipsis (long text scrolls)',
     npEdge.ellipsis === 0,
     JSON.stringify({ ellipsis: npEdge.ellipsis }),
   );
-  {
-    const r = await C(() => {
-      const d = window.__cadenza.layers.npDrive,
-        st = document.querySelector('[data-test=stage]'),
-        barTop = document.querySelector('[data-test=card]').getBoundingClientRect().top,
-        out = [];
-      for (const p of [0.12, 0.05, 0.02]) {
-        d.jump(p);
-        d.target = 0;
-        d.onFrame(p, d);
-        const m = /inset\(([\d.]+)px ([\d.]+)px ([\d.]+)px/.exec(st.style.clipPath || '');
-        out.push({ p, top: m ? +m[1] : null, bottom: m ? +m[3] : null });
-      }
-      d.jump(1);
-      return { barTop: Math.round(barTop), barH: Math.round(innerHeight - barTop), out };
-    });
-    ok(
-      "closing: the sheet sinks into the bar's top edge (no higher than its progress, never lying over the bar)",
-      r.out.every((o) => o.top != null && o.top >= r.barTop * (1 - o.p) - 0.5 && o.bottom >= r.barH - 0.5),
-      JSON.stringify(r),
-    );
-  }
   ok(
     'now playing: the page covers the whole window, the window buttons above it',
     npEdge.stage.join() === `0,0,${npEdge.win.join()}` && npEdge.np.join() === npEdge.stage.join() && npEdge.close,
@@ -1737,7 +1676,8 @@ const ok = (name, pass, detail) => {
       white.tone === 'white' &&
         ['#fff', '#ffffff'].includes(white.bg) &&
         paper.tone === 'paper' &&
-        paper.bg === '#faf9f5',
+        // (3.1: the paper takes the playing song's hue — a tint, no longer one fixed colour)
+        /^hsl\(/.test(paper.bg),
       JSON.stringify({ white, paper }),
     );
   }

@@ -1,7 +1,8 @@
-/* Cadenza's design language, "Liner Notes", as tokens (docs/DESIGN.md).
-   - Type and hairlines carry the structure; pages are flat, only what floats has a surface and a shadow.
-   - Corners: four steps, chosen by whether a thing floats: content 2px, controls 6px, floating 12px, pill.
-   - Colour: ink (dark) or paper (light) — or, light, the earlier white (data-tone="white") — one accent (vermilion).
+/* Cadenza's design language, "the stage", as tokens (docs/DESIGN.md).
+   - The playing song is the stage; the library is one sheet of paper that rises over it; the player bar is its apron.
+   - Colour comes from the song: its hue (--song-h, --song-c: set by the shell from the engine's palette) tints the paper
+     and is the one accent. What is chosen is shown in reverse (--pick), never in colour.
+   - Corners: content 10px, rows and inputs 14px, floating 20px, the sheet 28px; every button is a pill.
    - Motion: one curve, fast then slow; exits shorter than entrances so two layers never stack. */
 :root {
   --font-ui: 'Instrument Sans Variable', 'Instrument Sans', var(--font-cjk), system-ui, sans-serif;
@@ -11,9 +12,10 @@
   --font-mono: ui-monospace, 'Cascadia Mono', 'Noto Sans Mono', monospace;
 
   /* corners */
-  --r-1: 2px;
-  --r-2: 6px;
-  --r-3: 12px;
+  --r-1: 10px;
+  --r-2: 14px;
+  --r-3: 20px;
+  --r-4: 28px;
   --r-pill: 999px;
   --corner: superellipse(1.4);
   /* (the earlier names, onto the same four steps: a component not yet rewritten still lands on the scale) */
@@ -32,7 +34,7 @@
   --r-tag: var(--r-1);
   --r-cover-sm: var(--r-1);
   --r-cover-md: var(--r-1);
-  --r-cover-np: var(--r-2);
+  --r-cover-np: var(--r-3);
 
   /* motion: fast in, slow settle */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -53,13 +55,20 @@
   --t-reveal: 560ms; /* the slowest reveals */
   --t-delay: 120ms; /* chrome waits this long before coming back */
   --t-stagger-step: 16ms;
+  --t-stage: 620ms; /* the sheet rising, the stage stepping back, a drawer sliding */
+  --t-breath: 1600ms; /* one breath of a mark that waits */
+  --t-song: 1200ms; /* the colours turning to a new song's */
 
-  --tb-h: 44px;
+  /* the song's colour (the shell sets these from the playing song's cover; with none, a warm grey) */
+  --song-h: 30;
+  --song-c: 0.25;
+
+  --tb-h: 56px;
   --side-w: clamp(220px, 16.6667vw, 280px);
-  --card-h: 72px; /* (the sidebar: a sixth of the window) */
+  --card-h: 88px;
   /* the play page's cover: its size, its left edge and its centre line — the player bar's cover sits on the same centre
      line, so the page opens straight up, the cover rising and growing about its own centre */
-  --np-cover: min(48vh, 32vw, 480px);
+  --np-cover: min(42vh, 28vw, 440px);
   --np-cx: 25vw;
   --np-x: calc(var(--np-cx) - var(--np-cover) / 2);
   /* (the layout's lines: the window halved and quartered. The play page's cover is centred on the ¼ line, its lyrics begin
@@ -68,14 +77,17 @@
   --kicker: 600 10.5px/1.2 var(--font-ui);
   --kicker-track: 0.14em;
 
-  /* dark: ink */
-  --bg: #0e0e0d;
-  --bg-side: #0e0e0d;
-  --surface: #161615;
-  --surface-2: #1c1c1a;
-  --surface-3: #262624;
-  --float: #1b1b19;
-  --float-2: #232321;
+  /* dark: the song's hue, sunk nearly to black */
+  --bg: hsl(var(--song-h) calc(var(--song-c) * 26%) 11%);
+  --bg-side: var(--bg);
+  --surface: hsl(var(--song-h) calc(var(--song-c) * 22%) 14%);
+  --surface-2: hsl(var(--song-h) calc(var(--song-c) * 20%) 17%);
+  --surface-3: hsl(var(--song-h) calc(var(--song-c) * 18%) 22%);
+  --float: hsl(var(--song-h) calc(var(--song-c) * 22%) 15%);
+  --float-2: hsl(var(--song-h) calc(var(--song-c) * 20%) 19%);
+  --stage-ground: hsl(var(--song-h) calc(var(--song-c) * 34%) 7%);
+  --pick: #f4f1ea;
+  --on-pick: #1b1917;
   --fg: #eeece6;
   --fg-2: #aeaba3;
   --fg-3: #77756f;
@@ -83,12 +95,12 @@
   --line-2: rgba(238, 236, 230, 0.16);
   --hover: rgba(238, 236, 230, 0.045);
   --press: rgba(238, 236, 230, 0.08);
-  --accent: #ff6a3d;
-  --accent-2: #ff6a3d;
+  --accent: hsl(var(--song-h) calc(30% + var(--song-c) * 42%) 76%);
+  --accent-2: var(--accent);
   --accent-3: #f2b766;
-  --on-accent: #150b07;
-  --accent-soft: rgba(255, 106, 61, 0.14);
-  --accent-ink: #ff8a64;
+  --on-accent: #17130f;
+  --accent-soft: hsl(var(--song-h) calc(30% + var(--song-c) * 42%) 76% / 0.16);
+  --accent-ink: hsl(var(--song-h) calc(30% + var(--song-c) * 42%) 80%);
   --danger: #ff6670;
   --ok: #6fcf97;
   --warn: #f2b766;
@@ -106,13 +118,15 @@
   color-scheme: dark;
 }
 :root[data-theme='light'] {
-  --bg: #f4f2ec;
-  --bg-side: #f4f2ec;
-  --surface: #faf9f5;
-  --surface-2: #ebe8e0;
-  --surface-3: #dfdbd1;
-  --float: #fdfcf9;
-  --float-2: #f2efe8;
+  --bg: hsl(var(--song-h) calc(var(--song-c) * 30%) 95%);
+  --bg-side: var(--bg);
+  --surface: hsl(var(--song-h) calc(var(--song-c) * 30%) 97.5%);
+  --surface-2: hsl(var(--song-h) calc(var(--song-c) * 24%) 91%);
+  --surface-3: hsl(var(--song-h) calc(var(--song-c) * 20%) 86%);
+  --float: hsl(var(--song-h) calc(var(--song-c) * 30%) 98.5%);
+  --float-2: hsl(var(--song-h) calc(var(--song-c) * 24%) 93%);
+  --pick: #1b1917;
+  --on-pick: #f4f1ea;
   --fg: #1a1916;
   --fg-2: #57544c;
   --fg-3: #8d897f;
@@ -120,12 +134,12 @@
   --line-2: rgba(26, 25, 22, 0.2);
   --hover: rgba(26, 25, 22, 0.04);
   --press: rgba(26, 25, 22, 0.08);
-  --accent: #d4461f;
-  --accent-2: #d4461f;
+  --accent: hsl(var(--song-h) calc(30% + var(--song-c) * 40%) 34%);
+  --accent-2: var(--accent);
   --accent-3: #b7791f;
   --on-accent: #ffffff;
-  --accent-soft: rgba(212, 70, 31, 0.1);
-  --accent-ink: #b83a16;
+  --accent-soft: hsl(var(--song-h) calc(30% + var(--song-c) * 40%) 34% / 0.1);
+  --accent-ink: hsl(var(--song-h) calc(30% + var(--song-c) * 40%) 30%);
   --danger: #c8323f;
   --ok: #2a8a5a;
   --warn: #a86a12;
@@ -179,6 +193,8 @@
   --surface-3: rgba(255, 255, 255, 0.17);
   --accent: #ffffff;
   --on-accent: #121114;
+  --pick: #f4f1ea;
+  --on-pick: #1b1917;
   --accent-soft: rgba(255, 255, 255, 0.16);
   --accent-ink: #ffffff;
   --bg: #121114;

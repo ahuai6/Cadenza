@@ -1,9 +1,10 @@
+/* the shell: the stage's ground (the song's deepest tone) under everything; the title bar floats over it, the sheet
+   and the player bar are layers of their own (docs/DESIGN.md, 版面) */
 .shell {
   position: fixed;
   inset: 0;
-  display: grid;
-  grid-template-rows: var(--tb-h) 1fr;
-  background: var(--bg);
+  background: var(--stage-ground, var(--bg));
+  transition: background var(--t-song) var(--ease);
 }
 .boot {
   position: fixed;
@@ -11,18 +12,21 @@
   background: var(--bg);
 }
 
-/* title bar: the window's own buttons, a drag region only where nothing is clickable; it continues the sidebar */
+/* title bar: above everything. A drag region only where nothing is clickable (app-region ignores z-index: nothing
+   clickable may lie over a drag region — everything clickable in the bar is its own no-drag box) */
 .tb {
-  position: relative;
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--tb-h);
   z-index: 80;
   display: grid;
-  grid-template-columns: var(--side-w) 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   -webkit-app-region: drag;
   app-region: drag;
-  transition:
-    background var(--t-med) var(--ease),
-    opacity var(--t-med) var(--ease);
+  transition: opacity var(--t-med) var(--ease);
 }
 .tb button,
 .tb input,
@@ -30,16 +34,7 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
-/* (over the effect lyrics the bar floats, out of the page's flow; over the play page it stays in place — the page covers the
-   window and the bar is above it anyway, and taking it out of the flow would lift the library under the rising sheet) */
-.shell[data-layer='fx'] .tb {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: var(--tb-h);
-}
-/* full screen, the pointer still: the window's buttons fade away (any movement brings them back) */
+/* full screen, the pointer still: the bar fades away (any movement brings it back) */
 .shell[data-idle='true'] .tb {
   opacity: 0;
   pointer-events: none;
@@ -51,11 +46,13 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+/* (the bar lies on the stage's ground or on the picture, both dark in either theme: its own light tones) */
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
   padding-left: 22px;
+  color: #f4f1ea;
 }
 .brand img {
   width: 18px;
@@ -63,51 +60,109 @@
   display: block;
 }
 .brand span {
-  font-size: 19px;
-  font-weight: 460;
-  letter-spacing: -0.02em;
-  font-style: italic;
+  font-size: 18px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
 }
-
-.tbMid {
+/* the places: a pill of pills. The chosen one is shown in reverse */
+.places {
   display: flex;
-  justify-content: flex-start;
-  padding: 0 36px;
-  min-width: 0;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: rgba(244, 241, 234, 0.1);
 }
-.search {
-  position: relative;
+.places button {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+  font-weight: 560;
+  font-size: 14px;
+  color: rgba(244, 241, 234, 0.82);
+  white-space: nowrap;
+  transition:
+    background var(--t-med) var(--ease),
+    color var(--t-med) var(--ease);
+}
+.places button:hover:not([aria-current], :disabled) {
+  background: rgba(244, 241, 234, 0.1);
+  color: #f4f1ea;
+}
+.places button[aria-current='page'] {
+  background: #f4f1ea;
+  color: #1b1917;
+}
+.places button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.places button:focus-visible,
+.round:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(244, 241, 234, 0.8);
+}
+.tbEnd {
   display: flex;
   align-items: center;
-  width: min(380px, 100%);
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 8px;
 }
-.search svg {
-  position: absolute;
-  left: 10px;
-  color: var(--fg-3);
-  pointer-events: none;
+.round {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  color: rgba(244, 241, 234, 0.82);
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-med) var(--ease);
 }
-.search input {
-  width: 100%;
-  height: 30px;
-  min-height: 30px;
-  padding-left: 32px;
-  border-radius: var(--r-2);
-  background: var(--surface);
-  border-color: var(--line);
+.round:hover {
+  background: rgba(244, 241, 234, 0.12);
+  color: #f4f1ea;
 }
-/* the brand and the search leave the bar over the picture: on the way into the effect lyrics they fade with the blur
-   rising, and on the way back they stay away until the page is under the blur again (the view swaps at the blur's
-   peak: data-fxmode; the bar follows once the blur starts to lift: data-fxbar), then fade in with it clearing — the bar is above the blur, so nothing may show through early */
+.round[aria-current='page'] {
+  background: #f4f1ea;
+  color: #1b1917;
+}
+/* background work: a small breathing mark; its words are its tooltip */
+.busy {
+  width: 30px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.busy i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-dot);
+  background: rgba(244, 241, 234, 0.8);
+  animation: busy var(--t-breath) var(--ease-io) infinite;
+}
+@keyframes busy {
+  50% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+}
+/* over the effect lyrics the places leave the bar (the view has its own way back); they come back with the page */
 .brand,
-.tbMid {
+.places,
+.round,
+.busy {
   transition:
     opacity var(--t-slow) var(--ease) var(--t-delay),
+    background var(--t-fast) var(--ease),
+    color var(--t-med) var(--ease),
     visibility 0s;
 }
-.shell[data-layer='np'] :is(.brand, .tbMid),
-.shell[data-layer='fx'] :is(.brand, .tbMid),
-:global(html[data-fxbar='true']) .shell :is(.brand, .tbMid) {
+.shell[data-layer='fx'] :is(.brand, .places, .round, .busy),
+:global(html[data-fxbar='true']) .shell :is(.brand, .places, .round, .busy) {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -119,200 +174,62 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 8px;
+  padding-left: 6px;
 }
 .winbtns button {
   width: 40px;
   height: 30px;
-  border-radius: var(--r-2);
+  border-radius: var(--r-1);
   display: grid;
   place-items: center;
-  color: var(--fg-3);
+  color: rgba(244, 241, 234, 0.82);
   transition:
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease),
     opacity var(--t-exit) var(--ease);
 }
 .winbtns button:hover {
-  background: var(--hover);
-  color: var(--fg);
+  background: rgba(244, 241, 234, 0.14);
+  color: #f4f1ea;
 }
 .winbtns button[data-close]:hover {
   background: #e5484d;
   color: #fff;
 }
-.shell[data-layer='np'] .winbtns button,
-.shell[data-layer='fx'] .winbtns button {
-  color: rgba(255, 255, 255, 0.85);
-}
-.shell[data-layer='np'] .winbtns button:hover,
-.shell[data-layer='fx'] .winbtns button:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
 
-.body {
-  display: grid;
-  grid-template-columns: var(--side-w) 1fr;
-  min-height: 0;
-}
-.shell[data-card='true'] .side {
-  padding-bottom: calc(var(--card-h) + 14px);
-}
-.side {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 12px 14px 14px;
-  min-height: 0;
-  overflow: auto;
-}
-.nav {
-  position: relative;
-  display: grid;
-  gap: 2px;
-}
-/* the place marker: one bar beside the chosen item, sliding to the next one */
-.mark {
-  position: absolute;
-  left: -14px;
-  top: 0;
-  width: 2px;
-  border-radius: var(--r-pill);
-  background: var(--accent);
-  transition:
-    transform var(--t-slow) var(--ease),
-    height var(--t-slow) var(--ease);
-  pointer-events: none;
-}
-.navi {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 36px;
-  padding: 0 10px;
-  border-radius: var(--r-2);
-  color: var(--fg-2);
-  font-weight: 560;
-  text-align: left;
-  transition:
-    background var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
-}
-.navi:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
-.navi[aria-current='page'] {
-  color: var(--fg);
-}
-.navi[aria-current='page'] svg {
-  color: var(--accent-ink);
-}
-.sideFoot {
-  display: grid;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-/* the library's sections, right under it, in a lighter voice */
-.navGroup {
-  display: grid;
-  gap: 1px;
-}
-.sub {
-  display: grid;
-  gap: 0;
-  padding-left: 20px;
-  margin: 2px 0 10px;
-}
-.subi {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 31px;
-  padding: 0 10px;
-  border-radius: var(--r-2);
-  color: var(--fg-3);
-  font-weight: 520;
-  font-size: 13.5px;
-  text-align: left;
-  transition:
-    background var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
-}
-.subi svg {
-  opacity: 0.8;
-}
-.subi > span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.subi em {
-  font-style: normal;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--fg-3);
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-.subi:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
-.subi[aria-current='page'] {
-  color: var(--fg);
-}
-.subi[aria-current='page'] svg {
-  color: var(--accent-ink);
-  opacity: 1;
-}
-.navi[data-open='true']:not([aria-current]) {
-  color: var(--fg);
-}
-/* the output switch: two even halves, the width of the sidebar */
-.out > div {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  width: 100%;
-}
-/* background work: a line of text with a hairline progress under it */
-.chip {
-  position: relative;
-  display: grid;
-  gap: 6px;
-  padding: 0 10px;
-  font-size: 11.5px;
-  color: var(--fg-3);
-}
-.chip i {
-  height: 2px;
-  border-radius: var(--r-pill);
-  background: linear-gradient(90deg, var(--accent) var(--p, 0%), var(--line-2) var(--p, 0%));
-  transition: background var(--t-fill) var(--ease);
-}
-.chip span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-}
-
+/* the sheet: the paper the library is on. From under the title bar to the player bar, its top corners round; it rises
+   over the stage and sinks away below the window (layers.ts moves it, on the one spring the stage steps back on) */
 .page {
-  position: relative;
-  min-height: 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(var(--tb-h) + 8px);
+  bottom: var(--card-h);
+  z-index: 50;
   overflow: auto;
   background: var(--bg);
-  border-left: 1px solid var(--line);
+  border-radius: var(--r-4) var(--r-4) 0 0;
+  box-shadow: 0 -30px 80px -30px rgba(0, 0, 0, 0.55);
   scrollbar-gutter: stable;
+  will-change: transform;
+  transition: background var(--t-song) var(--ease);
+}
+/* (no song yet: no bar under the sheet) */
+.shell:not([data-card='true']) .page {
+  bottom: 0;
+}
+.shell[data-layer='fx'] .page {
+  visibility: hidden;
 }
 .pageInner {
-  padding: 30px 44px calc(var(--card-h) + 56px);
+  padding: 36px 56px 56px;
   max-width: 1440px;
   margin: 0 auto;
+}
+@media (max-width: 1100px) {
+  .pageInner {
+    padding: 28px 28px 40px;
+  }
 }
 .shell[data-page='workshop'] .page {
   overflow: hidden;

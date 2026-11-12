@@ -132,7 +132,7 @@ export function Transport({ big }: { big?: boolean }) {
   const playing = useStore(player, (x) => x.playing),
     loading = useStore(player, (x) => x.loading);
   return (
-    <div className={s.trans} data-big={big || undefined}>
+    <div className={s.trans} data-test="transport" data-big={big || undefined}>
       <IconButton
         n="prev"
         label={tx('s.prev')}
@@ -259,7 +259,8 @@ let queueAnchor: DOMRect | null = null;
 /* ---------- the card at the bottom ---------- */
 export function PlayerCard() {
   const id = useStore(player, (x) => x.id),
-    dir = useStore(player, (x) => x.dir);
+    dir = useStore(player, (x) => x.dir),
+    onStage = useStore(ui, (x) => x.layer !== 'none');
   useStore(lib, (x) => x.tracks);
   const t = trackOf(id),
     card = useRef<HTMLDivElement>(null),
@@ -274,19 +275,18 @@ export function PlayerCard() {
   });
   if (!t) return null;
   return (
-    <div className={s.card} ref={card} data-test="card">
-      {/* (the bar, left to right: the volume in the room before the cover — the cover sits on the play page cover's centre
-          line —, the cover, which opens the play page, and the song; the transport; the queue and the favourite) */}
-      <div className={s.side}>
-        <div className={s.lead}>
-          <Volume />
-        </div>
+    // the stage's apron: the same bar under the stage and under the sheet. Over the stage it is clear and leaves the song
+    // to the stage (its cover, title and sung line fade: --stage, set by layers.ts); over the sheet it carries them
+    <div className={s.card + (onStage ? ' on-picture' : '')} ref={card} data-test="card" data-stage={onStage}>
+      <Progress className={s.line} />
+      <div className={s.row}>
         <div className={s.id}>
           <button
             type="button"
             className={s.miniBtn}
             title={tx('s.expand')}
             aria-label={tx('s.expand')}
+            tabIndex={onStage ? -1 : 0}
             onClick={openNp}
           >
             <span ref={mini} className={s.mini}>
@@ -302,16 +302,18 @@ export function PlayerCard() {
             </span>
           </Swap>
         </div>
-      </div>
-      <div className={s.center}>
-        <Transport />
-        <Progress />
-      </div>
-      <div className={s.right}>
-        <BarLyric />
-        <div className={s.end}>
-          <QueueButton />
-          <Heart id={t.id} />
+        <div className={s.center}>
+          <ModeButton />
+          <Transport />
+          <span className={s.even} aria-hidden="true" />
+        </div>
+        <div className={s.right}>
+          <BarLyric />
+          <div className={s.end}>
+            <Volume />
+            <QueueButton />
+            <Heart id={t.id} />
+          </div>
         </div>
       </div>
     </div>

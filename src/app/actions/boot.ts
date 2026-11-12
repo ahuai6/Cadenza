@@ -29,7 +29,13 @@ export function boot(ready: () => void): () => void {
     applyEngineConfig(st);
     lib.set({ ...(await l.get()), loaded: true });
     ready();
-    resumeLast().catch(() => {}); // (the last song, paused: the play page is ready before it is opened)
+    // the last song, paused — and the app opens on it: the playing song is home (with none, the library is)
+    resumeLast()
+      .then(() => {
+        if (playerApi.player.get().shownId && ui.get().layer === 'none' && ui.get().page !== 'workshop')
+          ui.set({ layer: 'np' });
+      })
+      .catch(() => {});
     // what the first play would otherwise wait for, made in idle time after launch: the audio context and the word
     // segmenter's dictionary
     const idle = (f: () => void) =>

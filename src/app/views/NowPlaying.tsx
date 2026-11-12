@@ -9,11 +9,11 @@ import { IconButton, Cover, Swap, Badge } from '../ui/kit';
 import { Drive } from '../motion';
 import { engine } from '../playback/stage';
 import { player } from '../playback/player';
-import { refs, openFx, back } from '../layers';
+import { refs, openFx } from '../layers';
 import { NpLyrics } from '../ui/NpLyrics';
 import { QualityTag } from '../ui/quality';
 import { Marquee } from '../ui/Marquee';
-import { Progress, Transport, ModeButton, Volume, HifiBadge, Heart, toggleQueue } from './Player';
+import { HifiBadge, Heart } from './Player';
 import { pickPlaylist, editMeta, npSettings } from './Modals';
 import s from './NowPlaying.module.css';
 
@@ -41,18 +41,15 @@ export function NowPlaying() {
   const amb = useRef<HTMLDivElement>(null),
     root = useRef<HTMLElement>(null),
     cover = useRef<HTMLDivElement>(null),
-    top = useRef<HTMLElement>(null),
     info = useRef<HTMLDivElement>(null),
     right = useRef<HTMLDivElement>(null),
     halo = useRef<HTMLDivElement>(null);
-  const layer = useStore(ui, (x) => x.layer),
-    queueOpen = useStore(ui, (x) => x.queue),
-    qn = useStore(player, (x) => x.queue.length);
+  const layer = useStore(ui, (x) => x.layer);
   useLayoutEffect(() => {
     refs.np = root.current;
     refs.npAmb = amb.current;
     refs.npCover = cover.current;
-    refs.npParts = [top.current, info.current, right.current];
+    refs.npParts = [info.current, right.current];
   });
   useEffect(
     () => () => {
@@ -126,35 +123,6 @@ export function NowPlaying() {
         inert={layer !== 'np'}
       >
         <div className={s.sheet} data-in>
-          <header className={s.top} ref={top}>
-            <div className={s.fade}>
-              <IconButton n="chevronDown" label={tx('s.collapse')} onClick={back} />
-            </div>
-            {/* what this page shows: its lyrics, the effect lyrics, or the queue over it (the page itself says what is playing) */}
-            <nav className={s.views + ' ' + s.fade} aria-label={tx('np.views')}>
-              <button type="button" aria-current="page">
-                {tx('np.tab.lyrics')}
-              </button>
-              <button type="button" onClick={openFx}>
-                <Icon n="sparkles" size={15} />
-                {tx('s.fxLyrics')}
-              </button>
-              <button
-                type="button"
-                data-queue-button
-                aria-label={tx('s.queue')}
-                aria-expanded={queueOpen}
-                aria-pressed={queueOpen}
-                onClick={(e) => toggleQueue(e.currentTarget)}
-              >
-                {tx('np.tab.queue')}
-                {qn > 0 && <i>{qn}</i>}
-              </button>
-            </nav>
-            <div className={s.topR + ' ' + s.fade}>
-              <IconButton n="more" label={tx('s.more')} onClick={more} />
-            </div>
-          </header>
           <div className={s.main}>
             <div className={s.left}>
               {/* (the cover's own light spilling behind it: the left column's weight against the lyrics) */}
@@ -192,22 +160,17 @@ export function NowPlaying() {
                       <Heart id={t.id} />
                     </span>
                   </div>
-                  <div className={s.progWrap}>
-                    <Progress />
-                    <div className={s.qrow}>
-                      <QualityTag t={t} look="glass" />
-                      {album && <Badge>{tx('s.albumOn')}</Badge>}
-                    </div>
+                  <div className={s.qrow}>
+                    <QualityTag t={t} look="glass" />
+                    {album && <Badge>{tx('s.albumOn')}</Badge>}
                   </div>
-                  <div className={s.ctl}>
-                    <div>
-                      <ModeButton />
-                    </div>
-                    <Transport big />
-                    <div />
-                  </div>
-                  <div className={s.volRow}>
-                    <Volume />
+                  {/* what else this song can be: its effect lyrics; and the rest of what can be done with it */}
+                  <div className={s.acts}>
+                    <button type="button" className={s.fx} data-test="open-fx" onClick={openFx}>
+                      <Icon n="sparkles" size={16} />
+                      {tx('s.fxLyrics')}
+                    </button>
+                    <IconButton n="more" label={tx('s.more')} onClick={more} />
                   </div>
                 </div>
               </div>
