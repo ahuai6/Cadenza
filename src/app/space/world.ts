@@ -13,6 +13,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { InkPass, ShaftsPass, DreamPass, GlassPass } from './render/passes';
 import { RoomAudio } from './systems/audio';
+import { AirLyrics } from './systems/lyrics';
 import type { SpaceBind, SpaceNow } from './bind';
 import { navePage, navePages, letterSpan, NAVE_SLOTS, LIST_SLOTS } from './data';
 import { CoverCache, CoverAtlas } from './covers';
@@ -231,7 +232,7 @@ export function createWorld(
       g.font = 'italic 400 30px "Source Serif 4", serif';
       g.fillText(sub, 8, 108);
     });
-  // (the lyrics' face is the settings' lyric font: FACE, with the scene lyrics below)
+  // (the lyrics' face is the settings' lyric font: the one the lyrics in the air use)
   // a line on the sanctuary's paper: one row when it fits, smaller if a little long, two rows (broken at a space where it can) if longer
   const lyricTex = (t) =>
     textTex(1600, 180, (g, w, h) => {
@@ -240,7 +241,7 @@ export function createWorld(
       g.fillStyle = C.ink;
       const maxW = w - 80;
       const fits = (px) => {
-        g.font = `${FACE.w} ${px}px ${FACE.stack}`;
+        g.font = `${air.face.w} ${px}px ${air.face.stack}`;
         return g.measureText(t).width <= maxW;
       };
       for (const px of [108, 96, 86])
@@ -263,10 +264,10 @@ export function createWorld(
       }
       const rows = [cs.slice(0, cut).join('').trim(), cs.slice(cut).join('').trim()];
       let px = 74;
-      g.font = `${FACE.w} ${px}px ${FACE.stack}`;
+      g.font = `${air.face.w} ${px}px ${air.face.stack}`;
       while (px > 30 && Math.max(...rows.map((r) => g.measureText(r).width)) > maxW) {
         px -= 4;
-        g.font = `${FACE.w} ${px}px ${FACE.stack}`;
+        g.font = `${air.face.w} ${px}px ${air.face.stack}`;
       }
       g.fillText(rows[0], w / 2, h / 2 - px * 0.55);
       g.fillText(rows[1], w / 2, h / 2 + px * 0.55);
@@ -2272,7 +2273,7 @@ export function createWorld(
       L.o += (to - L.o) * q;
       L.m.position.y = L.y;
       L.m.scale.setScalar((d === 0 ? 1 : 0.8) * b);
-      L.m.material.opacity = L.o * (1 - sstep(0.95, 1.4, Math.abs(L.y - 3.2))) * scene3.wallFade;
+      L.m.material.opacity = L.o * (1 - sstep(0.95, 1.4, Math.abs(L.y - 3.2))) * air.wallFade;
       L.m.visible = L.m.material.opacity > 0.003 && Math.abs(L.y - 3.2) < 1.7;
     });
   }
@@ -2540,10 +2541,9 @@ export function createWorld(
         continue;
       }
       if (check || L.vis == null) {
-        if (!landables) restHeight(0, 1, 0);
         sightRay.set(cam, _ld);
         sightRay.far = dist - 0.45;
-        L.vis = sightRay.intersectObjects(landables, false).length === 0;
+        L.vis = sightRay.intersectObjects(solids(), false).length === 0;
       }
       if (!L.vis) continue;
       const f = Math.abs(_ld.dot(L.n)),
@@ -3341,211 +3341,21 @@ export function createWorld(
     });
   }
 
-  /* ---------- scene lyrics: lines peel off the sanctuary wall and hang in the air in front of you; then they bleach, tip over and fall ---------- */
-  const CH = 0.72; // character height in metres
-  // the glyphs: one texture per character, drawn large (a line in the air is ~200 px tall on a 1080p screen), its fill in
-  // the red channel and a ring around it in the green one, so the shader can ink the fill and edge the outline in the accent
-  const GPX = 192,
-    EDGE = { value: new THREE.Color(C.clay) },
-    FILL_TOP = { value: new THREE.Color('#6E5A49') },
-    FILL_BOT = { value: new THREE.Color(C.ink) };
-  let FACE = bind.face(''),
-    faceFor = '';
-  const glyphCache = new Map();
-  // (kept most-recently-used first out, at most 360: a library sung in many scripts must not keep a texture per character
-  // it ever showed; the glyphs in the air are always the newest)
-  const glyphTex = (ch) => {
-    const hit = glyphCache.get(ch);
-    if (hit) {
-      glyphCache.delete(ch);
-      glyphCache.set(ch, hit);
-      return hit;
-    }
-    if (glyphCache.size >= 360) {
-      const [k, v] = glyphCache.entries().next().value;
-      v.dispose();
-      glyphCache.delete(k);
-    }
-    const c = mk(GPX, GPX),
-      g = c.getContext('2d'),
-      font = (px) => `${FACE.w} ${px}px ${FACE.stack}`;
-    let px = Math.round(GPX * 0.7);
-    g.font = font(px);
-    while (px > GPX * 0.3 && g.measureText(ch).width > GPX * 0.8) {
-      px -= 4;
-      g.font = font(px);
-    }
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.lineJoin = 'round';
-    g.miterLimit = 2;
-    const y = GPX / 2 + px * 0.05;
-    g.strokeStyle = '#0f0';
-    g.lineWidth = Math.max(3, px * 0.075);
-    g.strokeText(ch, GPX / 2, y);
-    g.fillStyle = '#f00';
-    g.fillText(ch, GPX / 2, y);
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.NoColorSpace;
-    t.anisotropy = 8;
-    glyphCache.set(ch, t);
-    return t;
-  };
-  // the face follows the settings (Cadenza's lyric fonts); the song's own text picks the fallbacks. A change redraws the glyphs.
-  function faceTick() {
-    const sample = NOW.lines
-        .map((L) => L.text + (L.harm ? L.harm.text : ''))
-        .join('')
-        .slice(0, 240),
-      key = S.font + '|' + sample;
-    if (key === faceFor) return;
-    faceFor = key;
-    const want = bind.face(sample);
-    bind.loadFace(sample).then(() => {
-      if (!alive || faceFor !== key) return;
-      FACE = want;
-      glyphCache.forEach((t) => t.dispose());
-      glyphCache.clear();
-      advCache.clear();
-      lineTex.forEach((t) => t.dispose());
-      lineTex.clear();
-      lyricMeshes.forEach((L) => {
-        L.idx = -1;
-        L.m.visible = false;
+  /* ---------- the lyrics in the air (systems/lyrics.ts): this scene's part is what is solid here, the HUD's free band,
+     the first line peeling off the sanctuary's paper, and the view turning to follow a line ---------- */
+  // everything solid in the building: what blocks a sight line and what a falling glyph lands on (gathered once, on first use)
+  let landables = null;
+  function solids() {
+    if (!landables) {
+      landables = [];
+      world.traverse((o) => {
+        if (o.isMesh && !o.isInstancedMesh && !o.userData.thin && !noLine.includes(o) && !glassList.includes(o))
+          landables.push(o);
       });
-      for (const l of scene3.lines)
-        for (const gl of l.glyphs) {
-          gl.m.map = glyphTex(gl.ch);
-        }
-    });
-  }
-  const scene3 = { on: false, lines: [], lastIdx: -1, lastPos: null, wallFade: 1 };
-  // a line gone: out of the scene, out of the ink pass's list, its materials and cards freed (the glyphs' textures are kept, per character)
-  function dropLine(l) {
-    scene.remove(l.g);
-    const gone = new Set(l.glyphs.map((gl) => gl.card));
-    for (let k = noLine.length - 1; k >= 0; k--) if (gone.has(noLine[k])) noLine.splice(k, 1);
-    l.glyphs.forEach((gl) => {
-      gl.m.dispose();
-      gl.card.geometry.dispose();
-    });
-  }
-  // the fill runs top to bottom from a light tone of the cover's colour to a deep one, with a soft sheen across its upper
-  // part and a bevel lit from the upper left (the glyph's own edges, read from its texture); a thin outline in the accent.
-  // Bleaching, all of it turns to ivory together.
-  function glyphMat(map) {
-    const m = new THREE.MeshBasicMaterial({
-        map,
-        color: new THREE.Color(C.ink),
-        transparent: true,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        depthTest: false,
-      }),
-      ek = { value: 1 };
-    m.userData.ek = ek;
-    m.onBeforeCompile = (sh) => {
-      sh.uniforms.uEdge = EDGE;
-      sh.uniforms.uEdgeK = ek;
-      sh.uniforms.uTop = FILL_TOP;
-      sh.uniforms.uBot = FILL_BOT;
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec3 uEdge, uTop, uBot; uniform float uEdgeK;')
-        .replace(
-          '#include <map_fragment>',
-          `
-        vec4 gT = texture2D(map, vMapUv); float gF = gT.r / max(gT.r + gT.g, .001), dd = 2.4 / ${GPX}.;
-        float eA = texture2D(map, vMapUv + vec2(-dd, dd)).r, eB = texture2D(map, vMapUv + vec2(dd, -dd)).r, hl = clamp(eB - eA, 0., 1.), sd = clamp(eA - eB, 0., 1.);
-        float v = vMapUv.y; vec3 grad = mix(uBot, uTop, smoothstep(.22, .82, v));
-        grad += vec3(.16) * smoothstep(.56, .68, v) * (1. - smoothstep(.68, .84, v));
-        grad = grad + hl * .42 * (vec3(1.) - grad) - sd * .3 * grad;
-        vec3 fillC = mix(diffuseColor.rgb, grad, uEdgeK), edgeC = uEdge + hl * .35 * (vec3(1.) - uEdge);
-        diffuseColor = vec4(mix(mix(edgeC, fillC, 1. - uEdgeK), fillC, gF), diffuseColor.a * gT.a * mix(1., gF, 1. - uEdgeK));`,
-        );
-    };
-    m.customProgramCacheKey = () => 'glyph';
-    return m;
-  }
-  // a glyph is drawn over the room from first to last (placed clear of everything; falling or lying, one that ends up in
-  // a wall or behind a sofa is still seen until it fades, never cut off)
-  function glyph(ch, s = 1) {
-    const m = glyphMat(glyphTex(ch));
-    const card = new THREE.Mesh(new THREE.PlaneGeometry(CH, CH), m);
-    card.position.y = CH / 2;
-    card.renderOrder = 6;
-    noLine.push(card);
-    const pivot = new THREE.Group();
-    pivot.scale.setScalar(s);
-    pivot.add(card);
-    return { pivot, card, m, ch, s };
+    }
+    return landables;
   }
   const sightRay = new THREE.Raycaster();
-  function seen(from, to) {
-    if (!landables) restHeight(0, 1, 0);
-    const d = to.clone().sub(from),
-      L = d.length();
-    sightRay.set(from, d.normalize());
-    sightRay.far = L - 0.3;
-    return sightRay.intersectObjects(landables, false).length === 0;
-  }
-  // does anything solid cross the line's panel (a sofa's back, a vase, a wall, the wall of songs)? rays along its rows and up its ends
-  const _ra = new V3(),
-    _rb = new V3();
-  function clearAt(p, yaw, w, h) {
-    if (!landables) restHeight(0, 1, 0);
-    const sx = Math.cos(yaw),
-      sz = -Math.sin(yaw),
-      W = w / 2 + 0.15,
-      H = h / 2 + 0.1,
-      solid = [...landables, ...bowl];
-    const hit = (a, b) => {
-      _rb.subVectors(b, a);
-      const L = _rb.length();
-      sightRay.set(a, _rb.multiplyScalar(1 / L));
-      sightRay.far = L;
-      return sightRay.intersectObjects(solid, false).length > 0;
-    };
-    for (const fy of [-1, 0, 1]) {
-      _ra.set(p.x - sx * W, p.y + fy * H, p.z - sz * W);
-      if (hit(_ra, new V3(p.x + sx * W, p.y + fy * H, p.z + sz * W))) return false;
-    }
-    for (const fx of [-1, 0, 1]) {
-      _ra.set(p.x + sx * W * fx, p.y - H, p.z + sz * W * fx);
-      if (hit(_ra, new V3(p.x + sx * W * fx, p.y + H, p.z + sz * W * fx))) return false;
-    }
-    return true;
-  }
-  const gauss = () => {
-    let u = 0,
-      v = 0;
-    while (!u) u = Math.random();
-    while (!v) v = Math.random();
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-  };
-  // a line's outline on screen now: its four corners projected (a line faces the way it was turned when it appeared)
-  const _q = new V3();
-  function screenRect(pos, yaw, w, h) {
-    const sx = Math.cos(yaw),
-      sz = -Math.sin(yaw);
-    let x0 = 9,
-      x1 = -9,
-      y0 = 9,
-      y1 = -9;
-    for (const [a, b] of [
-      [-1, -1],
-      [1, -1],
-      [-1, 1],
-      [1, 1],
-    ]) {
-      _q.set(pos.x + (sx * a * w) / 2, pos.y + (b * h) / 2, pos.z + (sz * a * w) / 2).project(camera);
-      x0 = Math.min(x0, _q.x);
-      x1 = Math.max(x1, _q.x);
-      y0 = Math.min(y0, _q.y);
-      y1 = Math.max(y1, _q.y);
-    }
-    return [x0, x1, y0, y1];
-  }
-  const overlaps = (a, b, m = 0.06) => a[0] < b[1] + m && b[0] < a[1] + m && a[2] < b[3] + m && b[2] < a[3] + m;
   // the band of the screen the HUD leaves free (in NDC): under the places and the room's sign, over the subtitles and the player
   function freeBand() {
     const H = innerHeight || 1;
@@ -3562,267 +3372,48 @@ export function createWorld(
     } // (the subtitles sit just over the player)
     return { yTop: 1 - (2 * top) / H, yBot: 1 - (2 * bot) / H };
   }
-  // where to put a line: ahead of where you will be in a moment (walking on, it is further off; backing away, nearer),
-  // near the middle of the view, at eye level, never under the HUD, never over another line, never through anything.
-  // strict: only a place that passes every test (null if none); else the best there is.
-  function placeLine(width, height, strict) {
-    camera.updateMatrixWorld(true); // read the view as it is right now, never as it was last frame
-    const cam = camera.getWorldPosition(new V3()),
-      view = camera.getWorldDirection(new V3()),
-      yaw = Math.atan2(-view.x, -view.z),
-      pitch = Math.asin(Math.max(-1, Math.min(1, view.y)));
-    const ahead = cam.clone().add(new V3(me.vel.x, 0, me.vel.z).multiplyScalar(0.9)),
-      band = freeBand(),
-      mid = (band.yTop + band.yBot) / 2;
-    const cands = [];
-    for (let k = 0; k < 72; k++) {
-      const a = yaw + Math.max(-0.9, Math.min(0.9, gauss() * 0.24)),
-        el = Math.max(-0.3, Math.min(0.5, pitch * 0.6 + gauss() * 0.07)),
-        d = 3.3 + Math.random() * 2.6;
-      const dir = new V3(-Math.sin(a) * Math.cos(el), Math.sin(el), -Math.cos(a) * Math.cos(el)),
-        p = ahead.clone().addScaledVector(dir, d);
-      p.y = Math.max(0.9 + height / 2, Math.min(6, p.y));
-      if (p.distanceTo(cam) < 2.2) continue; // never in your face
-      const side = new V3(Math.cos(a), 0, -Math.sin(a)).multiplyScalar(width / 2 + 0.3);
-      if (!regionAt(p.clone().add(side)) || !regionAt(p.clone().sub(side)) || !regionAt(p)) continue; // inside the room
-      const toCamYaw = Math.atan2(cam.x - p.x, cam.z - p.z),
-        rect = screenRect(p, toCamYaw, width, height);
-      if (p.clone().project(camera).z > 1) continue;
-      const fits = rect[0] > -0.92 && rect[1] < 0.92 && rect[2] > band.yBot && rect[3] < band.yTop; // the whole line on screen, clear of the HUD
-      const free = !scene3.lines.some((l) => !l.falling && overlaps(rect, screenRect(l.pos, l.yaw, l.width, l.height))); // never over another line
-      if (strict && (!fits || !free)) continue;
-      const cx = (rect[0] + rect[1]) / 2,
-        cy = (rect[2] + rect[3]) / 2;
-      let score =
-        -Math.abs(cx) * 2.2 -
-        Math.abs(cy - mid) * 1.6 -
-        Math.abs(p.y - cam.y) * 0.3 -
-        (fits ? 0 : 20) -
-        (free ? 0 : 30);
-      if (scene3.lastPos) {
-        const dl = p.distanceTo(scene3.lastPos);
-        if (dl < 0.6) score -= 5;
-      }
-      cands.push({ p, yaw: toCamYaw, score, side });
-    }
-    cands.sort((a, b) => b.score - a.score);
-    // the costly tests (rays through the room) only for the best few
-    for (const c of cands.slice(0, 24)) {
-      const ok =
-        seen(cam, c.p) &&
-        seen(cam, c.p.clone().add(c.side)) &&
-        seen(cam, c.p.clone().sub(c.side)) &&
-        clearAt(c.p, c.yaw, width, height);
-      if (ok) return c.p;
-    }
-    if (strict) return null;
-    return cands[0]?.p || cam.clone().add(new V3(-Math.sin(yaw), 0.1, -Math.cos(yaw)).multiplyScalar(4));
-  }
-  // a line's rows: as many characters as fit across a share of the view at the distance lines float at
-  const ROW = CH * 1.16,
-    HS = 0.56; // (a harmony: smaller, under the line)
-  // each character takes its own width (a Latin letter is narrow, a CJK character square), measured in the lyric face
-  const advCtx = mk(8, 8).getContext('2d'),
-    advCache = new Map();
-  const advOf = (ch) => {
-    let a = advCache.get(ch);
-    if (a == null) {
-      advCtx.font = `${FACE.w} 92px ${FACE.stack}`;
-      a = (Math.max(ch === ' ' ? 26 : 30, advCtx.measureText(ch).width) / 128 + 0.05) * CH;
-      advCache.set(ch, a);
-    }
-    return a;
-  };
-  const widthOf = (cs) => cs.reduce((w, ch) => w + advOf(ch), 0);
-  function rowsOf(text, share) {
-    const fovY = (camera.fov * Math.PI) / 180,
-      wide = 2 * 3.6 * Math.tan(fovY / 2) * camera.aspect * share;
-    const cs = [...text.trim()],
-      rows = [];
-    let i = 0;
-    while (i < cs.length) {
-      let end = i,
-        w = 0;
-      while (end < cs.length && (w + advOf(cs[end]) <= wide || end === i)) {
-        w += advOf(cs[end]);
-        end++;
-      }
-      if (end < cs.length) {
-        const sp = cs.lastIndexOf(' ', end);
-        if (sp > i && widthOf(cs.slice(i, sp)) > wide * 0.5) end = sp;
-      } // break at a space when there is one late enough
-      rows.push(cs.slice(i, end));
-      i = end;
-      while (cs[i] === ' ') i++;
-    }
-    return rows.length ? rows : [[]];
-  }
-  // wide when the room allows (one long row where it fits), narrower and taller where it does not
-  function spawnLine(L, idx) {
-    let rows,
-      hrows,
-      width,
-      height,
-      pos = null;
-    const size = (share) => {
-      rows = rowsOf(L.text, share);
-      hrows = L.harm ? rowsOf(L.harm.text, share / HS) : [];
-      width = Math.max(...rows.map(widthOf), ...hrows.map((r) => widthOf(r) * HS));
-      height = rows.length * ROW + hrows.length * ROW * HS + (hrows.length ? CH * 0.12 : 0);
-    };
-    for (const share of [0.84, 0.62, 0.46]) {
-      size(share);
-      pos = placeLine(width, height, true);
-      if (pos) break;
-    }
-    if (!pos) {
-      size(0.46);
-      pos = placeLine(width, height, false);
-    }
-    const g = new THREE.Group(),
-      toCam = new V3().subVectors(camera.position, pos);
-    g.position.copy(pos);
-    g.rotation.set(0, Math.atan2(toCam.x, toCam.z), 0);
-    scene.add(g); // turns to you once, then stays put
-    const glyphs = [];
-    let y = height / 2;
-    const lay = (row, s, harm) => {
-      let x = (-widthOf(row) * s) / 2;
-      y -= ROW * s;
-      const yy = y + ((ROW - CH) * s) / 2;
-      for (const ch of row) {
-        const a = advOf(ch) * s;
-        if (ch !== ' ') {
-          const gl = glyph(ch, s);
-          gl.pivot.position.set(x + a / 2, yy, 0);
-          gl.harm = harm;
-          g.add(gl.pivot);
-          glyphs.push(gl);
-        }
-        x += a;
-      }
-    };
-    rows.forEach((r) => lay(r, 1, false));
-    if (hrows.length) y -= CH * 0.12;
-    hrows.forEach((r) => lay(r, HS, true));
-    // the first line peels off the sanctuary's paper and flies here
-    let from = null;
-    if (room === 'altar' && (scene3.lastIdx < 0 || scene3.lines.length === 0)) {
-      from = new V3();
-      lyricMeshes[0].m.getWorldPosition(from);
-    }
-    const line = {
-      g,
-      glyphs,
-      pos,
-      idx,
-      t0: performance.now(),
-      from,
-      falling: false,
-      fallT: 0,
-      width,
-      height,
-      yaw: g.rotation.y,
-      harmT: L.harm ? L.harm.t : null,
-      nMain: glyphs.filter((x) => !x.harm).length,
-      times: L.kar && L.times.length ? L.times : null,
-    };
-    scene3.lines.push(line);
-    scene3.lastPos = pos;
-    scene3.lastIdx = idx;
-    if (S.follow) {
-      followTo = Math.atan2(-(pos.x - camera.position.x), -(pos.z - camera.position.z));
-    }
-    return line;
-  }
   // following a line: the view turns on a critically damped spring, from rest — it eases in, never starts with a jerk
   let followTo = null,
     followV = 0;
-  // where a falling glyph comes to rest: no physics bodies. One look straight down, at the moment it lets go, under its pivot,
-  // its middle and its tip; it lands on the highest surface found and lies flat there. Nothing can sink in, so nothing can jitter.
-  let landables = null;
-  const downRay = new THREE.Raycaster(),
-    DOWN = new V3(0, -1, 0),
-    landed = [];
-  function restHeight(x, y, z) {
-    if (!landables) {
-      landables = [];
-      world.traverse((o) => {
-        if (o.isMesh && !o.isInstancedMesh && !o.userData.thin && !noLine.includes(o) && !glassList.includes(o))
-          landables.push(o);
+  const air = new AirLyrics({
+    scene,
+    camera,
+    face: (sample) => bind.face(sample),
+    loadFace: (sample) => bind.loadFace(sample),
+    faceKey: () => S.font,
+    // (the sanctuary's paper is drawn in the same face: its lines are redrawn)
+    onFace: () => {
+      lineTex.forEach((t) => t.dispose());
+      lineTex.clear();
+      lyricMeshes.forEach((L) => {
+        L.idx = -1;
+        L.m.visible = false;
       });
-    }
-    downRay.set(new V3(x, y, z), DOWN);
-    downRay.far = y + 1;
-    const h = downRay
-      .intersectObjects(landables, false)
-      .find(
-        (h) =>
-          h.face && h.face.normal && Math.abs(h.face.normal.clone().transformDirection(h.object.matrixWorld).y) > 0.5,
-      );
-    return h ? h.point.y : 0;
-  }
-  function fall(line) {
-    if (line.falling) return;
-    line.falling = true;
-    line.fallT = performance.now();
-    line.g.position.copy(line.pos);
-    line.glyphs.forEach((gl) => {
-      gl.card.position.y = CH / 2;
-      gl.card.rotation.set(0, 0, 0);
-      gl.card.scale.setScalar(1);
-    });
-    line.g.updateMatrixWorld(true);
-    const fz = new V3(0, 0, 1).transformDirection(line.g.matrixWorld);
-    line.glyphs.forEach((gl, k) => {
-      gl.delay = k * 0.05 + Math.random() * 0.04;
-      gl.dir = Math.random() < 0.5 ? 1 : -1;
-      const ch = CH * gl.s;
-      const pw = gl.pivot.getWorldPosition(new V3()),
-        tip = pw.clone().addScaledVector(fz, gl.dir * ch),
-        mid = pw.clone().addScaledVector(fz, (gl.dir * ch) / 2);
-      let rest = Math.max(...[pw, mid, tip].map((p) => restHeight(p.x, pw.y, p.z)));
-      const near = landed.filter(
-        (q) => Math.hypot(q.x - mid.x, q.z - mid.z) < ch * 0.7 && Math.abs(q.y - rest) < 0.1,
-      ).length; // stack on glyphs already lying here
-      gl.floor = rest + 0.02 + near * 0.012;
-      landed.push({ x: mid.x, z: mid.z, y: gl.floor, t: performance.now() });
-      if (landed.length > 60) landed.shift();
-      gl.vy = 0.7 + Math.random() * 0.5;
-      gl.y = line.pos.y + gl.pivot.position.y;
-      gl.ang = 0;
-      gl.av = 0;
-      gl.roll = 0;
-      gl.rv = (Math.random() < 0.5 ? -1 : 1) * (1.6 + Math.random() * 2.2);
-      gl.landed = 0;
-    });
-  }
-  const _ink = new THREE.Color(C.ink),
-    _ivory = new THREE.Color(C.ivory);
+    },
+    solids,
+    obstacles: () => bowl,
+    inside: (p) => !!regionAt(p),
+    freeBand,
+    velocity: () => me.vel,
+    reduced: RM,
+    origin: () => (room === 'altar' ? lyricMeshes[0].m.getWorldPosition(new V3()) : null),
+    onSpawn: (pos) => {
+      if (S.follow) followTo = Math.atan2(-(pos.x - camera.position.x), -(pos.z - camera.position.z));
+    },
+    unlisted: {
+      add: (o) => noLine.push(o),
+      remove: (gone) => {
+        for (let i = noLine.length - 1; i >= 0; i--) if (gone.has(noLine[i])) noLine.splice(i, 1);
+      },
+    },
+    colours: { ink: C.ink, faded: C.ivory, edge: C.clay },
+  });
+  const _song = { playing: false, t: 0, lines: [] };
   function lyricsTick(now, dt) {
-    faceTick();
-    const want = playing; // wherever you are while the song plays
-    if (want && !scene3.on) {
-      scene3.on = true;
-      scene3.lastIdx = -1;
-    }
-    if (!playing && scene3.on) {
-      scene3.on = false;
-      scene3.lines.forEach(fall);
-    }
-    scene3.wallFade += ((scene3.on ? 0 : 1) - scene3.wallFade) * Math.min(1, dt * 3); // the paper empties while its words are out in the room
-    if (scene3.on) {
-      const t = NOW.t,
-        L = NOW.lines;
-      scene3.lines.forEach((l) => {
-        if (l.falling) return;
-        const next = L[l.idx + 1],
-          mine = L[l.idx];
-        if ((next && t >= next.t - 0.6) || (mine && t > Math.max(mine.end, mine.harm ? mine.sung : 0) + 0.4)) fall(l);
-      });
-      const idx = curLine;
-      if (idx >= 0 && idx !== scene3.lastIdx && L[idx]?.text.trim()) spawnLine(L[idx], idx);
-    }
+    _song.playing = playing;
+    _song.t = NOW.t;
+    _song.lines = NOW.lines;
+    air.tick(now, dt, _song, curLine);
     if (followTo != null) {
       const err = wrapTo(me.yaw, followTo) - me.yaw,
         w = 2.6;
@@ -3833,109 +3424,8 @@ export function createWorld(
         followV = 0;
       }
     }
-    const air = scene3.lines.filter((l) => !l.falling);
-    while (air.length > 4) fall(air.shift());
-    for (let i = scene3.lines.length - 1; i >= 0; i--) {
-      const l = scene3.lines[i],
-        age = (now - l.t0) / 1000;
-      if (l.leave && now > l.leave) fall(l);
-      if (!l.falling) {
-        // flying in, then the sung part darkens from left to right; the harmony comes in when it is sung
-        const u = Math.min(1, age / 0.9),
-          e = 1 - Math.pow(1 - u, 3),
-          hIn = l.harmT == null ? 0 : Math.max(0, Math.min(1, (NOW.t - l.harmT + 0.2) / 0.5));
-        // each glyph arrives a beat after the last: rises a little, unfolds from a slight tilt, settles with a soft overshoot
-        // (a line timed word by word darkens as each is sung; a line timed only as a whole is shown whole, never swept by a guess)
-        l.glyphs.forEach((gl, k) => {
-          const kk = gl.harm ? k - l.nMain : k,
-            sung = gl.harm
-              ? hIn
-              : l.times
-                ? Math.max(
-                    0,
-                    Math.min(
-                      1,
-                      (NOW.t -
-                        l.times[Math.min(l.times.length - 1, Math.floor((k * l.times.length) / l.nMain))] +
-                        0.06) /
-                        0.18,
-                    ),
-                  )
-                : 1,
-            v = gl.harm ? hIn : Math.max(0, Math.min(1, (age - kk * 0.045) / 0.55)),
-            ob = 1 + 2.2 * Math.pow(v - 1, 3) + 1.2 * Math.pow(v - 1, 2);
-          gl.m.color.copy(_ink);
-          gl.m.opacity = (gl.harm ? 0.8 * hIn : 0.35 + 0.65 * sung) * Math.min(1, v * 2.2);
-          gl.card.position.y = CH / 2 - (1 - ob) * 0.3;
-          gl.card.rotation.set((1 - ob) * 0.5, 0, (1 - ob) * 0.25 * (kk % 2 ? 1 : -1));
-          gl.card.scale.setScalar((l.from ? 0.6 : 0.82) + (l.from ? 0.4 : 0.18) * ob);
-        });
-        if (l.from) {
-          l.g.position.lerpVectors(l.from, l.pos, e);
-          l.g.position.y += Math.sin(Math.PI * e) * 1.2;
-        } // an arc off the wall
-        continue;
-      }
-      // falling: bleach, tip over on the bottom edge, drop, bounce, lie flat, shrink away
-      const ft = (now - l.fallT) / 1000;
-      let done = true;
-      l.glyphs.forEach((gl) => {
-        const t = ft - gl.delay;
-        if (t < 0) {
-          done = false;
-          return;
-        }
-        const bleach = Math.min(1, t / 0.3);
-        gl.m.color.copy(_ink).lerp(_ivory, bleach);
-        gl.m.userData.ek.value = 1 - bleach;
-        if (gl.harm && gl.m.opacity < 0.01) return;
-        if (RM()) {
-          gl.m.opacity = Math.max(0, 1 - t / 1.2);
-          if (gl.m.opacity > 0) done = false;
-          return;
-        }
-        // a small lift as it lets go, then real gravity with a little air drag; it pitches over and barrel-rolls as it falls
-        if (t > 0.25 && !gl.landed) {
-          const h = Math.min(dt, 1 / 30);
-          gl.vy -= 12.5 * h;
-          gl.vy *= 1 - 0.35 * h;
-          gl.y += gl.vy * h;
-          gl.av += 9 * h;
-          gl.ang = Math.min(Math.PI / 2, gl.ang + gl.av * h);
-          gl.roll += gl.rv * h;
-          gl.rv *= 1 - 0.8 * h;
-          if (gl.y <= gl.floor) {
-            gl.y = gl.floor;
-            gl.ang = Math.PI / 2;
-            if (gl.vy < -1.6) {
-              gl.vy *= -0.22;
-              gl.rv *= 0.35;
-            } else {
-              gl.landed = now;
-            }
-          }
-        }
-        gl.pivot.position.y = gl.y - l.pos.y;
-        gl.pivot.rotation.set(gl.ang * gl.dir, 0, gl.roll); // roll spins in the glyph's own plane, so it still lands flat
-        if (gl.landed) {
-          const s = 1 - Math.min(1, (now - gl.landed) / 1200);
-          gl.card.scale.setScalar(Math.max(0.001, s));
-          gl.m.opacity = s * (gl.harm ? 0.8 : 1);
-          if (s > 0) done = false;
-        } else done = false;
-      });
-      if (done) {
-        dropLine(l);
-        scene3.lines.splice(i, 1);
-      }
-    }
-    const falling = scene3.lines.filter((l) => l.falling);
-    while (falling.length > 6) {
-      const l = falling.shift();
-      dropLine(l);
-      scene3.lines.splice(scene3.lines.indexOf(l), 1);
-    }
   }
+
   /* ---------- the frame ---------- */
   function resize() {
     const w = innerWidth,
@@ -4038,11 +3528,11 @@ export function createWorld(
     B.glare.forEach(([g, c]) => g.material.color.copy(c).lerp(_b.copy(_a).multiplyScalar(1.5), A * 0.6));
     // the accents: the lyrics' outline and the beat rings take a deep tone of the colour (clay with none)
     tone(_a, tintNow, 0.5, 1.2, 0.38, 0.8);
-    EDGE.value.set(C.clay).lerp(_a, A);
+    air.tint.edge.value.set(C.clay).lerp(_a, A);
     tone(_b, tintNow, 0.44, 0.9, 0.3, 0.7);
-    FILL_TOP.value.set('#6E5A49').lerp(_b, A);
+    air.tint.top.value.set('#6E5A49').lerp(_b, A);
     tone(_b, tintNow, 0.12, 0.7, 0.2, 0.5);
-    FILL_BOT.value.set(C.ink).lerp(_b, A * 0.8);
+    air.tint.bottom.value.set(C.ink).lerp(_b, A * 0.8);
     beatFloor.material.uniforms.col.value.set(C.clay).lerp(_a, A);
     tone(_b, tintNow, 0.78, 1, 0.3, 0.85);
     beatFloor.material.uniforms.hot.value.set(C.apricot).lerp(_b, A * 0.8);
@@ -4090,7 +3580,7 @@ export function createWorld(
         L.idx = -1;
         L.m.visible = false;
       });
-      scene3.lastIdx = -1;
+      air.reset();
     }
     curLine = lineAt(NOW.t);
     capTick();
@@ -4334,7 +3824,7 @@ export function createWorld(
             ]);
       return out;
     },
-    rest: (x, y, z) => restHeight(x, y, z),
+    rest: (x, y, z) => air.restAt(x, y, z),
     hits: (x, y) => {
       const r = canvas.getBoundingClientRect();
       ndc.set(((x - r.left) / r.width) * 2 - 1, (-(y - r.top) / r.height) * 2 + 1);
@@ -4376,7 +3866,7 @@ export function createWorld(
       }
     },
     sound: () => sound,
-    lyr: () => scene3,
+    lyr: () => air,
     room: () => room,
     regionAt: (x, y, z) => regionAt(new V3(x, y, z)),
     LINKS,
@@ -4471,6 +3961,7 @@ export function createWorld(
       hiCovers.dispose();
       atlas.dispose();
       sound.dispose();
+      air.dispose();
       composer.dispose?.();
       renderer.dispose();
       delete window.__cad;
