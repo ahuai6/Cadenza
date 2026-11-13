@@ -5,6 +5,7 @@
    handful, made once (and baked ahead by prewarmGlyphs when a song is planned) — never one per frame. */
 import { clamp } from '../core/math';
 import { makeCanvas } from './palette';
+import { distanceField } from './sdf';
 import type { Ctx } from './effects/registry';
 import { EM } from '../text/metrics';
 
@@ -434,6 +435,8 @@ export const SDF_EM = [48, 128, 320] as const,
   SDF_MAX = 900;
 /** the field's reach either side of the edge, in its own pixels (an outline and a pixel of edge fit well inside it) */
 export const SDF_SPREAD = 8;
+/** how many times finer each way than the field each tier's character is drawn to find its edge (odd) */
+const SDF_FINE = [3, 3, 1] as const;
 export interface Sdf {
   sdf: Uint8Array;
   width: number;
@@ -465,16 +468,20 @@ export function sdfGlyph(font: string, txt: string, k: SdfTier): Sdf | null {
     pad = SDF_SPREAD + 2,
     w = Math.ceil(Math.max(E, wem * E) + pad * 2),
     h = Math.ceil(E * 1.4 + pad * 2);
-  const oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : makeCanvas(w, h),
+  // (the character drawn SDF_FINE times finer each way than the field: its edge is then found to a fraction of a field
+  // pixel on slants and round corners — sdf.ts. The close-up tier is drawn at the field's own size: three times finer
+  // it took some 90 ms a character)
+  const ss = SDF_FINE[k],
+    oc: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w * ss, h * ss) : makeCanvas(w * ss, h * ss),
     c = oc.getContext('2d', CPU) as CanvasRenderingContext2D;
   c.font = font;
   c.textAlign = 'center';
   c.textBaseline = 'middle';
-  c.setTransform(q, 0, 0, q, w / 2, h / 2);
+  c.setTransform(q * ss, 0, 0, q * ss, (w * ss) / 2, (h * ss) / 2);
   c.fillStyle = '#fff';
   c.fillText(txt, 0, 0);
-  const a = c.getImageData(0, 0, w, h).data;
-  e = { sdf: distanceField(a, w, h, SDF_SPREAD), width: w, height: h, s: EM / E };
+  const a = c.getImageData(0, 0, w * ss, h * ss).data;
+  e = { sdf: distanceField(a, w, h, SDF_SPREAD, ss), width: w, height: h, s: EM / E };
   SDFS.set(key, e);
   SDF_PIX += w * h;
   while (SDF_PIX > SDF_CAP && SDFS.size > 1) {
@@ -509,79 +516,4 @@ export function prewarmSdf(font: string, items: [string, number][]) {
     }
     return i < todo.length;
   };
-}
-/* The distance to the edge for every pixel of an anti-aliased coverage mask (the alpha of RGBA `a`), positive inside,
-   as bytes: 128 at the edge, ±127 at ±spread px. Two squared Euclidean distance transforms (to the nearest pixel outside,
-   to the nearest inside; Felzenszwalb & Huttenlocher's lower envelope of parabolas, a row then a column at a time), each
-   started from the partly covered pixels at their sub-pixel distance from the edge (half a pixel either side of 50 %). */
-const INF = 1e20;
-function distanceField(a: Uint8ClampedArray, w: number, h: number, spread: number): Uint8Array {
-  const n = w * h,
-    inner = new Float64Array(n),
-    outer = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    const v = a[i * 4 + 3] / 255;
-    if (v >= 1) {
-      outer[i] = 0;
-      inner[i] = INF;
-    } else if (v <= 0) {
-      outer[i] = INF;
-      inner[i] = 0;
-    } else {
-      const o = Math.max(0, 0.5 - v),
-        d = Math.max(0, v - 0.5);
-      outer[i] = o * o;
-      inner[i] = d * d;
-    }
-  }
-  const L = Math.max(w, h),
-    f = new Float64Array(L),
-    d = new Float64Array(L),
-    v = new Int32Array(L),
-    z = new Float64Array(L + 1);
-  edt(outer, w, h, f, d, v, z);
-  edt(inner, w, h, f, d, v, z);
-  const out = new Uint8Array(n * 4);
-  for (let i = 0; i < n; i++) {
-    const s = Math.sqrt(inner[i]) - Math.sqrt(outer[i]),
-      b = Math.max(0, Math.min(255, Math.round(128 + (s / spread) * 127)));
-    out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = out[i * 4 + 3] = b;
-  }
-  return out;
-}
-function edt(g: Float64Array, w: number, h: number, f: Float64Array, d: Float64Array, v: Int32Array, z: Float64Array) {
-  for (let x = 0; x < w; x++) {
-    for (let y = 0; y < h; y++) f[y] = g[y * w + x];
-    edt1(f, h, d, v, z);
-    for (let y = 0; y < h; y++) g[y * w + x] = d[y];
-  }
-  for (let y = 0; y < h; y++) {
-    const o = y * w;
-    for (let x = 0; x < w; x++) f[x] = g[o + x];
-    edt1(f, w, d, v, z);
-    for (let x = 0; x < w; x++) g[o + x] = d[x];
-  }
-}
-function edt1(f: Float64Array, n: number, d: Float64Array, v: Int32Array, z: Float64Array) {
-  let k = 0;
-  v[0] = 0;
-  z[0] = -INF;
-  z[1] = INF;
-  for (let q = 1; q < n; q++) {
-    let s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
-    while (s <= z[k]) {
-      k--;
-      s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
-    }
-    k++;
-    v[k] = q;
-    z[k] = s;
-    z[k + 1] = INF;
-  }
-  k = 0;
-  for (let q = 0; q < n; q++) {
-    while (z[k + 1] < q) k++;
-    const r = q - v[k];
-    d[q] = r * r + f[v[k]];
-  }
 }
