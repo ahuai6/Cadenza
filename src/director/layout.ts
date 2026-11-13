@@ -36,8 +36,9 @@ export const PAGE_LINES = 3;
 /** What the page's clearing counts: a line's words as the segmenter (and the singing) cut them, and its line break —
  *  so a page of short lines holds more of them than a page of long ones. */
 export const pageUnits = (P: { words: unknown[] }) => P.words.length + 1;
-/** As many as about three lines of three words: the most a page holds up at once (plan.ts). */
-export const PAGE_UNITS = 12;
+/** As many as about three lines of two words (two of three): the most a page holds up at once (plan.ts). Fewer than
+ *  before (3.1.5: 12): a page of three full lines read as the lyrics piling up in one picture. */
+export const PAGE_UNITS = 9;
 /** As many as about five such lines: from here a crowding page takes a quick clear. */
 export const CROWD_UNITS = 20;
 export interface LayoutResult {
@@ -230,6 +231,9 @@ export function layout(inp: LayoutInput): LayoutResult {
             ? 0.5
             : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
+      // (the line's last group — the few characters it ends on, often cut off as a group of their own — is never set
+      // small: a line that trailed off in small type, the camera leaving it at once, read as an afterthought)
+      if (n > 1 && !Wd.latin && Wd.group === L.words[L.words.length - 1].group) s0 = Math.max(s0, 1);
       // words sung as one quick run (one gesture) share one size and one entrance, so they read as one beat, not a stutter
       const fused: boolean = !!prev && prev.group === Wd.group;
       if (fused) s0 = prev!.s0;
@@ -796,6 +800,9 @@ export function layout(inp: LayoutInput): LayoutResult {
           const pref = th > 1 ? -1 : th < -1 ? 1 : rnd(i * 3 + k * 5) < 0.5 ? -1 : 1,
             sg = rnd(i * 17 + k * 3.1) < 0.75 ? pref : -pref;
           turn = sg * Math.max(5, Math.round((TA * (0.75 + 0.5 * rnd(i * 9 + k * 2.3))) / 5) * 5);
+          // (a line shown whole is read as it stands, all at once: it may turn down, never up — a word set above the one
+          // before it would be read first)
+          if (!S.w.timed) turn = Math.abs(turn);
         }
       }
       let c: [number, number];
@@ -1561,14 +1568,22 @@ function centerLayout(
 
 /** A quick clear decided while placing (or by the camera) may still shorten a framed line: such a frame is not drawn
  *  rather than cut short. */
+/** Drops the lyric frames there is no time to trace and see; true if any went. */
 export function dropShortFrames(lines: PLine[]) {
+  let any = false;
   for (const P of lines)
     if (isFinite(P.secEnd))
       for (const S of P.words) {
         const F = S.frame;
-        if (F && Math.min(P.L.end, P.secEnd - Math.max(0.4, P.secIn)) - 0.8 - F.ts < FRAME_NEED)
-          for (const x of F.words) x.frame = null;
+        if (F && Math.min(P.L.end, P.secEnd - Math.max(0.4, P.secIn)) - 0.8 - F.ts < FRAME_NEED) {
+          for (const x of F.words) {
+            x.frame = null;
+            x.unframed = true;
+          }
+          any = true;
+        }
       }
+  return any;
 }
 /** Which passage each line belongs to, and when it ends; a line's end is trimmed to before its passage's transition. */
 export function assignSections(lines: PLine[], passages: Passage[]) {

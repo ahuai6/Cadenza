@@ -42,8 +42,9 @@ interface LS {
 /** A style written only when it changes: the sung line is painted every frame, but most of its words are sung already or
  *  not yet — writing their same values again made the browser restyle them all each frame for nothing. */
 const wrote = new WeakMap<HTMLElement, Record<string, string>>();
-/** a wait worth marking: at least this long (seconds), and beginning this long after the last line is over */
-const WAIT_MIN = 4,
+/** a wait worth marking: a gap of at least this long (seconds) between the last line's singing and the next line, in the
+ *  intro or anywhere in the song; the dots begin this long after the singing is over */
+const WAIT_MIN = 5,
   WAIT_AFTER = 0.8;
 function put(el: HTMLElement, k: string, v: string) {
   let m = wrote.get(el);
@@ -53,10 +54,14 @@ function put(el: HTMLElement, k: string, v: string) {
   if (k === 'translate') el.style.translate = v;
   else el.style.setProperty(k, v);
 }
+let gens = 0;
 export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
   const box = useRef<HTMLDivElement>(null),
     lineEls = useRef<(HTMLElement | null)[]>([]),
-    view = useStore(ui, (x) => x.npLyr);
+    view = useStore(ui, (x) => x.npLyr),
+    // (each set of lines gets lines of its own: a line of the song before never lends its place — and what was written
+    // on it, its words lifted and lit — to a line of this one)
+    gen = useMemo(() => ++gens, [lines]);
   // the lyric face chosen for this page (or the interface's own)
   const faceStyle = useMemo(() => {
     if (!view.font || view.font === 'ui') return {};
@@ -175,6 +180,19 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         });
         if (whole) put(el, '--p', '1');
       }
+      // a line still to come holds nothing from an earlier pass (a seek back, or the line of another song that had this
+      // place): its words wait at rest, unlit — never lifted, to drop the moment its voice comes in
+      if (d > 0 && el.dataset.sung === 'true') {
+        leaves(el).forEach((w) => {
+          put(w, 'translate', '');
+          put(w, '--p', '0');
+          put(w, '--gl', '0');
+        });
+        put(el, '--p', '0');
+        put(el, '--gl', '0');
+        delete el.dataset.sung;
+      }
+      if (d <= 0) el.dataset.sung = 'true';
       // (becoming current, a line timed as a whole starts from dark on the line itself, its parts holding nothing of their own)
       if (d === 0 && whole) {
         leaves(el).forEach((w) => {
@@ -247,9 +265,11 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       // wait itself — when the voice comes in the line only lights, it does not arrive
       {
         const N = lines[i + 1],
-          from = i < 0 ? 0 : Math.max(lines[i].end, lines[i].sung) + WAIT_AFTER,
+          // (from when the singing is over — not when the line stops being current, a few bars later)
+          sungEnd = i < 0 ? 0 : lines[i].sung,
+          from = i < 0 ? 0 : sungEnd + WAIT_AFTER,
           to = N ? starts[i + 1] : 0,
-          w = N && to - from >= WAIT_MIN && p.t >= from && p.t < to ? i + 1 : -1;
+          w = N && to - sungEnd >= WAIT_MIN && to - from >= 2 && p.t >= from && p.t < to ? i + 1 : -1;
         if (w !== S.wait) {
           const was = lineEls.current[S.wait];
           if (was) delete was.dataset.wait;
@@ -357,7 +377,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     >
       {lines.map((L, i) => (
         <button
-          key={i}
+          key={gen + ':' + i}
           type="button"
           data-test="line"
           className={s.line}
@@ -371,6 +391,11 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
             if (!engine.isPlaying) engine.play();
           }}
         >
+          <i className={s.dots} aria-hidden>
+            <i />
+            <i />
+            <i />
+          </i>
           {L.words.length ? (
             L.words.map((w, k) => (
               <Fragment key={k}>

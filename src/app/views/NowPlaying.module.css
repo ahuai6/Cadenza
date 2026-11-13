@@ -297,6 +297,12 @@
   width: var(--np-cover);
   display: grid;
 }
+/* (the stage's words keep a layer of their own for good: they fade and rise on it as the page opens, and a layer let go
+   the moment they land had their text drawn again into the page's — a flash of the small words, once, after every open) */
+.info,
+.right {
+  will-change: opacity, transform;
+}
 .infoIn {
   display: grid;
   gap: 12px;

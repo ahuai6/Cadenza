@@ -146,7 +146,21 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
             const B = boxIn([...grp, Q], S0.tilt);
             if (Math.min((W * 0.82) / B.w, (H * 0.52) / B.h) < z1 * 0.42) break;
           } else {
-            if (grp.length >= (close || S0.vert ? 1 : 3) || !quick || Math.abs(angDiff(Q.tilt, S0.tilt)) > 8) break;
+            // (the few characters a line ends on, cut off as a group of their own and sung soon after: framed with the
+            // words before them, not a stop of their own — the camera never hops to them only to hurry off again)
+            const tail =
+              !close &&
+              !S0.vert &&
+              !Q.vert &&
+              !Q.frame &&
+              j === ws.length - 1 &&
+              Q.units.length <= 3 &&
+              Q.w.t - last.end < 0.6;
+            if (
+              (!tail && (grp.length >= (close || S0.vert ? 1 : 3) || !quick)) ||
+              Math.abs(angDiff(Q.tilt, S0.tilt)) > 8
+            )
+              break;
             const B = boxIn([...grp, Q], S0.tilt);
             if (Math.min((W * 0.82) / B.w, (H * 0.52) / B.h) < z1 * 0.6) break;
           }

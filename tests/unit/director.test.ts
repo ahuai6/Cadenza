@@ -214,7 +214,12 @@ describe.each(styles)('directions (%s)', (cut) => {
   });
   it('a line heading leftward is hovered over (as the hover style does), never followed character by character', () => {
     const west = P.lines.filter(
-      (L) => L.west && !L.vert && !L.scene && L.words.length && !L.words.some((S) => S.vert || S.roll || S.frame),
+      (L) =>
+        L.west &&
+        !L.vert &&
+        !L.scene &&
+        L.words.length &&
+        !L.words.some((S) => S.vert || S.roll || S.frame || S.unframed),
     );
     expect(west.length).toBeGreaterThan(0);
     for (const L of west) {

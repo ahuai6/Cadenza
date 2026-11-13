@@ -17,6 +17,14 @@
   min-width: 34px;
   text-align: center;
 }
+/* (the times sit on the bar's outer edges: the first flush with the cover's left edge below it, the last with the
+   heart's right edge — not centred in a box of their own, a few pixels in from both) */
+.prog > .pt:first-child {
+  text-align: left;
+}
+.prog > .pt:last-child {
+  text-align: right;
+}
 .bar {
   position: relative;
   height: 18px;
@@ -301,6 +309,9 @@
   justify-content: flex-end;
   gap: 6px;
   flex: none;
+  /* (the last icon's glyph — not its round hit area — on the bar's right edge, under the progress's end time, as the
+     cover's edge is under its start time) */
+  margin-right: -10px;
 }
 .end > .vol input {
   width: 96px;

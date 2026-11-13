@@ -90,7 +90,8 @@ export function plan(inp: PlanInput): ScenePlan {
   // which judge what the camera sees on the path as it finally is
   fitFrames(camera, lay.words, W, H);
   cutJumps(camera);
-  applySweeps(lay.lines, lay.sweeps, camera, W, H);
+  // (the centred stage brings its lines in groups that go together: the page's cap is its groups, not a count)
+  applySweeps(lay.lines, lay.sweeps, camera, W, H, style.cut === 'center');
   if (lyricType(style.ltype).orbit) sweepUnseen(lay.lines, camera, W, H);
   fadeOverlapped(lay.lines);
   applyCurtains(lay.lines, inp.doc.curtains || []);
@@ -233,7 +234,15 @@ function seenBy(cam: CameraPlan, P: PLine, t: number, W: number, H: number) {
     return Math.abs(p.sx) - half < W * 0.56 && Math.abs(p.sy) - half < H * 0.56;
   });
 }
-function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam: CameraPlan, W: number, H: number) {
+function applySweeps(
+  lines: PLine[],
+  sweeps: { t: number; line: number }[],
+  cam: CameraPlan,
+  W: number,
+  H: number,
+  /** the lines go in groups of their own (the centred stage): the page's cap does not apply */
+  grouped = false,
+) {
   const seen = (P: PLine, t: number) => seenBy(cam, P, t, W, H);
   for (const sw of sweeps) {
     const B = lines[sw.line];
@@ -254,7 +263,7 @@ function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam:
   // the page's cap, whatever the camera does: as a line starts, its page holds at most PAGE_UNITS of its words and line
   // breaks (it among them); the oldest lines beyond that go — at once where the camera does not see them, else fading
   // out over half a second
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = 0; i < lines.length && !grouped; i++) {
     const B = lines[i];
     if (!B.words.length) continue;
     const t = B.words[0].show;
@@ -262,11 +271,13 @@ function applySweeps(lines: PLine[], sweeps: { t: number; line: number }[], cam:
     let extra = up.reduce((a, P) => a + pageUnits(P), 0) + pageUnits(B) - PAGE_UNITS;
     for (const P of up) {
       if (extra <= 0) break;
-      if (Math.min(P.L.sung, P.L.end) > t - 0.05) continue; // (still being sung: it stays)
-      const fade = seen(P, t) ? 0.5 : 0.01;
-      // (it starts to go now; one already ending sooner keeps its end, fading from now to it)
-      P.secEnd = Math.min(P.secEnd, t + fade);
-      P.secIn = Math.max(0.01, P.secEnd - t);
+      // (still being sung as the new line comes in: it stays until its singing is over, then goes)
+      const sungBy = Math.min(P.L.sung, P.L.end),
+        from = Math.max(t, sungBy);
+      const fade = seen(P, from) ? 0.5 : 0.01;
+      // (it starts to go then; one already ending sooner keeps its end, fading from then to it)
+      P.secEnd = Math.min(P.secEnd, from + fade);
+      P.secIn = Math.max(0.01, P.secEnd - from);
       P.L = { ...P.L, end: Math.min(P.L.end, P.secEnd) };
       extra -= pageUnits(P);
     }

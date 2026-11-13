@@ -134,7 +134,10 @@ function fitPass(
       // (one that cannot be held even as it comes in — its words wider than the picture at this size — is not drawn at all)
       if (t - far.ts < 0.9 + DROP_EARLY)
         for (const S of far.words) {
-          if (S.frame === far) S.frame = null;
+          if (S.frame === far) {
+            S.frame = null;
+            S.unframed = true;
+          }
         }
       else far.until = Math.min(far.until ?? Infinity, t - DROP_EARLY);
       act.splice(act.indexOf(far), 1);

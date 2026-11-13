@@ -44,6 +44,8 @@ export interface PWord {
   emph?: [number, number];
   /** a lyric frame around this word (and up to two before it) */
   frame: FrameRef | null;
+  /** it had a lyric frame when the camera was planned, taken away after (no time to see it, or no room): the camera
+   *  framed it as a framed word */ unframed?: true;
   /** appearing nudged inside the frame (world offset), gliding to its own place between t0 and t1 (entry.ts) */
   entry?: { dx: number; dy: number; t0: number; t1: number } | null;
   /** the roller (scenes.ts): turned half round onto the drum's next row, the camera rolling that way (−1 left, +1 right); 0 none */

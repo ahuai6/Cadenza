@@ -113,24 +113,55 @@
   opacity: 0.6;
   filter: none;
 }
-.line[data-wait='true']::before {
-  content: '';
+.dots {
+  display: none;
+}
+.line[data-wait='true'] .dots {
+  --w: var(--wait, 0);
+  /* (the last few percent of the wait: the dots draw in and go, as the voice comes) */
+  --end: clamp(0, (var(--w) - 0.9) * 10, 1);
   position: absolute;
   left: 16px;
-  top: -14px;
-  width: 52px;
-  height: 12px;
-  background: radial-gradient(circle at 6px 6px, #fff 5px, transparent 6px),
-    radial-gradient(circle at 26px 6px, #fff 5px, transparent 6px),
-    radial-gradient(circle at 46px 6px, #fff 5px, transparent 6px);
-  -webkit-mask-image: linear-gradient(
-    90deg,
-    #000 calc(var(--wait, 0) * 100%),
-    rgba(0, 0, 0, 0.28) calc(var(--wait, 0) * 100% + 1px)
-  );
-  mask-image: linear-gradient(
-    90deg,
-    #000 calc(var(--wait, 0) * 100%),
-    rgba(0, 0, 0, 0.28) calc(var(--wait, 0) * 100% + 1px)
-  );
+  /* (in the line's own top padding, sized by the line's type: never touching the line above) */
+  top: -0.2em;
+  display: flex;
+  gap: 0.22em;
+  transform-origin: 0 50%;
+  scale: calc(1 - var(--end) * 0.6);
+  opacity: calc(1 - var(--end));
+  animation: dotsBreathe 2.4s var(--ease-io) infinite;
+}
+/* each dot comes up in its turn: its light and its size grow over its third of the wait, softly, never switched on */
+.dots i {
+  width: 0.27em;
+  height: 0.27em;
+  border-radius: var(--r-dot);
+  background: #fff;
+  --lit: clamp(0, var(--w) * 3 - var(--k), 1);
+  opacity: calc(0.24 + 0.76 * var(--lit));
+  scale: calc(0.72 + 0.28 * var(--lit));
+}
+.dots i:nth-child(1) {
+  --k: 0;
+}
+.dots i:nth-child(2) {
+  --k: 1;
+}
+.dots i:nth-child(3) {
+  --k: 2;
+}
+/* the whole row breathes while it waits */
+@keyframes dotsBreathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.14);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .line[data-wait='true'] .dots {
+    animation: none;
+  }
 }
