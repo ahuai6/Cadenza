@@ -262,6 +262,27 @@ const SONG = `(() => {
   await p.keyboard.press('Escape');
   await wait(400);
 
+  // the radio: taken in the atrium, carried to the collection room, the song's source goes with it; put down, it stays
+  {
+    const r = await p.evaluate(async () => {
+      __cad.go('atrium');
+      __cad.radioTake(true);
+      const a = __cad.radio();
+      __cad.go('lists');
+      await new Promise((ok) => setTimeout(ok, 400));
+      const b = __cad.radio();
+      __cad.radioTake(false);
+      __cad.go('atrium');
+      await new Promise((ok) => setTimeout(ok, 400));
+      return [a.held, b.room, __cad.radio().held, __cad.radio().room];
+    });
+    ok(
+      'radio: carried, it plays from the room it is in; put down, it stays there',
+      r[0] && r[1] === 'lists' && !r[2] && r[3] === 'lists',
+      JSON.stringify(r),
+    );
+  }
+
   // the settings card: a jump to a section and a few switches never scroll the card itself
   await p.click('#cfg');
   await wait(800);

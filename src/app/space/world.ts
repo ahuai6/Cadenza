@@ -2946,6 +2946,7 @@ export function createWorld(
       else if (h.kind === 'playlist') focusList(h.i);
       else if (h.kind === 'setting') openLedger(h.key);
       else if (h.kind === 'sofa') sit(h.i);
+      else if (h.kind === 'radio') radioTake();
     }
   });
   // what can be done with the thing at (x, y), as a menu there: the library's own commands (an album, a song, a playlist)
@@ -3031,15 +3032,17 @@ export function createWorld(
     } else tip.hidden = true;
   }
   const tipText = (h) =>
-    h.kind === 'sofa'
-      ? [ts('tip.sit'), ts('tip.sitSub')]
-      : h.kind === 'song'
-        ? [SONGS[h.i]?.title || '', SONGS[h.i]?.artist || '']
-        : h.kind === 'album'
-          ? [ALBUMS[h.i]?.title || '', ALBUMS[h.i]?.artist || '']
-          : h.kind === 'playlist'
-            ? [PLAYLISTS[h.i]?.name || '', PLAYLISTS[h.i]?.note || '']
-            : [SECTIONS.find((s) => s[0] === h.key)[1], ts('tip.settings')];
+    h.kind === 'radio'
+      ? [ts('radio'), ts(radio.held ? 'radio.drop' : 'radio.take')]
+      : h.kind === 'sofa'
+        ? [ts('tip.sit'), ts('tip.sitSub')]
+        : h.kind === 'song'
+          ? [SONGS[h.i]?.title || '', SONGS[h.i]?.artist || '']
+          : h.kind === 'album'
+            ? [ALBUMS[h.i]?.title || '', ALBUMS[h.i]?.artist || '']
+            : h.kind === 'playlist'
+              ? [PLAYLISTS[h.i]?.name || '', PLAYLISTS[h.i]?.note || '']
+              : [SECTIONS.find((s) => s[0] === h.key)[1], ts('tip.settings')];
   canvas.addEventListener('pointermove', (e) => {
     if (looking || locked) {
       // pointer lock sometimes reports one huge jump (on lock, unlock or focus): drop those, they are what 'reset' the view
@@ -3114,6 +3117,10 @@ export function createWorld(
     }
     if (e.code === 'KeyR') {
       walk.stand();
+      return;
+    }
+    if (e.code === 'KeyG' && radio.held) {
+      radioTake(false);
       return;
     }
     if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'gallery') {
@@ -3306,6 +3313,81 @@ export function createWorld(
     blob(s.pos.x, s.pos.z, 1.1, 1.1);
   });
 
+  /* ---------- the radio (docs/SPACE.md, 收音機): by the atrium's pool; picked up, the song comes from your hand; put
+     down, it plays where it was left. It is one more source of the song, moving with whoever holds it ---------- */
+  const radio = (() => {
+    const g = new THREE.Group(),
+      m = MAT.mist;
+    mesh(rbox(0.46, 0.27, 0.15, 0.05), m, g).position.y = 0.135;
+    // (the grille: a disc of fine rings; the dial: a small knob; the handle: a half ring over the top)
+    const grille = mesh(new THREE.CircleGeometry(0.085, 32), MAT.taupe, g, false);
+    grille.position.set(-0.1, 0.14, 0.077);
+    const rim = mesh(new THREE.TorusGeometry(0.088, 0.012, 8, 32), MAT.ink, g);
+    rim.position.set(-0.1, 0.14, 0.078);
+    mesh(cyl(0.035, 0.035, 0.03, 20), MAT.ivory, g).rotation.x = Math.PI / 2;
+    g.children.at(-1).position.set(0.12, 0.15, 0.08);
+    const handle = mesh(new THREE.TorusGeometry(0.15, 0.016, 8, 24, Math.PI), MAT.ink, g);
+    handle.position.set(0, 0.27, 0);
+    const led = new THREE.Mesh(new THREE.CircleGeometry(0.012, 12), flat(new THREE.Color(2.2, 1.4, 0.7)));
+    led.position.set(0.12, 0.07, 0.077);
+    g.add(led);
+    noLine.push(led);
+    const home = PL.at(Math.PI * 0.82, 4.4);
+    g.position.set(home.x, 0, home.z);
+    g.rotation.y = Math.atan2(CROSS.c.x - home.x, CROSS.c.z - home.z);
+    world.add(g);
+    g.traverse((o) => {
+      if (o.isMesh) {
+        o.userData = { kind: 'radio' };
+        pickables.push(o);
+      }
+    });
+    const blobAt = soft(world, BLOB, 0.7, 0.45, home.x, 0.012, home.z, -Math.PI / 2, 0, 0.3, false);
+    return { g, led, blobAt, held: false, src: { room: 'atrium', pos: new V3(home.x, 0.2, home.z), radio: true } };
+  })();
+  SPEAKERS.push(radio.src);
+  const _rf = new V3(),
+    _rr = new V3();
+  // held: low in the right of the view, turned with it; put down: on the floor a step ahead (or at your feet, if a wall
+  // is in the way)
+  function radioTick() {
+    const R = radio;
+    if (R.held) {
+      // (from the camera's own turn this frame, not its last drawn matrix: the radio never trails the view)
+      _rf.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      _rr.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      // (a little smaller in the hand than on the floor, its face to you, clear of the player card)
+      R.g.position
+        .copy(camera.position)
+        .addScaledVector(_rf, 0.72)
+        .addScaledVector(_rr, 0.2)
+        .add(new V3(0, -0.26, 0));
+      R.g.rotation.set(0.25, me.yaw, 0, 'YXZ');
+      R.g.scale.setScalar(0.78);
+      R.src.pos.copy(R.g.position);
+      R.src.room = room;
+    }
+    R.led.visible = !!R.src.lit;
+  }
+  function radioTake(on = !radio.held) {
+    const R = radio;
+    if (on === R.held) return;
+    R.held = on;
+    R.blobAt.visible = !on;
+    if (!on) {
+      const ahead = new V3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)),
+        p = me.pos.clone().addScaledVector(ahead, 1.1).setY(0),
+        at = regionAt(p) ? p : me.pos.clone().addScaledVector(ahead, 0.35).setY(0);
+      R.g.position.copy(at);
+      R.g.rotation.set(0, me.yaw, 0);
+      R.g.scale.setScalar(1);
+      R.blobAt.position.set(at.x, 0.012, at.z);
+      R.src.pos.set(at.x, 0.2, at.z);
+      R.src.room = regionAt(at)?.room || room;
+      shadowDirty = true;
+    }
+  }
+
   /* ---------- the song in the rooms, and the rooms' own music (systems/audio.ts): this scene's part is its speakers,
      its rooms' reverb times, and the way sound walks through its doorways ---------- */
   // (sound leaves a room by its doorway onto the ring — the atrium by its doorway nearest the other end — and comes
@@ -3327,6 +3409,8 @@ export function createWorld(
     audio: () => bind.audio(),
     sources: SPEAKERS,
     ambientFrom: SPEAKERS[1],
+    // (a room's speaker, the next one through a doorway, and the radio)
+    voices: 3,
     ambientUrl: AMBIENT,
     reverb: { gallery: 3.2, atrium: 4.5, lists: 1.8, settings: 1.8, listening: 2.4 },
     path: soundPath,
@@ -3360,6 +3444,7 @@ export function createWorld(
   const _listener = { pos: camera.position, quat: camera.quaternion, room: 'gallery' };
   function audioTick(dt) {
     _listener.room = room;
+    radioTick();
     sound.tick(dt, _listener, playing);
     SPEAKERS.forEach((s) => {
       if (s.led) s.led.visible = !!s.lit;
@@ -3855,6 +3940,8 @@ export function createWorld(
     room: () => room,
     regionAt: (x, y, z) => regionAt(new V3(x, y, z)),
     CROSS,
+    radio: () => ({ held: radio.held, room: radio.src.room, x: radio.src.pos.x, z: radio.src.pos.z }),
+    radioTake: (on) => radioTake(on),
     // (where to stand to face album place i, d metres in front of it)
     albumStand: (i, d = 3) => {
       const a = PL.ALBUM_SLOTS[i],
