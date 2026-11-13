@@ -1252,12 +1252,13 @@ export function createWorld(
       armchair([MAT.olive, MAT.mist, MAT.kraft][k % 3], x, z, -a);
     }
     table(c.x, c.z);
+    // (between the sound field's sculptures)
     for (const [a, k] of [
-      [0.75, 0],
-      [-0.75, 2],
+      [1.25, 0],
+      [-1.5, 2],
     ]) {
-      const x = c.x + Math.sin(a + Math.PI / 2) * 5.6,
-        z = c.z - Math.cos(a + Math.PI / 2) * 5.6;
+      const x = c.x + Math.sin(a + Math.PI / 2) * 5.8,
+        z = c.z - Math.cos(a + Math.PI / 2) * 5.8;
       vase(k, MAT.kraft, x, z, 0, 3, 1.15);
     }
   }
@@ -1295,7 +1296,7 @@ export function createWorld(
   // wall in a soft fan; the lamp itself only a warm line along the dish's rim, never looked into
   const FAN = textTex(128, 128, (g, w, h) => {
     // (a fan: brightest at the dish, widening and fading upward)
-    const r = g.createRadialGradient(w / 2, h, 0, w / 2, h, h);
+    const r = g.createRadialGradient(w / 2, h, 0, w / 2, h, w * 0.48);
     r.addColorStop(0, 'rgba(255,236,205,.95)');
     r.addColorStop(0.4, 'rgba(255,226,190,.35)');
     r.addColorStop(0.92, 'rgba(255,220,180,0)');
@@ -1329,7 +1330,7 @@ export function createWorld(
     halo.position.set(0, 0.1, 0.12);
     g.add(halo);
     noLine.push(halo);
-    const wash = soft(g, FAN, 2.2, 2.0, 0, 1.03, 0.012, 0, 0, 0.32, true);
+    const wash = soft(g, FAN, 2.6, 2.6, 0, 1.28, 0.012, 0, 0, 0.36, true);
     sconces.push({ bulb, halo, wash, ph: rnd(w.x * 3.1 + w.z) * 6.28 });
     return g;
   }
@@ -3285,10 +3286,62 @@ export function createWorld(
     { room: 'atrium', pos: new V3(CROSS.c.x, 0.6, CROSS.c.z), pool: true },
     speakerAt('lists', inRoom('lists', PL.ROOM_IN + PL.ROOMS.lists.d - 1.2, -4.8), LISTS.c),
     speakerAt('settings', inRoom('settings', PL.ROOM_IN + PL.ROOMS.settings.d - 1.2, 4.8), SETS.c),
-    speakerAt('listening', PL.at(PL.ROOMS.listening.th - 0.13, PL.ROOM_IN + 7 + 4.6), SANCT.c),
   ];
+  // the listening room's sound field (docs/SPACE.md, 六聲道): six sculptures round the chairs, as a 5.1 room is laid
+  // out about a listener facing the song's picture — the centre ahead, left and right a little either side, the two
+  // surrounds behind the shoulders, the low notes on the floor to one side. Each plays its own part of the song.
+  const FIELD = [
+    ['C', 0],
+    ['L', -30],
+    ['R', 30],
+    ['SL', -110],
+    ['SR', 110],
+    ['LFE', -62],
+  ].map(([feed, deg]) => {
+    const th = PL.ROOMS.listening.th + (deg * Math.PI) / 180,
+      r = feed === 'LFE' ? 4.9 : 5.5,
+      p = { x: SANCT.c.x + Math.sin(th) * r, z: SANCT.c.z - Math.cos(th) * r };
+    return {
+      room: 'listening',
+      pos: v3(p, feed === 'LFE' ? 0.4 : 1.35),
+      ry: Math.atan2(SANCT.c.x - p.x, SANCT.c.z - p.z),
+      feed,
+      field: true,
+      level: feed === 'LFE' ? 0.6 : 0.45,
+    };
+  });
+  SPEAKERS.push(...FIELD);
+  // (each sculpture: a slender stem and a sphere for the five; a low wide drum for the lowest notes; a ring of light
+  // round its middle that shows while it sounds)
+  FIELD.forEach((s) => {
+    const g = new THREE.Group();
+    g.position.set(s.pos.x, 0, s.pos.z);
+    g.rotation.y = s.ry;
+    world.add(g);
+    furniture.push(g);
+    const lo = s.feed === 'LFE';
+    if (lo) {
+      mesh(rbox(0.9, 0.62, 0.9, 0.3), MAT.taupe, g).position.y = 0.31;
+      mesh(new THREE.CircleGeometry(0.26, 32), MAT.ink, g, false).position.set(0, 0.34, 0.452);
+    } else {
+      mesh(cyl(0.05, 0.08, 1.1, 16), MAT.ink, g).position.y = 0.55;
+      mesh(cyl(0.22, 0.26, 0.05, 32), MAT.ink, g).position.y = 0.025;
+      mesh(new THREE.SphereGeometry(0.27, 32, 20), MAT.ivory, g).position.y = 1.35;
+      mesh(new THREE.CircleGeometry(0.13, 28), MAT.taupe, g, false).position.set(0, 1.35, 0.272);
+    }
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(lo ? 0.47 : 0.29, 0.012, 8, 48),
+      flat(new THREE.Color(2.0, 1.45, 0.85)),
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = lo ? 0.64 : 1.35;
+    g.add(ring);
+    noLine.push(ring);
+    s.led = ring;
+    blob(s.pos.x, s.pos.z, lo ? 1.3 : 0.8, lo ? 1.3 : 0.8);
+  });
   SPEAKERS.forEach((s) => {
-    if (s.pool) return;
+    if (s.pool || s.field) return;
     const g = new THREE.Group();
     g.position.set(s.pos.x, 0, s.pos.z);
     g.rotation.y = s.ry;
@@ -3941,6 +3994,7 @@ export function createWorld(
     regionAt: (x, y, z) => regionAt(new V3(x, y, z)),
     CROSS,
     radio: () => ({ held: radio.held, room: radio.src.room, x: radio.src.pos.x, z: radio.src.pos.z }),
+    field: () => FIELD.map((s) => s.feed),
     radioTake: (on) => radioTake(on),
     // (where to stand to face album place i, d metres in front of it)
     albumStand: (i, d = 3) => {

@@ -283,6 +283,16 @@ const SONG = `(() => {
     );
   }
 
+  // the listening room's sound field: six sculptures, one for each part of the song
+  {
+    const f = await p.evaluate(() => __cad.field());
+    ok(
+      'listening room: a sound field of six (centre, left, right, two surrounds, the low notes)',
+      f.length === 6 && ['C', 'L', 'R', 'SL', 'SR', 'LFE'].every((x) => f.includes(x)),
+      JSON.stringify(f),
+    );
+  }
+
   // the settings card: a jump to a section and a few switches never scroll the card itself
   await p.click('#cfg');
   await wait(800);

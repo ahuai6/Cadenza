@@ -72,7 +72,7 @@ define({
 
 現況：`Settings` 型別、介面的預設值、主程序的預設值（`electron/settings.defaults.json`，由 `npm run gen:settings` 產生，單元測試會檢查是否過期）已由綱要產生。經典介面的設定頁裡，開關、選項列由 `<SettingField k="…" />` 依綱要畫出：綱要寫了 `label`（字典鍵）、`help`、選項名稱（預設是 `label + '.' + 選項`，或 `optionLabel`）的設定，放一個 `SettingField` 就出現；單元測試會檢查六種語言的名稱都在。**新增設定：在綱要加一項（含 label），跑 `npm run gen:settings`，在設定頁合適的分組放 `<SettingField k="新鍵" />`。** 需要特別畫法的（資料夾、輸出裝置、字體、語言、讀取節奏的狀態）仍手寫。空間介面的設定卡也用同一個元件（`ui/SettingField.tsx`，各頁傳入自己的列樣式），空間的字串在主字典的 `sp.` 底下（3.1.4）。
 
-**空間的場景是資料 `src/app/space/`**（格局在 `plan.ts`，純數字、有單元測試；牆的形狀在 `shapes.ts`；新增房間或改格局先改這兩個）：
+**空間的場景是資料 `src/app/space/`**（格局在 `plan.ts`，純數字、有單元測試；牆的形狀在 `shapes.ts`；新增房間或改格局先改這兩個；聲音的來源——喇叭、收音機、聲場——都是 `systems/audio.ts` 的 `SoundSource`，加一個就是在 `SPEAKERS` 放一筆）：
 
 ```
 scene/      場景描述：房間、物件、光源、可站立區域（純資料＋建造函式）

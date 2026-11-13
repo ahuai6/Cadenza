@@ -14,7 +14,15 @@ export interface SoundSource {
   /** the room it stands in */ room: string;
   /** where (world, metres) */ pos: THREE.Vector3;
   /** whether it sounds now (set here every tick: a speaker's lamp shows it) */ lit?: boolean;
+  /** which part of the song it plays (a sound field's speaker): the left or right channel, the centre (their middle),
+   *  a surround (their difference, a little late), or the lowest notes. None: the whole song */
+  feed?: Feed;
+  /** one of a sound field: while the listener is in its room it always sounds, with all the others of its field */
+  field?: boolean;
+  /** its loudness against an ordinary speaker (a field's six share the work) */
+  level?: number;
 }
+export type Feed = 'L' | 'R' | 'C' | 'SL' | 'SR' | 'LFE';
 /** The listener: where the head is, how it is turned, and in which room. */
 export interface Listener {
   pos: THREE.Vector3;
@@ -74,6 +82,7 @@ export class RoomAudio {
   private scene!: GainNode;
   private songIn!: GainNode;
   private chains: Chain[] = [];
+  private feeds: Partial<Record<Feed, AudioNode>> = {};
   private pool!: Chain;
   private amb!: GainNode;
   private ambBuf: AudioBuffer | null = null;
@@ -138,7 +147,7 @@ export class RoomAudio {
     this.scene = ctx.createGain();
     this.scene.gain.value = 0;
     this.chains = this.o.sources.map((s) => this.chain(ctx, s));
-    this.chains.forEach((c) => this.scene.connect(c.input));
+    this.chains.forEach((c) => (c.src.feed ? this.feed(ctx, c.src.feed) : this.scene).connect(c.input));
     // the rooms' own music has a chain of its own, at its source
     this.pool = this.chain(ctx, this.o.ambientFrom);
     this.amb = ctx.createGain();
@@ -249,14 +258,20 @@ export class RoomAudio {
       lsn.setPosition(L.x, L.y, L.z);
       lsn.setOrientation(this.fwd.x, this.fwd.y, this.fwd.z, this.up.x, this.up.y, this.up.z);
     }
-    // the song: of all the sources, only the strongest few sound
-    const gains = this.chains.map((c) => this.place(c, who, t)),
+    // the song: of all the sources, only the strongest few sound — and in a room with a sound field, all of the field
+    const gains = this.chains.map((c) => this.place(c, who, t) * (c.src.level ?? 1)),
       voices = this.o.voices ?? 2,
-      keep = gains
-        .map((v, i) => [v, i] as const)
-        .sort((a, b) => b[0] - a[0])
-        .slice(0, voices)
-        .map((x) => x[1]);
+      inField = (i: number) => !!this.chains[i].src.field && this.chains[i].src.room === who.room,
+      field = gains.map((_, i) => i).filter(inField),
+      keep = [
+        ...field,
+        ...gains
+          .map((v, i) => [v, i] as const)
+          .filter(([, i]) => !inField(i))
+          .sort((a, b) => b[0] - a[0])
+          .slice(0, field.length ? 1 : voices)
+          .map((x) => x[1]),
+      ];
     this.chains.forEach((c, i) => {
       const v = keep.includes(i) ? gains[i] : 0;
       c.g.gain.setTargetAtTime(v, t, 0.35);
@@ -314,6 +329,57 @@ export class RoomAudio {
     c.lp.frequency.setTargetAtTime(Math.max(500, open * (1 - Math.min(0.6, dist / 80))), t, 0.25);
     c.send.gain.setTargetAtTime(0.18 + 0.55 * Math.min(1, dist / 16) + doors * 0.2, t, 0.3);
     return c.gainNow;
+  }
+
+  /** One part of the song, made once from the room's signal (a stereo upmix — nothing but the song's own two channels). */
+  private feed(ctx: AudioContext, f: Feed): AudioNode {
+    const have = this.feeds[f];
+    if (have) return have;
+    const split = ctx.createChannelSplitter(2),
+      gain = (v: number) => {
+        const g = ctx.createGain();
+        g.gain.value = v;
+        return g;
+      };
+    this.scene.connect(split);
+    let out: AudioNode;
+    if (f === 'L' || f === 'R') {
+      out = gain(1);
+      split.connect(out, f === 'L' ? 0 : 1);
+    } else {
+      // (the middle: both halves; the side: one less the other)
+      const mid = gain(1),
+        a = gain(0.5),
+        b = gain(f === 'SL' || f === 'SR' ? -0.5 : 0.5);
+      const first = f === 'SR' ? 1 : 0;
+      split.connect(a, first);
+      split.connect(b, 1 - first);
+      a.connect(mid);
+      b.connect(mid);
+      if (f === 'C') out = mid;
+      else if (f === 'LFE') {
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 110;
+        lp.Q.value = 0.6;
+        const g = gain(1.6);
+        mid.connect(lp);
+        lp.connect(g);
+        out = g;
+      } else {
+        // (the surrounds a few milliseconds late and a little dark, as the back of a room is)
+        const d = ctx.createDelay(0.05),
+          lp = ctx.createBiquadFilter();
+        d.delayTime.value = f === 'SL' ? 0.013 : 0.017;
+        lp.type = 'lowpass';
+        lp.frequency.value = 7000;
+        mid.connect(d);
+        d.connect(lp);
+        out = lp;
+      }
+    }
+    this.feeds[f] = out;
+    return out;
   }
 
   private chain(ctx: AudioContext, src: SoundSource): Chain {
