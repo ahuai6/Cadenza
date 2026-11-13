@@ -6,7 +6,19 @@
     "https://hf-mirror.com/HUAI4236/folia-models/resolve/main/{file}"
   ],
   "models": {
-    "beat_this": { "file": "beat_this-wgsl.bin", "bytes": 41102271, "sha256": "6365ae5ba2e42922772da01fbfd0bde8dd20b7362a679018e78a5f251fe8a967", "license": "MIT", "upstream": "https://github.com/CPJKU/beat_this" },
-    "htdemucs": { "file": "htdemucs-wgsl.bin", "bytes": 91838176, "sha256": "27d5331a74a4e23b18172b3d59d0378e698fd79bc0d0fed3316da77e3a37d8d1", "license": "MIT", "upstream": "https://github.com/facebookresearch/demucs" }
+    "beat_this": {
+      "file": "beat_this-wgsl.bin",
+      "bytes": 41102271,
+      "sha256": "6365ae5ba2e42922772da01fbfd0bde8dd20b7362a679018e78a5f251fe8a967",
+      "license": "MIT",
+      "upstream": "https://github.com/CPJKU/beat_this"
+    },
+    "htdemucs": {
+      "file": "htdemucs-wgsl.bin",
+      "bytes": 91838176,
+      "sha256": "27d5331a74a4e23b18172b3d59d0378e698fd79bc0d0fed3316da77e3a37d8d1",
+      "license": "MIT",
+      "upstream": "https://github.com/facebookresearch/demucs"
+    }
   }
 }

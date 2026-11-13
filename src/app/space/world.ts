@@ -268,14 +268,34 @@ export function createWorld(
     ['#c4a99a', '#a9b0a3', '#ece4d8'],
     ['#a7a49a', '#d6c2b4', '#80878a'],
   ];
+  // text set in a width: the size it is drawn at shrinks until it fits (down to `min`); still too long, it ends in an
+  // ellipsis — never cut off at the edge of its texture (a long album title once lost its last letters)
+  const fitText = (g, text, maxW, font, px, min) => {
+    let p = px;
+    g.font = font(p);
+    while (p > min && g.measureText(text).width > maxW) g.font = font((p -= 2));
+    let t = text;
+    if (g.measureText(t).width > maxW) {
+      const cs = [...t];
+      while (cs.length > 1 && g.measureText(cs.join('') + '…').width > maxW) cs.pop();
+      t = cs.join('').trimEnd() + '…';
+    }
+    return t;
+  };
   const labelTex = (title, sub, w = 512) =>
     textTex(w, 140, (g, W, h) => {
       g.fillStyle = C.text;
-      g.font = '500 46px "Noto Serif TC", serif';
-      g.fillText(title, 8, 56);
+      g.fillText(
+        fitText(g, title, W - 20, (p) => `500 ${p}px "Noto Serif TC", serif`, 46, 30),
+        8,
+        56,
+      );
       g.fillStyle = C.sub;
-      g.font = 'italic 400 30px "Source Serif 4", serif';
-      g.fillText(sub, 8, 108);
+      g.fillText(
+        fitText(g, sub, W - 20, (p) => `italic 400 ${p}px "Source Serif 4", serif`, 30, 22),
+        8,
+        108,
+      );
     });
   // (the lyrics' face is the settings' lyric font: the one the lyrics in the air use)
   // a line on the sanctuary's paper: one row when it fits, smaller if a little long, two rows (broken at a space where it can) if longer
@@ -284,7 +304,8 @@ export function createWorld(
       g.textBaseline = 'middle';
       g.textAlign = 'center';
       g.fillStyle = C.text;
-      const maxW = w - 80;
+      // (a wide margin, and a little room on what the canvas measures: a face's own glyphs can run past its advance)
+      const maxW = (w - 200) * 0.94;
       const fits = (px) => {
         g.font = `${air.face.w} ${px}px ${air.face.stack}`;
         return g.measureText(t).width <= maxW;
@@ -519,6 +540,8 @@ export function createWorld(
         transparent: true,
         opacity,
         depthWrite: false,
+        // (what is all but clear is not drawn at all: a square of next to nothing still showed its edges on some GPUs)
+        alphaTest: 0.01,
         blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       }),
     );
@@ -707,6 +730,16 @@ export function createWorld(
     noLine.push(s);
   }
   const domes = [];
+  const deg = Math.PI / 180;
+  const RING_WINS = [
+    { th: Math.PI, y: 3.3, r: 2.3 },
+    { th: 22.5 * deg, y: 5.3, r: 0.8 },
+    { th: 67.5 * deg, y: 5.3, r: 0.8 },
+    { th: 112.5 * deg, y: 5.3, r: 0.8, sun: true },
+    { th: 157.5 * deg, y: 5.3, r: 0.8, sun: true },
+    { th: 256 * deg, y: 3.0, r: 0.85 },
+    { th: 284 * deg, y: 3.0, r: 0.85 },
+  ];
   // (one clear-sky picture for every skylight: blue in the middle, paler at its rim)
   let skyTexOnce = null;
   const skyPanelTex = () =>
@@ -725,19 +758,82 @@ export function createWorld(
           g.fill();
         }
     }));
-  // an open circle in a roof: the sky panel just above it, the light it lets in
+  // an open circle in a roof: a round shaft up through the roof's thickness, the far sky beyond it — seen through a
+  // well, as the windows are seen through their walls, never a picture of sky laid just above the hole (its edge showed
+  // as a circle)
   const skylight = (c, r, y) => {
-    const sky = new THREE.Mesh(
-      new THREE.CircleGeometry(r + 0.4, 48),
-      flat('#fff', { map: skyPanelTex(), side: THREE.DoubleSide }),
-    );
-    sky.rotation.x = Math.PI / 2;
-    sky.position.set(c.x, y + 0.7, c.z);
-    sky.material.color.setRGB(1.05, 1.05, 1.08);
-    world.add(sky);
-    noLine.push(sky);
-    domes.push({ c: c.clone(), r, y, focal: new V3(c.x, 0, c.z), sky, blue: true });
+    const depth = r > 4 ? 2.4 : 1.2,
+      shaft = mesh(new THREE.CylinderGeometry(r, r, depth, r > 4 ? 72 : 36, 1, true), MAT_CEIL);
+    shaft.position.set(c.x, y + depth / 2, c.z);
+    // (the shaft's rim on the roof, seen from inside the well: a ring as wide as the roof is thick)
+    {
+      const s = new THREE.Shape();
+      s.absarc(c.x, c.z, r + 0.6, 0, Math.PI * 2, false);
+      const hole = new THREE.Path();
+      hole.absarc(c.x, c.z, r, 0, Math.PI * 2, true);
+      s.holes.push(hole);
+      mesh(floorShape(s, y + depth, false), MAT_CEIL);
+    }
+    domes.push({ c: c.clone(), r, y, focal: new V3(c.x, 0, c.z), sky: null, blue: true });
   };
+  // far out in the sky: the sun (high, where the light through the windows and the wells comes from) — at midnight, the
+  // moon — and, low in the west, a setting sun seen only through the ring's two western windows (dusk only)
+  {
+    const disc = (dir, dist, size, col, glow, glowSize) => {
+      const p = new V3(CROSS.c.x, 0, CROSS.c.z).addScaledVector(dir, dist),
+        g = new THREE.Group();
+      g.position.copy(p);
+      g.lookAt(CROSS.c.x, p.y * 0.2, CROSS.c.z);
+      const d = new THREE.Mesh(
+        new THREE.CircleGeometry(size, 48),
+        flat(col, { fog: false, transparent: true, depthWrite: false }),
+      );
+      const h = new THREE.Mesh(
+        new THREE.PlaneGeometry(glowSize, glowSize * 0.75),
+        flat(glow, { map: GLOW, fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+      );
+      h.position.z = -0.5;
+      g.add(h, d);
+      world.add(g);
+      noLine.push(d, h);
+      return g;
+    };
+    const sun = SUN_DIR.clone();
+    disc(sun, 96, NIGHT ? 3.2 : 4.2, NIGHT ? '#E9E6DA' : '#FFF4DE', NIGHT ? '#8A93B8' : '#FFD9A6', NIGHT ? 26 : 40);
+    if (!NIGHT) {
+      const west = new V3(-1, Math.tan((4 * Math.PI) / 180), 0).normalize();
+      disc(west, 96, 5.5, '#FFB067', '#FF8A4C', 70);
+    }
+    if (NIGHT) {
+      // (the night sky's stars, far out over the roof: what the wells and the windows look into)
+      const pts = [];
+      for (let k = 0; k < 500; k++) {
+        const az = rnd(k * 1.31) * Math.PI * 2,
+          el = 0.08 + rnd(k * 2.77) * 1.4,
+          R = 100;
+        pts.push(
+          CROSS.c.x + Math.cos(el) * Math.sin(az) * R,
+          Math.sin(el) * R,
+          CROSS.c.z - Math.cos(el) * Math.cos(az) * R,
+        );
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      const st = new THREE.Points(
+        g,
+        new THREE.PointsMaterial({
+          color: '#FFF6E2',
+          size: 0.5,
+          sizeAttenuation: true,
+          fog: false,
+          transparent: true,
+          opacity: 0.85,
+        }),
+      );
+      world.add(st);
+      noLine.push(st);
+    }
+  }
   // the atrium: one round wall, a doorway each way, round windows between them onto the ring; open to the sky
   {
     const wins = [];
@@ -748,7 +844,9 @@ export function createWorld(
     skylight(CROSS.c, PL.ATRIUM.oculus, PL.ATRIUM.h);
   }
   // the ring: its outer wall (a doorway to each room, a great round window to the south), its low ceiling
-  roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, [{ th: Math.PI, y: 3.3, r: 2.3 }], wallMat('gallery'));
+  // (the great window to the south looks away from the sun; high over the albums, two windows face the sun and pour it
+  // in, two more just let the sky in; low, either side of the studio's door, two look west at the setting sun)
+  roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, RING_WINS, wallMat('gallery'));
   ringRoof(CROSS.c, PL.ATRIUM.r + T / 2, PL.RING.r1 + T, PL.RING.h);
   // the rooms off the ring, each through a short round passage: only its lining, a little narrower than the doorways it
   // joins, from the middle of the ring's wall to the middle of the room's — the two ends cut to each wall's own curve.
@@ -1322,12 +1420,13 @@ export function createWorld(
   // a sconce (docs/SPACE.md, 壁燈): a half disc standing out from the wall like a shallow dish, its light thrown up the
   // wall in a soft fan; the lamp itself only a warm line along the dish's rim, never looked into
   const FAN = textTex(128, 128, (g, w, h) => {
-    // (a fan: brightest at the dish, widening and fading upward)
-    const r = g.createRadialGradient(w / 2, h, 0, w / 2, h, w * 0.48);
+    // (a glow brightest at the dish — a quarter of the way up its square, not on its edge, where it was cut off in a
+    // straight line — fading to nothing well inside the square on every side, so no edge of the square is ever seen)
+    const cy = h * 0.75,
+      r = g.createRadialGradient(w / 2, cy, 0, w / 2, cy, w * 0.42);
     r.addColorStop(0, 'rgba(255,236,205,.95)');
     r.addColorStop(0.4, 'rgba(255,226,190,.35)');
-    r.addColorStop(0.92, 'rgba(255,220,180,0)');
-    // (a soft half circle: it fades to nothing well inside its square, so no edge of it is ever seen)
+    r.addColorStop(1, 'rgba(255,220,180,0)');
     g.fillStyle = r;
     g.fillRect(0, 0, w, h);
   });
@@ -1357,7 +1456,8 @@ export function createWorld(
     halo.position.set(0, 0.1, 0.12);
     g.add(halo);
     noLine.push(halo);
-    const wash = soft(g, FAN, 2.6, 2.6, 0, 1.28, 0.012, 0, 0, 0.36, true);
+    // (the glow's middle on the dish: a quarter of the way up the square)
+    const wash = soft(g, FAN, 2.6, 2.6, 0, 0.63, 0.012, 0, 0, 0.36, true);
     sconces.push({ bulb, halo, wash, ph: rnd(w.x * 3.1 + w.z) * 6.28 });
     return g;
   }
@@ -1519,6 +1619,8 @@ export function createWorld(
           p = { x: c.x + Math.sin(th) * rr, z: c.z - Math.cos(th) * rr };
         const lat = Math.min(...[...PL.ATRIUM_DOORS, ...PL.RING_DOORS].map((d) => Math.abs(PL.turn(th, d)))) * r;
         if (y < PL.DOOR_TOP + 0.3 && lat < PL.DOOR_HALF + 1.2) continue;
+        if (r === PL.RING.r1 && RING_WINS.some((w) => Math.hypot(Math.abs(PL.turn(th, w.th)) * r, y - w.y) < w.r + 0.4))
+          continue;
         add(p.x, y, p.z);
       }
     };
@@ -2313,18 +2415,43 @@ export function createWorld(
   const lyricMeshes = [];
   {
     // (on the far wall, at the height of a person sitting: the song's picture is a window in the wall, not a thing raised up)
-    const w = onArc(SANCT.c, SANCT.r, PL.ROOMS.listening.th, 0, 0.02),
+    // (stood off the round wall: flat things laid on a curved wall had their ends buried in it, the wall cutting their
+    // edges into a ragged line — the lines' board read as torn paper)
+    const w = onArc(SANCT.c, SANCT.r, PL.ROOMS.listening.th, 0, 0.42),
       rer = new THREE.Group();
     rer.position.set(w.x, 0, w.z);
     rer.rotation.y = w.ry;
     // (drawn as before, at seven tenths: the room is low)
     rer.scale.setScalar(0.7);
     world.add(rer);
-    mesh(extrude(new THREE.Shape(archPts(6.2, 10)), 0.1), MAT.clay, rer).position.y = 0.4;
+    {
+      // (the arch deep enough to reach back into the wall)
+      const arch = mesh(extrude(new THREE.Shape(archPts(6.2, 10)), 0.7), MAT.clay, rer);
+      arch.position.set(0, 0.4, -0.6);
+    }
     mesh(box(3.3, 3.3, 0.05), MAT.ink, rer).position.set(0, 7.3, 0.14);
     altarArt.position.set(0, 7.3, 0.17);
     rer.add(altarArt);
-    mesh(box(5.2, 3.6, 0.05), MAT.paper, rer).position.set(0, 3.2, 0.14);
+    // the lines' board: a plain rounded panel, wider than the lines on it (not a sheet of paper with ragged ink edges)
+    {
+      const W = 6.0,
+        H = 3.8,
+        r = 0.32,
+        sh = new THREE.Shape();
+      sh.moveTo(-W / 2 + r, -H / 2);
+      sh.lineTo(W / 2 - r, -H / 2);
+      sh.absarc(W / 2 - r, -H / 2 + r, r, -Math.PI / 2, 0, false);
+      sh.lineTo(W / 2, H / 2 - r);
+      sh.absarc(W / 2 - r, H / 2 - r, r, 0, Math.PI / 2, false);
+      sh.lineTo(-W / 2 + r, H / 2);
+      sh.absarc(-W / 2 + r, H / 2 - r, r, Math.PI / 2, Math.PI, false);
+      sh.lineTo(-W / 2, -H / 2 + r);
+      sh.absarc(-W / 2 + r, -H / 2 + r, r, Math.PI, Math.PI * 1.5, false);
+      const board = mesh(extrude(sh, 0.05), MAT.ivory, rer);
+      board.position.set(0, 3.2, 0.12);
+      // (no ink round it: the hand-drawn line wavered along its edge and made it read as torn paper)
+      noLine.push(board);
+    }
     for (let k = 0; k < 9; k++) {
       const m = new THREE.Mesh(
         new THREE.PlaneGeometry(5.4, 0.6),
@@ -2466,6 +2593,16 @@ export function createWorld(
         if (sd) prism(pts, (p) => p.clone().addScaledVector(sd, -p.y / sd.y), true, beamK(null));
       }
     });
+    // the ring's sunlit windows: a shaft of sun through each, down onto the floor
+    for (const w of RING_WINS.filter((x) => x.sun)) {
+      const r = PL.RING.r1,
+        pts = Array.from({ length: 20 }, (_, k) => {
+          const a = (k / 20) * Math.PI * 2,
+            th = w.th + (Math.cos(a) * w.r) / r;
+          return new V3(CROSS.c.x + Math.sin(th) * r, w.y + Math.sin(a) * w.r, CROSS.c.z - Math.cos(th) * r);
+        });
+      prism(pts, (p) => p.clone().addScaledVector(SUN_DIR, -p.y / SUN_DIR.y), true, beamK(null));
+    }
     domes.forEach((d) => {
       const c = new V3(d.c.x, d.y, d.c.z),
         f = d.focal || new V3(d.c.x, 0, d.c.z);
