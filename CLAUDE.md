@@ -1,6 +1,18 @@
 # Cadenza
 
-Windows 桌面音樂播放器（Electron + React + TypeScript），核心是會跟著節奏運鏡的「特效歌詞」引擎。兩種介面共用同一套邏輯：經典介面（`src/app/views`）與空間介面（`src/app/space`）。
+Windows 桌面音樂播放器（Electron + React + TypeScript）。它不是「一個特效加一個播放器」，而是幾個同樣重要、彼此咬合的部分：
+
+| 部分 | 做什麼 | 主要位置 |
+| --- | --- | --- |
+| 音樂庫與播放 | 掃描資料夾、標籤與封面、歌單與收藏、播放佇列；一般輸出與高保真輸出（Rust 音訊程式）、音量平衡 | `electron/`、`native/cadenza-audio`、`src/app/playback` |
+| 節奏 | 讀出每首歌的拍點、重音、段落（神經網路或訊號分析），存成快取；全專案「跟著音樂動」的唯一來源 | `src/rhythm`、`electron/infer*.cjs` |
+| 歌詞 | 各種格式解析（LRC、逐字、TTML、和聲、翻譯、讀音）、分詞、線上取得與寫回檔案 | `src/lyrics`、`src/text` |
+| 特效歌詞 | 導演依節奏排版、運鏡、轉場，渲染器與特效外掛畫出來；可匯出影片 | `src/director`、`src/render`、`src/engine` |
+| 正在播放頁 | 封面、逐字上浮的歌詞清單、等待的三點；與特效歌詞無縫切換 | `src/app/views/NowPlaying.tsx`、`src/app/ui/NpLyrics.tsx` |
+| 歌詞工坊 | 校時、分詞、風格調整，製作與修改特效歌詞 | `src/app/views/workshop`、`src/app/workshop` |
+| 兩種介面 | 經典介面（`src/app/views`）與空間介面（`src/app/space`：可走動的展館、空中歌詞、收音機、聆聽室六聲道），共用同一套邏輯、指令登記表與設定綱要 | `src/app` |
+
+它們互相依賴：節奏同時驅動特效歌詞、正在播放頁、專輯線的節奏環與空間裡的光和聲音；歌詞模型同時供給播放列、正在播放頁、特效歌詞與空間；播放器的一個狀態同時被兩種介面讀取。改其中一處，先想它還被誰用。
 
 **動手之前先讀 `.claude/skills/cadenza/SKILL.md`**：分層規則、新增功能的固定流程、測試與發佈流程都在那裡。它是這個專案的開發範式，不是參考資料。
 
