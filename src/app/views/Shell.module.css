@@ -204,7 +204,9 @@
   left: 0;
   right: 0;
   top: calc(var(--tb-h) + 8px);
-  bottom: var(--card-h);
+  /* (its foot a little under the bar: at a fractional scale or a sub-pixel step the two edges never leave a seam of
+     the stage's ground between them) */
+  bottom: calc(var(--card-h) - 2px);
   z-index: 50;
   overflow: auto;
   background: var(--bg);

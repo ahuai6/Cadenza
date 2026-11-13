@@ -136,3 +136,22 @@
   opacity: 1;
   text-shadow: none !important;
 }
+/* a stored-data action, asked about in place */
+.note {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-1);
+  background: rgba(255, 255, 255, 0.1);
+}
+.ask p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}

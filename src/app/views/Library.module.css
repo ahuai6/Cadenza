@@ -426,29 +426,54 @@
   margin-bottom: 28px;
 }
 .pills {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-}
-.pills button {
-  height: 40px;
-  padding: 0 18px;
+  gap: 2px;
+  padding: 3px;
   border-radius: var(--r-pill);
   background: var(--hover);
+}
+/* the chosen shelf's reverse: one pill under the buttons, sliding (and resizing) to the one chosen */
+.pick {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: var(--r-pill);
+  background: var(--pick);
+  pointer-events: none;
+  opacity: 0;
+}
+.pick[data-ready] {
+  opacity: 1;
+  transition:
+    transform var(--t-stage) var(--ease),
+    width var(--t-stage) var(--ease),
+    background var(--t-med) var(--ease);
+}
+.pills button {
+  position: relative;
+  z-index: 1;
+  height: 34px;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
   color: var(--fg-2);
   font-weight: 560;
   font-size: 14.5px;
   transition:
     background var(--t-med) var(--ease),
-    color var(--t-med) var(--ease);
+    color var(--t-stage) var(--ease);
 }
 .pills button:hover:not([aria-current]) {
-  background: var(--press);
+  background: var(--hover);
   color: var(--fg);
 }
 .pills button[aria-current='page'] {
-  background: var(--pick);
   color: var(--on-pick);
+}
+.pills button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
 }
 .search {
   position: relative;

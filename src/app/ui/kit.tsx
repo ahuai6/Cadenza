@@ -22,6 +22,8 @@ export { s as kit };
 
 /** How long a thing takes to leave (--t-out): it stays mounted that long, marked closing. */
 export const OUT_MS = 130;
+/** a view rising in (--t-enter) */
+const ENTER_MS = 320;
 /** Keep a thing mounted while it leaves: `shown` stays true for OUT_MS after `open` goes false, `closing` meanwhile. */
 export function usePresence(open: boolean, ms = OUT_MS) {
   const [shown, setShown] = useState(open),
@@ -827,20 +829,36 @@ export function Toast() {
 export const unknownArtist = () => tx('s.unknownArtist');
 
 /** A turn between views (pages, a library section, a detail): the old one fades out quickly, then the new one rises
- *  in — never both at once, never a cut. Keyed by `k`. */
+ *  in — never both at once, never a cut. Keyed by `k`. The turn keeps the old one's height until the new one is in,
+ *  so the page under it never jumps (a shorter view would pull the scroll back, a cut at the sheet's edge). */
 export function Turn({ k, children, className }: { k: string; children: ReactNode; className?: string }) {
   const [cur, setCur] = useState(k),
+    [hold, setHold] = useState(0),
+    box = useRef<HTMLDivElement>(null),
     last = useRef<ReactNode>(children);
   useEffect(() => {
     if (k === cur) return;
+    setHold((h) => h || box.current?.offsetHeight || 0);
     const tm = window.setTimeout(() => setCur(k), OUT_MS);
     return () => clearTimeout(tm);
   }, [k, cur]);
+  // (the height let go once the new view has risen in)
+  useEffect(() => {
+    if (!hold || k !== cur) return;
+    const tm = window.setTimeout(() => setHold(0), ENTER_MS);
+    return () => clearTimeout(tm);
+  }, [hold, k, cur]);
   // (while the old one leaves it shows as it last was; then the new one, live)
   const out = k !== cur;
   if (!out) last.current = children;
   return (
-    <div key={cur} className={s.turn + (className ? ' ' + className : '')} data-out={out || undefined}>
+    <div
+      key={cur}
+      ref={box}
+      className={s.turn + (className ? ' ' + className : '')}
+      data-out={out || undefined}
+      style={hold ? { minHeight: hold } : undefined}
+    >
       {out ? last.current : children}
     </div>
   );

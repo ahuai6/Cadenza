@@ -64,6 +64,20 @@ describe('walking', () => {
     expect(w.pose.pos.distanceTo(V(11, 1.6, 0))).toBeLessThan(1e-3);
   });
 
+  it('turns through a doorway smoothly: no swing at a corner, and arrives facing the way it was asked', () => {
+    const w = walker();
+    w.fly(V(11, 1.6, 0), -1.2, 0);
+    const yaws: number[] = [];
+    run(w, 8, () => yaws.push(w.pose.yaw));
+    const step = yaws.slice(1).map((y, i) => y - yaws[i]),
+      jerk = step.slice(1).map((d, i) => Math.abs(d - step[i]));
+    // (at 60 frames a second: never more than 3 rad/s (it was 14 at a doorway), and the turn's speed changes by degrees)
+    expect(Math.max(...step.map(Math.abs))).toBeLessThan(0.05);
+    expect(Math.max(...jerk)).toBeLessThan(0.004);
+    expect(w.flying).toBe(false);
+    expect(w.pose.yaw).toBeCloseTo(-1.2, 3);
+  });
+
   it('a resting hand does not end a flight; a deliberate look does', () => {
     const w = walker();
     w.fly(V(3, 1.6, -3), 0, 0);

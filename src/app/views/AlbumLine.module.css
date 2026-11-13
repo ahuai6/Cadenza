@@ -4,6 +4,9 @@
   --gap: 30px;
   --grow: 1.5;
   --room: calc(var(--size) * (var(--grow) - 1) / 2 + 8px);
+  /* the line's height from the river's foot, and the air between it and the covers' feet */
+  --line-y: 26px;
+  --lift: 24px;
   display: grid;
   gap: 0;
 }
@@ -43,7 +46,7 @@
    the page's own margins), its ends fading */
 .river {
   position: relative;
-  height: calc(var(--size) * var(--grow) + 56px);
+  height: calc(var(--size) * var(--grow) + var(--line-y) + var(--lift) + 30px);
   margin: 0 -56px;
   overflow: hidden;
   outline: none;
@@ -56,7 +59,7 @@
 .row {
   position: absolute;
   left: 50%;
-  bottom: 26px;
+  bottom: calc(var(--line-y) + var(--lift));
   display: flex;
   align-items: flex-end;
   gap: var(--gap);
@@ -91,7 +94,8 @@
   width: 100%;
   height: 100%;
   --cover-r: var(--r-1);
-  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.5);
+  /* (a soft shadow that ends in the air above the line: nothing of it reaches the river's edge to be cut) */
+  box-shadow: 0 8px 18px -10px rgba(0, 0, 0, 0.45);
 }
 /* the line: a hairline across the sheet, fine marks under it; the song's colour fills it to where the song is */
 .line {
@@ -99,7 +103,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 14px;
+  bottom: calc(var(--line-y) - 12px);
   height: 12px;
   pointer-events: none;
 }

@@ -10,7 +10,9 @@ import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { neuralStatus, neuralRecheck, DEBUG } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
 import { askConfirm } from './Modals';
-import { SCHEMA, type SettingKey } from '../settings/schema';
+import { readAllRhythmsAgain, clearStoredData, resetEverything } from '../actions/data';
+import type { SettingKey } from '../settings/schema';
+import { SettingField as SharedField } from '../ui/SettingField';
 import s from './Settings.module.css';
 
 const pc = (v: number | string) => Math.round(+v * 100) + '%';
@@ -193,36 +195,17 @@ function DataGroup() {
   return (
     <Group title={tx('s.set.data')} help={tx('s.set.dataHelp')}>
       <div className={s.btns}>
-        <Button
-          size="sm"
-          icon="refresh"
-          onClick={async () => {
-            if (await ask('reanalyze')) {
-              await Lib!.reanalyze('all');
-              Lib!.rescan();
-            }
-          }}
-        >
+        <Button size="sm" icon="refresh" onClick={async () => (await ask('reanalyze')) && readAllRhythmsAgain()}>
           {tx('s.set.data.reanalyze')}
         </Button>
-        <Button
-          size="sm"
-          onClick={async () => {
-            if (await ask('caches')) {
-              await Lib!.clearCaches();
-              Lib!.rescan();
-            }
-          }}
-        >
+        <Button size="sm" onClick={async () => (await ask('caches')) && clearStoredData()}>
           {tx('s.set.data.caches')}
         </Button>
         <Button
           size="sm"
           kind="danger"
           icon="trash"
-          onClick={async () => {
-            if (await ask('reset', true)) Lib!.resetAll();
-          }}
+          onClick={async () => (await ask('reset', true)) && resetEverything()}
         >
           {tx('s.set.data.reset')}
         </Button>
@@ -556,46 +539,7 @@ function saveDebugLog(version: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-/** A setting drawn from its declaration (settings/schema.ts): a switch, a row of choices or a slider, named from its
- *  label. A new setting with a label shows here by being placed by its key, with nothing else written. */
-export function SettingField({ k }: { k: SettingKey }) {
-  const st = useStore(settings),
-    d = SCHEMA[k] as {
-      kind: string;
-      label?: string;
-      help?: string;
-      options?: readonly (string | number)[];
-      min?: number;
-      max?: number;
-      step?: number;
-      default: unknown;
-      optionLabel?: (o: string | number) => [string, Record<string, number>?];
-    };
-  if (!d.label) return null;
-  const raw = (st as Record<string, unknown>)[k],
-    value = raw ?? d.default,
-    put = (v: unknown) => setSettings({ [k]: v } as Partial<Settings>);
-  if (d.kind === 'toggle')
-    return <Toggle label={tx(d.label)} help={d.help ? tx(d.help) : undefined} on={!!value} set={put} />;
-  if (d.kind === 'choice') {
-    const name = (o: string | number) => {
-      const [key, vars] = d.optionLabel ? d.optionLabel(o) : [d.label + '.' + o];
-      return tx(key, vars);
-    };
-    // (the options as strings for the control; the value written back in the option's own type)
-    const opts = d.options!,
-      cur = opts.find((o) => String(o) === String(value)) ?? d.default;
-    return (
-      <Field label={tx(d.label)}>
-        <Seg
-          size="sm"
-          fit
-          value={String(cur)}
-          onChange={(v) => put(opts.find((o) => String(o) === v))}
-          options={opts.map((o) => [String(o), name(o)])}
-        />
-      </Field>
-    );
-  }
-  return null;
-}
+/** A setting drawn from its declaration, in this page's row. */
+const SettingField = ({ k }: { k: SettingKey }) => (
+  <SharedField k={k} frame={({ label, children }) => <Field label={label}>{children}</Field>} />
+);

@@ -29,6 +29,10 @@ interface Meta {
   help?: string;
   /** the dictionary key naming one option (a choice), and its words' values ({n}: the option itself) */
   optionLabel?: (o: string | number) => [string, Record<string, number>?];
+  /** a choice's note for the option chosen (a dictionary key), in place of `help` */
+  optionHelp?: (o: string | number) => string;
+  /** how a range's value is written: a share (60%) or a multiple (1.2×) */
+  unit?: 'percent' | 'times';
   /** which interface it acts in (both, if not said) */ only?: 'classic' | 'space';
   /** for those who look for it: shown only under "advanced" */ advanced?: true;
 }
@@ -47,6 +51,13 @@ const range = (min: number, max: number, step: number, dflt: number, m: Meta) =>
   default: dflt,
   ...m,
 });
+/** a space setting: its group, and its words under `sp.` (with a note, `sp.<name>.help`, if `help`) */
+const sp = (g: 'move' | 'scene' | 'picture' | 'sound' | 'lyrics', name: string, help = false): Meta => ({
+  group: `space.${g}`,
+  only: 'space',
+  label: 'sp.' + name,
+  ...(help ? { help: 'sp.' + name + '.help' } : {}),
+});
 /** a name from a list kept elsewhere (a typeface, an audio device, a language), or a colour */
 const text = (dflt: string, m: Meta) => ({ kind: 'text' as const, default: dflt, ...m });
 
@@ -55,6 +66,7 @@ export const SCHEMA = {
   ui: choice(['classic', 'space'], 'classic', {
     group: 'look',
     label: 's.set.uiMode.pick',
+    help: 's.set.uiMode.help',
     optionLabel: (o) => ['s.set.uiMode.' + o],
   }),
   theme: choice(['system', 'light', 'dark'], 'system', {
@@ -75,7 +87,11 @@ export const SCHEMA = {
   openAtLogin: toggle(false, { group: 'system', label: 's.set.openAtLogin' }),
   closeToTray: toggle(false, { group: 'system', label: 's.set.tray' }),
   // the picture
-  gfx: choice(['default', 'optimized', 'lite'], 'default', { group: 'picture', label: 's.set.gfx' }),
+  gfx: choice(['default', 'optimized', 'lite'], 'default', {
+    group: 'picture',
+    label: 's.set.gfx',
+    optionHelp: (o) => 's.set.gfx.' + o + 'Help',
+  }),
   scale: choice(['auto', 1, 0.85, 0.7, 0.55], 'auto', {
     group: 'picture',
     only: 'classic',
@@ -104,11 +120,15 @@ export const SCHEMA = {
     help: 's.set.gpuLyricsHelp',
   }),
   // the sound
-  audioOut: choice(['standard', 'hifi'], 'standard', { group: 'sound' }),
+  audioOut: choice(['standard', 'hifi'], 'standard', {
+    group: 'sound',
+    label: 's.set.out',
+    optionLabel: (o) => [o === 'hifi' ? 's.set.out.hifi' : 's.set.out.std'],
+  }),
   audioMode: choice(['exclusive', 'shared'], 'exclusive', { group: 'sound', advanced: true }),
   audioDevice: text('', { group: 'sound', advanced: true }),
   fixedVolume: toggle(true, { group: 'sound', advanced: true }),
-  volBalance: toggle(true, { group: 'sound' }),
+  volBalance: toggle(true, { group: 'sound', label: 's.set.balance' }),
   // the song's own video
   mvDark: range(0, 0.9, 0.01, 0.34, { group: 'video', only: 'classic' }),
   mvBlur: range(0, 1, 0.01, 0.12, { group: 'video', only: 'classic' }),
@@ -129,31 +149,39 @@ export const SCHEMA = {
     help: 's.set.debugLogHelp',
   }),
   // the space: moving
-  spaceImmersive: toggle(false, { group: 'space.move', only: 'space' }),
-  spaceFollow: toggle(false, { group: 'space.move', only: 'space' }),
-  spaceWalk: range(0.5, 2, 0.1, 1, { group: 'space.move', only: 'space' }),
-  spaceLook: range(0.4, 2, 0.1, 1, { group: 'space.move', only: 'space' }),
-  spaceReduced: toggle(false, { group: 'space.move', only: 'space' }),
+  spaceImmersive: toggle(false, sp('move', 'immersive', true)),
+  spaceFollow: toggle(false, sp('move', 'follow', true)),
+  spaceWalk: range(0.5, 2, 0.1, 1, { ...sp('move', 'walk'), unit: 'times' }),
+  spaceLook: range(0.4, 2, 0.1, 1, { ...sp('move', 'lookSpeed'), unit: 'times' }),
+  spaceReduced: toggle(false, sp('move', 'reduced', true)),
   // the space: how the scene answers the song
-  spaceTint: choice(['cover', 'fixed'], 'cover', { group: 'space.scene', only: 'space' }),
+  spaceTint: choice(['cover', 'fixed'], 'cover', sp('scene', 'tint', true)),
   spaceTintColor: text('#D97757', { group: 'space.scene', only: 'space' }),
-  spaceBeams: toggle(true, { group: 'space.scene', only: 'space' }),
-  spaceBeatBeams: toggle(true, { group: 'space.scene', only: 'space' }),
-  spacePulse: toggle(true, { group: 'space.scene', only: 'space' }),
-  spaceFxBeat: range(0, 2, 0.1, 1, { group: 'space.scene', only: 'space' }),
-  spaceFxPulse: range(0, 2, 0.1, 1, { group: 'space.scene', only: 'space' }),
-  spaceFxTint: range(0, 1, 0.05, 1, { group: 'space.scene', only: 'space' }),
-  spaceFxBeams: range(0, 2, 0.1, 1, { group: 'space.scene', only: 'space' }),
+  spaceBeams: toggle(true, sp('scene', 'beams')),
+  spaceBeatBeams: toggle(true, sp('scene', 'beatBeams')),
+  spacePulse: toggle(true, sp('scene', 'pulse', true)),
+  spaceFxBeat: range(0, 2, 0.1, 1, { ...sp('scene', 'fx.beat'), unit: 'percent' }),
+  spaceFxPulse: range(0, 2, 0.1, 1, { ...sp('scene', 'fx.pulse'), unit: 'percent' }),
+  spaceFxTint: range(0, 1, 0.05, 1, { ...sp('scene', 'fx.tint'), unit: 'percent' }),
+  spaceFxBeams: range(0, 2, 0.1, 1, { ...sp('scene', 'fx.beams'), unit: 'percent' }),
   // the space: its picture
-  spaceDream: toggle(true, { group: 'space.picture', only: 'space' }),
-  spaceLine: choice(['thin', 'mid', 'bold'], 'mid', { group: 'space.picture', only: 'space' }),
-  spaceShadow: choice(['high', 'mid', 'low'], 'high', { group: 'space.picture', only: 'space' }),
-  spaceScale: choice([0.5, 0.75, 1], 1, { group: 'space.picture', only: 'space' }),
+  spaceDream: toggle(true, sp('picture', 'dream')),
+  spaceLine: choice(['thin', 'mid', 'bold'], 'mid', sp('picture', 'line')),
+  spaceShadow: choice(['high', 'mid', 'low'], 'high', {
+    ...sp('picture', 'shadow'),
+    optionLabel: (o) => ['sp.q.' + o],
+  }),
+  spaceScale: choice([1, 0.75, 0.5], 1, {
+    group: 'space.picture',
+    only: 'space',
+    label: 's.set.scale',
+    optionLabel: (o) => ['s.set.scale.p', { n: Math.round(+o * 100) }],
+  }),
   // the space: its own music, its lyrics
-  spaceAmbient: toggle(true, { group: 'space.sound', only: 'space' }),
-  spaceAmbientVol: range(0, 1, 0.05, 0.6, { group: 'space.sound', only: 'space' }),
+  spaceAmbient: toggle(true, sp('sound', 'ambient', true)),
+  spaceAmbientVol: range(0, 1, 0.05, 0.6, { ...sp('sound', 'ambientVol'), unit: 'percent' }),
   spaceFont: text('sansmed', { group: 'space.lyrics', only: 'space' }),
-  spaceLyric: choice(['s', 'm', 'l'], 'm', { group: 'space.lyrics', only: 'space' }),
+  spaceLyric: choice(['s', 'm', 'l'], 'm', { ...sp('lyrics', 'lyricSize'), optionLabel: (o) => ['sp.size.' + o] }),
 };
 
 export type SettingKey = keyof typeof SCHEMA;

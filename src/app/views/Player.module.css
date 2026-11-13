@@ -147,8 +147,22 @@
   grid-template-rows: 18px 1fr;
   padding: 0 22px 6px;
   box-sizing: border-box;
-  background: color-mix(in oklab, var(--sheet-bg) calc((1 - var(--stage)) * 100%), transparent);
   color: var(--fg);
+}
+/* the bar's paper: the sheet's own colour, changing with the song on the sheet's own timing (a bar that changed at
+   once would show a seam against the sheet for as long as the sheet's colour takes), and fading as the stage comes up */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--sheet-bg);
+  /* (gone by the time the stage is a third of the way up, its top edge softening as it goes: in motion the paper is
+     never a band with a hard edge over the stage) */
+  opacity: clamp(0, 1 - var(--stage) * 3, 1);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--stage) * 120px));
+  mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--stage) * 120px));
+  transition: background var(--t-song) var(--ease);
 }
 :global(html[data-layer='fx']) .card,
 :global(html[data-fxmode='true']) .card {

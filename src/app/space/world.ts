@@ -30,6 +30,11 @@ export interface SpaceUi {
     d: { kind: 'album' | 'playlist' | 'song'; key: string } | null,
   ): void;
   /** the graphics context was lost (a driver reset, memory): the shell builds the scene again */ lost(): void;
+  /** what can be done with what the reticle is on, as a menu at (x, y) (the pointer is let out for it) */ menu(
+    d: { kind: 'album' | 'playlist' | 'song'; key: string },
+    x: number,
+    y: number,
+  ): void;
 }
 export function createWorld(
   bind: SpaceBind,
@@ -2896,6 +2901,11 @@ export function createWorld(
       canvas.requestPointerLock?.();
       return;
     }
+    // immersive, the view held: the right button opens what can be done with what the reticle is on, where it is
+    if (e.button === 2 && locked) {
+      menuAt(innerWidth / 2, innerHeight / 2);
+      return;
+    }
     if (e.button === 0) {
       const h = locked ? pickAt(innerWidth / 2, innerHeight / 2) : pickAt(e.clientX, e.clientY);
       if (!h) return;
@@ -2910,6 +2920,28 @@ export function createWorld(
       else if (h.kind === 'sofa') sit(h.i);
     }
   });
+  // what can be done with the thing at (x, y), as a menu there: the library's own commands (an album, a song, a playlist)
+  function menuAt(x, y) {
+    const h = pickAt(x, y);
+    if (!h) return false;
+    if (h.far) {
+      reachHint(x, y);
+      return false;
+    }
+    const d =
+      h.kind === 'album'
+        ? ALBUMS[h.i] && { kind: 'album', key: ALBUMS[h.i].key }
+        : h.kind === 'song'
+          ? SONGS[h.i] && { kind: 'song', key: SONGS[h.i].id }
+          : h.kind === 'playlist'
+            ? PLAYLISTS[h.i] && { kind: 'playlist', key: PLAYLISTS[h.i].id }
+            : null;
+    if (!d) return false;
+    $('tip').hidden = true;
+    freePointer();
+    ui.menu(d, x, y);
+    return true;
+  }
   onW('pointerup', (e) => {
     if (e.button === 2 && looking) {
       looking = false;
@@ -3669,6 +3701,7 @@ export function createWorld(
     }
   }
   window.__cad = {
+    menuAt: (x, y) => menuAt(x, y),
     fakeNow: (o) => {
       fakeNow = o ? { ...o, t0: performance.now() } : null;
     },

@@ -247,6 +247,20 @@ const SONG = `(() => {
   await p.evaluate(() => __cad.stand(0, -30, 0, 0));
   await wait(700);
   ok('reach: walking away closes it', !(await p.$('[data-test="space-detail"]')));
+  // the reticle's menu (immersive, right button): the library's own commands for what it is on, where it is
+  await p.evaluate(() => __cad.stand(-3, -9.5, Math.PI / 2, 0));
+  await wait(1000);
+  const menued = await p.evaluate(() => __cad.menuAt(640, 300));
+  await wait(400);
+  const items = await p.$$eval('[role="menu"] [role="menuitem"]', (b) => b.map((x) => x.textContent.trim()));
+  await shot('reticle-menu');
+  ok(
+    'reticle: a menu of the album commands opens where it points',
+    menued && items.some((t) => t.includes('加入播放佇列')),
+    JSON.stringify(items),
+  );
+  await p.keyboard.press('Escape');
+  await wait(400);
 
   // the settings card: a jump to a section and a few switches never scroll the card itself
   await p.click('#cfg');
@@ -264,6 +278,18 @@ const SONG = `(() => {
   });
   ok('settings: the card stays put (its header at its top)', card[0] === 0 && card[1] === 0, JSON.stringify(card));
   await shot('settings');
+  // the stored data: asked about in place, and a no leaves it as it was
+  await p.evaluate(() => {
+    const b = document.querySelector('[data-section="data"]');
+    b.scrollIntoView({ block: 'start', behavior: 'instant' });
+    b.querySelectorAll('button')[1].click();
+  });
+  await wait(300);
+  const asked = await p.$('[data-test="ask-caches"]');
+  await shot('settings-data');
+  await p.evaluate(() => [...document.querySelectorAll('[data-test="ask-caches"] button')].pop().click());
+  await wait(300);
+  ok('settings: clearing stored data asks first, in place', !!asked && !(await p.$('[data-test="ask-caches"]')));
   const close = await (await p.$('[data-test="space-settings"] header button')).boundingBox();
   await p.mouse.click(close.x + close.width / 2, close.y + close.height / 2);
   await wait(400);

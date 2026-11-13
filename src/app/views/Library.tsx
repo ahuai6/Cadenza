@@ -1,5 +1,5 @@
 // The library page: favourites and playlists (kept by the app), and songs, albums, artists and genres (from the files).
-import { memo, useMemo, useState } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { tx } from '../../i18n';
 import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match } from '../state';
@@ -45,13 +45,14 @@ export function LibraryView() {
           <>
             <Shelves section={section} />
             {/* (the songs' and the favourites' heads carry their play buttons, on the right: they draw their own) */}
-            {section !== 'songs' && section !== 'favorites' && section !== 'albums' && (
-              <ShelfHead
-                kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}
-                title={tx(SECTIONS.find((x) => x[0] === section)?.[1] || 's.library')}
-              />
-            )}
+            {/* (a shelf's head turns with it: the title never changes before the shelf does) */}
             <Turn k={section}>
+              {section !== 'songs' && section !== 'favorites' && section !== 'albums' && (
+                <ShelfHead
+                  kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}
+                  title={tx(SECTIONS.find((x) => x[0] === section)?.[1] || 's.library')}
+                />
+              )}
               {section === 'favorites' && (
                 <Favorites
                   idx={idx}
@@ -83,10 +84,32 @@ export function LibraryView() {
 }
 /** The library's shelves, as a row of pills (the chosen one in reverse), and the search beside them. */
 function Shelves({ section }: { section: string }) {
-  const search = useStore(ui, (x) => x.search);
+  const search = useStore(ui, (x) => x.search),
+    nav = useRef<HTMLElement>(null),
+    [pick, setPick] = useState<CSSProperties | null>(null);
+  // (measured from the chosen button: its box, in the row's own coordinates; again when the row's size changes)
+  useLayoutEffect(() => {
+    const row = nav.current;
+    if (!row) return;
+    const place = () => {
+      const b = row.querySelector<HTMLElement>(`[data-section="${section}"]`);
+      if (b)
+        setPick({
+          width: b.offsetWidth,
+          height: b.offsetHeight,
+          transform: `translate(${b.offsetLeft}px, ${b.offsetTop}px)`,
+        });
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(row);
+    return () => ro.disconnect();
+  }, [section]);
   return (
     <div className={s.shelves}>
-      <nav className={s.pills} aria-label={tx('s.library')} data-test="shelves">
+      <nav className={s.pills} aria-label={tx('s.library')} data-test="shelves" ref={nav}>
+        {/* the chosen one's reverse: one pill that slides to the shelf chosen */}
+        <i className={s.pick} style={pick ?? undefined} data-ready={!!pick || undefined} aria-hidden />
         {SECTIONS.map(([k, label]) => (
           <button
             key={k}

@@ -1,17 +1,20 @@
 // The space's settings page: a glass card over the cathedral (the renderer draws the glass behind every .card). The
 // walking keys and immersive mode live here (no guide card in the room); the rest are the space's own settings and the
 // handful of Cadenza's the room needs at hand. Everything is saved to Cadenza's settings, so both interfaces share it.
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { tx, LANGS, currentLang, type Lang } from '../../i18n';
 import { settings, lib, useStore } from '../state';
 import { Lib, D, type Settings } from '../bridge';
 import { setSettings, setLang } from '../actions/settings';
-import { Seg, Toggle, Slider, Button, Dropdown } from '../ui/kit';
+import { readAllRhythmsAgain, clearStoredData, resetEverything } from '../actions/data';
+import { Button, Dropdown } from '../ui/kit';
 import { FontPicker } from '../ui/fonts';
+import { SettingField } from '../ui/SettingField';
+import type { SettingKey } from '../settings/schema';
 import { ts } from './i18n';
 import s from './SpaceSettings.module.css';
 
-export type SpaceSection = 'guide' | 'light' | 'audio' | 'lyrics' | 'look' | 'library';
+export type SpaceSection = 'guide' | 'light' | 'audio' | 'lyrics' | 'look' | 'library' | 'data';
 
 const Group = ({ id, title, children }: { id: SpaceSection; title: string; children: ReactNode }) => (
   <section className={s.group} data-section={id}>
@@ -28,6 +31,56 @@ const Field = ({ label, help, children }: { label: string; help?: string; childr
     {children}
   </div>
 );
+/** Settings drawn from their declarations (settings/schema.ts), in this card's rows. */
+const fields = (...keys: SettingKey[]) =>
+  keys.map((k) => (
+    <SettingField
+      key={k}
+      k={k}
+      fit={false}
+      frame={({ label, help, children }) => (
+        <Field label={label} help={help}>
+          {children}
+        </Field>
+      )}
+    />
+  ));
+/** A stored-data action, asked about in place (the space has no dialogs): its button, then what it does and a yes. */
+function Ask({ k, act, danger, icon }: { k: string; act: () => unknown; danger?: boolean; icon?: string }) {
+  const [open, setOpen] = useState(false),
+    [busy, setBusy] = useState(false);
+  if (!open)
+    return (
+      <div>
+        <Button size="sm" kind={danger ? 'danger' : undefined} icon={icon} onClick={() => setOpen(true)}>
+          {tx(`s.set.data.${k}`)}
+        </Button>
+      </div>
+    );
+  return (
+    <div className={s.ask} data-test={`ask-${k}`}>
+      <p>{tx(`s.set.data.${k}Ask`)}</p>
+      <div className={s.row}>
+        <Button
+          size="sm"
+          kind={danger ? 'danger' : 'primary'}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await act();
+            setBusy(false);
+            setOpen(false);
+          }}
+        >
+          {tx(`s.set.data.${k}Yes`)}
+        </Button>
+        <Button size="sm" onClick={() => setOpen(false)} disabled={busy}>
+          {tx('s.cancel')}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function SpaceSettings({ section, onClose }: { section?: string; onClose: () => void }) {
   const st = useStore(settings),
@@ -64,55 +117,10 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
               <li key={k}>{ts(k)}</li>
             ))}
           </ul>
-          <Toggle
-            label={ts('immersive')}
-            help={ts('immersive.help')}
-            on={!!st.spaceImmersive}
-            set={(v) => set({ spaceImmersive: v })}
-          />
-          <Toggle
-            label={ts('follow')}
-            help={ts('follow.help')}
-            on={!!st.spaceFollow}
-            set={(v) => set({ spaceFollow: v })}
-          />
-          <Slider
-            label={ts('walk')}
-            value={st.spaceWalk || 1}
-            min={0.5}
-            max={2}
-            step={0.1}
-            onCommit={(v) => set({ spaceWalk: v })}
-            format={(v) => v.toFixed(1) + '×'}
-          />
-          <Slider
-            label={ts('lookSpeed')}
-            value={st.spaceLook || 1}
-            min={0.4}
-            max={2}
-            step={0.1}
-            onCommit={(v) => set({ spaceLook: v })}
-            format={(v) => v.toFixed(1) + '×'}
-          />
-          <Toggle
-            label={ts('reduced')}
-            help={ts('reduced.help')}
-            on={!!st.spaceReduced}
-            set={(v) => set({ spaceReduced: v })}
-          />
+          {fields('spaceImmersive', 'spaceFollow', 'spaceWalk', 'spaceLook', 'spaceReduced')}
         </Group>
         <Group id="light" title={ts('g.light')}>
-          <Field label={ts('tint')} help={ts('tint.help')}>
-            <Seg
-              size="sm"
-              value={st.spaceTint === 'fixed' ? 'fixed' : 'cover'}
-              onChange={(v) => set({ spaceTint: v })}
-              options={[
-                ['cover', ts('tint.cover')],
-                ['fixed', ts('tint.fixed')],
-              ]}
-            />
-          </Field>
+          {fields('spaceTint')}
           {st.spaceTint === 'fixed' && (
             <Field label={ts('tint.pick')}>
               <input
@@ -124,132 +132,24 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
               />
             </Field>
           )}
-          <Toggle label={ts('beams')} on={st.spaceBeams !== false} set={(v) => set({ spaceBeams: v })} />
-          <Toggle label={ts('beatBeams')} on={st.spaceBeatBeams !== false} set={(v) => set({ spaceBeatBeams: v })} />
-          <Toggle
-            label={ts('pulse')}
-            help={ts('pulse.help')}
-            on={st.spacePulse !== false}
-            set={(v) => set({ spacePulse: v })}
-          />
-          {/* the scene's response: four plain knobs (1 is as designed) */}
-          <Slider
-            label={ts('fx.beat')}
-            value={st.spaceFxBeat ?? 1}
-            min={0}
-            max={2}
-            step={0.1}
-            onCommit={(v) => set({ spaceFxBeat: v })}
-            format={(v) => Math.round(v * 100) + '%'}
-          />
-          <Slider
-            label={ts('fx.pulse')}
-            value={st.spaceFxPulse ?? 1}
-            min={0}
-            max={2}
-            step={0.1}
-            onCommit={(v) => set({ spaceFxPulse: v })}
-            format={(v) => Math.round(v * 100) + '%'}
-          />
-          <Slider
-            label={ts('fx.tint')}
-            value={st.spaceFxTint ?? 1}
-            min={0}
-            max={1}
-            step={0.05}
-            onCommit={(v) => set({ spaceFxTint: v })}
-            format={(v) => Math.round(v * 100) + '%'}
-          />
-          <Slider
-            label={ts('fx.beams')}
-            value={st.spaceFxBeams ?? 1}
-            min={0}
-            max={2}
-            step={0.1}
-            onCommit={(v) => set({ spaceFxBeams: v })}
-            format={(v) => Math.round(v * 100) + '%'}
-          />
-          <Toggle label={ts('dream')} on={st.spaceDream !== false} set={(v) => set({ spaceDream: v })} />
-          <Field label={ts('line')}>
-            <Seg
-              size="sm"
-              value={st.spaceLine || 'mid'}
-              onChange={(v) => set({ spaceLine: v })}
-              options={[
-                ['thin', ts('line.thin')],
-                ['mid', ts('line.mid')],
-                ['bold', ts('line.bold')],
-              ]}
-            />
-          </Field>
-          <Field label={ts('shadow')}>
-            <Seg
-              size="sm"
-              value={st.spaceShadow || 'high'}
-              onChange={(v) => set({ spaceShadow: v })}
-              options={[
-                ['high', ts('q.high')],
-                ['mid', ts('q.mid')],
-                ['low', ts('q.low')],
-              ]}
-            />
-          </Field>
-          <Field
-            label={tx('s.set.gfx')}
-            help={tx('s.set.gfx.' + (st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default') + 'Help')}
-          >
-            <Seg
-              size="sm"
-              value={st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default'}
-              onChange={(v) => set({ gfx: v })}
-              options={[
-                ['default', tx('s.set.gfx.default')],
-                ['optimized', tx('s.set.gfx.optimized')],
-                ['lite', tx('s.set.gfx.lite')],
-              ]}
-            />
-          </Field>
-          <Field label={tx('s.set.scale')}>
-            <Seg
-              size="sm"
-              value={String(st.spaceScale || 1)}
-              onChange={(v) => set({ spaceScale: +v })}
-              options={[
-                ['1', '100%'],
-                ['0.75', '75%'],
-                ['0.5', '50%'],
-              ]}
-            />
-          </Field>
+          {/* the scene's response: four plain knobs (100% is as designed) */}
+          {fields(
+            'spaceBeams',
+            'spaceBeatBeams',
+            'spacePulse',
+            'spaceFxBeat',
+            'spaceFxPulse',
+            'spaceFxTint',
+            'spaceFxBeams',
+            'spaceDream',
+            'spaceLine',
+            'spaceShadow',
+            'gfx',
+            'spaceScale',
+          )}
         </Group>
         <Group id="audio" title={ts('g.audio')}>
-          <Field label={tx('s.set.out')}>
-            <Seg
-              size="sm"
-              value={st.audioOut === 'hifi' ? 'hifi' : 'standard'}
-              onChange={(v) => set({ audioOut: v })}
-              options={[
-                ['standard', tx('s.set.out.std')],
-                ['hifi', tx('s.set.out.hifi')],
-              ]}
-            />
-          </Field>
-          <Toggle label={tx('s.set.balance')} on={st.volBalance !== false} set={(v) => set({ volBalance: v })} />
-          <Toggle
-            label={ts('ambient')}
-            help={ts('ambient.help')}
-            on={st.spaceAmbient !== false}
-            set={(v) => set({ spaceAmbient: v })}
-          />
-          <Slider
-            label={ts('ambientVol')}
-            value={st.spaceAmbientVol ?? 0.6}
-            min={0}
-            max={1}
-            step={0.05}
-            onCommit={(v) => set({ spaceAmbientVol: v })}
-            format={(v) => Math.round(v * 100) + '%'}
-          />
+          {fields('audioOut', 'volBalance', 'spaceAmbient', 'spaceAmbientVol')}
         </Group>
         <Group id="lyrics" title={ts('g.lyrics')}>
           <Field label={ts('lyricFont')} help={ts('lyricFont.help')}>
@@ -259,33 +159,10 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
               onChange={(v) => set({ spaceFont: v })}
             />
           </Field>
-          <Toggle label={tx('s.set.fxCapSubs')} on={st.fxCapSubs !== false} set={(v) => set({ fxCapSubs: v })} />
-          <Toggle label={tx('s.set.fxCapReads')} on={st.fxCapReads !== false} set={(v) => set({ fxCapReads: v })} />
-          <Field label={ts('lyricSize')}>
-            <Seg
-              size="sm"
-              value={st.spaceLyric || 'm'}
-              onChange={(v) => set({ spaceLyric: v })}
-              options={[
-                ['s', ts('size.s')],
-                ['m', ts('size.m')],
-                ['l', ts('size.l')],
-              ]}
-            />
-          </Field>
+          {fields('fxCapSubs', 'fxCapReads', 'spaceLyric')}
         </Group>
         <Group id="look" title={ts('g.look')}>
-          <Field label={tx('s.set.uiMode.pick')} help={tx('s.set.uiMode.help')}>
-            <Seg
-              size="sm"
-              value={st.ui === 'space' ? 'space' : 'classic'}
-              onChange={(v) => set({ ui: v })}
-              options={[
-                ['classic', tx('s.set.uiMode.classic')],
-                ['space', tx('s.set.uiMode.space')],
-              ]}
-            />
-          </Field>
+          {fields('ui')}
           <div>
             <Button size="sm" icon="refresh" onClick={() => D?.relaunch()}>
               {tx('s.set.uiMode.restart')}
@@ -322,6 +199,12 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
               {tx('s.set.rescan')}
             </Button>
           </div>
+        </Group>
+        <Group id="data" title={tx('s.set.data')}>
+          <p className={s.note}>{tx('s.set.dataHelp')}</p>
+          <Ask k="reanalyze" icon="refresh" act={readAllRhythmsAgain} />
+          <Ask k="caches" act={clearStoredData} />
+          <Ask k="reset" danger act={resetEverything} />
         </Group>
       </div>
     </section>

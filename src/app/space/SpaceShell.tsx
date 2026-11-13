@@ -11,10 +11,12 @@ import { hudHtml } from './hud';
 import { SpaceSettings } from './SpaceSettings';
 import { PlayerExtras, SpacePanel, WinButtons, type Panel } from './SpacePanels';
 import { SpaceDetail, type Detail } from './SpaceDetail';
-import { Toast } from '../ui/kit';
+import { ContextMenu, Toast } from '../ui/kit';
+import { menuFor } from '../commands';
+import { targetOf } from './targets';
 import { MiniLyrics } from '../ui/MiniLyrics';
 import { lang as langStore } from '../../i18n';
-import { useStore, settings, ui } from '../state';
+import { useStore, settings, ui, openMenu } from '../state';
 import './space.css';
 import s from './SpaceShell.module.css';
 
@@ -62,6 +64,12 @@ export function SpaceShell() {
           }
         },
         closeSettings: () => setCfg((c) => (c.open ? { open: false } : c)),
+        menu: (d, x, y) => {
+          const t = targetOf(d);
+          if (!t) return world.current?.takePointer();
+          const at = { clientX: x, clientY: y, preventDefault() {}, stopPropagation() {} };
+          openMenu(at, menuFor(t));
+        },
         // a lost graphics context: a fresh canvas and scene a moment later (the HUD remounts with it)
         lost: () => setTimeout(() => setGen((g) => g + 1), 600),
       });
@@ -72,6 +80,11 @@ export function SpaceShell() {
       world.current = null;
     };
   }, [ready, lang, gen]);
+  // (a menu closed: the view held again, if it was let out for the menu)
+  const menuOpen = useStore(ui, (x) => !!x.menu);
+  useEffect(() => {
+    if (!menuOpen) world.current?.takePointer();
+  }, [menuOpen]);
   useEffect(() => {
     document.getElementById('mini')?.setAttribute('aria-pressed', String(mini));
     world.current?.pause(mini || away);
@@ -112,6 +125,7 @@ export function SpaceShell() {
           }}
         />
       )}
+      {ready && <ContextMenu />}
       {ready && <Toast />}
       {ready && <WinButtons host={winHost} />}
       {ready && mini && <MiniLyrics />}

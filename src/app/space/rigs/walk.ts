@@ -34,6 +34,10 @@ interface Flight {
   pitch: number;
   /** under way at once, settling at the end (sitting down) */ out: boolean;
   curve?: THREE.CatmullRomCurve3;
+  /** the path's length, metres; the view's turn so far and its speed (the view eases after the path, never snaps) */
+  len?: number;
+  yv?: number;
+  ys?: number;
   from?: THREE.Vector3;
   to?: THREE.Vector3;
 }
@@ -45,6 +49,11 @@ const ACCEL = 26,
 const DELIBERATE = 40;
 /** how fast the view turns to a point it was asked to follow (a critically damped spring's frequency) */
 const TURN = 2.6;
+/** on a path through the rooms: how far ahead the view looks (metres), and how fast it turns after that point */
+const LOOK_AHEAD = 3.5,
+  PATH_TURN = 3.2;
+/** speed along a path: from rest and back to rest with no jolt at either end or in the middle (smootherstep) */
+const glide = (u: number) => u * u * u * (u * (6 * u - 15) + 10);
 
 export class WalkRig implements Rig {
   readonly pose: Pose & { vel: THREE.Vector3 };
@@ -106,7 +115,17 @@ export class WalkRig implements Rig {
     // a walk through the doorways, not through the walls
     const pts = [me.pos.clone(), ...ways, pos.clone()].filter((p, i, a) => i === 0 || p.distanceTo(a[i - 1]) > 0.4),
       curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
-    this.flight = { ...base, curve, dur: Math.max(1.6, Math.min(6.5, curve.getLength() / 10)) * 1000, yaw, out: false };
+    const len = curve.getLength();
+    this.flight = {
+      ...base,
+      curve,
+      len,
+      ys: me.yaw,
+      yv: 0,
+      dur: Math.max(1.8, Math.min(7, len / 8.5)) * 1000,
+      yaw,
+      out: false,
+    };
   }
 
   /** Sit down there, facing `yaw`. */
@@ -160,16 +179,22 @@ export class WalkRig implements Rig {
       f = this.flight;
     if (f) {
       const u = Math.max(0, Math.min(1, (now - f.t0) / f.dur)),
-        k = f.out ? 1 - Math.pow(1 - u, 3) : inOut(u);
+        k = f.out ? 1 - Math.pow(1 - u, 3) : f.curve ? glide(u) : inOut(u);
       if (f.curve) {
-        // (the view follows the path, leaving its first direction and arriving at its last by degrees)
+        // The view looks a few steps ahead along the path (not at the path's direction where one stands, which swings
+        // at every doorway), and turns after it on a spring: through a doorway it leans into the turn and comes out of
+        // it, the way one walks. It leaves its first direction and arrives at its last by degrees.
         f.curve.getPointAt(k, me.pos);
-        f.curve.getTangentAt(Math.min(1, k + 0.03), this.tng);
-        const along = wrapTo(f.y0, Math.atan2(-this.tng.x, -this.tng.z)),
-          endw = smooth(0.72, 1, k),
-          startw = smooth(0, 0.14, k);
-        const y = f.y0 + (along - f.y0) * startw;
-        me.yaw = y + (wrapTo(y, f.yaw) - y) * endw;
+        f.curve.getPointAt(Math.min(1, k + LOOK_AHEAD / Math.max(1, f.len!)), this.tng);
+        this.tng.sub(me.pos);
+        const ahead = this.tng.x * this.tng.x + this.tng.z * this.tng.z > 0.04,
+          along = ahead ? wrapTo(f.ys!, Math.atan2(-this.tng.x, -this.tng.z)) : f.ys!,
+          endw = smooth(0.7, 1, k),
+          startw = smooth(0, 0.18, k);
+        const want = wrapTo(f.ys!, f.y0 + (wrapTo(f.y0, along) - f.y0) * startw);
+        f.yv! += (PATH_TURN * PATH_TURN * (want - f.ys!) - 2 * PATH_TURN * f.yv!) * Math.min(dt, 0.05);
+        f.ys! += f.yv! * Math.min(dt, 0.05);
+        me.yaw = f.ys! + (wrapTo(f.ys!, f.yaw) - f.ys!) * endw;
         me.pitch = f.p0 * (1 - startw) + f.pitch * endw;
       } else {
         me.pos.lerpVectors(f.from!, f.to!, k);
