@@ -491,6 +491,13 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
       s = Math.max(s, Math.min(A.sungEnd - 0.12, B.t - 0.25 / sp), A.arrive + 0.05);
       // close up, the last character is sung before the camera leaves it (just as the next word is about to be)
       if (close) s = Math.max(s, Math.min(lastSung(A) + 0.04, B.t - 0.12));
+      // on to a new line, the line's last character is seen sung nearly through first — up to the moment the new line
+      // shows (the camera already on its way to it as it comes in, never left at an edge): a camera off the moment the
+      // last word began read as hurrying away from it (3.2.4)
+      else if (!B.cut && B.words[0].line !== A.words[0].line) {
+        const l0 = lastSung(A);
+        s = Math.max(s, Math.min(l0 + 0.8 * Math.max(0, A.sungEnd - l0), Math.min(B.t, B.words[0].show) - 0.04));
+      }
       // (and when the next words are back to the left — a new line — the held last character is seen out first: going
       // back, it would leave the frame at once)
       if (close) {
@@ -517,9 +524,11 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         if (still.length && !close && !fits([...still, ...head], B, W, H)) {
           const both = fitPose([...still, ...head], B.box.tilt, B.r, W, H, T);
           // (a column is not widened to hold the end of the one before — the travel down it would flatten: it waits instead)
+          // (nor is any framing pulled far back for it: the line's last words, shrunk to hold a new line far off, read as
+          // an afterthought the camera hurried away from — the camera stays on them until they are sung instead)
           const col = B.words.every((w) => w.vert);
           if (
-            both.z > B.z * (col ? 0.85 : smooth ? 0.5 : 0.6) &&
+            both.z > B.z * (col ? 0.85 : 0.75) &&
             fits([...still, ...head], { ...B, x: both.x, y: both.y, z: Math.min(B.z, both.z) }, W, H)
           ) {
             B.z = Math.min(B.z, both.z);
@@ -1038,6 +1047,16 @@ function smoothPath(
   for (let f = 0; f < n; f++) lo[f] = f > 0 && seg[f - 1] === seg[f] ? lo[f - 1] : f;
   for (let f = n - 1; f >= 0; f--) hi[f] = f < n - 1 && seg[f + 1] === seg[f] ? hi[f + 1] : f;
   const overF = Math.min(n, Math.floor(overStart * RATE));
+  // (the moments each line's last character is sung, the camera then setting off for the next line's framing)
+  const lineEnds: number[] = [];
+  for (let i = 1; i < c.stops.length; i++) {
+    const A = c.stops[i - 1],
+      B = c.stops[i];
+    if (B.words[0]?.line === A.words[0]?.line) continue;
+    // (when the move to the new line sets off — or, failing that, the last character sung)
+    const m = c.moves.find((m) => Math.abs(m.a - B.arrive) < 0.02 && m.s >= A.arrive - 0.02);
+    lineEnds.push(Math.round((m ? m.s : Math.max(A.sungEnd, A.arrive)) * RATE));
+  }
   // zoom envelope (the widest framing a moment ahead, never more than 1.25x wider than now)
   if (!punch && style !== 'close') {
     const ahead = Math.round(Math.min(1.4, (waltz ? 0.6 : 0.9) / sp) * RATE),
@@ -1052,6 +1071,29 @@ function smoothPath(
       Z[f] = Math.max(m, Zr[f] - maxWide);
     }
   }
+  /** The gaussian, its width drawn in near the given moments (frames): a width that changes gradually, so the path stays
+   *  smooth, yet a change of framing just after one of them is not spread back over the seconds before it. */
+  const gaussNear = (a: Float32Array, sig: number, at: number[], min: number) => {
+    const o = new Float32Array(n),
+      s0 = sig * RATE,
+      m0 = min * RATE;
+    for (let f = 0, li = 0; f < n; f++) {
+      while (li < at.length && at[li] < f) li++;
+      const dn = Math.min(li < at.length ? at[li] - f : Infinity, li > 0 ? f - at[li - 1] : Infinity),
+        sg = Math.min(s0, m0 + dn / 2.5),
+        rad = Math.max(1, Math.round(sg * 3));
+      let v = 0,
+        ks = 0;
+      for (let k = -rad; k <= rad; k++) {
+        const w = Math.exp(-0.5 * (k / sg) ** 2),
+          g = f + k;
+        v += a[g < lo[f] ? lo[f] : g > hi[f] ? hi[f] : g] * w;
+        ks += w;
+      }
+      o[f] = v / ks;
+    }
+    return o;
+  };
   const gauss = (a: Float32Array, sig: number) => {
     const rad = Math.max(1, Math.round(sig * RATE * 3)),
       ker: number[] = [];
@@ -1080,9 +1122,11 @@ function smoothPath(
     n,
     seg,
     cutT: cuts,
-    x: gauss(X, ps),
-    y: gauss(Y, ps),
-    lz: gauss(Z, zsig),
+    // (nor is the camera let drift off toward the next line while the last words are still being sung)
+    x: punch || style === 'close' ? gauss(X, ps) : gaussNear(X, ps, lineEnds, 0.08),
+    y: punch || style === 'close' ? gauss(Y, ps) : gaussNear(Y, ps, lineEnds, 0.08),
+    // (a line's last words keep their size while they are sung: the next line's framing is not let in before them)
+    lz: punch || style === 'close' ? gauss(Z, zsig) : gaussNear(Z, zsig, lineEnds, 0.12),
     r: gauss(R, rsig),
     d: gauss(Dd, ps),
   };

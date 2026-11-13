@@ -1,4 +1,17 @@
 /* lyrics: every word floats on its own spring */
+/* how bright a word not yet sung is, against one sung (1: as bright — every line but the one being sung); a number the
+   browser can ease, so a line becoming the sung one dims its words still to come softly as it brightens, never a step */
+@property --un {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+/* (how much the sung line's glow shows: eased the same way, so a line left does not lose its glow at once) */
+@property --onk {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
 .lyr {
   position: absolute;
   inset: 0;
@@ -20,9 +33,13 @@
   letter-spacing: -0.01em;
   opacity: calc(0.36 - min(var(--d, 1), 4) * 0.05);
   filter: blur(calc(min(var(--d, 1), 5) * 0.55px));
+  --un: 1;
+  --onk: 0;
   transition:
     opacity var(--t-slow) var(--ease),
     filter var(--t-slow) var(--ease),
+    --un var(--t-slow) var(--ease),
+    --onk var(--t-slow) var(--ease),
     background var(--t-fast) var(--ease);
 }
 :global(html[data-gfx='lite']) .line {
@@ -33,6 +50,8 @@
 .line[data-on='true'] {
   opacity: 1;
   filter: none;
+  --un: 0.42;
+  --onk: 1;
 }
 .line:hover,
 .lyr[data-manual='true'] .line,
@@ -52,24 +71,26 @@
 .wu {
   display: inline;
 } /* a word of characters, each its own .w: it wraps between them */
-.line[data-on='true'] .w {
+/* every line is drawn the same way — the sung part white, the rest at --un — so that becoming the sung line, or leaving
+   it, only eases its brightness: switching between two ways of drawing its words made the line flash as it changed */
+.line .w {
   background: linear-gradient(
     90deg,
     #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em),
-    rgba(255, 255, 255, 0.42) calc(var(--p, 0) * (100% + 0.6em))
+    rgba(255, 255, 255, var(--un)) calc(var(--p, 0) * (100% + 0.6em))
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3));
+  text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3 * var(--onk)));
 }
 /* a line timed only as a whole: no sweep — the whole line brightens together, every word and character alike, by the
    one fill the line holds */
-.line[data-on='true'][data-whole='true'] .w {
+.line[data-whole='true'] .w {
   background: none;
   -webkit-background-clip: border-box;
   background-clip: border-box;
-  color: rgba(255, 255, 255, calc(0.42 + 0.58 * var(--p, 0)));
+  color: rgba(255, 255, 255, calc(var(--un) + (1 - var(--un)) * var(--p, 0)));
 }
 /* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
 .line .w {
@@ -107,8 +128,10 @@
   padding: 7px 10px;
 }
 
-/* a line waited for (the intro, a long break): in its place already, a little lit, three dots over it that fill as the
-   wait runs out (--wait: 0..1, the wait's own progress, set from the song's time) */
+/* a line waited for (the intro, a long break): in its place already, a little lit, and over it three dots come in as a
+   line of their own — the line and those after it make way for them (--gap, the room they take, set with the places) —
+   each dot lighting in its turn as the wait runs (--wait: 0..1); a beat before the voice they swell once (--pulse), then
+   draw in and go (--end) as it comes in. Every value is set from the song's time: a paused song holds them still. */
 .line[data-wait='true'] {
   opacity: 0.6;
   filter: none;
@@ -117,19 +140,15 @@
   display: none;
 }
 .line[data-wait='true'] .dots {
-  --w: var(--wait, 0);
-  /* (the last few percent of the wait: the dots draw in and go, as the voice comes) */
-  --end: clamp(0, (var(--w) - 0.9) * 10, 1);
   position: absolute;
-  left: 16px;
-  /* (in the line's own top padding, sized by the line's type: never touching the line above) */
-  top: -0.2em;
+  /* (lined up with the line's text, centred in the room made for them above it) */
+  left: 14px;
+  top: calc(var(--gap, 0px) * -0.5 - 0.135em - 3px);
   display: flex;
   gap: 0.22em;
   transform-origin: 0 50%;
-  scale: calc(1 - var(--end) * 0.6);
-  opacity: calc(1 - var(--end));
-  animation: dotsBreathe 2.4s var(--ease-io) infinite;
+  scale: calc((1 - var(--end, 0) * 0.6) * (1 + var(--pulse, 0) * 0.16));
+  opacity: calc(1 - var(--end, 0));
 }
 /* each dot comes up in its turn: its light and its size grow over its third of the wait, softly, never switched on */
 .dots i {
@@ -137,7 +156,7 @@
   height: 0.27em;
   border-radius: var(--r-dot);
   background: #fff;
-  --lit: clamp(0, var(--w) * 3 - var(--k), 1);
+  --lit: clamp(0, var(--wait, 0) * 3 - var(--k), 1);
   opacity: calc(0.24 + 0.76 * var(--lit));
   scale: calc(0.72 + 0.28 * var(--lit));
 }
@@ -150,18 +169,8 @@
 .dots i:nth-child(3) {
   --k: 2;
 }
-/* the whole row breathes while it waits */
-@keyframes dotsBreathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.14);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .line[data-wait='true'] .dots {
-    animation: none;
+    scale: 1;
   }
 }

@@ -14,20 +14,18 @@ import s from './NpLyrics.module.css';
    settles back after a moment; clicking a line plays from it. */
 const K = 140,
   C = 2 * 0.82 * Math.sqrt(K);
-/** How far a word has lifted (0..1, a hair over at the top), as Apple Music lifts it — in stages: a quick first rise as
- *  it is struck (a third of the way in about a tenth of a second), then on with the voice for as long as it is sung (a
- *  slow-in, slow-out curve), and at the end a small float past the top and back, settling. dt: since the word began;
- *  dur: how long it is sung. */
+/** How far a word has lifted (0..1), as Apple Music lifts it — in stages: a quick first rise as it is struck (a third of
+ *  the way in about a tenth of a second), then on with the voice for as long as it is sung (a slow-in, slow-out curve),
+ *  and there it stays: never past the top and back down (that read as the word dropping once it had risen, 3.2.4).
+ *  dt: since the word began; dur: how long it is sung. */
 const LIFT = 5;
 function liftAt(dt: number, dur: number) {
   if (dt <= 0) return 0;
   const d = Math.max(0.2, dur);
+  // (the strike and the voice's rise added together: one curve from rest to the top, rising all the way, no step anywhere)
   const strike = 0.32 * (1 - (1 - Math.min(1, dt / 0.11)) ** 3),
-    u = Math.min(1, dt / d),
-    sung = 0.32 + 0.68 * (u * u * (3 - 2 * u));
-  const base = Math.max(strike, dt < 0.11 ? strike : sung),
-    v = (dt - d) / 0.5;
-  return v <= 0 ? base : 1 + 0.07 * Math.sin(Math.PI * Math.min(1, v)) * (1 - Math.min(1, v));
+    u = Math.min(1, dt / d);
+  return strike + 0.68 * (u * u * (3 - 2 * u));
 }
 /** A word lit character by character: any word of several characters that is not Latin (it can wrap onto two rows). */
 const byUnit = (w: Line['words'][number]) => !w.latin && w.units.length > 1;
@@ -83,6 +81,11 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     last: 0,
     mTm: 0,
     wait: -1,
+    /** the room the dots take while a line is waited for (px): the lines from it on make way for them */
+    gap: 0,
+    /** the music's level as the glow reads it: eased, so the glow swells and fades with the music, never flickers */
+    lvl: 0.5,
+    lvlAt: 0,
   });
   // when each line becomes the current one: as it starts — or, as Apple Music does, half a beat early when the line
   // before is sung well before it (a breath of a beat or more): the page is already there when the voice comes in
@@ -149,8 +152,9 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       now = performance.now();
     S.ls.forEach((w, i) => {
       if (!w) return;
+      // (while a line is waited for, its dots come in as a line of their own: that line and the ones after it make way)
       const d = i - idx,
-        ty = anchor - a + S.manual;
+        ty = anchor - a + S.manual + (S.wait >= 0 && i >= S.wait ? S.gap : 0);
       w.next = ty;
       w.at = now + (wave ? Math.max(0, Math.min(d + 1, 9)) * 52 : 0);
       if (jump) {
@@ -216,11 +220,17 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       if (el) el.style.transform = '';
     });
     S.tops = lineEls.current.map((el) => (el ? el.offsetTop : 0));
+    const fs = lineEls.current.find(Boolean);
+    S.gap = fs ? Math.round(parseFloat(getComputedStyle(fs).fontSize) * 0.9) : 0;
+    if (box.current) box.current.style.setProperty('--gap', S.gap + 'px');
     S.ls = lineEls.current.map((el) => (el ? { el, y: 0, v: 0, ty: 0, at: 0, next: 0 } : null));
   };
   useLayoutEffect(() => {
     // (before the first line: none is current — the first is not lit before it is sung)
     const S = st.current;
+    // (the dots of a wait belong to this set of lines: a wait of the song before is not carried over — kept, the new
+    // song's first line never got its dots when it was waited for at the same place)
+    S.wait = -1;
     measure();
     const i = findLine(engine.time);
     S.cur = i;
@@ -261,8 +271,10 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         mark(i);
         aim(i, !S.manual, false);
       }
-      // a long wait (the intro, a break): the line to come is already in its place, three dots over it filling with the
-      // wait itself — when the voice comes in the line only lights, it does not arrive
+      // a long wait (the intro, a break): the line to come is already in its place, three dots coming in over it as a line
+      // of their own, lighting one by one with the wait itself — then, a beat before the voice, one swell in time with
+      // the music, and they go as it comes in: the line only lights, it does not arrive. All of it read off the song's
+      // time, so a paused song holds the dots still.
       {
         const N = lines[i + 1],
           // (from when the singing is over — not when the line stops being current, a few bars later)
@@ -274,16 +286,27 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
           const was = lineEls.current[S.wait];
           if (was) delete was.dataset.wait;
           S.wait = w;
-          const el = lineEls.current[w];
-          if (el) {
-            el.dataset.wait = 'true';
-            if (!S.manual) aim(w, true, false);
-          }
+          aim(w >= 0 && !S.manual ? w : S.cur, !S.manual, false);
         }
-        if (w >= 0) {
-          const el = lineEls.current[w];
-          if (el) put(el, '--wait', Math.min(1, (p.t - from) / (to - from)).toFixed(3));
+        const el = lineEls.current[w];
+        if (el) {
+          // (set every tick, not only when the wait begins: a line put in place after it began still gets its dots)
+          if (el.dataset.wait !== 'true') el.dataset.wait = 'true';
+          const bl = Math.max(0.25, engine.session?.map?.beatLen(to) ?? 0.5),
+            tb = to - bl,
+            x = Math.max(0, 1 - Math.abs(p.t - tb) / (bl * 0.5)),
+            pulse = (1 - Math.cos(Math.PI * x)) / 2,
+            end = Math.min(1, Math.max(0, (p.t - (to - bl * 0.5)) / (bl * 0.5)));
+          put(el, '--wait', Math.min(1, (p.t - from) / Math.max(0.5, tb - bl * 0.5 - from)).toFixed(3));
+          put(el, '--pulse', pulse.toFixed(3));
+          put(el, '--end', end.toFixed(3));
         }
+      }
+      {
+        const now = performance.now(),
+          k = Math.min(1, Math.max(0, (now - S.lvlAt) / 1000) * 4);
+        S.lvlAt = now;
+        S.lvl += ((p.rs ? p.rs.level : 0.5) - S.lvl) * k;
       }
       // (the current line — and a line already begun under it, still waiting to be current: its words are sung meanwhile)
       paint(i);
@@ -293,7 +316,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
           el = lineEls.current[i];
         if (!L || !el) return;
         const ws = el.querySelectorAll<HTMLElement>('[data-w]'),
-          lvl = p.rs ? p.rs.level : 0.5;
+          lvl = S.lvl;
         // a line timed only as a whole lights as a whole, at once, from the moment it is the current line (or its own time,
         // if that is sooner), as Apple Music does: one fill on the line — never dark while current, never faded in
         const t0w = Math.min(starts[i] ?? L.t, L.t);

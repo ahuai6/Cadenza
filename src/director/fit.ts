@@ -54,7 +54,19 @@ export function fitFrames(c: CameraPlan, words: PWord[], W: number, H: number) {
     dropped = new Set<Frame>();
   // (a few passes, each measured on the path as the last one left it: the smoothing takes the edge off a short need,
   // the next pass makes up the rest)
-  for (let pass = 0; pass < 9; pass++) if (!fitPass(P, frames, sung, dropped, W, H)) break;
+  // (the moves from one line on to the next: while the camera sweeps across, the character being sung — the old line's
+  // last or the new line's first — is the move's own business; drawing back to hold it would be taken early, shrinking
+  // the old line's last words as they were sung, 3.2.4)
+  const sweeps: [number, number][] = [],
+    stops = c.stops ?? [];
+  for (let i = 1; i < stops.length; i++) {
+    const A = stops[i - 1],
+      B = stops[i];
+    if (B.cut || B.words[0]?.line === A.words[0]?.line) continue;
+    const m = (c.moves ?? []).find((m) => Math.abs(m.a - B.arrive) < 0.02 && m.s >= A.arrive - 0.02);
+    if (m && m.ease !== 'cut') sweeps.push([m.s, m.a]);
+  }
+  for (let pass = 0; pass < 9; pass++) if (!fitPass(P, frames, sung, dropped, W, H, sweeps)) break;
 }
 function fitPass(
   P: NonNullable<CameraPlan['path']>,
@@ -63,6 +75,7 @@ function fitPass(
   dropped: Set<Frame>,
   W: number,
   H: number,
+  sweeps: [number, number][] = [],
 ): boolean {
   const n = P.n,
     rate = P.rate,
@@ -81,7 +94,9 @@ function fitPass(
       act = frames.filter((F) => !dropped.has(F) && t >= F.ts && t < frameGone(F));
     // (the word being sung — not in its last moment, its sustain, where the camera may already be on to the next — nor
     // once its line has left the page)
-    const S0 = sung.find((S) => t >= S.w.t + 0.03 && t < S.end - 0.12 && t < S.line.secEnd);
+    const S0 = sweeps.some(([a, b]) => t >= a && t < b)
+      ? undefined
+      : sung.find((S) => t >= S.w.t + 0.03 && t < S.end - 0.12 && t < S.line.secEnd);
     if (!act.length && !S0) continue;
     const cam = { x: P.x[f], y: P.y[f], z: Math.exp(P.lz[f]), r: P.r[f], d: P.d[f], yaw: 0, pitch: 0 };
     const fit = (fs: Frame[]) => {

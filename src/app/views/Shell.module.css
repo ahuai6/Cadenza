@@ -211,10 +211,16 @@
   overflow: auto;
   background: var(--bg);
   border-radius: var(--r-4) var(--r-4) 0 0;
-  box-shadow: 0 -30px 80px -30px rgba(0, 0, 0, 0.55);
+  /* (and a skirt of its own colour as deep as the bar below its foot — a shadow, so it is outside the scrolling: as the
+     sheet sinks, the bar's ground clears over the sheet's paper, never over the sheet's edge sliding down through it) */
+  box-shadow:
+    0 -30px 80px -30px rgba(0, 0, 0, 0.55),
+    0 var(--card-h) 0 0 var(--bg);
   scrollbar-gutter: stable;
   will-change: transform;
-  transition: background var(--t-song) var(--ease);
+  transition:
+    background var(--t-song) var(--ease),
+    box-shadow var(--t-song) var(--ease);
 }
 /* (no song yet: no bar under the sheet) */
 .shell:not([data-card='true']) .page {

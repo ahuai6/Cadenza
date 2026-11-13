@@ -213,8 +213,7 @@ export function layout(inp: LayoutInput): LayoutResult {
     };
     let prev: { group: number; s0: number; tin: string; show: number } | null = null;
     for (const Wd of L.words) {
-      const k = Wd.k,
-        n = Wd.units.length;
+      const k = Wd.k;
       const vert = !!P.vert;
       // (the spread exit opens out the space between letters, so a unit of several — a sung syllable — is taken letter
       // by letter, each with its syllable's moment)
@@ -223,17 +222,22 @@ export function layout(inp: LayoutInput): LayoutResult {
         us.map((u) => u.c),
         { vertical: vert, rtl: L.rtl },
       );
+      // (a single character is set small now and then; a word of several — even one the lyrics time as one sound, as a
+      // word-timed line often does — never as small as that)
+      const chars = graphemes(Wd.text.trim()).length;
       let s0 = Wd.latin
         ? 1.1
         : !LT.sizes
           ? 1
-          : n === 1
+          : chars <= 1
             ? 0.5
             : [1, 0.62, 1.32][Math.floor(rnd(L.i * 13 + k * 5.1) * 3)];
       if (k === 0 && !Wd.latin) s0 = Math.max(s0, 1);
       // (the line's last group — the few characters it ends on, often cut off as a group of their own — is never set
       // small: a line that trailed off in small type, the camera leaving it at once, read as an afterthought)
-      if (n > 1 && !Wd.latin && Wd.group === L.words[L.words.length - 1].group) s0 = Math.max(s0, 1);
+      // (and the line's last two groups — the words it ends on — never smaller than its usual size)
+      const lastG = L.words[L.words.length - 1].group;
+      if (chars > 1 && !Wd.latin && Wd.group >= lastG - 1) s0 = Math.max(s0, 1);
       // words sung as one quick run (one gesture) share one size and one entrance, so they read as one beat, not a stutter
       const fused: boolean = !!prev && prev.group === Wd.group;
       if (fused) s0 = prev!.s0;

@@ -1,7 +1,8 @@
 // Invariants of the director's plan, for every camera style: what the camera must never do.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parse } from '../../src/lyrics/parse';
+import { parse, parseLyrics } from '../../src/lyrics/parse';
+import { respace } from '../../src/lyrics/spacing';
 import { buildLyrics } from '../../src/lyrics/model';
 import { RhythmMap } from '../../src/rhythm/map';
 import { Signals } from '../../src/rhythm/signals';
@@ -28,7 +29,7 @@ function make(
   opts: { frame?: boolean; trigger?: number; aspect?: number } = {},
 ) {
   const map = RhythmMap.grid(112, 0.3, 160);
-  const p = parse(src),
+  const p = src.trimStart().startsWith('<') ? respace(parseLyrics(src)) : parse(src),
     musicEnd = Math.max(...p.lines.map((l) => l.t)) + 6;
   const doc = buildLyrics(p, map, musicEnd);
   const base = presetStyle(cut === 'punch' ? 'liquid' : 'cover'),
@@ -1579,6 +1580,58 @@ describe("the camera's rate, as the depths read it (3.1.2)", () => {
       flush();
       expect(before, cut).toBeGreaterThan(0);
       expect(now / before, `${cut}: ${now.toFixed(0)} against ${before.toFixed(0)}`).toBeLessThan(0.6);
+    }
+  });
+});
+
+describe("a line's last words, word-timed (3.2.4)", () => {
+  // (made-up lyrics shaped like a word-timed line that runs to its end with words the lyrics time as one sound each —
+  // several characters to a span — and the next line straight after)
+  const span = (b: number, e: number, s: string) =>
+    `<span begin="00:${b.toFixed(3).padStart(6, '0')}" end="00:${e.toFixed(3).padStart(6, '0')}">${s}</span>`;
+  const words = [
+    ['星屑みたい', '遠くの窓', 'ひかる', '海'],
+    ['青い傘を', 'さしたまま', 'あるく', '道'],
+    ['静かな部屋で', '眠れないまま', 'ゆらり', '夢'],
+    ['小さな声が', '聞こえたなら', 'そっと', '朝'],
+    ['名前のない', '花を摘んで', 'いつか', '春'],
+    ['冷たい風に', '吹かれながら', 'ひとり', '夜'],
+  ];
+  let t = 2,
+    body = '';
+  for (const [i, ws] of words.entries()) {
+    const d = [1, 1.1, 0.55, 0.33];
+    let a = t,
+      sp = '';
+    ws.forEach((w, k) => {
+      sp += span(a, a + d[k] - 0.02, w);
+      a += d[k];
+    });
+    body += `<p begin="00:${t.toFixed(3).padStart(6, '0')}" end="00:${a.toFixed(3).padStart(6, '0')}" itunes:key="L${i}">${sp}</p>`;
+    t = a; // (the next line comes in straight away)
+  }
+  const src = `<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word" xml:lang="ja"><body><div>${body}</div></body></tt>`;
+  it('the words a line ends on are never set small, however many characters a timed span holds', () => {
+    const P = make('glide', src);
+    expect(P.lines.length).toBe(words.length);
+    for (const L of P.lines) {
+      const lastG = L.words[L.words.length - 1].w.group;
+      for (const S of L.words)
+        if (S.w.group >= lastG - 1) expect(S.s, `${L.L.text}: ${S.w.text}`).toBeGreaterThanOrEqual(1);
+    }
+  });
+  it('the camera does not pull far back from the last words to take in a new line far off', () => {
+    for (const cut of ['glide', 'waltz', 'punch'] as const) {
+      const P = make(cut, src, { frame: false }),
+        S = P.camera.stops;
+      for (let i = 1; i < S.length; i++) {
+        const A = S[i - 1],
+          B = S[i];
+        if (B.cut || A.words[0].line === B.words[0].line || B.hov) continue;
+        // (the last character of the line before, still being sung when the camera sets off for the new line)
+        const zA = basePose(P.camera, Math.min(A.sungEnd, B.t) - 0.05).z;
+        expect(zA / A.z, `${cut} at ${B.t.toFixed(2)}`).toBeGreaterThan(0.7);
+      }
     }
   });
 });
