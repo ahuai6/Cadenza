@@ -1,7 +1,8 @@
 // The space interface's rooms come from the library: songs by title, albums by name (a page of sixteen in the nave),
 // the favourites as the first playlist, and nothing that is not in the library any more.
 import { describe, it, expect } from 'vitest';
-import { fromLibrary, navePage, navePages, NAVE_SLOTS, indexLetter, letterSpan } from '../../src/app/space/data';
+import { fromLibrary, navePage, navePages, NAVE_SLOTS, letterSpan } from '../../src/app/space/data';
+import { indexLetter } from '../../src/app/letters';
 import type { Track, Playlist } from '../../src/app/bridge';
 
 const track = (id: string, title: string, album: string, artist = 'A', cover: string | null = null): Track => ({

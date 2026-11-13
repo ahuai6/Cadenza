@@ -8,6 +8,7 @@ import { Button, Cover, Empty } from '../ui/kit';
 import { engine } from '../playback/stage';
 import { player } from '../playback/player';
 import { menuFor, run } from '../commands';
+import { indexLetter, LETTERS } from '../letters';
 import { TrackList } from './Library';
 import s from './AlbumLine.module.css';
 
@@ -21,7 +22,32 @@ const NEAR = 30;
 
 type Albums = ReturnType<typeof useIndex>['albums'];
 
-export function AlbumLine({ items }: { items: Albums }) {
+/** albums at least this many: an index of their letters over the line */
+const INDEX_FROM = 12;
+
+export function AlbumLine({ items: given }: { items: Albums }) {
+  // (along the line in the order of their index letters — A to Z, then the rest — and by name within one: a jump to a
+  // letter lands on the first of a run)
+  const items = useMemo(
+    () =>
+      given
+        .map((a) => ({ a, l: indexLetter(a.name || '') }))
+        .sort(
+          (x, y) =>
+            LETTERS.indexOf(x.l) - LETTERS.indexOf(y.l) ||
+            x.a.name.localeCompare(y.a.name, undefined, { numeric: true, sensitivity: 'base' }),
+        )
+        .map((x) => x.a),
+    [given],
+  );
+  const firsts = useMemo(() => {
+    const m = new Map<string, number>();
+    items.forEach((a, i) => {
+      const l = indexLetter(a.name || '');
+      if (!m.has(l)) m.set(l, i);
+    });
+    return m;
+  }, [items]);
   const playing = useStore(player, (x) => x.id),
     isOn = useStore(player, (x) => x.playing),
     bpm = useStore(player, (x) => x.session?.map.bpm || 0);
@@ -90,6 +116,20 @@ export function AlbumLine({ items }: { items: Albums }) {
           {tx('s.playAll')}
         </Button>
       </header>
+      {items.length >= INDEX_FROM && firsts.size > 1 && (
+        <nav className={s.letters} aria-label={tx('s.albums')} data-test="album-letters">
+          {[...firsts].map(([l, i]) => (
+            <button
+              key={l}
+              type="button"
+              aria-current={indexLetter(album.name || '') === l || undefined}
+              onClick={() => pick(i)}
+            >
+              {l}
+            </button>
+          ))}
+        </nav>
+      )}
       <div
         className={s.river}
         ref={river}
