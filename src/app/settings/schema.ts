@@ -71,7 +71,6 @@ export const SCHEMA = {
   }),
   theme: choice(['system', 'light', 'dark'], 'system', {
     group: 'look',
-    only: 'classic',
     label: 's.set.theme',
     optionLabel: (o) => ['s.set.' + o],
   }),

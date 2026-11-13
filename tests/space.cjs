@@ -217,13 +217,13 @@ const SONG = `(() => {
   // what opens where you stand, and the reach
   await p.evaluate(() => {
     __cad.go('nave');
-    __cad.stand(3, -9.5, Math.PI / 2, 0);
+    __cad.albumStand(0, 6.6);
   });
   await wait(1200);
   await p.mouse.click(640, 300);
   await wait(400);
   ok('reach: an album too far away does not open', !(await p.$('[data-test="space-detail"]')));
-  await p.evaluate(() => __cad.stand(-3, -9.5, Math.PI / 2, 0));
+  await p.evaluate(() => __cad.albumStand(0, 3));
   await wait(1000);
   const before = await p.evaluate(() =>
     [__cad.camera().position.x.toFixed(2), __cad.camera().position.z.toFixed(2)].join(),
@@ -244,11 +244,11 @@ const SONG = `(() => {
   // (the notice keeps its words after it fades: on a slow machine the click alone can outlast it)
   const said = await p.$eval('[role="status"]', (e) => e.textContent);
   ok('commands: a card adds its songs to the queue, and says so', /\d+ 首加入播放佇列/.test(said), said);
-  await p.evaluate(() => __cad.stand(0, -30, 0, 0));
+  await p.evaluate(() => __cad.stand(0, -40, 0, 0));
   await wait(700);
   ok('reach: walking away closes it', !(await p.$('[data-test="space-detail"]')));
   // the reticle's menu (immersive, right button): the library's own commands for what it is on, where it is
-  await p.evaluate(() => __cad.stand(-3, -9.5, Math.PI / 2, 0));
+  await p.evaluate(() => __cad.albumStand(0, 3));
   await wait(1000);
   const menued = await p.evaluate(() => __cad.menuAt(640, 300));
   await wait(400);

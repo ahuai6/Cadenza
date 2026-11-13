@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { boot } from '../actions/boot';
 import { ensureFont } from '../../engine';
 import { createWorld } from './world';
-import { createBind } from './bind';
+import { createBind, isNight } from './bind';
 import { hudHtml } from './hud';
 import { SpaceSettings } from './SpaceSettings';
 import { PlayerExtras, SpacePanel, WinButtons, type Panel } from './SpacePanels';
@@ -40,9 +40,21 @@ export function SpaceShell() {
   const world = useRef<{ dispose(): void; takePointer(): void; closed(): void; pause(on: boolean): void } | null>(null);
   const lang = useStore(langStore, (x) => x.lang),
     lite = useStore(settings, (x) => x.gfx === 'lite'),
+    // (dusk or midnight: the scene is built for one of them, and built again when it changes)
+    [night, setNight] = useState(() => isNight(settings.get())),
     mini = useStore(ui, (x) => !!x.win.mini),
     away = useStore(ui, (x) => !!x.win.min);
   useEffect(() => boot(() => setReady(true)), []);
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)'),
+      check = () => setNight(isNight(settings.get()));
+    const off = settings.subscribe(check);
+    mq.addEventListener('change', check);
+    return () => {
+      off();
+      mq.removeEventListener('change', check);
+    };
+  }, []);
   useEffect(() => {
     if (!ready || !root.current) return;
     let gone = false;
@@ -79,7 +91,7 @@ export function SpaceShell() {
       world.current?.dispose();
       world.current = null;
     };
-  }, [ready, lang, gen]);
+  }, [ready, lang, gen, night]);
   // (a menu closed: the view held again, if it was let out for the menu)
   const menuOpen = useStore(ui, (x) => !!x.menu);
   useEffect(() => {
@@ -100,7 +112,12 @@ export function SpaceShell() {
     >
       {/* a language change rebuilds the HUD and the scene's labels */}
       {ready && (
-        <div key={lang + ':' + gen} ref={root} className={s.hud} dangerouslySetInnerHTML={{ __html: hudHtml() }} />
+        <div
+          key={lang + ':' + gen + ':' + night}
+          ref={root}
+          className={s.hud}
+          dangerouslySetInnerHTML={{ __html: hudHtml() }}
+        />
       )}
       {ready && cfg.open && <SpaceSettings section={cfg.section} onClose={close} />}
       {ready && (

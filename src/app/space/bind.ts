@@ -98,6 +98,8 @@ export interface SpacePrefs {
   immersive: boolean;
   motion: 'full' | 'reduced';
   gfx: 'default' | 'optimized' | 'lite';
+  /** the interface is dark (by the setting, or the system's when it follows the system): the space is at midnight */
+  night: boolean;
 }
 
 const SYS_REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -126,8 +128,13 @@ function prefsOf(st: Settings): SpacePrefs {
     immersive: !!st.spaceImmersive,
     motion: st.spaceReduced || SYS_REDUCED ? 'reduced' : 'full',
     gfx: st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default',
+    night: isNight(st),
   };
 }
+/** Whether the space is at midnight: the interface's theme, or the system's when it follows the system. */
+export const isNight = (st: Settings) =>
+  st.theme === 'dark' ||
+  (st.theme !== 'light' && typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches);
 export function createBind(): SpaceBind {
   let cur = build(),
     timer = 0;

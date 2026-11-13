@@ -162,7 +162,7 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
           {fields('fxCapSubs', 'fxCapReads', 'spaceLyric')}
         </Group>
         <Group id="look" title={ts('g.look')}>
-          {fields('ui')}
+          {fields('theme', 'ui')}
           <div>
             <Button size="sm" icon="refresh" onClick={() => D?.relaunch()}>
               {tx('s.set.uiMode.restart')}

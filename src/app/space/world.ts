@@ -21,6 +21,8 @@ import type { SpaceBind, SpaceNow } from './bind';
 import { navePage, navePages, letterSpan, NAVE_SLOTS, LIST_SLOTS } from './data';
 import { CoverCache, CoverAtlas } from './covers';
 import { ts } from './i18n';
+import * as PL from './plan';
+import { wallShape, slab, subdivide, bendRound, alongRound, standFlat, floorShape } from './shapes';
 import AMBIENT from './ambient.ogg?url';
 
 export interface SpaceUi {
@@ -76,18 +78,48 @@ export function createWorld(
     curLine = -1;
 
   /* ---------- palette: paper and shade make the space, ink makes the line, accents stay under 10% ---------- */
-  const C = {
-    wheat: '#E8DCC4',
-    oat: '#D8C7A8',
-    ivory: '#F5EEE0',
-    taupe: '#BFAF97',
-    ink: '#29241F',
-    clay: '#D97757',
-    kraft: '#C99A6E',
-    olive: '#8C9A62',
-    mist: '#8BA2BD',
-    apricot: '#FFE3B8',
-  };
+  // (dusk with a light interface, midnight with a dark one — docs/SPACE.md: the same colours, at midnight darker and
+  // cooler; the lamps keep their warmth)
+  const NIGHT = !!S.night;
+  const C = NIGHT
+    ? {
+        wheat: '#2A2F45',
+        oat: '#343A52',
+        ivory: '#474E68',
+        taupe: '#3D4259',
+        ink: '#0C0E17',
+        clay: '#A9604B',
+        kraft: '#94775D',
+        olive: '#67765A',
+        mist: '#62799B',
+        apricot: '#FFD9A8',
+        text: '#EAE4D8',
+        sub: '#A6A1B8',
+        sky0: '#1B2447',
+        sky1: '#060A1A',
+        ceil0: '#23283A',
+        ceil1: '#2E3449',
+        beam: '#A9BEE6',
+      }
+    : {
+        wheat: '#E8DCC4',
+        oat: '#D8C7A8',
+        ivory: '#F5EEE0',
+        taupe: '#BFAF97',
+        ink: '#29241F',
+        clay: '#D97757',
+        kraft: '#C99A6E',
+        olive: '#8C9A62',
+        mist: '#8BA2BD',
+        apricot: '#FFE3B8',
+        text: '#29241F',
+        sub: '#7a6f63',
+        sky0: '#F3C9A0',
+        sky1: '#8EA5C8',
+        ceil0: '#D4C5AA',
+        ceil1: '#E2D5BC',
+        beam: '#FFE3B8',
+      };
   C.paper = C.wheat;
   const ROOM_COL = { nave: C.clay, dome: C.olive, lists: C.mist, settings: C.kraft, altar: C.clay };
 
@@ -104,21 +136,22 @@ export function createWorld(
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false; // soft edges on every cast shadow
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(C.wheat);
+  scene.background = new THREE.Color(NIGHT ? '#151a2b' : C.wheat);
   const camera = new THREE.PerspectiveCamera(62, 1, 0.3, 160);
 
   /* ---------- light: a cool ambient paints the shade colour, one warm sun paints the light ---------- */
   const SUN_DIR = new V3(0.42, 1, 0.18).normalize(),
     SUN_M = new V3(-0.42, 1, 0.18).normalize(); // (the mirrored sun: light for the windows on the shaded side)
   const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b);
-  const ambLight = new THREE.AmbientLight(lin(0.72, 0.68, 0.64), Math.PI);
+  const ambLight = new THREE.AmbientLight(NIGHT ? lin(0.5, 0.52, 0.66) : lin(0.72, 0.68, 0.64), Math.PI);
   scene.add(ambLight); // a little lower: the room was too bright
-  const sun = new THREE.DirectionalLight(lin(0.34, 0.31, 0.22), Math.PI);
+  // (at dusk a low warm sun; at midnight the moon: cool and faint)
+  const sun = new THREE.DirectionalLight(NIGHT ? lin(0.16, 0.19, 0.27) : lin(0.38, 0.31, 0.2), Math.PI);
   sun.castShadow = true;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.09;
   scene.add(sun, sun.target);
-  const fill = new THREE.DirectionalLight(lin(0.12, 0.11, 0.1), Math.PI);
+  const fill = new THREE.DirectionalLight(NIGHT ? lin(0.06, 0.07, 0.1) : lin(0.12, 0.11, 0.1), Math.PI);
   fill.position.set(-0.6, 0.7, 0.9);
   scene.add(fill); // no shadow: gives round things a second tone
 
@@ -233,10 +266,10 @@ export function createWorld(
   ];
   const labelTex = (title, sub, w = 512) =>
     textTex(w, 140, (g, W, h) => {
-      g.fillStyle = C.ink;
+      g.fillStyle = C.text;
       g.font = '500 46px "Noto Serif TC", serif';
       g.fillText(title, 8, 56);
-      g.fillStyle = '#7a6f63';
+      g.fillStyle = C.sub;
       g.font = 'italic 400 30px "Source Serif 4", serif';
       g.fillText(sub, 8, 108);
     });
@@ -246,7 +279,7 @@ export function createWorld(
     textTex(1600, 180, (g, w, h) => {
       g.textBaseline = 'middle';
       g.textAlign = 'center';
-      g.fillStyle = C.ink;
+      g.fillStyle = C.text;
       const maxW = w - 80;
       const fits = (px) => {
         g.font = `${air.face.w} ${px}px ${air.face.stack}`;
@@ -283,10 +316,10 @@ export function createWorld(
   const titleTex = (zh, en) =>
     textTex(1024, 260, (g, w, h) => {
       g.textAlign = 'center';
-      g.fillStyle = C.ink;
+      g.fillStyle = C.text;
       g.font = '700 132px "Noto Serif TC", serif';
       g.fillText(zh, w / 2, 140);
-      g.fillStyle = '#7a6f63';
+      g.fillStyle = C.sub;
       g.font = 'italic 400 56px "Source Serif 4", serif';
       g.fillText(en, w / 2, 222);
     });
@@ -615,210 +648,136 @@ export function createWorld(
     return m;
   };
 
-  /* ---------- the plan: a Latin cross of closed rooms joined by doorways ---------- */
-  const T = 0.9;
-  const NAVE = { w: 12, z0: 0, z1: -49, h: 14, bay: 6 };
-  const CROSS = { c: new V3(0, 0, NAVE.z1 - T - 14), r: 14, h: 15 };
-  const LISTS = { c: new V3(-(14 + T + 3 + T + 7), 0, CROSS.c.z), r: 7, h: 11 };
-  const SETS = { c: new V3(14 + T + 3 + T + 7, 0, CROSS.c.z), r: 7, h: 11 };
-  const SANCT = { c: new V3(0, 0, CROSS.c.z - (14 + T + 3 + T + 8)), r: 8, h: 13 };
-  const DOOR = { w: 5, h: 8 };
+  /* ---------- the plan (plan.ts): a round atrium open to the sky, a ring gallery round it, three rooms off the ring;
+     every wall drawn flat and stood up or bent round (shapes.ts), every doorway round ---------- */
+  const T = PL.T;
+  const v3 = (p, y = 0) => new V3(p.x, y, p.z);
+  const CROSS = { c: v3(PL.A), r: PL.ATRIUM.r, h: PL.ATRIUM.h };
+  const LISTS = { c: v3(PL.centre('lists')), ...PL.ROOMS.lists };
+  const SETS = { c: v3(PL.centre('settings')), ...PL.ROOMS.settings };
+  const SANCT = { c: v3(PL.centre('altar')), ...PL.ROOMS.altar };
+  // (where each round wall's flat drawing begins: a way with no doorway or window on it)
+  const SEAM = 0.3;
+  const MAT_CEIL = baked(C.ceil0, C.ceil1, 0, 12, { side: THREE.DoubleSide });
   {
-    const f = mesh(new THREE.PlaneGeometry(90, 120), MAT.floor, world, false);
+    const b = PL.bounds(8),
+      f = mesh(new THREE.PlaneGeometry(b.x1 - b.x0, b.z1 - b.z0), MAT.floor, world, false);
     f.rotation.x = -Math.PI / 2;
-    f.position.set(0, 0, -55);
+    f.position.set((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2);
   }
-
-  // the nave: two plain walls with high windows, a vault, the albums in one even row
-  const albumSlots = [];
+  // a round wall about c: its doorways and windows at compass ways
+  function roundWall(c, r, h, doors, wins = []) {
+    const U = (th) => alongRound(th, r, SEAM),
+      flatG = slab(
+        wallShape(
+          Math.PI * 2 * r,
+          h,
+          doors.map(U),
+          wins.map((w) => ({ u: U(w.th), y: w.y, r: w.r })),
+        ),
+        T,
+      ),
+      g = subdivide(flatG, 1.1);
+    flatG.dispose();
+    bendRound(g, r, c.x, c.z, SEAM);
+    return mesh(g, MAT.paper);
+  }
+  // a flat ring (or a disc with a round hole) under a ceiling
+  function ringRoof(c, r0, r1, y) {
+    const s = new THREE.Shape();
+    s.absarc(c.x, c.z, r1, 0, Math.PI * 2, false);
+    const hole = new THREE.Path();
+    hole.absarc(c.x, c.z, r0, 0, Math.PI * 2, true);
+    s.holes.push(hole);
+    return mesh(floorShape(s, y), MAT_CEIL);
+  }
+  // the sky over every open roof: a dome far out, its colour from the horizon up
+  const skyMat = baked(C.sky0, C.sky1, 0, 60, { side: THREE.BackSide, fog: false });
+  skyMat.userData.sky = true;
   {
-    const L = -NAVE.z1,
-      zc = NAVE.z1 / 2;
-    for (const side of [-1, 1]) {
-      const wins = [],
-        ry = (side * Math.PI) / 2;
-      for (let b = 0; b < 8; b++) {
-        const z = -0.5 - NAVE.bay / 2 - b * NAVE.bay;
-        wins.push({ x: side > 0 ? -(z - zc) : z - zc, y: 8.6, w: 2.4, h: 4.8, z });
-      }
-      const wall = mesh(panelGeo(L + 2 * T, NAVE.h, T, null, wins), MAT.paper);
-      wall.position.set(side * (NAVE.w / 2 + T / 2), 0, zc);
-      wall.rotation.y = ry;
-      wins.forEach((w, k) => glassIn(wall, w, [C.clay, C.kraft, C.apricot, C.mist], k * 3 + side));
-      for (let b = 0; b < 8; b++)
-        albumSlots.push({ x: side * (NAVE.w / 2 - 0.02), z: -0.5 - NAVE.bay / 2 - b * NAVE.bay, ry: -ry, side });
-    }
-    for (const side of [-1, 1])
-      for (const [dep, y0, hh, m] of [
-        [0.26, 13.48, 0.28, MAT.oat],
-        [0.48, 13.76, 0.22, MAT.ivory],
-      ]) {
-        const b = mesh(new THREE.BoxGeometry(dep + 0.1, hh, L - 0.02), m, world, false);
-        b.position.set(side * (NAVE.w / 2 - dep / 2 + 0.05), y0 + hh / 2, zc);
-      } // the same cornice along the nave
-    {
-      const v = mesh(extrude(bandShape(NAVE.w, 7, 0.5), L + 1), MAT.vault);
-      v.position.set(0, NAVE.h, NAVE.z1 - 0.5);
-      v.receiveShadow = false;
-    }
-    const west = mesh(panelGeo(NAVE.w + 2 * T + 0.4, NAVE.h + 8, T, null, [], [{ x: 0, y: 15.2, r: 3.1 }]), MAT.paper);
-    west.position.set(0, 0, T / 2);
-    const rose = new THREE.Mesh(new THREE.CircleGeometry(3.1, 64), glassMat(roseTex(), 7.5));
-    rose.position.set(0, 15.2, 0);
-    west.add(rose);
-    rose.userData.size = 7.5;
-    glassList.push(rose);
-    rose.userData.noBeam = true;
-    rose.castShadow = true;
-    /* (no sun through it: a sliver of it slipped past the vault onto the side wall as a thin streak) */ rose.material.uniforms.base.value = 0.74;
-    rose.material.uniforms.flare.value = 0.12; // the rose is read for its pattern: it glows, it never burns
-    soft(west, GLOW, 9, 9, 0, 15.2, -T / 2 - 0.03, 0, Math.PI, 0.18, true);
-    mesh(extrude(new THREE.Shape(archPts(4.4, 7)), 0.08), MAT.oat).position.set(0, 0, -0.04);
-    const east = mesh(panelGeo(NAVE.w + 2 * T + 0.4, NAVE.h + 8, T, { w: 6, h: 10.5 }, [], []), MAT.paper);
-    east.position.set(0, 0, NAVE.z1 - T / 2);
-    east.rotation.y = Math.PI;
-    relief(east, { x: 0, y: 13, r: 1.3 }, ['olive', 'kraft', 'clay'], T / 2);
-    relief(east, { x: 0, y: 13, r: 1.3 }, ['mist', 'kraft', 'clay'], -T / 2, Math.PI);
+    const s = new THREE.Mesh(new THREE.SphereGeometry(110, 48, 24), skyMat);
+    s.position.set(CROSS.c.x, 0, CROSS.c.z);
+    world.add(s);
+    noLine.push(s);
   }
-
-  // an octagonal room: eight plain panels and a faceted dome with an oculus; nothing else is architecture
-  const VEST_DIRS = [
-    ['settings', new V3(1, 0, 0)],
-    ['lists', new V3(-1, 0, 0)],
-    ['altar', new V3(0, 0, -1)],
-  ];
-  const DIRS = Array.from({ length: 8 }, (_, i) => new V3(Math.sin((i * Math.PI) / 4), 0, Math.cos((i * Math.PI) / 4)));
   const domes = [];
-  function octRoom(R, o) {
-    const g = new THREE.Group();
-    g.position.copy(R.c);
-    world.add(g);
-    const r = R.r,
-      h = R.h,
-      side = 2 * (r + T) * Math.tan(Math.PI / 8) + 0.05,
-      panels = [];
-    for (let i = 0; i < 8; i++) {
-      if (o.skip?.includes(i)) {
-        panels.push(null);
-        continue;
-      }
-      const door = o.doors?.includes(i) ? DOOR : null,
-        all = o.wins?.[i] || [],
-        wins = all.filter((w) => !w.deco);
-      const p = mesh(panelGeo(side, h, T, door, wins), MAT.paper, g);
-      p.position.copy(DIRS[i]).multiplyScalar(r + T / 2);
-      p.rotation.y = (i * Math.PI) / 4;
-      panels.push(p);
-      wins.forEach((w, k) => glassIn(p, w, o.glass, i * 5 + k + r, o.focal));
-      all.filter((w) => w.deco).forEach((w) => relief(p, w, ['olive', 'kraft', 'clay'], -T / 2, Math.PI));
-    }
-    const rc = r / Math.cos(Math.PI / 8);
-    const th0 = Math.asin(o.oculus / rc),
-      dome = mesh(
-        new THREE.SphereGeometry(rc, 8, 18, Math.PI / 8 + Math.PI / 2, Math.PI * 2, th0, Math.PI / 2 - th0),
-        MAT.dome,
-        g,
-      );
-    dome.position.y = h - 0.05;
-    dome.receiveShadow = false; // no self-shadow ripples: the dome is lit by its own wash
-    const top = h + rc * Math.cos(th0);
-    const sky = new THREE.Mesh(
-      new THREE.CircleGeometry(o.oculus + 0.4, 40),
-      flat('#FFF6E6', { side: THREE.DoubleSide }),
-    );
-    sky.rotation.x = Math.PI / 2;
-    sky.position.y = top + 1.2;
-    g.add(sky);
-    noLine.push(sky);
-    cornice(g, r, h);
-    domes.push({ c: R.c, r: o.oculus, y: top, focal: o.focal, sky, g });
-    return { g, panels, top };
-  }
-  // a stepped cornice where the walls meet the dome: an octagonal ring in two tiers, one piece so no faces are shared
-  function octRing(apIn, apOut, y, hgt, mat, g) {
-    const ring = (ap) =>
-      Array.from({ length: 8 }, (_, j) => {
-        const a = Math.PI / 8 + (j * Math.PI) / 4,
-          R = ap / Math.cos(Math.PI / 8);
-        return new V2(Math.sin(a) * R, -Math.cos(a) * R);
-      });
-    const sh = new THREE.Shape(ring(apOut));
-    sh.holes.push(new THREE.Path(ring(apIn).reverse()));
-    const m = mesh(new THREE.ExtrudeGeometry(sh, { depth: hgt, bevelEnabled: false }), mat, g, false);
-    m.rotation.x = -Math.PI / 2;
-    m.position.y = y;
-    return m;
-  }
-  const cornice = (g, r, h) => {
-    octRing(r - 0.26, r + 0.12, h - 0.78, 0.42, MAT.oat, g);
-    octRing(r - 0.5, r + 0.12, h - 0.36, 0.34, MAT.ivory, g);
-  };
-  function vestibule(from, dir, len) {
-    const v = mesh(extrude(bandShape(DOOR.w, DOOR.h, 0.5), len), MAT.tunnel);
-    v.receiveShadow = false;
-    v.position.copy(from);
-    v.rotation.y = Math.atan2(dir.x, dir.z);
-    return v;
-  }
-  const tall = (x) => ({ x, y: 7.2, w: 2.2, h: 5.6 });
-  const over = { x: 0, y: 9.4, w: 2.2, h: 3.8, deco: true }; // above a doorway there is only the next room: an ornament, not glass
-  const crossing = octRoom(CROSS, {
-    skip: [0],
-    doors: [2, 4, 6],
-    wins: { 1: [tall(0)], 2: [over], 3: [tall(0)], 4: [over], 5: [tall(0)], 6: [over], 7: [tall(0)] },
-    oculus: 3.2,
-    glass: [C.olive, C.kraft, C.apricot, C.clay],
-    focal: new V3(CROSS.c.x, 0, CROSS.c.z),
-  });
-  const lists = octRoom(LISTS, {
-    doors: [2],
-    wins: Object.fromEntries([0, 1, 3, 4, 5, 7].map((i) => [i, [{ x: 0, y: 6.8, w: 1.6, h: 3.2 }]])),
-    oculus: 2,
-    glass: [C.mist, C.apricot, C.olive],
-    focal: new V3(LISTS.c.x + 0.1, 0, LISTS.c.z + 0.6),
-  });
-  const sets = octRoom(SETS, {
-    doors: [6],
-    wins: Object.fromEntries([0, 1, 2, 3, 4, 5, 7].map((i) => [i, [{ x: 0, y: 6.6, w: 1.6, h: 3.2 }]])),
-    oculus: 2,
-    glass: [C.kraft, C.apricot, C.clay],
-    focal: new V3(SETS.c.x + 0.6, 0, SETS.c.z),
-  });
-  const sanct = octRoom(SANCT, {
-    doors: [0],
-    wins: Object.fromEntries([1, 2, 3, 5, 6, 7].map((i) => [i, [{ x: 0, y: 5.8, w: 1.5, h: 6 }]])),
-    oculus: 1.9,
-    glass: [C.clay, C.kraft, C.apricot, C.mist],
-    focal: new V3(SANCT.c.x, 0, SANCT.c.z - 5.4),
-  });
-  // every oculus is a clear-sky panel: a soft blue disc that washes the vault around it a cool white
-  for (const d of domes) {
-    const skyTex = textTex(256, 256, (g, w, h) => {
+  // (one clear-sky picture for every skylight: blue in the middle, paler at its rim)
+  let skyTexOnce = null;
+  const skyPanelTex = () =>
+    (skyTexOnce ||= textTex(256, 256, (g, w, h) => {
+      // (dusk: warm in the middle, cooling to its rim; midnight: deep blue with stars)
       const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-      r.addColorStop(0, '#5AA2EA');
-      r.addColorStop(0.65, '#82BCF2');
-      r.addColorStop(1, '#B9DCF8');
+      const stops = NIGHT ? ['#1C2A5A', '#121B3E', '#0A1028'] : ['#F6B98C', '#E9B3A0', '#9FB3D6'];
+      stops.forEach((c, k) => r.addColorStop(k / 2, c));
       g.fillStyle = r;
       g.fillRect(0, 0, w, h);
-    });
-    d.sky.material = flat('#fff', { map: skyTex, side: THREE.DoubleSide });
-    d.sky.material.color.setRGB(1.05, 1.05, 1.08);
-    d.blue = true;
-    d.g.children
-      .filter((m) => m.material === MAT.dome)
-      .forEach((m) => {
-        m.material = skyBaked('#D2C2A6', '#D7E6F0', d.y - 12, d.y, {
-          side: THREE.BackSide,
-          shadowSide: THREE.DoubleSide,
-        });
-      }); // the sky panel lights the vault around it a cool white
+      if (NIGHT)
+        for (let k = 0; k < 90; k++) {
+          g.fillStyle = `rgba(255,248,230,${0.35 + rnd(k * 1.3) * 0.6})`;
+          g.beginPath();
+          g.arc(rnd(k * 2.1) * w, rnd(k * 3.7) * h, 0.6 + rnd(k * 5.3) * 1.3, 0, 7);
+          g.fill();
+        }
+    }));
+  // an open circle in a roof: the sky panel just above it, the light it lets in
+  const skylight = (c, r, y) => {
+    const sky = new THREE.Mesh(
+      new THREE.CircleGeometry(r + 0.4, 48),
+      flat('#fff', { map: skyPanelTex(), side: THREE.DoubleSide }),
+    );
+    sky.rotation.x = Math.PI / 2;
+    sky.position.set(c.x, y + 0.7, c.z);
+    sky.material.color.setRGB(1.05, 1.05, 1.08);
+    world.add(sky);
+    noLine.push(sky);
+    domes.push({ c: c.clone(), r, y, focal: new V3(c.x, 0, c.z), sky, blue: true });
+  };
+  // the atrium: one round wall, a doorway each way, round windows between them onto the ring; open to the sky
+  {
+    const wins = [];
+    for (let q = 1; q < 8; q += 2)
+      for (const o of [-0.27, 0, 0.27]) wins.push({ th: (q * Math.PI) / 4 + o, y: 4.3, r: 0.95 });
+    roundWall(CROSS.c, PL.ATRIUM.r, PL.ATRIUM.h, PL.ATRIUM_DOORS, wins);
+    ringRoof(CROSS.c, PL.ATRIUM.oculus, PL.ATRIUM.r + T, PL.ATRIUM.h);
+    skylight(CROSS.c, PL.ATRIUM.oculus, PL.ATRIUM.h);
   }
-  for (const [R, d] of [
-    [SETS, new V3(1, 0, 0)],
-    [LISTS, new V3(-1, 0, 0)],
-    [SANCT, new V3(0, 0, -1)],
-  ])
-    vestibule(CROSS.c.clone().addScaledVector(d, CROSS.r + T), d, 3);
+  // the ring: its outer wall (a doorway to each room, a great round window to the south), its low ceiling
+  roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, [{ th: Math.PI, y: 3.3, r: 2.3 }]);
+  ringRoof(CROSS.c, PL.ATRIUM.r + T / 2, PL.RING.r1 + T, PL.RING.h);
+  // the rooms off the ring, each through a short round passage
+  for (const id of ['lists', 'settings', 'altar']) {
+    const R = PL.ROOMS[id],
+      P = (al, la) => v3(PL.at(R.th, al, la));
+    {
+      const a = PL.RING.r1 + 0.05,
+        b = PL.ROOM_IN - 0.05;
+      mesh(standFlat(slab(wallShape(6.8, 6, [3.4]), b - a), P(b, -3.4), P(b, 3.4)), MAT.paper);
+    }
+    const c = v3(PL.centre(id));
+    if (R.kind === 'rect') {
+      const n0 = PL.ROOM_IN,
+        n1 = n0 + R.d,
+        hw = R.w / 2,
+        wall = (p0, p1, len, doors) => mesh(standFlat(slab(wallShape(len, R.h, doors), T), p0, p1), MAT.paper);
+      // (each wall runs on past its corner by its thickness, so the corners are solid)
+      wall(P(n0, -hw), P(n0, hw), R.w + T, [hw]);
+      wall(P(n0, hw), P(n1, hw), R.d + T, []);
+      wall(P(n1, hw), P(n1, -hw), R.w + T, []);
+      wall(P(n1, -hw), P(n0, -hw), R.d + T, []);
+      const cs = new THREE.Shape(
+        [P(n0 - T, -hw - T), P(n1 + T, -hw - T), P(n1 + T, hw + T), P(n0 - T, hw + T)].map((p) => new V2(p.x, p.z)),
+      );
+      const hole = new THREE.Path();
+      hole.absarc(c.x, c.z, 1.6, 0, Math.PI * 2, true);
+      cs.holes.push(hole);
+      mesh(floorShape(cs, R.h), MAT_CEIL);
+    } else {
+      roundWall(c, R.r, R.h, [PL.norm(R.th + Math.PI)]);
+      ringRoof(c, 1.6, R.r + T, R.h);
+    }
+    skylight(c, 1.6, R.h);
+  }
+  const albumSlots = PL.ALBUM_SLOTS.map((s) => ({ x: s.x, z: s.z, ry: s.ry, side: 1 }));
 
   /* ---------- branches: ink stems, flat leaves and berries (now in vases, and two hanging in the sanctuary) ---------- */
   const leafShape = (() => {
@@ -1094,29 +1053,32 @@ export function createWorld(
     return g;
   };
 
-  // nave: one runner, two pairs of sofas back to back facing the walls, vases beside them, ornaments at both ends
-  rugRect(0, -25, 4.2, 32, MAT.kraft, MAT.clay);
-  for (let k = 0; k < 8; k++) {
-    const h = mesh(new THREE.CircleGeometry(0.55, 32, 0, Math.PI), decal(MAT.ivory, 3), world, false);
-    h.rotation.set(-Math.PI / 2, 0, k < 4 ? 0 : Math.PI);
-    h.position.set(-1.35 + (k % 4) * 0.9, 0.003, k < 4 ? -9.6 : -40.4);
+  // a point in a room off the ring, in its own frame: `al` out from the atrium's centre, `la` to the right
+  const inRoom = (id, al, la = 0) => PL.at(PL.ROOMS[id].th, al, la);
+  // the ring: a single chair in each quarter by the atrium wall, turned to the albums, a vase either side of it
+  [MAT.clay, MAT.olive, MAT.mist, MAT.kraft].forEach((m, k) => {
+    const th = ((2 * k + 1) * Math.PI) / 4,
+      p = PL.at(th, PL.RING.r0 + 1.4);
+    armchair(m, p.x, p.z, Math.PI - th);
+    for (const s of [-1, 1]) {
+      const q = PL.at(th + s * 0.17, PL.RING.r0 + 0.9);
+      vase(k % 3, s < 0 ? MAT.ivory : MAT.kraft, q.x, q.z, 0, 2 + (k % 2), 0.8);
+    }
+  });
+  // either side of the great window to the south: an ornament on the floor
+  {
+    const a = PL.at(Math.PI - 0.16, PL.RING.r1 - 1.3),
+      b = PL.at(Math.PI + 0.16, PL.RING.r1 - 1.3);
+    ornament('sphereCube', a.x, a.z, 0.3, MAT.kraft, MAT.clay);
+    ornament('halfArch', b.x, b.z, -0.4, MAT.mist);
   }
-  for (const z of [-17, -33]) {
-    sofa(3, MAT.clay, -0.62, z, -Math.PI / 2);
-    sofa(3, MAT.olive, 0.62, z, Math.PI / 2);
-  }
-  vase(0, MAT.ivory, -1.6, -21.5, 0, 3);
-  vase(1, MAT.kraft, 1.6, -28.5, 0, 2);
-  vase(2, MAT.clay, 0, -25, 0, 3, 0.8);
-  ornament('sphereCube', -3.4, -4.5, 0.3, MAT.kraft, MAT.clay);
-  ornament('halfArch', 3.5, -5, -0.5, MAT.mist);
-  ornament('cone', -3.6, -45.5, 0, MAT.olive);
-  ornament('discs', 3.6, -45, 0, MAT.clay, MAT.ivory);
-  // crossing: a round rug and a ring sofa at the centre, ornaments between the four aisles
+  // the atrium: a shallow round pool at the centre with the sky in it, a ring sofa round its rim, ornaments by the
+  // doorways
   rugRound(CROSS.c.x, CROSS.c.z, [
-    [3.6, MAT.olive],
-    [3.0, MAT.oat],
-    [2.2, MAT.kraft],
+    [3.6, MAT.oat],
+    [3.05, MAT.ivory],
+    [2.15, toon('#AFC6D0')],
+    [1.2, toon('#BFD3DB')],
   ]);
   ringSofa(CROSS.c.x, CROSS.c.z, 2.45);
   for (const [a, m] of [
@@ -1223,47 +1185,81 @@ export function createWorld(
   ].forEach(([k, m1, a, m2]) =>
     ornament(k, CROSS.c.x - Math.sin(a) * 12.2, CROSS.c.z - Math.cos(a) * 12.2, a + Math.PI, m1, m2),
   );
-  // north chapel: a reading corner under the light
-  rugRound(LISTS.c.x + 0.4, LISTS.c.z, [
-    [2.8, MAT.mist],
-    [2.2, MAT.oat],
-  ]);
-  armchair(MAT.mist, LISTS.c.x + 1.2, LISTS.c.z + 1.3, Math.PI * 0.8);
-  table(LISTS.c.x + 0.1, LISTS.c.z + 0.6);
-  vase(0, MAT.clay, LISTS.c.x + 0.1, LISTS.c.z + 0.6, 0.6, 2, 0.55);
-  vase(1, MAT.ivory, LISTS.c.x - 3.6, LISTS.c.z + 3.4, 0, 3);
-  ornament('cone', LISTS.c.x - 3.4, LISTS.c.z - 3.6, 0, MAT.kraft);
-  // south chapel: a rug inside the arc of plinths
-  rugRound(SETS.c.x + 0.6, SETS.c.z, [
-    [2.6, MAT.kraft],
-    [2.0, MAT.oat],
-  ]);
-  vase(2, MAT.olive, SETS.c.x - 3.8, SETS.c.z + 3.6, 0, 3, 1.1);
-  ornament('halfArch', SETS.c.x - 3.6, SETS.c.z - 3.8, 1.2, MAT.clay);
-  // sanctuary: a listening room — a long sofa on a rug facing the clay arch
-  rugRect(SANCT.c.x, SANCT.c.z - 0.3, 6.4, 4.6, MAT.clay, MAT.ivory);
-  sofa(4, MAT.olive, SANCT.c.x, SANCT.c.z + 0.9, Math.PI);
-  table(SANCT.c.x + 2.9, SANCT.c.z + 0.9);
-  vase(1, MAT.ivory, SANCT.c.x + 2.9, SANCT.c.z + 0.9, 0.6, 2, 0.55);
-  vase(0, MAT.kraft, SANCT.c.x - 4.2, SANCT.c.z - 4.4, 0, 3, 1.2);
-  ornament('sphereCube', SANCT.c.x + 4.3, SANCT.c.z - 4.2, -0.6, MAT.mist, MAT.ivory);
+  // the collection room: a reading corner under its skylight
+  {
+    const r = inRoom('lists', PL.ROOM_IN + 5, 1.6);
+    rugRound(r.x, r.z, [
+      [2.8, MAT.mist],
+      [2.2, MAT.oat],
+    ]);
+    const ch = inRoom('lists', PL.ROOM_IN + 4.2, 2.8),
+      tb = inRoom('lists', PL.ROOM_IN + 5, 1.6);
+    armchair(MAT.mist, ch.x, ch.z, Math.PI * 0.75);
+    table(tb.x, tb.z);
+    vase(0, MAT.clay, tb.x, tb.z, 0.6, 2, 0.55);
+    const v = inRoom('lists', PL.ROOM_IN + 1.2, -5.2),
+      o = inRoom('lists', PL.ROOM_IN + 1.2, 5.2);
+    vase(1, MAT.ivory, v.x, v.z, 0, 3);
+    ornament('cone', o.x, o.z, 0, MAT.kraft);
+  }
+  // the studio: a rug inside the arc of plinths, a vase and an ornament by the door
+  {
+    const r = inRoom('settings', PL.ROOM_IN + 5.6);
+    rugRound(r.x, r.z, [
+      [2.6, MAT.kraft],
+      [2.0, MAT.oat],
+    ]);
+    const v = inRoom('settings', PL.ROOM_IN + 1.2, -5.2),
+      o = inRoom('settings', PL.ROOM_IN + 1.2, 5.2);
+    vase(2, MAT.olive, v.x, v.z, 0, 3, 1.1);
+    ornament('halfArch', o.x, o.z, 1.2, MAT.clay);
+  }
+  // the listening room: a round sunken floor, six single chairs round it turned to its middle, a low table there —
+  // a living room, not a stage
+  {
+    const c = SANCT.c;
+    rugRound(c.x, c.z, [
+      [4.7, MAT.oat],
+      [4.4, MAT.clay],
+      [3.9, MAT.ivory],
+    ]);
+    for (let k = 0; k < 6; k++) {
+      const a = (k * Math.PI) / 3,
+        x = c.x + Math.sin(a) * 3.2,
+        z = c.z - Math.cos(a) * 3.2;
+      armchair([MAT.olive, MAT.mist, MAT.kraft][k % 3], x, z, -a);
+    }
+    table(c.x, c.z);
+    for (const [a, k] of [
+      [0.75, 0],
+      [-0.75, 2],
+    ]) {
+      const x = c.x + Math.sin(a + Math.PI / 2) * 5.6,
+        z = c.z - Math.cos(a + Math.PI / 2) * 5.6;
+      vase(k, MAT.kraft, x, z, 0, 3, 1.15);
+    }
+  }
 
   /* ---------- on the walls: sconces that glow (and swell with the beat), hangings, prints and shelves, so no wall is bare ---------- */
-  // a point on a room's wall: panel i of an octagonal room (along it, at a height, just off its face), facing into the room
-  const onWall = (R, i, along, y, off = 0.05) => {
-    const th = (i * Math.PI) / 4,
-      n = DIRS[i];
-    return {
-      x: R.c.x + n.x * (R.r - off) + Math.cos(th) * along,
-      y,
-      z: R.c.z + n.z * (R.r - off) - Math.sin(th) * along,
-      ry: th + Math.PI,
-    };
-  };
-  const atCorner = (R, i, y) => {
-    const a = ((i + 0.5) * Math.PI) / 4,
-      rc = R.r / Math.cos(Math.PI / 8) - 0.32;
-    return { x: R.c.x + Math.sin(a) * rc, y, z: R.c.z + Math.cos(a) * rc, ry: a + Math.PI };
+  // a point on the inside of a round wall about c (at compass way th, a height, just off its face), facing in
+  const onArc = (c, r, th, y, off = 0.05) => ({
+    x: c.x + Math.sin(th) * (r - off),
+    y,
+    z: c.z - Math.cos(th) * (r - off),
+    ry: -th,
+  });
+  // a point on one of a room's flat walls ('far', 'left', 'right' as you come in), `along` it from its middle
+  const onFlat = (id, wall, along, y, off = 0.05) => {
+    const R = PL.ROOMS[id],
+      th = R.th,
+      f = (x, z) => Math.atan2(x, z);
+    if (wall === 'far') {
+      const p = PL.at(th, PL.ROOM_IN + R.d - off, along);
+      return { ...p, y, ry: f(-Math.sin(th), Math.cos(th)) };
+    }
+    const s = wall === 'right' ? 1 : -1,
+      p = PL.at(th, PL.ROOM_IN + R.d / 2 + along, s * (R.w / 2 - off));
+    return { ...p, y, ry: f(-s * Math.cos(th), -s * Math.sin(th)) };
   };
   const hang = (g, w) => {
     g.position.set(w.x, w.y, w.z);
@@ -1418,34 +1414,98 @@ export function createWorld(
     pot.material = MAT.clay;
     return g;
   }
-  // the nave: a sconce between every two bays, and a hanging between the high windows
-  for (const side of [-1, 1])
-    for (let b = 1; b < 8; b++) {
-      const z = -0.5 - b * NAVE.bay,
-        x = side * (NAVE.w / 2 - 0.03),
-        ry = side > 0 ? -Math.PI / 2 : Math.PI / 2;
-      sconce({ x, y: 3.5, z, ry });
-      hanging(
-        { x, y: 7.6, z, ry },
-        0.8,
-        3.2,
-        [C.clay, C.olive, C.mist, C.kraft][(b + (side > 0 ? 1 : 0)) % 4],
-        C.ivory,
-        b % 3,
-        b,
-      );
-    }
-  // the crossing: a sconce at every corner, over the wall of songs
-  for (let i = 0; i < 8; i++) sconce(atCorner(CROSS, i, 4.9));
-  // the chapels: sconces at the corners; prints, hangings and shelves on the free walls
-  for (const R of [LISTS, SETS, SANCT]) for (let i = 0; i < 8; i++) sconce(atCorner(R, i, 3.3));
-  print(onWall(SANCT, 3, 0, 2.7), 1.3, 1.7, [C.clay, C.olive, C.mist, C.kraft], 3);
-  print(onWall(SANCT, 5, 0, 2.7), 1.3, 1.7, [C.mist, C.kraft, C.clay, C.olive], 7);
-  shelf(onWall(SANCT, 2, -0.4, 1.5), 1.9, 2);
-  shelf(onWall(SANCT, 6, 0.4, 1.5), 1.9, 5);
-  shelf(onWall(SANCT, 2, -0.4, 2.35), 1.5, 9);
-  print(onWall(SETS, 0, 0, 2.5), 1.5, 1.2, [C.kraft, C.clay, C.olive], 11);
-  print(onWall(SETS, 4, 0, 2.5), 1.5, 1.2, [C.olive, C.mist, C.clay], 13);
+  // the ring: a sconce between every two albums, and either side of each doorway
+  for (let q = 1; q < 8; q += 2)
+    for (const o of [-15, 0, 15]) sconce(onArc(CROSS.c, PL.RING.r1, (q * Math.PI) / 4 + (o * Math.PI) / 180, 3.2));
+  // the atrium: sconces high on its wall, above the songs, between the round windows
+  for (let q = 1; q < 8; q += 2)
+    for (const o of [-0.135, 0.135]) sconce(onArc(CROSS.c, PL.ATRIUM.r, (q * Math.PI) / 4 + o, 7.4));
+  // the rooms: sconces on their walls; prints and shelves on the free ones
+  // (in the collection room clear of the playlists' arches: two on each side wall, near its ends)
+  for (const w of ['left', 'right']) for (const a of [-4.3, 4.3]) sconce(onFlat('lists', w, a, 3.3));
+  for (const w of ['left', 'right']) for (const a of [-2.6, 2.6]) sconce(onFlat('settings', w, a, 3.3));
+  for (const a of [-4.6, 4.6]) sconce(onFlat('settings', 'far', a, 3.3));
+  // (the listening room's round wall: never on the far side, where the song's picture is, nor by the doorway)
+  for (const a of [-135, -90, -45, 45, 90, 135])
+    sconce(onArc(SANCT.c, SANCT.r, PL.ROOMS.altar.th + (a * Math.PI) / 180, 3.3));
+  print(onFlat('settings', 'left', 0, 2.5), 1.5, 1.2, [C.kraft, C.clay, C.olive], 11);
+  print(onFlat('settings', 'right', 0, 2.5), 1.5, 1.2, [C.olive, C.mist, C.clay], 13);
+  {
+    const back = PL.ROOMS.altar.th + Math.PI;
+    print(onArc(SANCT.c, SANCT.r, back + 0.45, 2.7), 1.3, 1.7, [C.clay, C.olive, C.mist, C.kraft], 3);
+    print(onArc(SANCT.c, SANCT.r, back - 0.45, 2.7), 1.3, 1.7, [C.mist, C.kraft, C.clay, C.olive], 7);
+    shelf(onArc(SANCT.c, SANCT.r, back + 1.35, 1.5), 1.9, 2);
+    shelf(onArc(SANCT.c, SANCT.r, back - 1.35, 1.5), 1.9, 5);
+  }
+
+  // midnight: small stars on the walls, each glowing and fading at its own slow pace (like luminous paint, not a window)
+  let wallStars = null;
+  if (NIGHT) {
+    const pts = [],
+      seeds = [],
+      add = (x, y, z) => {
+        pts.push(x, y, z);
+        seeds.push(rnd(pts.length * 0.37));
+      };
+    // (on the inside of each round wall, a little off its face; never in a doorway or a window)
+    const onRound = (c, r, h, n, k0, inward) => {
+      for (let k = 0; k < n; k++) {
+        const th = rnd(k0 + k * 1.7) * Math.PI * 2,
+          y = 0.9 + rnd(k0 + k * 3.1) * (h - 1.4),
+          rr = r + (inward ? -0.04 : 0.04),
+          p = { x: c.x + Math.sin(th) * rr, z: c.z - Math.cos(th) * rr };
+        const lat = Math.min(...[...PL.ATRIUM_DOORS, ...PL.RING_DOORS].map((d) => Math.abs(PL.turn(th, d)))) * r;
+        if (y < PL.DOOR_TOP + 0.3 && lat < PL.DOOR_HALF + 1.2) continue;
+        add(p.x, y, p.z);
+      }
+    };
+    onRound(CROSS.c, PL.ATRIUM.r, PL.ATRIUM.h, 520, 11, true);
+    onRound(CROSS.c, PL.RING.r0, PL.RING.h, 380, 29, false);
+    onRound(CROSS.c, PL.RING.r1, PL.RING.h, 520, 47, true);
+    onRound(SANCT.c, PL.ROOMS.altar.r, PL.ROOMS.altar.h, 160, 71, true);
+    for (const id of ['lists', 'settings'])
+      for (const w of ['left', 'right', 'far'])
+        for (let k = 0; k < 70; k++) {
+          const half = w === 'far' ? PL.ROOMS[id].w / 2 : PL.ROOMS[id].d / 2,
+            q = onFlat(
+              id,
+              w,
+              (rnd(k * 2.3 + w.length) * 2 - 1) * (half - 0.3),
+              0.9 + rnd(k * 4.1 + id.length) * 6,
+              0.04,
+            );
+          add(q.x, q.y, q.z);
+        }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    geo.setAttribute('seed', new THREE.Float32BufferAttribute(seeds, 1));
+    wallStars = new THREE.Points(
+      geo,
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { time: { value: 0 }, px: { value: 1 } },
+        vertexShader: `#include <common>
+  #include <logdepthbuf_pars_vertex>
+  uniform float time, px; attribute float seed; varying float vA;
+  void main(){ vec4 mv = modelViewMatrix*vec4(position, 1.); float dz = -mv.z;
+    vA = (.35 + .65*(.5 + .5*sin(time*(.25 + seed*.6) + seed*40.)))*(1. - smoothstep(18., 40., dz));
+    gl_PointSize = px*(1.2 + fract(seed*13.7)*1.6)*6./max(1., dz); gl_Position = projectionMatrix*mv;
+  #include <logdepthbuf_vertex>
+  }`,
+        fragmentShader: `#include <common>
+  #include <logdepthbuf_pars_fragment>
+  varying float vA; void main(){
+  #include <logdepthbuf_fragment>
+   float d = length(gl_PointCoord-.5); if (d > .5) discard; gl_FragColor = vec4(vec3(1., .94, .82)*vA*smoothstep(.5, .1, d), 1.); }`,
+      }),
+    );
+    wallStars.frustumCulled = false;
+    wallStars.renderOrder = 5;
+    scene.add(wallStars);
+    noLine.push(wallStars);
+  }
 
   /* ---------- baked occlusion: walls meet the floor in a soft shade; small things sit in their own ---------- */
   const AO_EDGE = textTex(64, 128, (g, w, h) => {
@@ -1462,79 +1522,44 @@ export function createWorld(
     return m;
   };
   // wall-to-floor shade from the true distance to the nearest wall, one map for the whole floor: corners come out round, never as triangles
+  // (each wall segment shades only the floor within a couple of metres of it: the map is filled segment by segment)
   {
-    const segs2 = [],
-      W = 90,
-      H = 120,
-      X0 = -45,
-      Z0 = 5,
+    const B = PL.bounds(8),
+      W = B.x1 - B.x0,
+      H = B.z1 - B.z0,
+      X0 = B.x0,
+      Z0 = B.z1,
       RES = 0.15,
       nx = Math.round(W / RES),
-      nz = Math.round(H / RES);
-    const seg = (ax, az, bx, bz) => segs2.push([ax, az, bx, bz]);
-    seg(-6, 0, -6, -49);
-    seg(6, 0, 6, -49);
-    seg(-6, 0, 6, 0);
-    seg(-6, -49, -3, -49);
-    seg(3, -49, 6, -49);
-    for (const [R, doors, gapW] of [
-      [CROSS, [2, 4, 6, 0], [5, 5, 5, 6]],
-      [LISTS, [2], [5]],
-      [SETS, [6], [5]],
-      [SANCT, [0], [5]],
-    ]) {
-      const rc = R.r / Math.cos(Math.PI / 8);
-      for (let k = 0; k < 8; k++) {
-        const a0 = (k * Math.PI) / 4 - Math.PI / 8,
-          a1 = (k * Math.PI) / 4 + Math.PI / 8,
-          ax = R.c.x + Math.sin(a0) * rc,
-          az = R.c.z + Math.cos(a0) * rc,
-          bx = R.c.x + Math.sin(a1) * rc,
-          bz = R.c.z + Math.cos(a1) * rc;
-        const di = doors.indexOf(k);
-        if (di < 0) {
-          seg(ax, az, bx, bz);
-          continue;
-        }
-        const L = Math.hypot(bx - ax, bz - az),
-          g = gapW[di] / 2 / L;
-        seg(ax, az, ax + (bx - ax) * (0.5 - g), az + (bz - az) * (0.5 - g));
-        seg(ax + (bx - ax) * (0.5 + g), az + (bz - az) * (0.5 + g), bx, bz);
-      }
-    }
-    for (const [, d] of VEST_DIRS)
-      for (const s of [-1, 1]) {
-        const lat = new V3(d.z, 0, -d.x).multiplyScalar(2.5 * s),
-          a = CROSS.c
-            .clone()
-            .addScaledVector(d, CROSS.r + T)
-            .add(lat),
-          b = CROSS.c
-            .clone()
-            .addScaledVector(d, CROSS.r + T + 3)
-            .add(lat);
-        seg(a.x, a.z, b.x, b.z);
-      }
-    const data = new Uint8Array(nx * nz * 4);
-    for (let j = 0; j < nz; j++)
-      for (let i = 0; i < nx; i++) {
-        const x = X0 + (i + 0.5) * RES,
-          z = Z0 - (j + 0.5) * RES;
-        let d = 1e9;
-        for (const [ax, az, bx, bz] of segs2) {
-          const vx = bx - ax,
-            vz = bz - az,
-            t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / (vx * vx + vz * vz))),
+      nz = Math.round(H / RES),
+      REACH = 2.6;
+    const dist = new Float32Array(nx * nz).fill(1e9);
+    for (const [ax, az, bx, bz] of PL.wallSegments(Math.PI / 64)) {
+      const vx = bx - ax,
+        vz = bz - az,
+        L2 = vx * vx + vz * vz || 1e-9,
+        i0 = Math.max(0, Math.floor((Math.min(ax, bx) - REACH - X0) / RES)),
+        i1 = Math.min(nx - 1, Math.ceil((Math.max(ax, bx) + REACH - X0) / RES)),
+        j0 = Math.max(0, Math.floor((Z0 - Math.max(az, bz) - REACH) / RES)),
+        j1 = Math.min(nz - 1, Math.ceil((Z0 - Math.min(az, bz) + REACH) / RES));
+      for (let j = j0; j <= j1; j++)
+        for (let i = i0; i <= i1; i++) {
+          const x = X0 + (i + 0.5) * RES,
+            z = Z0 - (j + 0.5) * RES,
+            t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2)),
             dx = x - ax - vx * t,
             dz = z - az - vz * t,
-            q = dx * dx + dz * dz;
-          if (q < d) d = q;
+            q = dx * dx + dz * dz,
+            o = j * nx + i;
+          if (q < dist[o]) dist[o] = q;
         }
-        const v = Math.round(255 * (1 - 0.3 * Math.exp(-Math.sqrt(d) / 0.55))),
-          o = (j * nx + i) * 4;
-        data[o] = data[o + 1] = data[o + 2] = v;
-        data[o + 3] = 255;
-      }
+    }
+    const data = new Uint8Array(nx * nz * 4);
+    for (let o = 0; o < nx * nz; o++) {
+      const v = Math.round(255 * (1 - 0.3 * Math.exp(-Math.sqrt(dist[o]) / 0.55)));
+      data[o * 4] = data[o * 4 + 1] = data[o * 4 + 2] = v;
+      data[o * 4 + 3] = 255;
+    }
     const tex = new THREE.DataTexture(data, nx, nz);
     tex.magFilter = tex.minFilter = THREE.LinearFilter;
     tex.needsUpdate = true;
@@ -1545,13 +1570,13 @@ export function createWorld(
         .replace(
           '#include <project_vertex>',
           '#include <project_vertex>\nvec4 fw = modelMatrix * vec4(transformed, 1.); vFloor = vec2((fw.x - (' +
-            X0.toFixed(1) +
+            X0.toFixed(3) +
             ')) / ' +
-            W.toFixed(1) +
+            W.toFixed(3) +
             ', (' +
-            Z0.toFixed(1) +
+            Z0.toFixed(3) +
             ' - fw.z) / ' +
-            H.toFixed(1) +
+            H.toFixed(3) +
             ');',
         );
       sh.fragmentShader = sh.fragmentShader
@@ -1808,11 +1833,11 @@ export function createWorld(
       labelCache.set(
         i,
         textTex(480, 88, (g, w, h) => {
-          g.fillStyle = '#29241F';
+          g.fillStyle = C.text;
           g.font = '500 34px "Noto Serif TC", serif';
           g.textAlign = 'center';
           g.fillText(s.title, w / 2, 38);
-          g.fillStyle = '#7a6f63';
+          g.fillStyle = C.sub;
           g.font = 'italic 400 24px "Source Serif 4", serif';
           g.fillText(s.artist, w / 2, 74);
         }),
@@ -1827,7 +1852,7 @@ export function createWorld(
         t,
         textTex(400, 220, (g, w, h) => {
           g.textAlign = 'center';
-          g.fillStyle = '#7a6f63';
+          g.fillStyle = C.sub;
           g.font = '500 40px "Noto Sans TC", sans-serif';
           g.fillText(ts('tier', { n: t + 1 }), w / 2, 62);
           g.fillStyle = '#C4603F';
@@ -2075,18 +2100,27 @@ export function createWorld(
       freeGroup(L.grp);
     });
     listMeshes.length = 0;
-    [6, 7, 5, 0, 4, 1, 3].forEach((pi, k) => {
-      const p = lists.panels[pi],
-        pl = PLAYLISTS[k];
-      if (!p || !pl) return;
+    // the large one on the far wall facing the door, two either side of it, two on each side wall
+    const spots = [
+      onFlat('lists', 'far', 0, 0, 0.02),
+      onFlat('lists', 'far', -3.9, 0, 0.02),
+      onFlat('lists', 'far', 3.9, 0, 0.02),
+      onFlat('lists', 'left', 2.3, 0, 0.02),
+      onFlat('lists', 'right', 2.3, 0, 0.02),
+      onFlat('lists', 'left', -2.3, 0, 0.02),
+      onFlat('lists', 'right', -2.3, 0, 0.02),
+    ];
+    spots.forEach((w, k) => {
+      const pl = PLAYLISTS[k];
+      if (!pl) return;
       const big = k === 0,
         aw = big ? 3.8 : 2.5,
         ah = big ? 5.4 : 3.7,
         art = big ? 2.5 : 1.6;
       const grp = new THREE.Group();
-      grp.position.set(0, 0, -T / 2 - 0.02);
-      grp.rotation.y = Math.PI;
-      p.add(grp);
+      grp.position.set(w.x, 0, w.z);
+      grp.rotation.y = w.ry;
+      world.add(grp);
       mesh(
         extrude(new THREE.Shape(archPts(aw, ah)), 0.08),
         big ? MAT.mist : k % 2 ? listTone[0] : listTone[1],
@@ -2110,7 +2144,7 @@ export function createWorld(
       );
       im.userData = { kind: 'playlist', i: k };
       pickables.push(im);
-      listMeshes.push({ grp, plq, im, panel: pi });
+      listMeshes.push({ grp, plq, im, panel: k });
     });
   }
   const listTone = [toon('#B2C0CF'), toon('#C9D2DA')];
@@ -2184,13 +2218,17 @@ export function createWorld(
   const stations = [];
   // five plinths on an arc in the middle of the chapel, all turned to the door
   SECTIONS.forEach(([key, zh, en], k) => {
+    // (in the room's own frame: out from the atrium is deeper in, the arc bulging away from the door)
     const th = (k - 2) * 0.52,
       R = 2.7,
-      x = SETS.c.x + 0.6 + Math.cos(th) * R,
-      z = SETS.c.z + Math.sin(th) * R;
+      mid = PL.ROOM_IN + PL.ROOMS.settings.d / 2,
+      p = inRoom('settings', mid + 0.6 + Math.cos(th) * R, Math.sin(th) * R),
+      door = inRoom('settings', mid - 3.4),
+      x = p.x,
+      z = p.z;
     const grp = new THREE.Group();
     grp.position.set(x, 0, z);
-    grp.rotation.y = Math.atan2(SETS.c.x - 3.4 - x, SETS.c.z - z);
+    grp.rotation.y = Math.atan2(door.x - x, door.z - z);
     world.add(grp); // each turned to where you stand coming in
     mesh(cyl(0.5, 0.5, 1.0, 40), MAT.ivory, grp).position.y = 0.5;
     blob(x, z, 1.5, 1.5);
@@ -2211,12 +2249,15 @@ export function createWorld(
   const altarArt = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), flat('#fff', { map: covers.get(null, 'none') }));
   const lyricMeshes = [];
   {
-    const p = sanct.panels[4],
+    // (on the far wall, at the height of a person sitting: the song's picture is a window in the wall, not a thing raised up)
+    const w = onArc(SANCT.c, SANCT.r, PL.ROOMS.altar.th, 0, 0.02),
       rer = new THREE.Group();
-    rer.position.set(0, 0, -T / 2 - 0.02);
-    rer.rotation.y = Math.PI;
-    p.add(rer);
-    mesh(extrude(new THREE.Shape(archPts(6.2, 11)), 0.1), MAT.clay, rer).position.y = 0.4;
+    rer.position.set(w.x, 0, w.z);
+    rer.rotation.y = w.ry;
+    // (drawn as before, at seven tenths: the room is low)
+    rer.scale.setScalar(0.7);
+    world.add(rer);
+    mesh(extrude(new THREE.Shape(archPts(6.2, 10)), 0.1), MAT.clay, rer).position.y = 0.4;
     mesh(box(3.3, 3.3, 0.05), MAT.ink, rer).position.set(0, 7.3, 0.14);
     altarArt.position.set(0, 7.3, 0.17);
     rer.add(altarArt);
@@ -2372,7 +2413,11 @@ export function createWorld(
           (_, k) =>
             new V3(d.c.x + Math.cos((k / 24) * Math.PI * 2) * d.r, d.y, d.c.z + Math.sin((k / 24) * Math.PI * 2) * d.r),
         ),
-        (p) => f.clone().add(new V3((p.x - c.x) * (d.blue ? 2.4 : 0.6), 0, (p.z - c.z) * (d.blue ? 2.4 : 0.6))),
+        (p) => {
+          // (a small skylight spreads its light wide; the atrium's great open circle falls almost straight)
+          const k = d.r > 4 ? 1.12 : d.blue ? 2.4 : 0.6;
+          return f.clone().add(new V3((p.x - c.x) * k, 0, (p.z - c.z) * k));
+        },
         false,
         beamK(f) * (d.blue ? 0.38 : 0.8),
       );
@@ -2403,12 +2448,13 @@ export function createWorld(
   /* ---------- motes: always there, barely visible; lit up when they drift through a beam; kicked by accents ---------- */
   let motes;
   function buildMotes() {
+    // (boxes: centre x, z, half-widths, floor, top — the ring as the box round it, the atrium inside it counted twice)
     const vols = [
-      [0, -24, 5.4, 23.5, 0, 16],
-      [CROSS.c.x, CROSS.c.z, 12.5, 12.5, 0, 20],
-      [SETS.c.x, SETS.c.z, 6.2, 6.2, 0, 11],
-      [LISTS.c.x, LISTS.c.z, 6.2, 6.2, 0, 11],
-      [SANCT.c.x, SANCT.c.z, 7, 7, 0, 13],
+      [CROSS.c.x, CROSS.c.z, PL.RING.r1, PL.RING.r1, 0, PL.RING.h],
+      [CROSS.c.x, CROSS.c.z, 12.5, 12.5, 0, 18],
+      [SETS.c.x, SETS.c.z, 5.4, 5.4, 0, 7.4],
+      [LISTS.c.x, LISTS.c.z, 5.4, 5.4, 0, 7.4],
+      [SANCT.c.x, SANCT.c.z, 6.2, 6.2, 0, 7.4],
     ];
     const per = [1500, 1800, 900, 900, 1100],
       N = per.reduce((a, b) => a + b),
@@ -2460,7 +2506,7 @@ export function createWorld(
           px: { value: 1 },
           accent: { value: 0 },
           still: { value: 0 },
-          col: { value: new THREE.Color(C.apricot) },
+          col: { value: new THREE.Color(C.beam) },
           keep: { value: 1 },
         },
         vertexShader: `#include <common>
@@ -2572,7 +2618,7 @@ export function createWorld(
     camera,
     () => ink.rt.depthTexture,
     () => ({ tex: segTex(), count: segs.length }),
-    C.apricot,
+    C.beam,
   );
   composer.addPass(shafts);
   const dream = new DreamPass(camera, () => ink.rt.depthTexture, lightInView, C.wheat);
@@ -2586,7 +2632,8 @@ export function createWorld(
   composer.addPass(uiGlass);
 
   function fitSun(size) {
-    const center = new V3(0, 10, -50);
+    const B = PL.bounds(2),
+      center = new V3((B.x0 + B.x1) / 2, 8, (B.z0 + B.z1) / 2);
     sun.target.position.copy(center);
     sun.position.copy(center).addScaledVector(SUN_DIR, 140);
     sun.updateMatrixWorld();
@@ -2598,9 +2645,9 @@ export function createWorld(
     const inv = cam.matrixWorldInverse,
       mn = new V3(1e9, 1e9, 1e9),
       mx = new V3(-1e9, -1e9, -1e9);
-    for (const x of [-38, 38])
-      for (const y of [-1, 32])
-        for (const z of [3, -103]) {
+    for (const x of [B.x0, B.x1])
+      for (const y of [-1, 16])
+        for (const z of [B.z1, B.z0]) {
           const p = new V3(x, y, z).applyMatrix4(inv);
           mn.min(p);
           mx.max(p);
@@ -2615,85 +2662,31 @@ export function createWorld(
     renderer.shadowMap.needsUpdate = true;
     shadowDirty = true;
   }
-  /* ---------- rooms, doors and routes ---------- */
-  const octIn = (p, R, m) => {
-    const dx = p.x - R.c.x,
-      dz = p.z - R.c.z;
-    for (const d of DIRS) if (dx * d.x + dz * d.z > R.r - m) return false;
-    return true;
+  /* ---------- rooms, doors and routes (plan.ts) ---------- */
+  const regionAt = (p) => PL.regionAt({ x: p.x, z: p.z });
+  const SIGNS = {
+    nave: ['The Gallery', `${ts('room.nave')} · ${ts('room.nave.sub')}`],
+    dome: ['The Atrium', `${ts('room.dome')} · ${ts('room.dome.sub')}`],
+    lists: ['The Collection', `${ts('room.lists')} · ${ts('room.lists.sub')}`],
+    altar: ['The Listening Room', `${ts('room.altar')} · ${ts('room.altar.sub')}`],
+    settings: ['The Studio', `${ts('room.settings')} · ${ts('room.settings.sub')}`],
   };
-  const VEST = [
-    ['settings', new V3(1, 0, 0)],
-    ['lists', new V3(-1, 0, 0)],
-    ['altar', new V3(0, 0, -1)],
-  ];
-  // each region: which room it belongs to, and how high you may float there
-  function regionAt(p) {
-    if (Math.abs(p.x) < NAVE.w / 2 - 0.6 && p.z < -0.6 && p.z > NAVE.z1 + 0.6) return { room: 'nave', top: 19 };
-    // every doorway reaches 1.5 m into both rooms, so the walkable areas always overlap
-    if (Math.abs(p.x) < 2.4 && p.z <= NAVE.z1 + 1.5 && p.z > NAVE.z1 - T - 1.5)
-      return { room: p.z > NAVE.z1 - T / 2 ? 'nave' : 'dome', top: 9.2, door: true };
-    if (octIn(p, CROSS, 0.7)) return { room: 'dome', top: 24 };
-    for (const [room, d] of VEST) {
-      const rx = p.x - CROSS.c.x,
-        rz = p.z - CROSS.c.z,
-        along = rx * d.x + rz * d.z,
-        lat = Math.abs(rx * d.z - rz * d.x);
-      if (along > CROSS.r - 1.5 && along < CROSS.r + 2 * T + 3 + 1.5 && lat < DOOR.w / 2 - 0.5)
-        return { room: along < CROSS.r + T + 1.5 ? 'dome' : room, top: 6.8, door: true };
-    }
-    if (octIn(p, LISTS, 0.6)) return { room: 'lists', top: 15 };
-    if (octIn(p, SETS, 0.6)) return { room: 'settings', top: 15 };
-    if (octIn(p, SANCT, 0.6)) return { room: 'altar', top: 17 };
-    return null;
-  }
-  const PLACES = {
-    nave: {
-      pos: new V3(0, EYE, -4),
-      yaw: 0,
-      pitch: 0.05,
-      sign: ['The Gallery', `${ts('room.nave')} · ${ts('room.nave.sub')}`],
-    },
-    dome: {
-      pos: new V3(CROSS.c.x, EYE, CROSS.c.z + 11.2),
-      yaw: 0,
-      pitch: 0.03,
-      sign: ['The Atrium', `${ts('room.dome')} · ${ts('room.dome.sub')}`],
-    },
-    lists: {
-      pos: new V3(LISTS.c.x + 4.2, EYE, LISTS.c.z),
-      yaw: Math.PI / 2,
-      pitch: 0.02,
-      sign: ['The Collection', `${ts('room.lists')} · ${ts('room.lists.sub')}`],
-    },
-    altar: {
-      pos: new V3(SANCT.c.x, EYE, SANCT.c.z + 5.2),
-      yaw: 0,
-      pitch: 0.1,
-      sign: ['The Listening Room', `${ts('room.altar')} · ${ts('room.altar.sub')}`],
-    },
-    settings: {
-      pos: new V3(SETS.c.x - 4.2, EYE, SETS.c.z),
-      yaw: -Math.PI / 2,
-      pitch: -0.04,
-      sign: ['The Studio', `${ts('room.settings')} · ${ts('room.settings.sub')}`],
-    },
-  };
-  // the way through the building: every room hangs off the crossing; each link is the line through its doorways
-  const at = (d, s) => new V3(CROSS.c.x + d.x * s, EYE, CROSS.c.z + d.z * s);
-  const LINKS = {
-    nave: [new V3(0, EYE, NAVE.z1 + 4), new V3(0, EYE, NAVE.z1 - T / 2), new V3(0, EYE, NAVE.z1 - T - 3)],
-  };
-  for (const [room, d] of VEST)
-    LINKS[room] = [10.5, CROSS.r + T / 2, CROSS.r + T + 1.5, CROSS.r + T + 3 + T / 2, CROSS.r + 2 * T + 3 + 2.5]
-      .map((s) => at(d, s))
-      .reverse();
-  function route(from, to) {
-    if (from === to) return [];
-    const out = from === 'dome' ? [] : [...LINKS[from]];
-    if (to !== 'dome') out.push(...[...LINKS[to]].reverse());
-    return out;
-  }
+  const PLACES = Object.fromEntries(
+    Object.entries(PL.PLACES).map(([k, P]) => [k, { pos: v3(P.at, EYE), yaw: P.yaw, pitch: P.pitch, sign: SIGNS[k] }]),
+  );
+  // the way through the building, as plan.ts lays it: out through the doorways and round the ring
+  const route = (from, to, target) =>
+    PL.route(from, to, { x: me.pos.x, z: me.pos.z }, target && { x: target.x, z: target.z }).map((p) => v3(p, EYE));
+  // (each room's own doorway, and the doorway of the room it opens from, at ear height: where sound comes through)
+  const doorOf = (r) =>
+    r === 'nave' || r === 'dome'
+      ? v3(PL.at(Math.PI, PL.ATRIUM.r + T / 2), EYE)
+      : v3(PL.at(PL.ROOMS[r].th, PL.ROOM_IN - T / 2), EYE);
+  const crossDoorOf = (r) =>
+    r === 'nave' || r === 'dome'
+      ? v3(PL.at(Math.PI, PL.ATRIUM.r + T / 2), EYE)
+      : v3(PL.at(PL.ROOMS[r].th, PL.RING.r1 + T / 2), EYE);
+  const inAtrium = (p, m = 0) => Math.hypot(p.x - CROSS.c.x, p.z - CROSS.c.z) < PL.ATRIUM.r - m;
 
   /* ---------- walking, looking, flying ---------- */
   // (rigs/walk.ts walks; this scene's part is where one may stand, the way through its doorways, and the veil that
@@ -2702,7 +2695,7 @@ export function createWorld(
     start: { pos: PLACES.nave.pos, yaw: 0, pitch: 0.05 },
     eye: EYE,
     region: regionAt,
-    route: (to) => route(room, regionAt(to)?.room || room),
+    route: (to) => route(room, regionAt(to)?.room || room, to),
     speed: () => S.walk,
     sensitivity: () => S.look,
     onWalk: () => hideCards(),
@@ -3044,7 +3037,7 @@ export function createWorld(
     (e) => {
       e.preventDefault();
       const d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
-      if (room === 'dome' && octIn(me.pos, CROSS, 1)) {
+      if (room === 'dome' && inAtrium(me.pos, 1)) {
         tierGoal = Math.max(-0.35, Math.min(TIERS - 0.65, tierGoal + d / 110));
         wheelRest = performance.now();
       } else walk.push(-d * 0.02);
@@ -3243,12 +3236,14 @@ export function createWorld(
   });
 
   /* ---------- speakers: one per room, the crossing's is the pool of light itself ---------- */
+  // (each speaker turned to the middle of its room)
+  const speakerAt = (room, p, c) => ({ room, pos: v3(p, 1.1), ry: Math.atan2(c.x - p.x, c.z - p.z) });
   const SPEAKERS = [
-    { room: 'nave', pos: new V3(-4.7, 1.1, -24.5), ry: Math.PI / 2 },
+    speakerAt('nave', PL.at(Math.PI + 0.26, PL.RING.r1 - 1.3), CROSS.c),
     { room: 'dome', pos: new V3(CROSS.c.x, 0.6, CROSS.c.z), pool: true },
-    { room: 'lists', pos: new V3(LISTS.c.x - 2.1, 1.1, LISTS.c.z - 5.2), ry: Math.PI * 0.12 },
-    { room: 'settings', pos: new V3(SETS.c.x + 3.4, 1.1, SETS.c.z + 3.4), ry: -Math.PI * 0.75 },
-    { room: 'altar', pos: new V3(SANCT.c.x + 4.4, 1.1, SANCT.c.z - 1.5), ry: -Math.PI / 2 },
+    speakerAt('lists', inRoom('lists', PL.ROOM_IN + PL.ROOMS.lists.d - 1.2, -4.8), LISTS.c),
+    speakerAt('settings', inRoom('settings', PL.ROOM_IN + PL.ROOMS.settings.d - 1.2, 4.8), SETS.c),
+    speakerAt('altar', PL.at(PL.ROOMS.altar.th - 0.13, PL.ROOM_IN + 7 + 4.6), SANCT.c),
   ];
   SPEAKERS.forEach((s) => {
     if (s.pool) return;
@@ -3278,15 +3273,20 @@ export function createWorld(
 
   /* ---------- the song in the rooms, and the rooms' own music (systems/audio.ts): this scene's part is its speakers,
      its rooms' reverb times, and the way sound walks through its doorways ---------- */
-  const doorOf = (r) =>
-    r === 'nave' ? new V3(0, EYE, NAVE.z1 - T / 2) : at(VEST.find((v) => v[0] === r)[1], CROSS.r + T + 3 + T / 2); // the room's own doorway
-  const crossDoorOf = (r) =>
-    r === 'nave' ? new V3(0, EYE, NAVE.z1 - T / 2) : at(VEST.find((v) => v[0] === r)[1], CROSS.r + T / 2); // the crossing's doorway toward it
+  // (sound leaves a room by its doorway onto the ring — the atrium by its doorway nearest the other end — and comes
+  // into the other the same way)
+  const exitsOf = (r, toward) => {
+    if (r === 'nave') return [];
+    if (r === 'dome') {
+      const th = PL.polar({ x: toward.x, z: toward.z }).th,
+        d = PL.ATRIUM_DOORS.reduce((m, x) => (Math.abs(PL.turn(th, x)) < Math.abs(PL.turn(th, m)) ? x : m));
+      return [v3(PL.at(d, PL.ATRIUM.r + T / 2), EYE)];
+    }
+    return [doorOf(r), crossDoorOf(r)];
+  };
   function soundPath(L, Lroom, S, Sroom) {
     if (Lroom === Sroom) return [L, S];
-    if (Lroom === 'dome') return [L, crossDoorOf(Sroom), doorOf(Sroom), S];
-    if (Sroom === 'dome') return [L, doorOf(Lroom), crossDoorOf(Lroom), S];
-    return [L, doorOf(Lroom), crossDoorOf(Lroom), crossDoorOf(Sroom), doorOf(Sroom), S];
+    return [L, ...exitsOf(Lroom, S), ...exitsOf(Sroom, L).reverse(), S];
   }
   const sound = new RoomAudio({
     audio: () => bind.audio(),
@@ -3415,6 +3415,7 @@ export function createWorld(
     camera.updateProjectionMatrix();
     fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
     if (motes) motes.material.uniforms.px.value = (pr * h) / 800;
+    if (wallStars) wallStars.material.uniforms.px.value = (pr * h) / 800;
   }
   onW('resize', resize);
   let frameN = 0,
@@ -3673,6 +3674,8 @@ export function createWorld(
       u.accent.value = accent;
       u.still.value = RM() ? 1 : 0;
     }
+    // (the wall stars twinkle on their own clock; held still under reduced motion)
+    if (wallStars && !RM()) wallStars.material.uniforms.time.value = now / 1000;
     // windows glare when you face them
     glares.forEach((g) => {
       g.getWorldPosition(gp);
@@ -3780,7 +3783,7 @@ export function createWorld(
     C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z],
     camera: () => camera,
     sitAt: () => {
-      const s = sofas.find((x) => Math.abs(x.seat.z - (SANCT.c.z + 0.9)) < 0.5);
+      const s = sofas.find((x) => Math.hypot(x.seat.x - SANCT.c.x, x.seat.z - SANCT.c.z) < 4);
       if (s) {
         me.pos.copy(s.seat);
         me.yaw = s.yaw;
@@ -3799,9 +3802,16 @@ export function createWorld(
     lyr: () => air,
     room: () => room,
     regionAt: (x, y, z) => regionAt(new V3(x, y, z)),
-    LINKS,
     CROSS,
-    NAVE,
+    // (where to stand to face album place i, d metres in front of it)
+    albumStand: (i, d = 3) => {
+      const a = PL.ALBUM_SLOTS[i],
+        p = PL.at(a.th, PL.RING.r1 - d);
+      me.pos.set(p.x, EYE, p.z);
+      me.yaw = -a.th;
+      me.pitch = 0;
+      walk.halt();
+    },
     wheel: (d) => {
       tierGoal = Math.max(-0.35, Math.min(TIERS - 0.65, tierGoal + d / 110));
       wheelRest = performance.now();

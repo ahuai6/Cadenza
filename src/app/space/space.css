@@ -110,12 +110,20 @@
   top: calc(16px + env(safe-area-inset-top, 0px));
   left: max(16px, env(safe-area-inset-left, 0px));
   right: max(16px, env(safe-area-inset-right, 0px));
-  display: flex;
+  /* (three columns: the name, the rooms in the window's middle — as the classic interface's places are — the tools) */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
   pointer-events: none;
+}
+.top > .mark {
+  justify-self: start;
+}
+.top > .tools {
+  /* (the whole column, so the search can give way inside it instead of spilling over the rooms) */
+  justify-self: stretch;
+  min-width: 0;
 }
 .top > * {
   pointer-events: auto;
@@ -167,7 +175,9 @@
   height: 44px;
   padding: 0 14px;
   border-radius: var(--r-pill);
-  width: min(280px, 100%);
+  /* (it gives way first when the window is narrow) */
+  flex: 0 1 280px;
+  min-width: 140px;
   position: relative;
 }
 .search input {
@@ -530,6 +540,17 @@
   color: var(--clay);
   margin: 4px 0 0;
 }
+/* (a narrow window: the rooms on a row of their own under the name and the tools, still centred) */
+@media (max-width: 1080px) {
+  .top {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .top > .places {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+}
 @media (max-width: 720px) {
   .guide {
     display: none;
@@ -581,6 +602,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  justify-content: flex-end;
 }
 .cfg {
   width: 44px;
