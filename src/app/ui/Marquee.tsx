@@ -11,7 +11,12 @@ export function Marquee({ children, className }: { children: ReactNode; classNam
     const b = box.current,
       i = inner.current;
     if (!b || !i) return;
-    const f = () => setD(Math.max(0, Math.ceil(i.scrollWidth - b.clientWidth)));
+    // (not laid out — a page not shown, display: none — measures nothing: what was measured stands. Measured then as
+    // all overflow, the text was set scrolling and set back the moment the page showed, a flash every time it opened)
+    const f = () => {
+      if (!b.getClientRects().length) return;
+      setD(Math.max(0, Math.ceil(i.scrollWidth - b.clientWidth)));
+    };
     f();
     const ro = new ResizeObserver(f);
     ro.observe(b);

@@ -57,7 +57,13 @@ function applyNp(p: number) {
   }
   // the bar: over the stage it is clear and says nothing of the song (the stage does); over the sheet it is the sheet's
   // own colour and carries the small cover and the title
-  if (card) card.style.setProperty('--stage', p.toFixed(3));
+  if (card) {
+    card.style.setProperty('--stage', p.toFixed(3));
+    // (its words and controls light on the stage once its ground has gone more than half clear, dark before: they turn
+    // with the ground, never at the start of the move against a ground still the sheet's)
+    const pict = String(p > 0.5);
+    if (card.dataset.onPicture !== pict) card.dataset.onPicture = pict;
+  }
   if (mini) mini.style.visibility = '';
   // the stage's own words arrive as it lands
   const q = part(p, 0.45, 0.95);

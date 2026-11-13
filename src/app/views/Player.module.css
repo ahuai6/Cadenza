@@ -147,7 +147,7 @@
   grid-template-rows: 18px 1fr;
   padding: 0 22px 6px;
   box-sizing: border-box;
-  background: color-mix(in oklab, var(--bg) calc((1 - var(--stage)) * 100%), transparent);
+  background: color-mix(in oklab, var(--sheet-bg) calc((1 - var(--stage)) * 100%), transparent);
   color: var(--fg);
 }
 :global(html[data-layer='fx']) .card,

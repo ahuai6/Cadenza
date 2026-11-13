@@ -27,7 +27,7 @@ import {
   type Mode,
 } from '../playback/player';
 import { hifi, describe } from '../playback/hifi';
-import { refs, openNp } from '../layers';
+import { refs, openNp, npProgress } from '../layers';
 import { splitBrackets } from '../../engine';
 import { Marquee } from '../ui/Marquee';
 import s from './Player.module.css';
@@ -268,6 +268,11 @@ export function PlayerCard() {
   useLayoutEffect(() => {
     refs.card = card.current;
     refs.mini = mini.current;
+    // (a bar made while the stage is up — a new song — starts in the stage's colours; layers.ts keeps it so)
+    if (card.current) {
+      card.current.dataset.onPicture = String(npProgress() > 0.5);
+      card.current.style.setProperty('--stage', npProgress().toFixed(3));
+    }
     return () => {
       refs.card = null;
       refs.mini = null;
@@ -277,7 +282,8 @@ export function PlayerCard() {
   return (
     // the stage's apron: the same bar under the stage and under the sheet. Over the stage it is clear and leaves the song
     // to the stage (its cover, title and sung line fade: --stage, set by layers.ts); over the sheet it carries them
-    <div className={s.card + (onStage ? ' on-picture' : '')} ref={card} data-test="card" data-stage={onStage}>
+    // (its colours turn to the stage's half way through the move, with its ground: layers.ts sets data-on-picture)
+    <div className={s.card} ref={card} data-test="card" data-stage={onStage}>
       <Progress className={s.line} />
       <div className={s.row}>
         <div className={s.id}>
