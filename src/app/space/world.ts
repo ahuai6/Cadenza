@@ -144,8 +144,9 @@ export function createWorld(
   const camera = new THREE.PerspectiveCamera(62, 1, 0.3, 160);
 
   /* ---------- light: a cool ambient paints the shade colour, one warm sun paints the light ---------- */
-  const SUN_DIR = new V3(0.42, 1, 0.18).normalize(),
-    SUN_M = new V3(-0.42, 1, 0.18).normalize(); // (the mirrored sun: light for the windows on the shaded side)
+  // the one sun (at midnight, the moon): the shadows, every shaft of light through a window or a well and the patch it
+  // lights on the floor all come from this one direction — no second, mirrored sun for the windows on the shaded side
+  const SUN_DIR = new V3(0.42, 1, 0.18).normalize();
   const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b);
   const ambLight = new THREE.AmbientLight(NIGHT ? lin(0.5, 0.52, 0.66) : lin(0.72, 0.68, 0.64), Math.PI);
   scene.add(ambLight); // a little lower: the room was too bright
@@ -156,7 +157,8 @@ export function createWorld(
   sun.shadow.normalBias = 0.09;
   scene.add(sun, sun.target);
   const fill = new THREE.DirectionalLight(NIGHT ? lin(0.06, 0.07, 0.1) : lin(0.12, 0.11, 0.1), Math.PI);
-  fill.position.set(-0.6, 0.7, 0.9);
+  // (the sky's own light, from the side away from the sun: the shade of round things turns toward it, never a second sun)
+  fill.position.set(-SUN_DIR.x, 0.75, -SUN_DIR.z);
   scene.add(fill); // no shadow: gives round things a second tone
 
   // two-tone ramp (shade | a narrow middle | light)
@@ -450,7 +452,8 @@ export function createWorld(
       g.fillStyle = r;
       g.fillRect(0, 0, w, h);
     });
-  const GLOW = softTex('255,227,184', 1),
+  const DUSK = softTex('255,150,90', 0.9),
+    GLOW = softTex('255,227,184', 1),
     BLOB = softTex('110,92,70', 1);
   const boxUV = (g) => g;
   // a pointed arch outline from (-w/2,0) up over the apex to (w/2,0): two circular arcs meeting at the apex
@@ -737,8 +740,8 @@ export function createWorld(
     { th: 67.5 * deg, y: 5.3, r: 0.8 },
     { th: 112.5 * deg, y: 5.3, r: 0.8, sun: true },
     { th: 157.5 * deg, y: 5.3, r: 0.8, sun: true },
-    { th: 256 * deg, y: 3.0, r: 0.85 },
-    { th: 284 * deg, y: 3.0, r: 0.85 },
+    { th: 256 * deg, y: 3.0, r: 0.85, dusk: true },
+    { th: 284 * deg, y: 3.0, r: 0.85, dusk: true },
   ];
   // (one clear-sky picture for every skylight: blue in the middle, paler at its rim)
   let skyTexOnce = null;
@@ -774,7 +777,7 @@ export function createWorld(
       s.holes.push(hole);
       mesh(floorShape(s, y + depth, false), MAT_CEIL);
     }
-    domes.push({ c: c.clone(), r, y, focal: new V3(c.x, 0, c.z), sky: null, blue: true });
+    domes.push({ c: c.clone(), r, y, sky: null });
   };
   // far out in the sky: the sun (high, where the light through the windows and the wells comes from) — at midnight, the
   // moon — and, low in the west, a setting sun seen only through the ring's two western windows (dusk only)
@@ -2589,7 +2592,7 @@ export function createWorld(
           if (f.distanceTo(new V3(CROSS.c.x, 0, CROSS.c.z)) > 1) pool(f, 0.9);
         }
       } else {
-        const sd = n.dot(SUN_DIR) >= 0.2 ? SUN_DIR : n.dot(SUN_M) >= 0.2 ? SUN_M : null;
+        const sd = n.dot(SUN_DIR) >= 0.2 ? SUN_DIR : null;
         if (sd) prism(pts, (p) => p.clone().addScaledVector(sd, -p.y / sd.y), true, beamK(null));
       }
     });
@@ -2603,31 +2606,62 @@ export function createWorld(
         });
       prism(pts, (p) => p.clone().addScaledVector(SUN_DIR, -p.y / SUN_DIR.y), true, beamK(null));
     }
+    // each well in a roof: the sun through it, slanting as the shadows do, onto the patch of floor the sun really lights
+    // (what is seen through both the well's mouth and its top: the mouth's circle carried down the sun's way, drawn in by
+    // half the shift the well's depth makes). It once fell straight down onto the middle of the room, wherever the sun was.
     domes.forEach((d) => {
-      const c = new V3(d.c.x, d.y, d.c.z),
-        f = d.focal || new V3(d.c.x, 0, d.c.z);
-      // under the clear-sky panel the light spreads out wide and soft, like daylight, instead of a column
-      prism(
-        Array.from(
-          { length: 24 },
-          (_, k) =>
-            new V3(d.c.x + Math.cos((k / 24) * Math.PI * 2) * d.r, d.y, d.c.z + Math.sin((k / 24) * Math.PI * 2) * d.r),
-        ),
-        (p) => {
-          // (a small skylight spreads its light wide; the atrium's great open circle falls almost straight)
-          const k = d.r > 4 ? 1.12 : d.blue ? 2.4 : 0.6;
-          return f.clone().add(new V3((p.x - c.x) * k, 0, (p.z - c.z) * k));
-        },
-        false,
-        beamK(f) * (d.blue ? 0.38 : 0.8),
+      const depth = d.r > 4 ? 2.4 : 1.2,
+        k = SUN_DIR.x / SUN_DIR.y,
+        q = SUN_DIR.z / SUN_DIR.y,
+        shift = depth * Math.hypot(k, q),
+        rr = Math.max(0.3, d.r - shift / 2),
+        top = new V3(d.c.x - k * depth * 0.5, d.y, d.c.z - q * depth * 0.5);
+      const pts = Array.from(
+        { length: 28 },
+        (_, j) =>
+          new V3(top.x + Math.cos((j / 28) * Math.PI * 2) * rr, d.y, top.z + Math.sin((j / 28) * Math.PI * 2) * rr),
       );
-      if (d.blue) {
-        const s = segs[segs.length - 1];
-        s[2] *= 1.6;
-        s[3] *= 1.7;
-        s[5] = 1;
+      prism(
+        pts,
+        (p) => p.clone().addScaledVector(SUN_DIR, -p.y / SUN_DIR.y),
+        true,
+        beamK(null) * (d.r > 4 ? 0.8 : 0.6),
+      );
+      d.land = new V3(top.x - k * d.y, 0, top.z - q * d.y);
+    });
+    // dusk: the setting sun low through the two western windows, across the ring onto its inner wall, warm
+    if (!NIGHT)
+      for (const w of RING_WINS.filter((x) => x.dusk)) {
+        const r = PL.RING.r1,
+          c = new V3(CROSS.c.x + Math.sin(w.th) * r, w.y, CROSS.c.z - Math.cos(w.th) * r),
+          dir = new V3(1, -Math.tan((4 * Math.PI) / 180), 0).normalize();
+        // (where the ray meets the inner wall: the first crossing of the circle r0 ahead of it)
+        const ox = c.x - CROSS.c.x,
+          oz = c.z - CROSS.c.z,
+          bq = ox * dir.x + oz * dir.z,
+          cq = ox * ox + oz * oz - PL.RING.r0 ** 2,
+          disc = bq * bq - cq;
+        if (disc < 0) continue;
+        const t = -bq - Math.sqrt(disc);
+        if (t <= 0) continue;
+        const hit = c.clone().addScaledVector(dir, t),
+          n = new V3(hit.x - CROSS.c.x, 0, hit.z - CROSS.c.z).normalize();
+        segs.push([c.clone(), hit.clone(), w.r * 0.8, w.r * 1.1, 0.55]);
+        const glow = soft(
+          world,
+          DUSK,
+          w.r * 4.2,
+          w.r * 3,
+          hit.x + n.x * 0.05,
+          hit.y,
+          hit.z + n.z * 0.05,
+          0,
+          0,
+          0.75,
+          true,
+        );
+        glow.rotation.set(0, Math.atan2(n.x, n.z), 0);
       }
-    }); // the sky panel: one wide, coreless, daylight-white column
     buildMotes();
   }
 
