@@ -27,6 +27,9 @@ app.commandLine.appendSwitch('enable-features', 'PlatformHEVCEncoderSupport'); /
 // no HTTP/3: the lookup services sit behind a CDN that offers it after the first answer, and on networks that block or
 // slow UDP every request after the first then fails or hangs
 app.commandLine.appendSwitch('disable-quic');
+// (Windows: the window is not taken for hidden when something lies over it. A screen recorder's overlay covered it, the
+// page stopped drawing frames and the picture froze while the sound went on. A minimised window is still hidden)
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 if (process.env.CADENZA_USER_DATA) app.setPath('userData', process.env.CADENZA_USER_DATA); // tests run against a clean profile
 // everything reset (Settings → data): the profile is removed here, as the app starts again, before anything opens it
 if (process.argv.includes('--reset-data')) {

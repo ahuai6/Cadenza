@@ -78,6 +78,9 @@ export interface PerfStats {
 
 const BD_CARRY = 2.6; // seconds the backdrop takes from the old song's pose to the new one's, in album play
 const CARRY = 3.2; // seconds the song before stays on in album play
+/** no frame for this long (ms) while shown: the browser has stopped giving them; and how often the watchdog looks */
+const STALL = 150,
+  STALL_TICK = 33;
 const SWAP_FADE = 0.9; // seconds a newer rhythm's picture takes over from the one before (with no blur to hide it)
 const SWAP_UNDER = 0.4; // … and at a blur's peak (the picture before, nearly all blur, dissolves into the new one)
 const RM = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -209,6 +212,9 @@ export class Engine extends Emitter<EngineEvents> {
   private ro: ResizeObserver | null = null;
   private host: HTMLElement | null = null;
   private raf = 0;
+  /** the watchdog's timer, and when the last frame was drawn (performance.now) */
+  private watch = 0;
+  private lastFrame = 0;
   private endedFired = false;
   private musicEndFired = false;
   aspectBox: AspectBox = 'fill'; // fill the host, letterbox an aspect inside it, or cover the host with it
@@ -240,6 +246,13 @@ export class Engine extends Emitter<EngineEvents> {
     });
     this.handoff.toRef = (r) => this.toRef(r);
     this.raf = requestAnimationFrame((n) => this.frame(n));
+    // a watchdog: should the browser stop giving frames while the page is shown (a screen recorder over the window
+    // taken for covering it), the picture goes on at a steady rate from a timer instead of standing still while the
+    // song plays on; the browser's own frames take over again as soon as they come
+    this.watch = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || performance.now() - this.lastFrame < STALL) return;
+      this.frame(performance.now());
+    }, STALL_TICK);
   }
   /** Where the song's sound goes (AudioClock.route): a host's own audio graph, or null for straight out. */
   audioRoute(node: AudioNode | null) {
@@ -247,6 +260,7 @@ export class Engine extends Emitter<EngineEvents> {
   }
   destroy() {
     cancelAnimationFrame(this.raf);
+    clearInterval(this.watch);
     this.ro?.disconnect();
     this.clock.stop();
     this.video.close();
@@ -666,7 +680,10 @@ export class Engine extends Emitter<EngineEvents> {
     } as RenderFrame;
   }
   private frame(now: number) {
+    // (one chain of frames only: a frame the watchdog drew replaces the browser's next, never adds a second)
+    cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame((n) => this.frame(n));
+    this.lastFrame = performance.now();
     const t0 = performance.now(),
       s = this.session;
     if (this.prevRaf) {
