@@ -23,6 +23,12 @@ export type Group =
   | 'space.lyrics';
 interface Meta {
   group: Group;
+  /** its name and note on a settings page (dictionary keys); a choice's options are named by `label` + '.' + option,
+   *  unless `optionLabel` says otherwise. A setting without a label is drawn by hand where it is shown */
+  label?: string;
+  help?: string;
+  /** the dictionary key naming one option (a choice), and its words' values ({n}: the option itself) */
+  optionLabel?: (o: string | number) => [string, Record<string, number>?];
   /** which interface it acts in (both, if not said) */ only?: 'classic' | 'space';
   /** for those who look for it: shown only under "advanced" */ advanced?: true;
 }
@@ -46,26 +52,57 @@ const text = (dflt: string, m: Meta) => ({ kind: 'text' as const, default: dflt,
 
 export const SCHEMA = {
   // the interface
-  ui: choice(['classic', 'space'], 'classic', { group: 'look' }),
-  theme: choice(['system', 'light', 'dark'], 'system', { group: 'look', only: 'classic' }),
-  tone: choice(['paper', 'white'], 'paper', { group: 'look', only: 'classic' }),
+  ui: choice(['classic', 'space'], 'classic', {
+    group: 'look',
+    label: 's.set.uiMode.pick',
+    optionLabel: (o) => ['s.set.uiMode.' + o],
+  }),
+  theme: choice(['system', 'light', 'dark'], 'system', {
+    group: 'look',
+    only: 'classic',
+    label: 's.set.theme',
+    optionLabel: (o) => ['s.set.' + o],
+  }),
+  tone: choice(['paper', 'white'], 'paper', { group: 'look', only: 'classic', label: 's.set.tone' }),
   uiFont: text('default', { group: 'look', only: 'classic' }),
   lang: text('', { group: 'look' }),
   // lyrics
-  fxCapSubs: toggle(true, { group: 'lyrics' }),
-  fxCapReads: toggle(true, { group: 'lyrics' }),
+  fxCapSubs: toggle(true, { group: 'lyrics', label: 's.set.fxCapSubs' }),
+  fxCapReads: toggle(true, { group: 'lyrics', label: 's.set.fxCapReads' }),
   lyricsTarget: choice(['tag', 'lrc'], 'tag', { group: 'lyrics' }),
   // the library, the system
-  scanOnLaunch: toggle(true, { group: 'library' }),
-  openAtLogin: toggle(false, { group: 'system' }),
-  closeToTray: toggle(false, { group: 'system' }),
+  scanOnLaunch: toggle(true, { group: 'library', label: 's.set.scanOnLaunch' }),
+  openAtLogin: toggle(false, { group: 'system', label: 's.set.openAtLogin' }),
+  closeToTray: toggle(false, { group: 'system', label: 's.set.tray' }),
   // the picture
-  gfx: choice(['default', 'optimized', 'lite'], 'default', { group: 'picture' }),
-  scale: choice(['auto', 0.55, 0.7, 0.85, 1], 'auto', { group: 'picture', only: 'classic' }),
-  fps: choice([0, 30, 60, 120], 0, { group: 'picture', only: 'classic' }),
+  gfx: choice(['default', 'optimized', 'lite'], 'default', { group: 'picture', label: 's.set.gfx' }),
+  scale: choice(['auto', 1, 0.85, 0.7, 0.55], 'auto', {
+    group: 'picture',
+    only: 'classic',
+    label: 's.set.scale',
+    optionLabel: (o) => (o === 'auto' ? ['s.set.scale.auto'] : ['s.set.scale.p', { n: Math.round(+o * 100) }]),
+  }),
+  fps: choice([0, 120, 60, 30], 0, {
+    group: 'picture',
+    only: 'classic',
+    label: 's.set.fps',
+    optionLabel: (o) => (o ? ['s.set.fps.n', { n: +o }] : ['s.set.fps.none']),
+  }),
   fxAspect: choice(['16:9', '16:10', '9:16', '1:1'], '16:9', { group: 'picture', only: 'classic' }),
-  prerender: toggle(true, { group: 'picture', only: 'classic', advanced: true }),
-  gpuLyrics: toggle(true, { group: 'picture', only: 'classic', advanced: true }),
+  prerender: toggle(true, {
+    group: 'picture',
+    only: 'classic',
+    advanced: true,
+    label: 's.set.prerender',
+    help: 's.set.prerenderHelp',
+  }),
+  gpuLyrics: toggle(true, {
+    group: 'picture',
+    only: 'classic',
+    advanced: true,
+    label: 's.set.gpuLyrics',
+    help: 's.set.gpuLyricsHelp',
+  }),
   // the sound
   audioOut: choice(['standard', 'hifi'], 'standard', { group: 'sound' }),
   audioMode: choice(['exclusive', 'shared'], 'exclusive', { group: 'sound', advanced: true }),
@@ -84,8 +121,13 @@ export const SCHEMA = {
   rhythmDrums: toggle(true, { group: 'rhythm', advanced: true }),
   rhythmStream: choice(['stream', 'full'], 'stream', { group: 'rhythm', advanced: true }),
   // diagnostics
-  perfHud: toggle(false, { group: 'diagnostics', advanced: true }),
-  debugLog: toggle(false, { group: 'diagnostics', advanced: true }),
+  perfHud: toggle(false, { group: 'diagnostics', advanced: true, label: 's.set.perfHud', help: 's.set.perfHudHelp' }),
+  debugLog: toggle(false, {
+    group: 'diagnostics',
+    advanced: true,
+    label: 's.set.debugLog',
+    help: 's.set.debugLogHelp',
+  }),
   // the space: moving
   spaceImmersive: toggle(false, { group: 'space.move', only: 'space' }),
   spaceFollow: toggle(false, { group: 'space.move', only: 'space' }),

@@ -27,12 +27,13 @@
   transform: scale(0.97);
 }
 .btn[data-kind='primary'] {
-  background: var(--accent);
-  color: var(--on-accent);
+  /* (the one filled button of a view, in reverse — colour is kept for what is playing: docs/DESIGN.md) */
+  background: var(--pick);
+  color: var(--on-pick);
   box-shadow: none;
 }
 .btn[data-kind='primary']:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent) 90%, white);
+  background: color-mix(in oklab, var(--pick) 88%, var(--fg-3));
   box-shadow: none;
 }
 .btn[data-kind='ghost'],
@@ -133,7 +134,7 @@
   transform: scale(0.95);
 }
 .ib[data-on='true'] {
-  color: var(--accent-ink);
+  color: var(--fg);
 }
 /* a favourite: a heart in the foreground colour, filled */
 .ib[data-fav][data-on='true'] {
@@ -273,13 +274,16 @@
   border-radius: var(--r-pill);
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  transition: transform var(--t-med) var(--ease);
+  transition:
+    transform var(--t-med) var(--ease),
+    background var(--t-med) var(--ease);
 }
 .toggle input:checked + i {
-  background: var(--accent);
+  background: var(--pick);
 }
 .toggle input:checked + i::after {
   transform: translateX(16px);
+  background: var(--on-pick);
 }
 .toggle input:focus-visible + i {
   outline: 2px solid var(--accent);
@@ -317,10 +321,10 @@
   transition:
     opacity var(--t-fast) var(--ease),
     transform var(--t-fast) var(--ease);
-  color: var(--on-accent);
+  color: var(--on-pick);
 }
 .check input:checked + i {
-  background: var(--accent);
+  background: var(--pick);
   box-shadow: none;
 }
 .check input:checked + i svg {

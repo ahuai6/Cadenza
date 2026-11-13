@@ -10,10 +10,9 @@ import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { neuralStatus, neuralRecheck, DEBUG } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
 import { askConfirm } from './Modals';
+import { SCHEMA, type SettingKey } from '../settings/schema';
 import s from './Settings.module.css';
 
-const SCALES: ('auto' | number)[] = ['auto', 1, 0.85, 0.7, 0.55],
-  FPS = [0, 120, 60, 30];
 const pc = (v: number | string) => Math.round(+v * 100) + '%';
 /** How a song's own MV sits behind the lyrics (app-wide: shown here and in a song's panel). */
 export function MvLook() {
@@ -68,33 +67,8 @@ export function SettingsView() {
           <h1 className="display">{tx('s.settings')}</h1>
         </header>
         <Group title={tx('s.set.look')}>
-          <Field label={tx('s.set.theme')}>
-            <Seg
-              size="sm"
-              fit
-              value={st.theme}
-              onChange={(v) => set({ theme: v })}
-              options={[
-                ['system', tx('s.set.system')],
-                ['light', tx('s.set.light')],
-                ['dark', tx('s.set.dark')],
-              ]}
-            />
-          </Field>
-          {st.theme !== 'dark' && (
-            <Field label={tx('s.set.tone')}>
-              <Seg
-                size="sm"
-                fit
-                value={st.tone === 'white' ? 'white' : 'paper'}
-                onChange={(v) => set({ tone: v })}
-                options={[
-                  ['paper', tx('s.set.tone.paper')],
-                  ['white', tx('s.set.tone.white')],
-                ]}
-              />
-            </Field>
-          )}
+          <SettingField k="theme" />
+          {st.theme !== 'dark' && <SettingField k="tone" />}
           <Field label={tx('s.set.uiFont')}>
             <Dropdown
               label={tx('s.set.uiFont')}
@@ -116,8 +90,8 @@ export function SettingsView() {
           </Field>
         </Group>
         <Group title={tx('s.set.fxCaps')} help={tx('s.set.fxCapsHelp')}>
-          <Toggle label={tx('s.set.fxCapSubs')} on={st.fxCapSubs !== false} set={(v) => set({ fxCapSubs: v })} />
-          <Toggle label={tx('s.set.fxCapReads')} on={st.fxCapReads !== false} set={(v) => set({ fxCapReads: v })} />
+          <SettingField k="fxCapSubs" />
+          <SettingField k="fxCapReads" />
         </Group>
         <Group title={tx('s.set.folders')} help={tx('s.set.watchHelp')}>
           <div className={s.folders}>
@@ -139,21 +113,10 @@ export function SettingsView() {
               {tx('s.set.rescan')}
             </Button>
           </div>
-          <Toggle label={tx('s.set.scanOnLaunch')} on={st.scanOnLaunch} set={(v) => set({ scanOnLaunch: v })} />
+          <SettingField k="scanOnLaunch" />
         </Group>
         <Group title={tx('s.set.uiMode')}>
-          <Field label={tx('s.set.uiMode.pick')}>
-            <Seg
-              size="sm"
-              fit
-              value={st.ui === 'space' ? 'space' : 'classic'}
-              onChange={(v) => set({ ui: v })}
-              options={[
-                ['classic', tx('s.set.uiMode.classic')],
-                ['space', tx('s.set.uiMode.space')],
-              ]}
-            />
-          </Field>
+          <SettingField k="ui" />
           <Note>{tx('s.set.uiMode.help')}</Note>
           <div>
             <Button size="sm" icon="refresh" onClick={() => D?.relaunch()}>
@@ -162,10 +125,8 @@ export function SettingsView() {
           </div>
         </Group>
         <Group title={tx('s.set.system2')}>
-          {st.platform !== 'linux' && (
-            <Toggle label={tx('s.set.openAtLogin')} on={st.openAtLogin} set={(v) => set({ openAtLogin: v })} />
-          )}
-          <Toggle label={tx('s.set.tray')} on={st.closeToTray} set={(v) => set({ closeToTray: v })} />
+          {st.platform !== 'linux' && <SettingField k="openAtLogin" />}
+          <SettingField k="closeToTray" />
         </Group>
         <AudioGroup st={st} />
         <Group title={tx('s.set.mv')} help={tx('s.set.mvHelp')}>
@@ -196,67 +157,16 @@ export function SettingsView() {
           <>
             <RhythmGroup st={st} />
             <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
-              <Field label={tx('s.set.gfx')}>
-                <Seg
-                  size="sm"
-                  fit
-                  value={st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default'}
-                  onChange={(v) => set({ gfx: v })}
-                  options={[
-                    ['default', tx('s.set.gfx.default')],
-                    ['optimized', tx('s.set.gfx.optimized')],
-                    ['lite', tx('s.set.gfx.lite')],
-                  ]}
-                />
-              </Field>
+              <SettingField k="gfx" />
               <Note>
                 {tx('s.set.gfx.' + (st.gfx === 'optimized' || st.gfx === 'lite' ? st.gfx : 'default') + 'Help')}
               </Note>
-              <Field label={tx('s.set.scale')}>
-                <Seg
-                  size="sm"
-                  fit
-                  value={String(st.scale)}
-                  onChange={(v) => set({ scale: v === 'auto' ? 'auto' : +v })}
-                  options={SCALES.map((v) => [
-                    String(v),
-                    v === 'auto' ? tx('s.set.scale.auto') : tx('s.set.scale.p', { n: Math.round(v * 100) }),
-                  ])}
-                />
-              </Field>
-              <Field label={tx('s.set.fps')}>
-                <Seg
-                  size="sm"
-                  fit
-                  value={+st.fps}
-                  onChange={(v) => set({ fps: v })}
-                  options={FPS.map((v) => [v, v ? `${v} fps` : tx('s.set.fps.none')])}
-                />
-              </Field>
-              <Toggle
-                label={tx('s.set.prerender')}
-                help={tx('s.set.prerenderHelp')}
-                on={st.prerender !== false}
-                set={(v) => set({ prerender: v })}
-              />
-              <Toggle
-                label={tx('s.set.gpuLyrics')}
-                help={tx('s.set.gpuLyricsHelp')}
-                on={st.gpuLyrics !== false}
-                set={(v) => set({ gpuLyrics: v })}
-              />
-              <Toggle
-                label={tx('s.set.perfHud')}
-                help={tx('s.set.perfHudHelp')}
-                on={!!st.perfHud}
-                set={(v) => set({ perfHud: v })}
-              />
-              <Toggle
-                label={tx('s.set.debugLog')}
-                help={tx('s.set.debugLogHelp')}
-                on={!!st.debugLog}
-                set={(v) => set({ debugLog: v })}
-              />
+              <SettingField k="scale" />
+              <SettingField k="fps" />
+              <SettingField k="prerender" />
+              <SettingField k="gpuLyrics" />
+              <SettingField k="perfHud" />
+              <SettingField k="debugLog" />
               {st.debugLog && (
                 <div>
                   <Button size="sm" icon="download" onClick={() => saveDebugLog(st.version || '')}>
@@ -644,4 +554,48 @@ function saveDebugLog(version: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/** A setting drawn from its declaration (settings/schema.ts): a switch, a row of choices or a slider, named from its
+ *  label. A new setting with a label shows here by being placed by its key, with nothing else written. */
+export function SettingField({ k }: { k: SettingKey }) {
+  const st = useStore(settings),
+    d = SCHEMA[k] as {
+      kind: string;
+      label?: string;
+      help?: string;
+      options?: readonly (string | number)[];
+      min?: number;
+      max?: number;
+      step?: number;
+      default: unknown;
+      optionLabel?: (o: string | number) => [string, Record<string, number>?];
+    };
+  if (!d.label) return null;
+  const raw = (st as Record<string, unknown>)[k],
+    value = raw ?? d.default,
+    put = (v: unknown) => setSettings({ [k]: v } as Partial<Settings>);
+  if (d.kind === 'toggle')
+    return <Toggle label={tx(d.label)} help={d.help ? tx(d.help) : undefined} on={!!value} set={put} />;
+  if (d.kind === 'choice') {
+    const name = (o: string | number) => {
+      const [key, vars] = d.optionLabel ? d.optionLabel(o) : [d.label + '.' + o];
+      return tx(key, vars);
+    };
+    // (the options as strings for the control; the value written back in the option's own type)
+    const opts = d.options!,
+      cur = opts.find((o) => String(o) === String(value)) ?? d.default;
+    return (
+      <Field label={tx(d.label)}>
+        <Seg
+          size="sm"
+          fit
+          value={String(cur)}
+          onChange={(v) => put(opts.find((o) => String(o) === v))}
+          options={opts.map((o) => [String(o), name(o)])}
+        />
+      </Field>
+    );
+  }
+  return null;
 }
