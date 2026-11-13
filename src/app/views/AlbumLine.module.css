@@ -152,27 +152,24 @@
   opacity: 1;
 }
 .line[data-live='true'] .ring {
-  animation: beat var(--beat, var(--t-stage)) var(--ease) infinite;
-}
-@keyframes beat {
-  from {
-    opacity: 1;
-    transform: scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: scale(3.2);
-  }
+  /* (--ph: where in the beat the song is, 0 on the beat — from the rhythm engine, on the tick) */
+  --e: calc(1 - (1 - var(--ph, 1)) * (1 - var(--ph, 1)) * (1 - var(--ph, 1)));
+  opacity: calc(1 - var(--ph, 1));
+  transform: scale(calc(1 + 2.2 * var(--e)));
 }
 @media (prefers-reduced-motion: reduce) {
-  .ring {
-    animation: none !important;
+  .line[data-live='true'] .ring {
+    opacity: 0;
   }
 }
 /* under the line: the chosen album's songs */
 .songs {
   margin-top: 18px;
   animation: nameIn var(--t-enter) var(--ease) both;
+}
+.name[data-still],
+.songs[data-still] {
+  animation: none;
 }
 @media (max-width: 1100px) {
   .river {

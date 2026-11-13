@@ -1,6 +1,7 @@
 // The space's shape kit (docs/SPACE.md, 形狀): walls drawn flat — a length and a height, round doorways sunk into the
 // floor, round windows — then stood up straight, or bent round a circle. Everything architectural is made of these.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { DOOR, DOOR_HALF } from './plan';
 
 export interface Hole {
@@ -89,6 +90,78 @@ export function subdivide(geo: THREE.BufferGeometry, max: number) {
   out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   return out;
+}
+
+/** A long wall drawn flat, `depth` thick and ready to bend: cut into panels — one about each doorway and window, plain
+ *  ones between — each triangulated and subdivided on its own. Drawn as one shape, the doorways' arcs were joined by
+ *  long slivers to corners metres away, and keeping those round when bent split them into five times the triangles of
+ *  the wall itself (a round wall with three doors: 128 000 against 25 000). */
+export function wallPanels(len: number, h: number, doors: number[], holes: Hole[], depth: number, max: number) {
+  const feats = [
+    ...doors.map((u) => [u - DOOR.r - 0.4, u + DOOR.r + 0.4]),
+    ...holes.map((w) => [w.u - w.r - 0.4, w.u + w.r + 0.4]),
+  ]
+    .map(([a, b]) => [Math.max(0, a), Math.min(len, b)])
+    .sort((x, y) => x[0] - y[0]);
+  // (overlapping features make one panel)
+  const merged: number[][] = [];
+  for (const f of feats) {
+    const l = merged[merged.length - 1];
+    if (l && f[0] <= l[1]) l[1] = Math.max(l[1], f[1]);
+    else merged.push([...f]);
+  }
+  const parts: THREE.BufferGeometry[] = [];
+  const add = (a: number, b: number, withFeats: boolean) => {
+    if (b - a < 1e-3) return;
+    const sh = withFeats
+      ? wallShape(
+          b - a,
+          h,
+          doors.filter((u) => u > a && u < b).map((u) => u - a),
+          holes.filter((w) => w.u > a && w.u < b).map((w) => ({ ...w, u: w.u - a })),
+        )
+      : wallShape(b - a, h);
+    const g = slab(sh, depth),
+      d = subdivide(g, max);
+    g.dispose();
+    d.translate(a, 0, 0);
+    parts.push(d);
+  };
+  let at = 0;
+  for (const [a, b] of merged) {
+    add(at, a, false);
+    add(a, b, true);
+    at = b;
+  }
+  add(at, len, false);
+  const out = mergeGeometries(parts)!;
+  parts.forEach((g) => g.dispose());
+  return out;
+}
+
+/** The lining of a round doorway through from one wall to another: a horseshoe band (the doorway's own outline, a
+ *  little narrower than the doorways it joins, `band` thick), `len` long along z. Only the lining — no faces of a block
+ *  that would lie in the walls it passes through. x about 0. */
+export function doorTube(len: number, inset = 0.12, band = 0.4, N = 40) {
+  const ri = DOOR.r - inset,
+    ro = ri + band,
+    s = new THREE.Shape(),
+    fi = Math.asin(Math.min(1, DOOR.cy / ri)),
+    fo = Math.asin(Math.min(1, DOOR.cy / ro));
+  // (outer arc from its left foot over the top to its right foot, then the inner arc back)
+  const arc = (r: number, foot: number, back: boolean) => {
+    for (let k = 0; k <= N; k++) {
+      const q = back ? N - k : k,
+        p = Math.PI + foot - ((Math.PI + 2 * foot) * q) / N;
+      s.lineTo(r * Math.cos(p), DOOR.cy + r * Math.sin(p));
+    }
+  };
+  s.moveTo(-Math.sqrt(ro * ro - DOOR.cy * DOOR.cy), 0);
+  arc(ro, fo, false);
+  s.lineTo(Math.sqrt(ri * ri - DOOR.cy * DOOR.cy), 0);
+  arc(ri, fi, true);
+  s.closePath();
+  return new THREE.ExtrudeGeometry(s, { depth: len, bevelEnabled: false, curveSegments: 4 });
 }
 
 /** Bends a flat wall (x along it, y up, z through it) round a circle of radius r about (cx, cz): x = 0 at the compass

@@ -68,31 +68,9 @@ export function NowPlaying() {
       rgb = (v: number[]) => v.map((x) => Math.round(x)).join(',');
     return { '--amb': rgb(c), '--amb-base': rgb(A.base) } as React.CSSProperties;
   }, [session]);
-  // full screen: the controls rest out of sight while the pointer does (any move, key or wheel brings them back)
-  const full = useStore(ui, (x) => x.win.full);
-  useEffect(() => {
-    const el = root.current;
-    if (!el || !full || layer !== 'np') {
-      if (el) el.dataset.idle = 'false';
-      return;
-    }
-    let tm = 0;
-    const wake = () => {
-      el.dataset.idle = 'false';
-      clearTimeout(tm);
-      tm = window.setTimeout(() => {
-        if (!el.querySelector(':focus-visible, [aria-expanded="true"]')) el.dataset.idle = 'true';
-      }, 2600);
-    };
-    wake();
-    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const;
-    evs.forEach((e) => addEventListener(e, wake, { passive: true }));
-    return () => {
-      clearTimeout(tm);
-      evs.forEach((e) => removeEventListener(e, wake));
-      el.dataset.idle = 'false';
-    };
-  }, [full, layer]);
+  // full screen: the controls rest out of sight while the pointer does (any move, key or wheel brings them back) — the
+  // one idle the whole window shares (Shell keeps it), so the player bar goes with them
+  const idle = useStore(ui, (x) => x.idle) && layer === 'np';
   if (!t) return null;
   const more = (e: React.MouseEvent) =>
     openMenu(e, [
@@ -119,6 +97,7 @@ export function NowPlaying() {
         ref={root}
         style={tone}
         data-vis="false"
+        data-idle={idle}
         aria-hidden={layer === 'none'}
         inert={layer !== 'np'}
       >

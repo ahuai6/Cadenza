@@ -97,8 +97,9 @@ export function Shell() {
   // play page's and the effect view's own controls do
   const full = useStore(ui, (x) => x.win.full),
     mini = useStore(ui, (x) => !!x.win.mini),
-    [idle, setIdle] = useState(false);
+    idle = useStore(ui, (x) => x.idle);
   useEffect(() => {
+    const setIdle = (v: boolean) => ui.get().idle !== v && ui.set({ idle: v });
     if (!full || layer === 'none') {
       setIdle(false);
       return;
@@ -107,7 +108,10 @@ export function Shell() {
     const wake = () => {
       setIdle(false);
       clearTimeout(tm);
-      tm = window.setTimeout(() => setIdle(true), 2600);
+      // (not while something has the keyboard's focus or a menu is open: what is being used stays)
+      tm = window.setTimeout(() => {
+        if (!document.querySelector(':focus-visible, [aria-expanded="true"]')) setIdle(true);
+      }, 2600);
     };
     const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const;
     evs.forEach((e) => addEventListener(e, wake, { passive: true }));
@@ -115,6 +119,7 @@ export function Shell() {
     return () => {
       clearTimeout(tm);
       evs.forEach((e) => removeEventListener(e, wake));
+      setIdle(false);
     };
   }, [full, layer]);
 
@@ -143,7 +148,7 @@ export function Shell() {
         inert={layer !== 'none'}
       >
         {/* a page turns: the old one fades out, the new one rises in */}
-        <Turn k={page} className={s.pageInner}>
+        <Turn k={page} className={s.pageInner} boxClassName={s.pageBox}>
           <Guard name="page" k={page}>
             {page === 'library' && <LibraryView />}
             {page === 'wall' && <PosterWall />}

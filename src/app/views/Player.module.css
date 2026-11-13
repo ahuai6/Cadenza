@@ -172,6 +172,15 @@
   mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--stage) * 120px));
   transition: background var(--t-song) var(--ease);
 }
+/* (full screen on the play page, the pointer still: away with the page's controls, back on any movement) */
+.card {
+  transition: opacity var(--t-reveal) var(--ease);
+}
+.card[data-idle] {
+  opacity: 0;
+  pointer-events: none;
+  cursor: none;
+}
 :global(html[data-layer='fx']) .card,
 :global(html[data-fxmode='true']) .card {
   visibility: hidden;

@@ -55,6 +55,7 @@ function put(el: HTMLElement, k: string, v: string) {
 let gens = 0;
 export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
   const box = useRef<HTMLDivElement>(null),
+    dotsEl = useRef<HTMLElement>(null),
     lineEls = useRef<(HTMLElement | null)[]>([]),
     view = useStore(ui, (x) => x.npLyr),
     // (each set of lines gets lines of its own: a line of the song before never lends its place — and what was written
@@ -113,6 +114,20 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     }
     return r;
   };
+  // the wait's dots: one row of their own in the list, in the room the waited-for line and those after it make, riding
+  // with that line as it moves (they are not part of the line: it keeps its own light, and is not made the current one)
+  const placeDots = () => {
+    const S = st.current,
+      el = dotsEl.current;
+    if (!el) return;
+    const w = S.wait >= 0 ? S.ls[S.wait] : null;
+    if (!w) {
+      if (el.dataset.on !== 'false') el.dataset.on = 'false';
+      return;
+    }
+    el.dataset.on = 'true';
+    el.style.transform = `translate3d(0,${(S.tops[S.wait] + w.y - 3 - S.gap * 0.5).toFixed(2)}px,0)`;
+  };
   const step = (now: number) => {
     const S = st.current,
       dt = Math.min(0.05, Math.max(0.001, (now - S.last) / 1000));
@@ -134,6 +149,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       }
       w.el.style.transform = `translate3d(0,${w.y.toFixed(2)}px,0)`;
     }
+    placeDots();
     S.raf = moving ? requestAnimationFrame(step) : 0;
   };
   const kick = () => {
@@ -147,7 +163,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   const aim = (idx: number, wave: boolean, jump: boolean) => {
     const S = st.current,
       H = box.current ? box.current.clientHeight : 600,
-      anchor = H * (compact ? 0.38 : 0.3),
+      anchor = H * (compact ? 0.38 : 0.34),
       a = S.tops[Math.max(0, idx)] || 0,
       now = performance.now();
     S.ls.forEach((w, i) => {
@@ -165,6 +181,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       }
     });
     if (!jump) kick();
+    else placeDots();
   };
   // (one state of light per line: a line timed only as a whole has a single fill and glow on the line itself, which its
   // words, their characters and its harmonies all inherit — none carries one of its own, so no row or character can
@@ -271,8 +288,8 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         mark(i);
         aim(i, !S.manual, false);
       }
-      // a long wait (the intro, a break): the line to come is already in its place, three dots coming in over it as a line
-      // of their own, lighting one by one with the wait itself — then, a beat before the voice, one swell in time with
+      // a long wait (the intro, a break): three dots come in above the line to come as a line of their own (it keeps its own
+      // light, the list stays on the line sung last), lighting one by one with the wait itself — then, a beat before the voice, one swell in time with
       // the music, and they go as it comes in: the line only lights, it does not arrive. All of it read off the song's
       // time, so a paused song holds the dots still.
       {
@@ -282,16 +299,13 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
           from = i < 0 ? 0 : sungEnd + WAIT_AFTER,
           to = N ? starts[i + 1] : 0,
           w = N && to - sungEnd >= WAIT_MIN && to - from >= 2 && p.t >= from && p.t < to ? i + 1 : -1;
+        // (the list stays on the current line: the dots make their room below it, they are not a line come round)
         if (w !== S.wait) {
-          const was = lineEls.current[S.wait];
-          if (was) delete was.dataset.wait;
           S.wait = w;
-          aim(w >= 0 && !S.manual ? w : S.cur, !S.manual, false);
+          aim(S.cur, !S.manual, false);
         }
-        const el = lineEls.current[w];
-        if (el) {
-          // (set every tick, not only when the wait begins: a line put in place after it began still gets its dots)
-          if (el.dataset.wait !== 'true') el.dataset.wait = 'true';
+        const el = dotsEl.current;
+        if (el && w >= 0) {
           const bl = Math.max(0.25, engine.session?.map?.beatLen(to) ?? 0.5),
             tb = to - bl,
             x = Math.max(0, 1 - Math.abs(p.t - tb) / (bl * 0.5)),
@@ -398,6 +412,11 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
       data-subs={view.subs}
       style={{ ['--np-fs' as string]: view.size, ...faceStyle } as React.CSSProperties}
     >
+      <i className={s.dots} ref={dotsEl} data-on="false" aria-hidden>
+        <i />
+        <i />
+        <i />
+      </i>
       {lines.map((L, i) => (
         <button
           key={gen + ':' + i}
@@ -414,11 +433,6 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
             if (!engine.isPlaying) engine.play();
           }}
         >
-          <i className={s.dots} aria-hidden>
-            <i />
-            <i />
-            <i />
-          </i>
           {L.words.length ? (
             L.words.map((w, k) => (
               <Fragment key={k}>

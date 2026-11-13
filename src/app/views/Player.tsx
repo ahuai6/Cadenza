@@ -260,7 +260,9 @@ let queueAnchor: DOMRect | null = null;
 export function PlayerCard() {
   const id = useStore(player, (x) => x.id),
     dir = useStore(player, (x) => x.dir),
-    onStage = useStore(ui, (x) => x.layer !== 'none');
+    onStage = useStore(ui, (x) => x.layer !== 'none'),
+    // (full screen on the play page, the pointer still: the bar rests out of sight with the page's own controls)
+    idle = useStore(ui, (x) => x.idle && x.layer === 'np');
   useStore(lib, (x) => x.tracks);
   const t = trackOf(id),
     card = useRef<HTMLDivElement>(null),
@@ -283,7 +285,7 @@ export function PlayerCard() {
     // the stage's apron: the same bar under the stage and under the sheet. Over the stage it is clear and leaves the song
     // to the stage (its cover, title and sung line fade: --stage, set by layers.ts); over the sheet it carries them
     // (its colours turn to the stage's half way through the move, with its ground: layers.ts sets data-on-picture)
-    <div className={s.card} ref={card} data-test="card" data-stage={onStage}>
+    <div className={s.card} ref={card} data-test="card" data-stage={onStage} data-idle={idle || undefined}>
       <Progress className={s.line} />
       <div className={s.row}>
         <div className={s.id}>

@@ -242,6 +242,10 @@
 .shell[data-page='workshop'] .page {
   overflow: hidden;
 }
+.shell[data-page='workshop'] .pageBox {
+  height: 100%;
+  grid-template-rows: 100%;
+}
 .shell[data-page='workshop'] .pageInner {
   padding: 0;
   max-width: none;

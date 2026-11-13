@@ -63,7 +63,7 @@
   --song-h: 30;
   --song-c: 0.25;
 
-  --tb-h: 56px;
+  --tb-h: 64px;
   --side-w: clamp(220px, 16.6667vw, 280px);
   --card-h: 88px;
   /* the play page's cover: its size, its left edge and its centre line — the player bar's cover sits on the same centre

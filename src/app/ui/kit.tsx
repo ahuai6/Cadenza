@@ -22,8 +22,6 @@ export { s as kit };
 
 /** How long a thing takes to leave (--t-out): it stays mounted that long, marked closing. */
 export const OUT_MS = 130;
-/** a view rising in (--t-enter) */
-const ENTER_MS = 320;
 /** Keep a thing mounted while it leaves: `shown` stays true for OUT_MS after `open` goes false, `closing` meanwhile. */
 export function usePresence(open: boolean, ms = OUT_MS) {
   const [shown, setShown] = useState(open),
@@ -828,38 +826,65 @@ export function Toast() {
 }
 export const unknownArtist = () => tx('s.unknownArtist');
 
-/** A turn between views (pages, a library section, a detail): the old one fades out quickly, then the new one rises
- *  in — never both at once, never a cut. Keyed by `k`. The turn keeps the old one's height until the new one is in,
- *  so the page under it never jumps (a shorter view would pull the scroll back, a cut at the sheet's edge). */
-export function Turn({ k, children, className }: { k: string; children: ReactNode; className?: string }) {
+/** A turn between views (pages, a library section, a detail): the new one is put in place at once, under the old one,
+ *  and once it has been drawn the two cross — the old one fading out, the new one rising in — together with whatever
+ *  else answers the same press (the shelves' sliding pill starts on that same frame). Keyed by `k`. Both stand in one
+ *  cell while they cross, so the page under them never jumps. (It once waited for the old one to leave before even
+ *  building the new one, and started the new one's entrance before it could be drawn: the pill arrived first and the
+ *  view came in late, at once — and a cover drawn on its own layer showed before the rest.) */
+export function Turn({
+  k,
+  children,
+  className,
+  boxClassName,
+}: {
+  k: string;
+  children: ReactNode;
+  className?: string;
+  boxClassName?: string;
+}) {
   const [cur, setCur] = useState(k),
-    [hold, setHold] = useState(0),
-    box = useRef<HTMLDivElement>(null),
-    last = useRef<ReactNode>(children);
-  useEffect(() => {
-    if (k === cur) return;
-    setHold((h) => h || box.current?.offsetHeight || 0);
-    const tm = window.setTimeout(() => setCur(k), OUT_MS);
-    return () => clearTimeout(tm);
-  }, [k, cur]);
-  // (the height let go once the new view has risen in)
-  useEffect(() => {
-    if (!hold || k !== cur) return;
-    const tm = window.setTimeout(() => setHold(0), ENTER_MS);
-    return () => clearTimeout(tm);
-  }, [hold, k, cur]);
-  // (while the old one leaves it shows as it last was; then the new one, live)
-  const out = k !== cur;
-  if (!out) last.current = children;
+    [gone, setGone] = useState<{ k: string; node: ReactNode } | null>(null),
+    last = useRef<ReactNode>(children),
+    box = useRef<HTMLDivElement>(null);
+  // (a new key: the view shown so far becomes the one leaving, as it last was — in the same render, no wait)
+  if (k !== cur) {
+    setGone({ k: cur, node: last.current });
+    setCur(k);
+  }
+  if (k === cur) last.current = children;
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    // (the crossing starts once the new view is on screen: two frames, the first to lay it out and draw it)
+    let r2 = 0,
+      tm = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => {
+        el.querySelectorAll<HTMLElement>(':scope > [data-turn]').forEach((c) => {
+          if (c.dataset.turn === 'in') c.removeAttribute('data-pre');
+          else c.dataset.out = '';
+        });
+        tm = window.setTimeout(() => setGone(null), OUT_MS + 140);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+      clearTimeout(tm);
+    };
+  }, [cur]);
+  const cls = s.turn + (className ? ' ' + className : '');
   return (
-    <div
-      key={cur}
-      ref={box}
-      className={s.turn + (className ? ' ' + className : '')}
-      data-out={out || undefined}
-      style={hold ? { minHeight: hold } : undefined}
-    >
-      {out ? last.current : children}
+    <div ref={box} className={s.turnBox + (boxClassName ? ' ' + boxClassName : '')}>
+      {gone && gone.k !== cur && (
+        <div key={gone.k} className={cls} data-turn="out" aria-hidden inert>
+          {gone.node}
+        </div>
+      )}
+      <div key={cur} className={cls} data-turn="in" data-pre="">
+        {children}
+      </div>
     </div>
   );
 }

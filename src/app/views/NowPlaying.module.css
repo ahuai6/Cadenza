@@ -185,13 +185,15 @@
   gap: 6px;
   justify-self: end;
 }
+/* (the room between the title bar and the player bar, the same air above and below: the cover and the lyrics stand on its
+   middle — a padding under it alone once set the whole page a little high) */
 .main {
   position: absolute;
-  inset: calc(var(--tb-h) + 8px) 0 var(--card-h) 0;
+  inset: calc(var(--tb-h) + 16px) 0 calc(var(--card-h) + 16px) 0;
   display: grid;
   grid-template-columns: max(calc(var(--np-cover) + 40px), calc(50vw - var(--np-x) - 22px)) minmax(340px, 1fr);
   gap: 0;
-  padding: 0 calc(var(--np-x) - 22px) 40px var(--np-x);
+  padding: 0 calc(var(--np-x) - 22px) 0 var(--np-x);
 }
 /* (the lyrics' left edge on the window's centre line: the column starts 22 px short of it — the list's own padding and
    a line's — so the text itself begins at the middle, the balance point against the cover's column) */

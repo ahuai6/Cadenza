@@ -775,11 +775,39 @@
     opacity var(--t-med) var(--ease),
     transform var(--t-med) var(--ease);
 }
-/* a turn between views: out quickly, then in */
-.turn {
-  animation: enter var(--t-enter) var(--ease) both;
+/* a turn between views: the two stand in one cell and cross — the old one out quickly, the new one rising in. Both run
+   from the moment the new one is on screen (kit.tsx takes data-pre off, puts data-out on): a transition, not an
+   animation, so its clock starts then, never while the new view was still being built */
+.turnBox {
+  display: grid;
+  min-width: 0;
 }
-.turn[data-out] {
-  animation: leave var(--t-out) var(--ease-in) forwards;
+.turnBox > .turn {
+  grid-area: 1 / 1;
+  min-width: 0;
+  /* (as wide as the box, never shrunk to its content: a view with auto margins — a page held to a width, centred —
+     would otherwise be drawn as narrow as it could be) */
+  width: 100%;
+  box-sizing: border-box;
+  transition:
+    opacity var(--t-enter) var(--ease),
+    transform var(--t-enter) var(--ease);
+}
+.turnBox > .turn[data-pre] {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: none;
+}
+.turnBox > .turn[data-turn='out'] {
   pointer-events: none;
+}
+.turnBox > .turn[data-out] {
+  opacity: 0;
+  transform: none;
+  transition: opacity var(--t-out) var(--ease-in);
+}
+@media (prefers-reduced-motion: reduce) {
+  .turnBox > .turn[data-pre] {
+    transform: none;
+  }
 }

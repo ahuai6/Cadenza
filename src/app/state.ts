@@ -44,6 +44,9 @@ export const ui = createStore({
   layer: 'none' as 'none' | 'np' | 'fx',
   queue: false,
   win: { max: false, full: false, mini: false } as { max: boolean; full: boolean; mini?: boolean; min?: boolean },
+  /** full screen over the stage, the pointer still a while: the controls rest out of sight (Shell keeps it; the title
+   *  bar, the play page and the player bar all read this one value) */
+  idle: false,
   modal: null as null | { kind: string; [k: string]: unknown },
   menu: null as null | { x: number; y: number; items: (MenuItem | '-')[] },
   toast: null as null | { text: string; id: number },

@@ -169,14 +169,23 @@ export class AirLyrics {
     if (this.on) {
       const t = song.t,
         L = song.lines;
-      // a line leaves a little before the next comes, or once it (and its harmony) is over
+      // a line leaves a little before the next comes, or once it (and its harmony) is over — or when the song is no
+      // longer anywhere near it: a jump back before it (else nothing would ever come after it to send it off, and it
+      // stayed in the air for good), or lyrics that no longer have it
       for (const l of this.lines) {
         if (l.falling) continue;
         const next = L[l.idx + 1],
           mine = L[l.idx];
-        if ((next && t >= next.t - LEAVE_EARLY) || (mine && t > Math.max(mine.end, mine.harm ? mine.sung : 0) + 0.4))
+        if (
+          !mine ||
+          t < mine.t - 1 ||
+          (next && t >= next.t - LEAVE_EARLY) ||
+          t > Math.max(mine.end, mine.harm ? mine.sung : 0) + 0.4
+        )
           this.fall(l);
       }
+      // (after a jump back, the line sung there comes again even if it was the last one shown)
+      if (cur < this.lastIdx) this.lastIdx = cur - 1;
       if (cur >= 0 && cur !== this.lastIdx && L[cur]?.text.trim()) this.spawn(L[cur], cur);
     }
     const air = this.lines.filter((l) => !l.falling);

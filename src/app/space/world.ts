@@ -22,7 +22,7 @@ import { navePage, navePages, letterSpan, NAVE_SLOTS, LIST_SLOTS } from './data'
 import { CoverCache, CoverAtlas } from './covers';
 import { ts } from './i18n';
 import * as PL from './plan';
-import { wallShape, slab, subdivide, bendRound, alongRound, standFlat, floorShape } from './shapes';
+import { wallShape, slab, wallPanels, doorTube, bendRound, alongRound, standFlat, floorShape } from './shapes';
 import AMBIENT from './ambient.ogg?url';
 
 export interface SpaceUi {
@@ -676,17 +676,15 @@ export function createWorld(
   const wallMat = (room) => (WALL[room] ||= skyWash(toon(C.walls[room])));
   function roundWall(c, r, h, doors, wins = [], mat = MAT.paper) {
     const U = (th) => alongRound(th, r, SEAM),
-      flatG = slab(
-        wallShape(
-          Math.PI * 2 * r,
-          h,
-          doors.map(U),
-          wins.map((w) => ({ u: U(w.th), y: w.y, r: w.r })),
-        ),
+      // (drawn in panels: a doorway's arc never joined to corners metres away — see wallPanels)
+      g = wallPanels(
+        Math.PI * 2 * r,
+        h,
+        doors.map(U),
+        wins.map((w) => ({ u: U(w.th), y: w.y, r: w.r })),
         T,
-      ),
-      g = subdivide(flatG, 1.1);
-    flatG.dispose();
+        1.1,
+      );
     bendRound(g, r, c.x, c.z, SEAM);
     return mesh(g, mat);
   }
@@ -752,14 +750,29 @@ export function createWorld(
   // the ring: its outer wall (a doorway to each room, a great round window to the south), its low ceiling
   roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, [{ th: Math.PI, y: 3.3, r: 2.3 }], wallMat('gallery'));
   ringRoof(CROSS.c, PL.ATRIUM.r + T / 2, PL.RING.r1 + T, PL.RING.h);
-  // the rooms off the ring, each through a short round passage
+  // the rooms off the ring, each through a short round passage: only its lining, a little narrower than the doorways it
+  // joins, from the middle of the ring's wall to the middle of the room's — the two ends cut to each wall's own curve.
+  // (It was a block with the doorway through it, its ends inside both walls: its lining and theirs lay on each other and
+  // flickered, and against a round room's wall its flat end's corners came through.)
   for (const id of ['lists', 'settings', 'listening']) {
     const R = PL.ROOMS[id],
       P = (al, la) => v3(PL.at(R.th, al, la));
     {
-      const a = PL.RING.r1 + 0.05,
-        b = PL.ROOM_IN - 0.05;
-      mesh(standFlat(slab(wallShape(6.8, 6, [3.4]), b - a), P(b, -3.4), P(b, 3.4)), wallMat('gallery'));
+      const ringMid = (la) => Math.sqrt((PL.RING.r1 + T / 2) ** 2 - la * la),
+        alC = PL.ROOM_IN + (R.kind === 'rect' ? 0 : R.r),
+        roomMid = (la) =>
+          R.kind === 'rect' ? PL.ROOM_IN - T / 2 : alC - Math.sqrt(Math.max(0, (R.r + T / 2) ** 2 - la * la));
+      const b0 = roomMid(0),
+        g = doorTube(1);
+      // (z 0 → the room's wall, 1 → the ring's: each end moved onto its wall's middle at its own distance across)
+      const Pp = g.attributes.position;
+      for (let i = 0; i < Pp.count; i++) {
+        const x = Pp.getX(i),
+          z = Pp.getZ(i);
+        Pp.setZ(i, b0 - (z < 0.5 ? roomMid(x) : ringMid(x)));
+      }
+      Pp.needsUpdate = true;
+      mesh(standFlat(g, P(b0, 0), P(b0, 1)), wallMat('gallery'));
     }
     const c = v3(PL.centre(id));
     if (R.kind === 'rect') {
@@ -1236,22 +1249,36 @@ export function createWorld(
     vase(2, MAT.olive, v.x, v.z, 0, 3, 1.1);
     ornament('halfArch', o.x, o.z, 1.2, MAT.clay);
   }
-  // the listening room: a round sunken floor, six single chairs round it turned to its middle, a low table there —
-  // a living room, not a stage
+  // the listening room: a round sunken floor and, in its middle, one long sofa square to the front — the way the sound
+  // field faces (its centre sculpture straight ahead, the two surrounds behind the shoulders) — a low table before it
+  // and a single chair either side, turned in a little: a living room, not a stage
   {
-    const c = SANCT.c;
+    const c = SANCT.c,
+      th = PL.ROOMS.listening.th,
+      f = { x: Math.sin(th), z: -Math.cos(th) },
+      at = (fwd, side) => ({ x: c.x + f.x * fwd - f.z * side, z: c.z + f.z * fwd + f.x * side });
     rugRound(c.x, c.z, [
       [4.7, MAT.oat],
       [4.4, MAT.clay],
       [3.9, MAT.ivory],
     ]);
-    for (let k = 0; k < 6; k++) {
-      const a = (k * Math.PI) / 3,
-        x = c.x + Math.sin(a) * 3.2,
-        z = c.z - Math.cos(a) * 3.2;
-      armchair([MAT.olive, MAT.mist, MAT.kraft][k % 3], x, z, -a);
+    {
+      const p = at(-0.9, 0);
+      sofa(3.4, MAT.olive, p.x, p.z, Math.atan2(f.x, f.z));
     }
-    table(c.x, c.z);
+    for (const [side, m] of [
+      [-1, MAT.mist],
+      [1, MAT.kraft],
+    ]) {
+      const p = at(0.5, side * 2.9),
+        // (facing across the sofa's front, turned a little toward the front of the room)
+        a = Math.atan2(c.x + f.x * 1.6 - p.x, c.z + f.z * 1.6 - p.z);
+      armchair(m, p.x, p.z, a);
+    }
+    {
+      const p = at(0.8, 0);
+      table(p.x, p.z);
+    }
     // (between the sound field's sculptures)
     for (const [a, k] of [
       [1.25, 0],

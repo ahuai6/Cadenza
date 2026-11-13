@@ -49,8 +49,13 @@ export function AlbumLine({ items: given }: { items: Albums }) {
     return m;
   }, [items]);
   const playing = useStore(player, (x) => x.id),
-    isOn = useStore(player, (x) => x.playing),
-    bpm = useStore(player, (x) => x.session?.map.bpm || 0);
+    isOn = useStore(player, (x) => x.playing);
+  // (the first time the line is drawn it comes in with its shelf, all of it together: the name and the songs rise in
+  // on their own only when another album is chosen)
+  const first = useRef(true);
+  useEffect(() => {
+    first.current = false;
+  }, []);
   // the chosen album: the playing song's to begin with (else the first), then whichever is picked
   const [key, setKey] = useState<string | null>(null);
   const at = useMemo(() => {
@@ -85,7 +90,9 @@ export function AlbumLine({ items: given }: { items: Albums }) {
     el.addEventListener('wheel', wheel, { passive: false });
     return () => el.removeEventListener('wheel', wheel);
   });
-  // the line fills with the song (written straight to the style, on the engine's tick: no render per frame)
+  // the line fills with the song, and the ring spreads from where it is on every beat — the beat the rhythm engine
+  // found, read off the same tick as everything else that keeps time (never a clock of its own at the song's average
+  // tempo, drifting off the music; a paused song holds it still). Written straight to the style: no render per frame.
   const line = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = line.current;
@@ -94,12 +101,13 @@ export function AlbumLine({ items: given }: { items: Albums }) {
       el.style.setProperty('--k', '0');
       return;
     }
-    const paint = (t: number) => {
+    const paint = (t: number, ph: number) => {
       const d = player.get().session?.musicEnd || 0.01;
       el.style.setProperty('--k', Math.min(1, Math.max(0, t / d)).toFixed(4));
+      el.style.setProperty('--ph', ph.toFixed(3));
     };
-    paint(engine.time);
-    return engine.on('tick', (p) => paint(p.t));
+    paint(engine.time, 1);
+    return engine.on('tick', (p) => paint(p.t, p.rs ? p.rs.phase : 1));
   }, [mine, playing]);
   if (!album) return <Empty title={tx('s.empty.results')} icon="search" />;
   const from = Math.max(0, at - NEAR),
@@ -108,7 +116,7 @@ export function AlbumLine({ items: given }: { items: Albums }) {
   return (
     <div className={s.wrap} data-test="album-line">
       <header className={s.head}>
-        <div className={s.name} key={album.key}>
+        <div className={s.name} key={album.key} data-still={first.current || undefined}>
           <h2 className="display">{album.name || tx('s.unknownAlbum')}</h2>
           <p>{[album.artist, album.year, tx('s.tracks', { n: album.tracks.length })].filter(Boolean).join(' · ')}</p>
         </div>
@@ -170,20 +178,14 @@ export function AlbumLine({ items: given }: { items: Albums }) {
             );
           })}
         </div>
-        <div
-          className={s.line}
-          ref={line}
-          data-live={mine && isOn}
-          style={bpm ? ({ '--beat': `${(60 / bpm).toFixed(3)}s` } as React.CSSProperties) : undefined}
-          aria-hidden="true"
-        >
+        <div className={s.line} ref={line} data-live={mine && isOn} aria-hidden="true">
           <i className={s.fill} />
           <i className={s.dot} />
           <i className={s.ring} />
           <i className={s.ticks} />
         </div>
       </div>
-      <div className={s.songs} key={album.key}>
+      <div className={s.songs} key={album.key} data-still={first.current || undefined}>
         <TrackList tracks={album.tracks} numbered />
       </div>
     </div>
