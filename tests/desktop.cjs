@@ -1615,9 +1615,9 @@ const ok = (name, pass, detail) => {
       return {
         seg:
           !!document.querySelector('[role=radio][aria-checked]') &&
-          txt.includes('節奏識別') &&
-          txt.includes('神經網路（自動）'),
-        status: /使用 .+ 分析|無法使用神經網路/.test(txt),
+          txt.includes('讀取節奏') &&
+          txt.includes('精確（自動）'),
+        status: /使用 .+ 讀取|無法使用精確方式/.test(txt),
         beat: await head('beat_this-wgsl.bin'),
         demucs: await head('htdemucs-wgsl.bin'),
         other: await head('..%2Fpackage.json'),
@@ -1634,7 +1634,7 @@ const ok = (name, pass, detail) => {
   }
   // the data group: each action asks first (cancelled here: nothing is cleared); the photosensitivity warning is shown
   {
-    await win.getByRole('button', { name: '清除所有快取' }).click();
+    await win.getByRole('button', { name: '清除暫存資料' }).click();
     await W(400);
     await shot('settings-confirm');
     const dlg = await C(() => {
