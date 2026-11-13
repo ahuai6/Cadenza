@@ -167,7 +167,7 @@ describe.each(styles)('directions (%s)', (cut) => {
     expect(right).toBeGreaterThan(3);
     expect(leftSecs.size).toBeGreaterThanOrEqual(2);
   });
-  it('transitions turn the way the lines set off, rightward a little more often than leftward', () => {
+  it('passages set off rightward: a transition does not turn the lines back to the left', () => {
     if (cut === 'close' || cut === 'hover') return; // (close up most moves are crossed by quick transitions of the camera's own; hovering, no follow to turn)
     // (how a passage sets off: its first step along among its first lines — steps up or down, or of columns, passed
     // over; a passage with none says no way and is passed over)
@@ -188,10 +188,11 @@ describe.each(styles)('directions (%s)', (cut) => {
         pairs++;
         if (ways[k] !== ways[k - 1]) turns++;
       }
-    // (3.0.3: three passages go rightward for every two leftward — right, left, right, right, left — so four changes in
-    // five are turns over a long song; in a short one, at least half)
+    // (3.1.2: every passage sets off rightward now — a passage going leftward put line after line far to the left of the
+    // one before. Before: three rightward for every two leftward, so at least half the changes were turns)
     expect(pairs).toBeGreaterThanOrEqual(2);
-    expect(turns / pairs).toBeGreaterThanOrEqual(0.5);
+    expect(turns / pairs).toBeLessThanOrEqual(0.5);
+    expect(ways.filter((w) => w < 0).length).toBeLessThanOrEqual(ways.filter((w) => w > 0).length);
   });
   it('a passage keeps near where it began: no long run one way — it goes on above and below instead', () => {
     if (cut === 'close') return; // (close up, every line is a long way across the frame)
@@ -1239,12 +1240,12 @@ describe('where a new line goes', () => {
         if (along([B.ax, B.ay]) >= along([A.ax, A.ay]) - Math.max(A.bh, B.bh) * 0.5) ok++;
       }
       // (a passage gone far from where it began steps a little back towards there on purpose: a few lines do)
-      expect(n + nb, cut).toBeGreaterThanOrEqual(3);
+      expect(n + nb, cut).toBeGreaterThanOrEqual(1);
       if (n >= 3) expect(ok / n, `${cut}: ${ok}/${n}`).toBeGreaterThanOrEqual(0.5); // (3.0.3: 0.5 — two rightward passages in a row now, the second gone further from where it began)   // (2.17: lines set above as often as below — more of them in passages gone far, which step back on purpose)
       // a line laid heading back: a row above or below (or wholly to its left), starting before the line before began, its middle left of that one's
       // (most of them: one nudged clear of an earlier word may sit a little off its row)
-      expect(nb, cut).toBeGreaterThanOrEqual(1);
-      expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75);
+      // (3.1.2: no passage heads back leftward any more, so there may be none of these; any there is still lies as said)
+      if (nb) expect(okb / nb, `${cut}: ${okb}/${nb}`).toBeGreaterThan(0.75);
     }
   });
 });
@@ -1511,5 +1512,68 @@ describe('a camera held up', () => {
   });
   it('an ordinary song is never skipped through', () => {
     for (const cut of styles) expect(make(cut).camera.stops.filter((s) => s.skipped).length, cut).toBe(0);
+  });
+});
+
+describe('a new line never appears far back to the left (3.1.2)', () => {
+  it("its left end is at most a little left of the line before's, in every camera style", () => {
+    for (const cut of ['glide', 'punch', 'waltz'] as const) {
+      const P = make(cut, LRC, { frame: false });
+      const steps: number[] = [];
+      for (let i = 1; i < P.lines.length; i++) {
+        const A = P.lines[i - 1],
+          B = P.lines[i];
+        if (A.sec !== B.sec || A.vert || B.vert || !A.words.length || !B.words.length) continue;
+        const ang = ((A.prot ?? 0) * Math.PI) / 180,
+          frame = P.W / (P.camera.stops.find((s) => s.words.includes(B.words[0]))?.z ?? 1);
+        // (how far B's left end is from A's, along the way A reads, in frames at B's framing: negative is leftward)
+        steps.push(((B.ax - A.ax) * Math.cos(ang) + (B.ay - A.ay) * Math.sin(ang) - B.bw / 2 + A.bw / 2) / frame);
+      }
+      expect(steps.length, cut).toBeGreaterThan(10);
+      // (the rule is 0.22 of a frame at the framing the line is laid for; the camera may then frame it a little closer,
+      // and a line with nowhere clear to go takes the place least far left: none beyond half a frame, few beyond a quarter)
+      expect(Math.min(...steps), cut).toBeGreaterThan(-0.5);
+      expect(steps.filter((x) => x < -0.25).length / steps.length, cut).toBeLessThan(0.2);
+    }
+  });
+});
+
+describe("the camera's rate, as the depths read it (3.1.2)", () => {
+  // each depth takes the camera's move a moment apart, by its rate: a rate that rises and falls with every word the
+  // camera hops to shows as the words trembling against one another all through a move. It is read across most of a
+  // second, so it wavers far less than the path's own frame-to-frame rate (which it was before)
+  it('is steady from frame to frame through a move', () => {
+    for (const cut of ['glide', 'punch', 'waltz'] as const) {
+      const P = make(cut),
+        sig = new Signals(P.map),
+        c = P.camera,
+        h = 1 / 60;
+      // (a tremble is the rate going up and down from frame to frame: its second difference. A move's own easing in
+      // and out changes the rate too, but smoothly — little of that is in a second difference)
+      let now = 0,
+        before = 0;
+      const vs: number[] = [],
+        os: number[] = [];
+      const flush = () => {
+        for (let k = 2; k < vs.length; k++) {
+          now += Math.abs(vs[k] - 2 * vs[k - 1] + vs[k - 2]);
+          before += Math.abs(os[k] - 2 * os[k - 1] + os[k - 2]);
+        }
+        vs.length = os.length = 0;
+      };
+      for (let t = 2; t < P.dur - 2; t += h) {
+        if (c.cuts.some((k) => Math.abs(k.t - t) < 0.3)) {
+          flush();
+          continue;
+        }
+        const a = basePose(c, t),
+          b = basePose(c, t - 1 / 30);
+        vs.push(cameraAt(P, sig, t, 1).cam.vx ?? 0);
+        os.push((a.x - b.x) * 30);
+      }
+      flush();
+      expect(before, cut).toBeGreaterThan(0);
+      expect(now / before, `${cut}: ${now.toFixed(0)} against ${before.toFixed(0)}`).toBeLessThan(0.6);
+    }
   });
 });

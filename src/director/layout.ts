@@ -56,9 +56,11 @@ export interface LayoutResult {
 export const tsz = (st: Style) => clamp(st.m.tsize ?? 1, 0.5, 2.5);
 /** How close the camera frames one word: about 68 % of the width or 46 % of the height, against the line's typical
  *  word height so small words are not blown up; never more than the frame can hold. */
-/** Which way each passage's lines go, in turn: rightward three times for every two leftward (reading the way the eye
- *  reads is the calmer of the two; going back is the change). */
-const FLOW_TURNS = [1, -1, 1, 1, -1];
+/** Which way each passage's lines go, in turn. Always rightward now (3.1.2): a passage that went leftward put line
+ *  after line far to the left of the one before, which read as the lyrics jumping away. A new line now sits above or
+ *  below the one before, or a little to its left at most. (The leftward way — folding back, the hover over it — is kept
+ *  in the code: a turn of -1 here brings it back.) */
+const FLOW_TURNS = [1];
 export function wordZoom(S: { lw: number; lh: number }, medLh: number, W: number, H: number, T: number) {
   // a long word is not shrunk to fit: the camera frames a stretch of it (five or so characters, four down a column)
   // and travels along it as it is sung (camera.ts)
@@ -534,6 +536,8 @@ export function layout(inp: LayoutInput): LayoutResult {
     return null;
   };
   // the empty space between two neighbours, in frames at the wider framing of the two
+  /** how far left of the line before's left end a new line's may be, in frames at the new line's framing */
+  const LEFT_STEP = 0.22;
   const WANDER = 1.8,
     ORBIT_REACH = 1.0,
     ORBIT_RANGE = 1.0,
@@ -704,6 +708,8 @@ export function layout(inp: LayoutInput): LayoutResult {
 
   /** (the 圓心 type: which try at a line's angle round the line before this placement is, or null for the ordinary ones) */
   let orbitTry: number | null = null;
+  /** (how far further left than allowed the line just placed begins, px: 0 when it keeps the rule) */
+  let leftOver = 0;
   const placeLine = (Lp: PLine, i: number, mode: string | null): boolean => {
     let { P, th, lineStart, prevH, lastTurn, prevLine, prevSeg, secFirst, flow, flowFrom, backN, colN } = S0,
       bad = false;
@@ -873,7 +879,9 @@ export function layout(inp: LayoutInput): LayoutResult {
           if (far) {
             const toO = (secO![0] - prevLine.ax) * d[0] + (secO![1] - prevLine.ay) * d[1],
               pm = (P[0] - prevLine.ax) * d[0] + (P[1] - prevLine.ay) * d[1];
-            return pm + Lw / 2 - Math.sign(toO) * Lw * 0.3;
+            // (leftward, the rule below — never far left of the line before — then moves it right again as far as needed)
+            const stepBack = Lw * 0.3;
+            return pm + Lw / 2 - Math.sign(toO) * stepBack;
           }
           return Math.min(back, Math.max(0, mid));
         }; // (at most: right above or below it, middle over middle)
@@ -1170,6 +1178,45 @@ export function layout(inp: LayoutInput): LayoutResult {
         lineStart = [lineStart[0] + dx, lineStart[1] + dy];
       }
     }
+    // never off to the left of the line before by more than a little (3.1.2): the new line's left end at most LEFT_STEP
+    // of a frame left of that line's left end, along the way that line reads. A line laid further back is moved right
+    // to there — it then sits above or below the line before, or a little to its left — unless something is in the way
+    if (prevLine && !(secFirst || i === 0) && !ORBIT && mode !== 'dash' && !Lp.rtl && !Lp.vert && !prevLine.vert) {
+      const B0 = boxIn(Lp.words, Lp.words[0]?.ang ?? th),
+        dp = dirv(prevLine.prot ?? 0),
+        step = (B0.x - prevLine.ax) * dp[0] + (B0.y - prevLine.ay) * dp[1] - B0.w / 2 + prevLine.bw / 2,
+        over = (-LEFT_STEP * W) / zOf(Lp.words[0]) - step;
+      leftOver = Math.max(0, over);
+      if (over > 0) {
+        // (moved right along that line's way; where something is in the way there, a row further off as well — below,
+        // above, two rows either way — and the first place that is clear is taken. With none clear it stays where it
+        // was laid: it is not turned down for this, since the other ways of placing a line do not all keep a line's own
+        // words in reading order)
+        const np = [-dp[1], dp[0]],
+          row = B0.h * 1.3,
+          mine = new Set(Lp.words),
+          clear = () =>
+            !Lp.words.some((S) => placed.some((Q) => !mine.has(Q) && !(Q.frame && Q.frame === S.frame) && clash(S, Q)));
+        for (const r of [0, 1, -1, 2, -2]) {
+          const dx = dp[0] * over + np[0] * row * r,
+            dy = dp[1] * over + np[1] * row * r;
+          for (const S of Lp.words) {
+            S.x += dx;
+            S.y += dy;
+          }
+          if (clear()) {
+            leftOver = 0;
+            P = [P[0] + dx, P[1] + dy];
+            lineStart = [lineStart[0] + dx, lineStart[1] + dy];
+            break;
+          }
+          for (const S of Lp.words) {
+            S.x -= dx;
+            S.y -= dy;
+          }
+        }
+      }
+    } else leftOver = 0;
     const fa = Lp.words[0]?.ang ?? th,
       B = boxIn(Lp.words, fa);
     Lp.ax = B.x;
@@ -1306,15 +1353,22 @@ export function layout(inp: LayoutInput): LayoutResult {
     // blur is better than lines on top of each other), else wherever it goes, the camera making the longer move
     if (!canClear || !roomForQuick(endA, Lp.words[0].show)) {
       roam = true;
-      restore(before);
-      let ok = placeLine(Lp, i, vfirst);
-      if (!ok) {
+      // (each way tried in turn; where none is clear, the one that begins least far to the left is the one kept)
+      const ways = [vfirst, vfirst === 'below' ? 'above' : 'below', null] as const;
+      let ok = false,
+        best = 0,
+        least = Infinity;
+      for (let k = 0; k < ways.length && !ok; k++) {
         restore(before);
-        ok = placeLine(Lp, i, vfirst === 'below' ? 'above' : 'below');
+        ok = placeLine(Lp, i, ways[k]);
+        if (leftOver < least) {
+          least = leftOver;
+          best = k;
+        }
       }
-      if (!ok) {
+      if (!ok && best !== ways.length - 1) {
         restore(before);
-        ok = placeLine(Lp, i, null);
+        placeLine(Lp, i, ways[best]);
       }
       roam = false;
       if (ok || !clashed || !canClear || Lp.words[0].show - endA < 0.2) return;

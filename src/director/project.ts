@@ -35,6 +35,8 @@ const DEPTH_LAG = 0.42;
 /** …and never more than this either way */
 const DEPTH_LAG_MAX = 0.16;
 /** the most a depth's own view of the move differs: of the frame's width, in degrees, in log size */
+/** x, eased toward ±m and never past it */
+const soft = (x: number, m: number) => (m > 0 ? m * Math.tanh(x / m) : 0);
 const LAG_PAN = 0.018,
   LAG_ROLL = 2.5,
   LAG_ZOOM = 0.035;
@@ -63,10 +65,11 @@ export function project(X: number, Y: number, D: number, cam: Cam, fx: Fx, W: nu
   // a few hundredths of the frame, a couple of degrees, a few per cent of the size)
   const ahead = clamp((kp - 1) * DEPTH_LAG, -DEPTH_LAG_MAX, DEPTH_LAG_MAX),
     pm = (LAG_PAN * W) / (kp * cam.z),
-    cx = cam.x + clamp((cam.vx ?? 0) * ahead, -pm, pm),
-    cy = cam.y + clamp((cam.vy ?? 0) * ahead, -pm, pm),
-    cz = cam.z * Math.exp(clamp((cam.vz ?? 0) * ahead, -LAG_ZOOM, LAG_ZOOM)),
-    cr = cam.r + clamp((cam.vr ?? 0) * ahead, -LAG_ROLL, LAG_ROLL);
+    // (each eased toward its limit, not cut off at it: a move near the limit does not flicker in and out of it)
+    cx = cam.x + soft((cam.vx ?? 0) * ahead, pm),
+    cy = cam.y + soft((cam.vy ?? 0) * ahead, pm),
+    cz = cam.z * Math.exp(soft((cam.vz ?? 0) * ahead, LAG_ZOOM)),
+    cr = cam.r + soft((cam.vr ?? 0) * ahead, LAG_ROLL);
   const wx = (X - cx) * kp * cz,
     wy = (Y - cy) * kp * cz;
   const c = Math.cos(-cr * D2R),

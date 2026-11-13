@@ -87,6 +87,8 @@ export function settleAt(plan: ScenePlan, t: number): number {
 /** degrees the camera turns its head per frame-a-second of travel across the screen, and the most it turns */
 const TURN_HEAD = 3.2,
   TURN_MAX = 4.5;
+/** the camera's rate is its travel over this long either side of now (seconds) */
+const RATE_SPAN = 0.4;
 export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): CamFrame {
   const c = plan.camera,
     b = basePose(c, t),
@@ -123,15 +125,25 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
   // the camera's own move, as a rate: each depth takes it a moment apart (project.ts), and the camera turns its head a
   // little the way it travels — the far side of the picture drawn in, the near side out — so a pan is a turn in a space,
   // not a sheet slid across. Nothing of it across a cut, and nothing at rest.
+  // (the rate is the camera's travel over most of a second about t, not from one frame to the next: following a line the
+  // camera hops from word to word, its speed rising and falling with each, and the depths, each taking that speed a
+  // moment apart, swung to and fro against one another every word — a tremble all through a move (3.1.2). Over this
+  // window it is the line's way, not each hop. The window stops at a cut on either side, so nothing of a cut is in it)
   {
-    const h = 1 / 30,
-      cutIn = c.cuts.some((k) => k.t > t - h - 1e-6 && k.t <= t + 1e-6);
-    if (!cutIn && t > h) {
-      const p = basePose(c, t - h),
-        vx = (b.x - p.x) / h,
-        vy = (b.y - p.y) / h,
-        vr = angDiff(b.r, p.r) / h,
-        vz = Math.log(b.z / p.z) / h;
+    let t0 = Math.max(0, t - RATE_SPAN),
+      t1 = t + RATE_SPAN;
+    for (const k of c.cuts) {
+      if (k.t > t0 && k.t <= t + 1e-6) t0 = k.t;
+      else if (k.t > t + 1e-6 && k.t < t1) t1 = k.t - 1e-4;
+    }
+    const h = t1 - t0;
+    if (h > 0.03) {
+      const p = basePose(c, t0),
+        q = basePose(c, t1),
+        vx = (q.x - p.x) / h,
+        vy = (q.y - p.y) / h,
+        vr = angDiff(q.r, p.r) / h,
+        vz = Math.log(q.z / p.z) / h;
       if ([vx, vy, vr, vz].every(Number.isFinite)) {
         const k = motion * hold;
         cam.vx = vx * k;
@@ -143,8 +155,9 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
           sr = Math.sin(-b.r * D2R),
           sx = ((vx * cr - vy * sr) * b.z) / W,
           sy = ((vx * sr + vy * cr) * b.z) / W;
-        cam.yaw += clamp(sx * TURN_HEAD, -TURN_MAX, TURN_MAX) * k;
-        cam.pitch += clamp(sy * TURN_HEAD, -TURN_MAX, TURN_MAX) * k;
+        // (eased toward its most, never stopped dead at it: a rate that hovers about the limit does not snap on and off)
+        cam.yaw += TURN_MAX * Math.tanh((sx * TURN_HEAD) / TURN_MAX) * k;
+        cam.pitch += TURN_MAX * Math.tanh((sy * TURN_HEAD) / TURN_MAX) * k;
       }
     }
   }
