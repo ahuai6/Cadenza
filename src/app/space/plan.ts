@@ -5,7 +5,7 @@
 // Pure numbers, metres: the scene (world.ts) builds its walls from these and asks here where one may stand and which
 // way leads from room to room. Compass: north is −z, east is +x; an angle θ runs clockwise from north.
 
-export type RoomId = 'nave' | 'dome' | 'lists' | 'settings' | 'altar';
+export type RoomId = 'gallery' | 'atrium' | 'lists' | 'settings' | 'listening';
 export interface P2 {
   x: number;
   z: number;
@@ -35,13 +35,13 @@ export const DOOR_TOP = DOOR.cy + DOOR.r;
 /** the rooms off the ring: which way, and their shape (a rectangle: across × deep; a circle: its radius) */
 export const ROOMS = {
   lists: { th: 0, kind: 'rect' as const, w: 12, d: 10, h: 8 },
-  altar: { th: Math.PI / 2, kind: 'round' as const, r: 7, h: 8 },
+  listening: { th: Math.PI / 2, kind: 'round' as const, r: 7, h: 8 },
   settings: { th: (Math.PI * 3) / 2, kind: 'rect' as const, w: 12, d: 10, h: 8 },
 };
 export type SideRoom = keyof typeof ROOMS;
 /** the atrium's doorways (to the ring), and the ring's (to the rooms; the south one is a window onto the sky) */
 export const ATRIUM_DOORS = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
-export const RING_DOORS = [ROOMS.lists.th, ROOMS.altar.th, ROOMS.settings.th];
+export const RING_DOORS = [ROOMS.lists.th, ROOMS.listening.th, ROOMS.settings.th];
 
 /** the unit vector a given way (θ from north, clockwise) */
 export const dir = (th: number): P2 => ({ x: Math.sin(th), z: -Math.cos(th) });
@@ -90,19 +90,19 @@ const M = 0.6;
  *  into the rooms on both its sides, so the walkable areas always overlap. */
 export function regionAt(p: P2): Region | null {
   const { rho } = polar(p);
-  if (rho < ATRIUM.r - M) return { room: 'dome', top: 20 };
+  if (rho < ATRIUM.r - M) return { room: 'atrium', top: 20 };
   const doorTop = DOOR_TOP - 0.6;
   for (const d of ATRIUM_DOORS) {
     const q = local(p, d);
     if (Math.abs(q.lat) < DOOR_HALF - 0.4 && q.along > ATRIUM.r - 1.5 && q.along < RING.r0 + 1.5)
-      return { room: q.along < ATRIUM.r + T / 2 ? 'dome' : 'nave', top: doorTop, door: true };
+      return { room: q.along < ATRIUM.r + T / 2 ? 'atrium' : 'gallery', top: doorTop, door: true };
   }
-  if (rho > RING.r0 + M && rho < RING.r1 - M) return { room: 'nave', top: RING.h - 0.6 };
+  if (rho > RING.r0 + M && rho < RING.r1 - M) return { room: 'gallery', top: RING.h - 0.6 };
   for (const id of Object.keys(ROOMS) as SideRoom[]) {
     const R = ROOMS[id],
       q = local(p, R.th);
     if (Math.abs(q.lat) < DOOR_HALF - 0.4 && q.along > RING.r1 - 1.5 && q.along < ROOM_IN + 1.5)
-      return { room: q.along < PASSAGE.from + PASSAGE.len / 2 ? 'nave' : id, top: doorTop, door: true };
+      return { room: q.along < PASSAGE.from + PASSAGE.len / 2 ? 'gallery' : id, top: doorTop, door: true };
     if (R.kind === 'rect') {
       if (q.along > ROOM_IN + M && q.along < ROOM_IN + R.d - M && Math.abs(q.lat) < R.w / 2 - M)
         return { room: id, top: R.h - 0.6 };
@@ -117,10 +117,10 @@ export function regionAt(p: P2): Region | null {
 /** where each room is first seen from: a point, the way one faces (yaw: 0 is north, π/2 is west) */
 export const PLACES: Record<RoomId, { at: P2; yaw: number; pitch: number }> = {
   // (on the ring, south, facing the atrium through its doorway)
-  nave: { at: at(Math.PI, RING_MID), yaw: 0, pitch: 0.05 },
-  dome: { at: at(Math.PI, ATRIUM.r - 4), yaw: 0, pitch: 0.03 },
+  gallery: { at: at(Math.PI, RING_MID), yaw: 0, pitch: 0.05 },
+  atrium: { at: at(Math.PI, ATRIUM.r - 4), yaw: 0, pitch: 0.03 },
   lists: { at: at(ROOMS.lists.th, ROOM_IN + 2), yaw: 0, pitch: 0.02 },
-  altar: { at: at(ROOMS.altar.th, ROOM_IN + 1.6), yaw: -Math.PI / 2, pitch: 0.06 },
+  listening: { at: at(ROOMS.listening.th, ROOM_IN + 1.6), yaw: -Math.PI / 2, pitch: 0.06 },
   settings: { at: at(ROOMS.settings.th, ROOM_IN + 2), yaw: Math.PI / 2, pitch: -0.04 },
 };
 
@@ -130,7 +130,7 @@ export const PLACES: Record<RoomId, { at: P2; yaw: number; pitch: number }> = {
 export function route(fromRoom: RoomId, toRoom: RoomId, from?: P2, to?: P2): P2[] {
   if (fromRoom === toRoom) return [];
   const angleOf = (room: RoomId, p?: P2): number | null =>
-    room === 'nave' ? polar(p ?? PLACES.nave.at).th : room === 'dome' ? null : ROOMS[room as SideRoom].th;
+    room === 'gallery' ? polar(p ?? PLACES.gallery.at).th : room === 'atrium' ? null : ROOMS[room as SideRoom].th;
   let a = angleOf(fromRoom, from),
     b = angleOf(toRoom, to ?? PLACES[toRoom].at);
   // (the atrium is left or entered by the doorway nearest the other end)
@@ -148,7 +148,7 @@ export function route(fromRoom: RoomId, toRoom: RoomId, from?: P2, to?: P2): P2[
     const t = a + (d * k) / (n + 1);
     out.push(at(t, RING_MID));
   }
-  if (Math.abs(d) > 1e-6 || fromRoom === 'nave' || toRoom === 'nave') out.push(at(b, RING_MID));
+  if (Math.abs(d) > 1e-6 || fromRoom === 'gallery' || toRoom === 'gallery') out.push(at(b, RING_MID));
   // and into the room
   out.push(...chain(toRoom, b).reverse());
   // (no two points on top of each other)
@@ -156,8 +156,8 @@ export function route(fromRoom: RoomId, toRoom: RoomId, from?: P2, to?: P2): P2[
 }
 /** from inside a room to the ring, at the room's way θ (for the atrium: through its doorway that way) */
 function chain(room: RoomId, th: number): P2[] {
-  if (room === 'nave') return [];
-  if (room === 'dome') return [at(th, ATRIUM.r - 3), at(th, ATRIUM.r + T / 2), at(th, RING_MID)];
+  if (room === 'gallery') return [];
+  if (room === 'atrium') return [at(th, ATRIUM.r - 3), at(th, ATRIUM.r + T / 2), at(th, RING_MID)];
   return [
     at(th, ROOM_IN + 2),
     at(th, ROOM_IN - T / 2),
@@ -227,6 +227,6 @@ export function wallSegments(step = Math.PI / 48): [number, number, number, numb
 }
 /** the plan's bounds (x0, x1, z0, z1), with a margin */
 export function bounds(m = 3) {
-  const far = ROOM_IN + Math.max(ROOMS.lists.d, ROOMS.settings.d, ROOMS.altar.r * 2) + T + m;
+  const far = ROOM_IN + Math.max(ROOMS.lists.d, ROOMS.settings.d, ROOMS.listening.r * 2) + T + m;
   return { x0: A.x - far, x1: A.x + far, z0: A.z - far, z1: A.z + RING.r1 + T + m };
 }

@@ -122,7 +122,7 @@ const SONG = `(() => {
   const wait = (ms) => p.waitForTimeout(ms);
 
   // the rooms
-  for (const room of ['nave', 'dome', 'lists', 'altar', 'settings']) {
+  for (const room of ['gallery', 'atrium', 'lists', 'listening', 'settings']) {
     await p.evaluate((r) => __cad.go(r), room);
     await wait(1500);
     await shot('room-' + room);
@@ -130,7 +130,7 @@ const SONG = `(() => {
   }
   // the rigs: a flight to another room goes by its doorways and arrives; a set of shots takes the view and gives it back
   await p.evaluate(() => {
-    __cad.go('nave');
+    __cad.go('gallery');
     __cad.fly('lists');
   });
   await p.waitForFunction(() => __cad.room() === 'lists', null, { timeout: 30000 }).catch(() => {});
@@ -159,7 +159,7 @@ const SONG = `(() => {
 
   // the lyrics in the air, and their captions
   await p.evaluate(() => {
-    __cad.go('dome');
+    __cad.go('atrium');
     __cad.look(0, 0.02);
   });
   await wait(1000);
@@ -216,7 +216,7 @@ const SONG = `(() => {
 
   // what opens where you stand, and the reach
   await p.evaluate(() => {
-    __cad.go('nave');
+    __cad.go('gallery');
     __cad.albumStand(0, 6.6);
   });
   await wait(1200);
@@ -308,7 +308,7 @@ const SONG = `(() => {
     await cdp.send('HeapProfiler.collectGarbage');
     return (await cdp.send('Runtime.getHeapUsage')).usedSize / 1048576;
   };
-  await p.evaluate(() => __cad.go('dome'));
+  await p.evaluate(() => __cad.go('atrium'));
   await wait(8000);
   const h0 = await heap();
   await wait(30000);

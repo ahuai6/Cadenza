@@ -100,6 +100,9 @@ export function createWorld(
         ceil0: '#23283A',
         ceil1: '#2E3449',
         beam: '#A9BEE6',
+        // (each room's own colour, docs/SPACE.md 第 3 節: the atrium a sky blue-grey, the ring apricot, the collection
+        // room sage, the listening room dusk violet, the studio sand)
+        walls: { atrium: '#2B3347', gallery: '#3A3142', lists: '#2B3838', listening: '#2F2C48', settings: '#3A3530' },
       }
     : {
         wheat: '#E8DCC4',
@@ -119,9 +122,10 @@ export function createWorld(
         ceil0: '#D4C5AA',
         ceil1: '#E2D5BC',
         beam: '#FFE3B8',
+        walls: { atrium: '#D9DEE0', gallery: '#EDD5BD', lists: '#D3DAC6', listening: '#D3CFDF', settings: '#E8DABF' },
       };
   C.paper = C.wheat;
-  const ROOM_COL = { nave: C.clay, dome: C.olive, lists: C.mist, settings: C.kraft, altar: C.clay };
+  const ROOM_COL = { gallery: C.clay, atrium: C.olive, lists: C.mist, settings: C.kraft, listening: C.clay };
 
   /* ---------- renderer: no tone mapping, so a flat colour stays the colour it was chosen as ---------- */
   const canvas = $('world');
@@ -229,12 +233,12 @@ export function createWorld(
     olive: toon(C.olive),
     mist: toon(C.mist),
     ink: flat(C.ink),
-    dome: baked('#D2C2A6', '#EFE5D2', 14, 30, { side: THREE.BackSide, shadowSide: THREE.DoubleSide }),
+    atrium: baked('#D2C2A6', '#EFE5D2', 14, 30, { side: THREE.BackSide, shadowSide: THREE.DoubleSide }),
     vault: baked('#D4C5AA', '#E2D5BC', 14, 21, {}),
     tunnel: baked('#CDBEA2', '#D9CBB0', 0, 8, {}),
     floor: toon(C.oat),
   };
-  const roomMat = { nave: MAT.clay, dome: MAT.olive, lists: MAT.mist, settings: MAT.kraft, altar: MAT.clay };
+  const roomMat = { gallery: MAT.clay, atrium: MAT.olive, lists: MAT.mist, settings: MAT.kraft, listening: MAT.clay };
 
   /* ---------- canvases: covers, text, glass compositions ---------- */
   const mk = (w, h) => {
@@ -429,9 +433,10 @@ export function createWorld(
     BLOB = softTex('110,92,70', 1);
   const boxUV = (g) => g;
   // a pointed arch outline from (-w/2,0) up over the apex to (w/2,0): two circular arcs meeting at the apex
+  // (a round arch: a semicircle on straight sides — docs/SPACE.md, no pointed arches)
   function archPts(w, h, n = 14) {
     const W = w / 2,
-      r = Math.min(h, W * 1.55),
+      r = Math.min(h, W),
       s = h - r,
       c = (r * r - W * W) / (2 * W),
       R = c + W,
@@ -655,7 +660,7 @@ export function createWorld(
   const CROSS = { c: v3(PL.A), r: PL.ATRIUM.r, h: PL.ATRIUM.h };
   const LISTS = { c: v3(PL.centre('lists')), ...PL.ROOMS.lists };
   const SETS = { c: v3(PL.centre('settings')), ...PL.ROOMS.settings };
-  const SANCT = { c: v3(PL.centre('altar')), ...PL.ROOMS.altar };
+  const SANCT = { c: v3(PL.centre('listening')), ...PL.ROOMS.listening };
   // (where each round wall's flat drawing begins: a way with no doorway or window on it)
   const SEAM = 0.3;
   const MAT_CEIL = baked(C.ceil0, C.ceil1, 0, 12, { side: THREE.DoubleSide });
@@ -666,7 +671,10 @@ export function createWorld(
     f.position.set((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2);
   }
   // a round wall about c: its doorways and windows at compass ways
-  function roundWall(c, r, h, doors, wins = []) {
+  // (a room's walls: its own colour, lightening toward the ceiling as every wall does)
+  const WALL = {};
+  const wallMat = (room) => (WALL[room] ||= skyWash(toon(C.walls[room])));
+  function roundWall(c, r, h, doors, wins = [], mat = MAT.paper) {
     const U = (th) => alongRound(th, r, SEAM),
       flatG = slab(
         wallShape(
@@ -680,7 +688,7 @@ export function createWorld(
       g = subdivide(flatG, 1.1);
     flatG.dispose();
     bendRound(g, r, c.x, c.z, SEAM);
-    return mesh(g, MAT.paper);
+    return mesh(g, mat);
   }
   // a flat ring (or a disc with a round hole) under a ceiling
   function ringRoof(c, r0, r1, y) {
@@ -737,28 +745,28 @@ export function createWorld(
     const wins = [];
     for (let q = 1; q < 8; q += 2)
       for (const o of [-0.27, 0, 0.27]) wins.push({ th: (q * Math.PI) / 4 + o, y: 4.3, r: 0.95 });
-    roundWall(CROSS.c, PL.ATRIUM.r, PL.ATRIUM.h, PL.ATRIUM_DOORS, wins);
+    roundWall(CROSS.c, PL.ATRIUM.r, PL.ATRIUM.h, PL.ATRIUM_DOORS, wins, wallMat('atrium'));
     ringRoof(CROSS.c, PL.ATRIUM.oculus, PL.ATRIUM.r + T, PL.ATRIUM.h);
     skylight(CROSS.c, PL.ATRIUM.oculus, PL.ATRIUM.h);
   }
   // the ring: its outer wall (a doorway to each room, a great round window to the south), its low ceiling
-  roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, [{ th: Math.PI, y: 3.3, r: 2.3 }]);
+  roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, [{ th: Math.PI, y: 3.3, r: 2.3 }], wallMat('gallery'));
   ringRoof(CROSS.c, PL.ATRIUM.r + T / 2, PL.RING.r1 + T, PL.RING.h);
   // the rooms off the ring, each through a short round passage
-  for (const id of ['lists', 'settings', 'altar']) {
+  for (const id of ['lists', 'settings', 'listening']) {
     const R = PL.ROOMS[id],
       P = (al, la) => v3(PL.at(R.th, al, la));
     {
       const a = PL.RING.r1 + 0.05,
         b = PL.ROOM_IN - 0.05;
-      mesh(standFlat(slab(wallShape(6.8, 6, [3.4]), b - a), P(b, -3.4), P(b, 3.4)), MAT.paper);
+      mesh(standFlat(slab(wallShape(6.8, 6, [3.4]), b - a), P(b, -3.4), P(b, 3.4)), wallMat('gallery'));
     }
     const c = v3(PL.centre(id));
     if (R.kind === 'rect') {
       const n0 = PL.ROOM_IN,
         n1 = n0 + R.d,
         hw = R.w / 2,
-        wall = (p0, p1, len, doors) => mesh(standFlat(slab(wallShape(len, R.h, doors), T), p0, p1), MAT.paper);
+        wall = (p0, p1, len, doors) => mesh(standFlat(slab(wallShape(len, R.h, doors), T), p0, p1), wallMat(id));
       // (each wall runs on past its corner by its thickness, so the corners are solid)
       wall(P(n0, -hw), P(n0, hw), R.w + T, [hw]);
       wall(P(n0, hw), P(n1, hw), R.d + T, []);
@@ -772,7 +780,7 @@ export function createWorld(
       cs.holes.push(hole);
       mesh(floorShape(cs, R.h), MAT_CEIL);
     } else {
-      roundWall(c, R.r, R.h, [PL.norm(R.th + Math.PI)]);
+      roundWall(c, R.r, R.h, [PL.norm(R.th + Math.PI)], [], wallMat(id));
       ringRoof(c, 1.6, R.r + T, R.h);
     }
     skylight(c, 1.6, R.h);
@@ -870,20 +878,28 @@ export function createWorld(
     });
     return g;
   }
+  // a single chair (docs/SPACE.md, 單人沙發): a low rounded shell — seat and arms in one — a loose seat cushion on it,
+  // a soft capsule leaning against its back. Faces +z in its own frame.
   function armchair(mat, x, z, ry) {
     const g = new THREE.Group();
-    mesh(rbox(1, 0.44, 0.9, 0.14), mat, g).position.y = 0.22;
-    const back = mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.62, 24, 1, true, Math.PI * 0.65, Math.PI * 0.7), mat, g);
-    back.position.set(0, 0.62, 0.1);
-    back.material = mat.clone();
-    back.material.side = THREE.DoubleSide;
-    mesh(rbox(0.86, 0.12, 0.66, 0.05), MAT.ivory, g).position.set(0, 0.5, 0.1);
+    // (the shell: a base, and arms and back rising from it, all with soft round edges)
+    mesh(rbox(1.08, 0.36, 0.96, 0.16), mat, g).position.y = 0.18;
+    for (const s of [-1, 1]) mesh(rbox(0.2, 0.6, 0.96, 0.1), mat, g).position.set(s * 0.44, 0.3, 0);
+    mesh(rbox(1.08, 0.72, 0.2, 0.1), mat, g).position.set(0, 0.36, -0.38);
+    // (the seat cushion: loose, a little dished)
+    const seat = mesh(rbox(0.68, 0.14, 0.74, 0.07), MAT.ivory, g);
+    seat.position.set(0, 0.43, 0.06);
+    seat.scale.set(1, 0.9, 1);
+    // (the back cushion: a capsule lying across, leaning back)
+    const back = mesh(new THREE.CapsuleGeometry(0.15, 0.5, 8, 16), MAT.ivory, g);
+    back.rotation.set(-0.35, 0, Math.PI / 2);
+    back.position.set(0, 0.68, -0.22);
     put(g, x, z, ry);
     blob(x, z, 1.6, 1.5);
     g.traverse((o) => {
       if (o.isMesh) o.userData = { kind: 'sofa', i: sofas.length };
     });
-    sofas.push({ g, seat: new V3(x, 1.15, z), yaw: ry + Math.PI });
+    sofas.push({ g, seat: new V3(x, 1.05, z), yaw: ry + Math.PI });
     return g;
   }
   function ringSofa(x, z, r) {
@@ -912,24 +928,25 @@ export function createWorld(
     blob(x, z, 1.2, 1.2);
     return g;
   }
+  // three slender vases (docs/SPACE.md, 枝葉花瓶): a tall one, a bottle, a low round one
   const VASES = [
     [
       [0, 0],
-      [0.18, 0.02],
-      [0.24, 0.2],
-      [0.2, 0.5],
-      [0.08, 0.7],
-      [0.07, 0.95],
-      [0.11, 1.0],
+      [0.13, 0.02],
+      [0.17, 0.22],
+      [0.15, 0.62],
+      [0.07, 0.92],
+      [0.065, 1.08],
+      [0.085, 1.14],
     ],
     [
       [0, 0],
-      [0.16, 0.02],
-      [0.34, 0.25],
-      [0.36, 0.42],
-      [0.22, 0.62],
-      [0.14, 0.7],
-      [0.16, 0.74],
+      [0.15, 0.02],
+      [0.25, 0.18],
+      [0.25, 0.38],
+      [0.1, 0.58],
+      [0.065, 0.84],
+      [0.085, 0.9],
     ],
     [
       [0, 0],
@@ -939,6 +956,8 @@ export function createWorld(
       [0.44, 0.34],
     ],
   ];
+  // (the branches move, very slightly, by themselves: never with the beat, never enough to catch the eye)
+  const swaying = [];
   function vase(kind, mat, x, z, y = 0, stems = 3, s = 1) {
     const g = new THREE.Group(),
       prof = VASES[kind];
@@ -962,6 +981,7 @@ export function createWorld(
       hold.position.y = top - 0.12 * s;
       hold.scale.setScalar(0.9);
       g.add(hold);
+      swaying.push({ o: hold, x0: hold.rotation.x, ph: rnd(x * 7 + z * 3 + k) * 6.28 });
     }
     g.position.y = y;
     put(g, x, z);
@@ -1153,6 +1173,8 @@ export function createWorld(
     lightPools.push(a, b);
   };
   pool(new V3(CROSS.c.x, 0, CROSS.c.z), 2.1);
+  // (and under each room's skylight, a smaller one)
+  for (const R of [LISTS, SETS, SANCT]) pool(new V3(R.c.x, 0, R.c.z), 1.3);
   const focusLight = new THREE.PointLight(lin(1, 0.86, 0.62), 9, 9, 1.4);
   focusLight.position.set(CROSS.c.x, 0.9, CROSS.c.z);
   scene.add(focusLight);
@@ -1269,15 +1291,28 @@ export function createWorld(
   };
   const sconces = [];
   const BULB = new THREE.Color(1.7, 1.38, 0.98);
+  // a sconce (docs/SPACE.md, 壁燈): a half disc standing out from the wall like a shallow dish, its light thrown up the
+  // wall in a soft fan; the lamp itself only a warm line along the dish's rim, never looked into
+  const FAN = textTex(128, 128, (g, w, h) => {
+    // (a fan: brightest at the dish, widening and fading upward)
+    const r = g.createRadialGradient(w / 2, h, 0, w / 2, h, h);
+    r.addColorStop(0, 'rgba(255,236,205,.95)');
+    r.addColorStop(0.4, 'rgba(255,226,190,.35)');
+    r.addColorStop(0.92, 'rgba(255,220,180,0)');
+    // (a soft half circle: it fades to nothing well inside its square, so no edge of it is ever seen)
+    g.fillStyle = r;
+    g.fillRect(0, 0, w, h);
+  });
   function sconce(w) {
     const g = hang(new THREE.Group(), w);
-    mesh(rbox(0.2, 0.42, 0.05, 0.03), MAT.ivory, g).position.z = 0.025;
-    const arm = mesh(cyl(0.016, 0.016, 0.2, 8), MAT.ink, g);
-    arm.rotation.x = Math.PI / 2;
-    arm.position.set(0, -0.04, 0.14);
-    mesh(cyl(0.1, 0.055, 0.12, 20), MAT.kraft, g).position.set(0, 0.02, 0.24);
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 10), flat(BULB.clone()));
-    bulb.position.set(0, 0.1, 0.24);
+    // (the dish: a half disc, flat side to the wall, a little thicker at its rim than a plate)
+    const dish = mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.09, 32, 1, false, -Math.PI / 2, Math.PI), MAT.ivory, g);
+    dish.position.set(0, 0, 0.005);
+    const bulb = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.255, 0.255, 0.012, 32, 1, false, -Math.PI / 2, Math.PI),
+      flat(BULB.clone()),
+    );
+    bulb.position.set(0, 0.05, 0.01);
     g.add(bulb);
     noLine.push(bulb);
     const halo = new THREE.Sprite(
@@ -1290,11 +1325,11 @@ export function createWorld(
         blending: THREE.AdditiveBlending,
       }),
     );
-    halo.scale.setScalar(0.9);
-    halo.position.copy(bulb.position);
+    halo.scale.set(1.1, 0.55, 1);
+    halo.position.set(0, 0.1, 0.12);
     g.add(halo);
     noLine.push(halo);
-    const wash = soft(g, GLOW, 1.5, 2.3, 0, 0.35, 0.012, 0, 0, 0.28, true);
+    const wash = soft(g, FAN, 2.2, 2.0, 0, 1.03, 0.012, 0, 0, 0.32, true);
     sconces.push({ bulb, halo, wash, ph: rnd(w.x * 3.1 + w.z) * 6.28 });
     return g;
   }
@@ -1427,11 +1462,11 @@ export function createWorld(
   for (const a of [-4.6, 4.6]) sconce(onFlat('settings', 'far', a, 3.3));
   // (the listening room's round wall: never on the far side, where the song's picture is, nor by the doorway)
   for (const a of [-135, -90, -45, 45, 90, 135])
-    sconce(onArc(SANCT.c, SANCT.r, PL.ROOMS.altar.th + (a * Math.PI) / 180, 3.3));
+    sconce(onArc(SANCT.c, SANCT.r, PL.ROOMS.listening.th + (a * Math.PI) / 180, 3.3));
   print(onFlat('settings', 'left', 0, 2.5), 1.5, 1.2, [C.kraft, C.clay, C.olive], 11);
   print(onFlat('settings', 'right', 0, 2.5), 1.5, 1.2, [C.olive, C.mist, C.clay], 13);
   {
-    const back = PL.ROOMS.altar.th + Math.PI;
+    const back = PL.ROOMS.listening.th + Math.PI;
     print(onArc(SANCT.c, SANCT.r, back + 0.45, 2.7), 1.3, 1.7, [C.clay, C.olive, C.mist, C.kraft], 3);
     print(onArc(SANCT.c, SANCT.r, back - 0.45, 2.7), 1.3, 1.7, [C.mist, C.kraft, C.clay, C.olive], 7);
     shelf(onArc(SANCT.c, SANCT.r, back + 1.35, 1.5), 1.9, 2);
@@ -1462,7 +1497,7 @@ export function createWorld(
     onRound(CROSS.c, PL.ATRIUM.r, PL.ATRIUM.h, 520, 11, true);
     onRound(CROSS.c, PL.RING.r0, PL.RING.h, 380, 29, false);
     onRound(CROSS.c, PL.RING.r1, PL.RING.h, 520, 47, true);
-    onRound(SANCT.c, PL.ROOMS.altar.r, PL.ROOMS.altar.h, 160, 71, true);
+    onRound(SANCT.c, PL.ROOMS.listening.r, PL.ROOMS.listening.h, 160, 71, true);
     for (const id of ['lists', 'settings'])
       for (const w of ['left', 'right', 'far'])
         for (let k = 0; k < 70; k++) {
@@ -1589,7 +1624,7 @@ export function createWorld(
     MAT.floor.customProgramCacheKey = () => 'floorAO';
   }
   // albums in the nave
-  /* ---------- albums in the nave: one even row, thin ink frames ---------- */
+  /* ---------- albums in the gallery: one even row, thin ink frames ---------- */
   let renderErrors = 0;
   // the line's captions under the room, as the effect lyrics show them: each kind its own size and strength, Latin text
   // spaced and lower-cased; a line's block rises in a moment after the line begins and fades before it ends
@@ -2250,7 +2285,7 @@ export function createWorld(
   const lyricMeshes = [];
   {
     // (on the far wall, at the height of a person sitting: the song's picture is a window in the wall, not a thing raised up)
-    const w = onArc(SANCT.c, SANCT.r, PL.ROOMS.altar.th, 0, 0.02),
+    const w = onArc(SANCT.c, SANCT.r, PL.ROOMS.listening.th, 0, 0.02),
       rer = new THREE.Group();
     rer.position.set(w.x, 0, w.z);
     rer.rotation.y = w.ry;
@@ -2665,10 +2700,10 @@ export function createWorld(
   /* ---------- rooms, doors and routes (plan.ts) ---------- */
   const regionAt = (p) => PL.regionAt({ x: p.x, z: p.z });
   const SIGNS = {
-    nave: ['The Gallery', `${ts('room.nave')} · ${ts('room.nave.sub')}`],
-    dome: ['The Atrium', `${ts('room.dome')} · ${ts('room.dome.sub')}`],
+    gallery: ['The Gallery', `${ts('room.gallery')} · ${ts('room.gallery.sub')}`],
+    atrium: ['The Atrium', `${ts('room.atrium')} · ${ts('room.atrium.sub')}`],
     lists: ['The Collection', `${ts('room.lists')} · ${ts('room.lists.sub')}`],
-    altar: ['The Listening Room', `${ts('room.altar')} · ${ts('room.altar.sub')}`],
+    listening: ['The Listening Room', `${ts('room.listening')} · ${ts('room.listening.sub')}`],
     settings: ['The Studio', `${ts('room.settings')} · ${ts('room.settings.sub')}`],
   };
   const PLACES = Object.fromEntries(
@@ -2679,11 +2714,11 @@ export function createWorld(
     PL.route(from, to, { x: me.pos.x, z: me.pos.z }, target && { x: target.x, z: target.z }).map((p) => v3(p, EYE));
   // (each room's own doorway, and the doorway of the room it opens from, at ear height: where sound comes through)
   const doorOf = (r) =>
-    r === 'nave' || r === 'dome'
+    r === 'gallery' || r === 'atrium'
       ? v3(PL.at(Math.PI, PL.ATRIUM.r + T / 2), EYE)
       : v3(PL.at(PL.ROOMS[r].th, PL.ROOM_IN - T / 2), EYE);
   const crossDoorOf = (r) =>
-    r === 'nave' || r === 'dome'
+    r === 'gallery' || r === 'atrium'
       ? v3(PL.at(Math.PI, PL.ATRIUM.r + T / 2), EYE)
       : v3(PL.at(PL.ROOMS[r].th, PL.RING.r1 + T / 2), EYE);
   const inAtrium = (p, m = 0) => Math.hypot(p.x - CROSS.c.x, p.z - CROSS.c.z) < PL.ATRIUM.r - m;
@@ -2692,7 +2727,7 @@ export function createWorld(
   // (rigs/walk.ts walks; this scene's part is where one may stand, the way through its doorways, and the veil that
   // stands in for a flight under reduced motion)
   const walk = new WalkRig({
-    start: { pos: PLACES.nave.pos, yaw: 0, pitch: 0.05 },
+    start: { pos: PLACES.gallery.pos, yaw: 0, pitch: 0.05 },
     eye: EYE,
     region: regionAt,
     route: (to) => route(room, regionAt(to)?.room || room, to),
@@ -2714,8 +2749,8 @@ export function createWorld(
   const keys = new Set();
   let looking = false,
     locked = false,
-    place = 'nave',
-    room = 'nave';
+    place = 'gallery',
+    room = 'gallery';
   const sstep = smooth;
   function fly(pos, yaw, pitch, dur, out = false) {
     if (RM()) veiled(() => walk.put(pos, yaw, pitch));
@@ -2786,7 +2821,7 @@ export function createWorld(
     tierGoal = Math.floor(i / PER);
     const at = new V3();
     songPose(i, tierGoal, at);
-    show({ kind: 'song', key: SONGS[i].id }, room === 'dome' ? at : null);
+    show({ kind: 'song', key: SONGS[i].id }, room === 'atrium' ? at : null);
   }
   function focusList(k) {
     const L = listMeshes[k],
@@ -3037,7 +3072,7 @@ export function createWorld(
     (e) => {
       e.preventDefault();
       const d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
-      if (room === 'dome' && inAtrium(me.pos, 1)) {
+      if (room === 'atrium' && inAtrium(me.pos, 1)) {
         tierGoal = Math.max(-0.35, Math.min(TIERS - 0.65, tierGoal + d / 110));
         wheelRest = performance.now();
       } else walk.push(-d * 0.02);
@@ -3081,7 +3116,7 @@ export function createWorld(
       walk.stand();
       return;
     }
-    if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'nave') {
+    if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'gallery') {
       e.preventDefault();
       hideCards();
       setNavePage(navePg + (e.code === 'PageDown' ? 1 : -1));
@@ -3093,7 +3128,7 @@ export function createWorld(
       setListPage(listPg + (e.code === 'PageDown' ? 1 : -1));
       return;
     }
-    if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'dome') {
+    if ((e.code === 'PageUp' || e.code === 'PageDown') && room === 'atrium') {
       e.preventDefault();
       tierGoal = Math.max(0, Math.min(TIERS - 1, Math.round(tierGoal) + (e.code === 'PageDown' ? 1 : -1)));
       return;
@@ -3239,11 +3274,11 @@ export function createWorld(
   // (each speaker turned to the middle of its room)
   const speakerAt = (room, p, c) => ({ room, pos: v3(p, 1.1), ry: Math.atan2(c.x - p.x, c.z - p.z) });
   const SPEAKERS = [
-    speakerAt('nave', PL.at(Math.PI + 0.26, PL.RING.r1 - 1.3), CROSS.c),
-    { room: 'dome', pos: new V3(CROSS.c.x, 0.6, CROSS.c.z), pool: true },
+    speakerAt('gallery', PL.at(Math.PI + 0.26, PL.RING.r1 - 1.3), CROSS.c),
+    { room: 'atrium', pos: new V3(CROSS.c.x, 0.6, CROSS.c.z), pool: true },
     speakerAt('lists', inRoom('lists', PL.ROOM_IN + PL.ROOMS.lists.d - 1.2, -4.8), LISTS.c),
     speakerAt('settings', inRoom('settings', PL.ROOM_IN + PL.ROOMS.settings.d - 1.2, 4.8), SETS.c),
-    speakerAt('altar', PL.at(PL.ROOMS.altar.th - 0.13, PL.ROOM_IN + 7 + 4.6), SANCT.c),
+    speakerAt('listening', PL.at(PL.ROOMS.listening.th - 0.13, PL.ROOM_IN + 7 + 4.6), SANCT.c),
   ];
   SPEAKERS.forEach((s) => {
     if (s.pool) return;
@@ -3276,8 +3311,8 @@ export function createWorld(
   // (sound leaves a room by its doorway onto the ring — the atrium by its doorway nearest the other end — and comes
   // into the other the same way)
   const exitsOf = (r, toward) => {
-    if (r === 'nave') return [];
-    if (r === 'dome') {
+    if (r === 'gallery') return [];
+    if (r === 'atrium') {
       const th = PL.polar({ x: toward.x, z: toward.z }).th,
         d = PL.ATRIUM_DOORS.reduce((m, x) => (Math.abs(PL.turn(th, x)) < Math.abs(PL.turn(th, m)) ? x : m));
       return [v3(PL.at(d, PL.ATRIUM.r + T / 2), EYE)];
@@ -3293,7 +3328,7 @@ export function createWorld(
     sources: SPEAKERS,
     ambientFrom: SPEAKERS[1],
     ambientUrl: AMBIENT,
-    reverb: { nave: 3.2, dome: 4.5, lists: 1.8, settings: 1.8, altar: 2.4 },
+    reverb: { gallery: 3.2, atrium: 4.5, lists: 1.8, settings: 1.8, listening: 2.4 },
     path: soundPath,
     onPhones: (on) => {
       const b = $('hp');
@@ -3322,7 +3357,7 @@ export function createWorld(
   };
   onW('pointerdown', initAudio);
   onW('keydown', initAudio);
-  const _listener = { pos: camera.position, quat: camera.quaternion, room: 'nave' };
+  const _listener = { pos: camera.position, quat: camera.quaternion, room: 'gallery' };
   function audioTick(dt) {
     _listener.room = room;
     sound.tick(dt, _listener, playing);
@@ -3383,7 +3418,7 @@ export function createWorld(
     freeBand,
     velocity: () => me.vel,
     reduced: RM,
-    origin: () => (room === 'altar' ? lyricMeshes[0].m.getWorldPosition(new V3()) : null),
+    origin: () => (room === 'listening' ? lyricMeshes[0].m.getWorldPosition(new V3()) : null),
     onSpawn: (pos) => {
       // (the view turns to follow a line, if asked to)
       if (S.follow) walk.follow(Math.atan2(-(pos.x - camera.position.x), -(pos.z - camera.position.z)));
@@ -3442,12 +3477,21 @@ export function createWorld(
   // a tone of the colour at a given lightness and a share of its saturation (so a vivid cover still gives a calm room)
   const tone = (out, src, l, sMul, sMin = 0.18, sMax = 0.62) => {
     src.getHSL(_hsl);
-    return out.setHSL(_hsl.h, Math.min(sMax, Math.max(sMin, _hsl.s * sMul)) * Math.min(1, _hsl.s * 4), l);
+    // (at midnight every tone is taken far darker: the song colours the night, it never lights the room up)
+    return out.setHSL(
+      _hsl.h,
+      Math.min(sMax, Math.max(sMin, _hsl.s * sMul)) * Math.min(1, _hsl.s * 4),
+      NIGHT ? l * 0.3 : l,
+    );
   };
   function tintTick(dt) {
     if (!tintBase) {
       tintBase = {
-        surf: [MAT.paper, MAT.floor, MAT.oat, MAT.ivory, MAT.taupe].map((m) => [m, m.color.clone()]),
+        // (the walls first — the plain ones, then each room's own — then the floor and the furniture's paper tones)
+        surf: [MAT.paper, MAT.floor, MAT.oat, MAT.ivory, MAT.taupe, ...Object.values(WALL)].map((m) => [
+          m,
+          m.color.clone(),
+        ]),
         baked: BAKED.map((m) => [m, m.color.clone(), m.userData.top.value.clone(), !m.userData.sky]),
         wash: WASH_TOP.value.clone(),
         amb: ambLight.color.clone(),
@@ -3478,8 +3522,10 @@ export function createWorld(
       B = tintBase; // (the settings' colour knob scales it all)
     // surfaces: a pale tone of the colour, strongly (the walls carry the room's mood)
     B.surf.forEach(([m, base], i) => {
-      tone(_a, tintNow, i === 0 ? 0.74 : i === 1 ? 0.66 : 0.8, i === 1 ? 0.55 : 0.7);
-      m.color.copy(base).lerp(_a, A * (i === 0 ? 0.62 : 0.5));
+      const wall = i === 0 || i >= 5;
+      tone(_a, tintNow, wall ? 0.74 : i === 1 ? 0.66 : 0.8, i === 1 ? 0.55 : 0.7);
+      // (a room's own colour keeps more of itself)
+      m.color.copy(base).lerp(_a, A * (i === 0 ? 0.62 : i >= 5 ? 0.42 : 0.5));
     });
     B.baked.forEach(([m, lo, top, tintTop]) => {
       tone(_a, tintNow, 0.7, 0.6);
@@ -3580,7 +3626,7 @@ export function createWorld(
     camera.rotation.set(view.pitch, view.yaw, 0, 'YXZ');
     stepRail(dt, now);
     const railKey = hoverSong + ':' + chosenSong;
-    if (liftTick(dt) || (frameN % 15 === 0 && room === 'dome')) bowlDirty = true;
+    if (liftTick(dt) || (frameN % 15 === 0 && room === 'atrium')) bowlDirty = true;
     if (Math.abs(tierGoal - tierAt) > 0.001 || Math.abs(tierVel) > 0.001 || railKey !== lastRailKey || bowlDirty) {
       lastRailKey = railKey;
       bowlDirty = false;
@@ -3673,6 +3719,12 @@ export function createWorld(
       u.time.value = motion;
       u.accent.value = accent;
       u.still.value = RM() ? 1 : 0;
+    }
+    // (the branches sway, a hair either way, each on its own slow phase)
+    if (!RM()) {
+      const tt = now / 1000;
+      for (const b of swaying)
+        b.o.rotation.x = b.x0 + 0.025 * Math.sin(tt * 0.5 + b.ph) * Math.sin(tt * 0.23 + b.ph * 2);
     }
     // (the wall stars twinkle on their own clock; held still under reduced motion)
     if (wallStars && !RM()) wallStars.material.uniforms.time.value = now / 1000;

@@ -14,7 +14,7 @@ export const hudHtml = () => `
 <div class="loading" id="loading">${esc(ts('loading'))}</div>
 <div class="hud top">
   <div class="mark">Cadenza<small>${esc(ts('mark'))}</small></div>
-  <nav class="places card" aria-label="${esc(ts('places'))}">${room('nave', true)}${room('dome')}${room('lists')}${room('altar')}${room('settings')}</nav>
+  <nav class="places card" aria-label="${esc(ts('places'))}">${room('gallery', true)}${room('atrium')}${room('lists')}${room('listening')}${room('settings')}</nav>
   <div class="tools">
     <div class="search card">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
@@ -26,7 +26,7 @@ export const hudHtml = () => `
     <button class="cfg card" id="cfg" aria-label="${esc(ts('settings'))}" title="${esc(ts('settings'))} ( , )">${gear}</button>
   </div>
 </div>
-<div class="hud sign" id="sign" style="opacity:0"><i>The Gallery</i><b>${esc(ts('room.nave'))} · ${esc(ts('room.nave.sub'))}</b><u></u></div>
+<div class="hud sign" id="sign" style="opacity:0"><i>The Gallery</i><b>${esc(ts('room.gallery'))} · ${esc(ts('room.gallery.sub'))}</b><u></u></div>
 <div class="hud focus card" id="focus" hidden>
   <div class="eyebrow" id="f-eye"></div>
   <h2 id="f-title"></h2>
@@ -37,7 +37,7 @@ export const hudHtml = () => `
 <div class="hud subs" id="subs" aria-live="polite"></div>
 <div class="hud tip card" id="tip" hidden></div>
 <div class="hud reticle" id="reticle" hidden></div>
-<div class="hud player card" aria-label="${esc(ts('room.altar.sub'))}">
+<div class="hud player card" aria-label="${esc(ts('room.listening.sub'))}">
   <button class="btn solid" id="pp" aria-label="${esc(ts('play'))}">▶</button>
   <div class="t"><b id="p-title">${esc(ts('nothing'))}</b><span id="p-sub"></span><div class="bar" id="p-seek" role="slider" tabindex="0" aria-label="${esc(ts('seek'))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="p-bar"></i></div></div>
   <button class="btn hp" id="hp" aria-pressed="true" title="${esc(ts('phones.onHelp'))}">${esc(ts('phones.on'))}</button>

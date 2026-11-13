@@ -12,7 +12,7 @@ import {
   type RoomId,
 } from '../../src/app/space/plan';
 
-const ROOMS: RoomId[] = ['nave', 'dome', 'lists', 'settings', 'altar'];
+const ROOMS: RoomId[] = ['gallery', 'atrium', 'lists', 'settings', 'listening'];
 const walkable = (a: P2, b: P2) => {
   const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.1));
   for (let k = 0; k <= n; k++) {
@@ -40,7 +40,7 @@ describe('the floor plan', () => {
   });
 
   it('goes round the ring, not across the atrium', () => {
-    const pts = route('lists', 'altar');
+    const pts = route('lists', 'listening');
     for (const p of pts) {
       const d = Math.hypot(p.x, p.z + 40);
       expect(d).toBeGreaterThan(ATRIUM.r);
@@ -62,7 +62,7 @@ describe('the floor plan', () => {
       expect(Math.hypot(s.x, s.z + 40)).toBeCloseTo(RING.r1, 1);
       // (in front of it is the ring)
       const f = { x: s.x - Math.sin(s.th) * 2, z: s.z + Math.cos(s.th) * 2 };
-      expect(regionAt(f)?.room).toBe('nave');
+      expect(regionAt(f)?.room).toBe('gallery');
     }
   });
 

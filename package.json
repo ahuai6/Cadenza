@@ -1,7 +1,7 @@
 {
   "name": "cadenza",
   "productName": "Cadenza",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "Cadenza: a personal music library whose songs play with lyrics that move to the music, exportable as lyric videos",
   "private": true,
   "type": "module",
