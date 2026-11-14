@@ -83,6 +83,10 @@ export class InkPass extends Pass {
         // measured at 1 and 2 pixels and averaged, so thin or distant edges fade in smoothly instead of popping between frames
         float edgeAt(vec2 o, float i0, vec3 n0){ float lx = abs(1./L(vUv+vec2(o.x,0.)) + 1./L(vUv-vec2(o.x,0.)) - 2.*i0), ly = abs(1./L(vUv+vec2(0.,o.y)) + 1./L(vUv-vec2(0.,o.y)) - 2.*i0);
           float e = smoothstep(.06, .2, max(lx, ly)/i0);
+          // (and a plain step in depth to a neighbour much further off: the second difference can come out small at an edge
+          // seen at certain angles — the two sides' changes cancelling — and the outline went missing there)
+          float d0 = 1./i0, j = max(max(L(vUv+vec2(o.x,0.)), L(vUv-vec2(o.x,0.))), max(L(vUv+vec2(0.,o.y)), L(vUv-vec2(0.,o.y))));
+          e = max(e, smoothstep(.35, .7, (j - d0)/d0));
           float nn = max(max(1.-dot(N(vUv+vec2(o.x,0.)), n0), 1.-dot(N(vUv-vec2(o.x,0.)), n0)), max(1.-dot(N(vUv+vec2(0.,o.y)), n0), 1.-dot(N(vUv-vec2(0.,o.y)), n0)));
           float id0 = texture2D(tN, vUv).a, ie = max(max(I(vUv+vec2(o.x,0.), id0), I(vUv-vec2(o.x,0.), id0)), max(I(vUv+vec2(0.,o.y), id0), I(vUv-vec2(0.,o.y), id0)));
           return max(max(e, smoothstep(.2, .45, nn)), ie); }

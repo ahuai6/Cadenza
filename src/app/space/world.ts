@@ -118,7 +118,7 @@ export function createWorld(
         text: '#29241F',
         sub: '#7a6f63',
         sky0: '#F3C9A0',
-        sky1: '#8EA5C8',
+        sky1: '#9DBEEB',
         ceil0: '#D4C5AA',
         ceil1: '#E2D5BC',
         beam: '#FFE3B8',
@@ -263,6 +263,7 @@ export function createWorld(
     vault: baked('#D4C5AA', '#E2D5BC', 14, 21, {}),
     tunnel: baked('#CDBEA2', '#D9CBB0', 0, 8, {}),
     floor: toon(C.oat),
+    soil: toon(NIGHT ? '#2B2420' : '#5A4637'),
   };
   const roomMat = { gallery: MAT.clay, atrium: MAT.olive, lists: MAT.mist, settings: MAT.kraft, listening: MAT.clay };
 
@@ -738,7 +739,17 @@ export function createWorld(
         1.1,
       );
     bendRound(g, r, c.x, c.z, SEAM);
-    return mesh(g, mat);
+    const m = mesh(g, mat);
+    // (what rays in the room test against instead: a plain cylinder of the wall's middle, a few hundred triangles — the
+    // wall itself is tens of thousands, and placing one line of lyrics in the air casts hundreds of rays)
+    const proxy = new THREE.Mesh(
+      new THREE.CylinderGeometry(r + T / 2, r + T / 2, h, 96, 1, true),
+      new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }),
+    );
+    proxy.position.set(c.x, h / 2, c.z);
+    proxy.updateMatrixWorld(true);
+    m.userData.proxy = proxy;
+    return m;
   }
   // a flat ring (or a disc with a round hole) under a ceiling
   function ringRoof(c, r0, r1, y) {
@@ -761,7 +772,7 @@ export function createWorld(
   const domes = [];
   const deg = Math.PI / 180;
   const RING_WINS = [
-    { th: Math.PI, y: 3.3, r: 2.3 },
+    { th: Math.PI, y: 2.85, r: 2.55 },
     { th: 22.5 * deg, y: 5.3, r: 0.8 },
     { th: 67.5 * deg, y: 5.3, r: 0.8 },
     { th: 112.5 * deg, y: 5.3, r: 0.8, sun: true },
@@ -843,6 +854,32 @@ export function createWorld(
     if (!NIGHT) {
       const west = new V3(-1, Math.tan((4 * Math.PI) / 180), 0).normalize();
       disc(west, 96, 5.5, '#FFB067', '#FF8A4C', 70);
+    }
+    // far hills all round, two ranges in the haze: what the windows look out on (the sky alone gave them no distance)
+    for (const [R, h0, hv, col, seed] of [
+      [72, 2.5, 7, NIGHT ? '#1C2340' : '#B8A7B4', 3.1],
+      [94, 4, 11, NIGHT ? '#242C4C' : '#CDBDC4', 7.7],
+    ]) {
+      const N = 180,
+        pos = [];
+      const hAt = (a) =>
+        h0 +
+        hv *
+          (0.5 +
+            0.3 * Math.sin(a * 3 + seed) +
+            0.15 * Math.sin(a * 7.3 + seed * 2) +
+            0.08 * Math.sin(a * 17.1 + seed * 5));
+      for (let k = 0; k < N; k++) {
+        const a0 = (k / N) * Math.PI * 2,
+          a1 = ((k + 1) / N) * Math.PI * 2,
+          p = (a, y) => [CROSS.c.x + Math.sin(a) * R, y, CROSS.c.z - Math.cos(a) * R];
+        pos.push(...p(a0, -3), ...p(a1, -3), ...p(a1, hAt(a1)), ...p(a0, -3), ...p(a1, hAt(a1)), ...p(a0, hAt(a0)));
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const m = new THREE.Mesh(g, flat(col, { fog: false, side: THREE.DoubleSide }));
+      world.add(m);
+      noLine.push(m);
     }
     if (NIGHT) {
       // (the night sky's stars, far out over the roof: what the wells and the windows look into)
@@ -960,7 +997,8 @@ export function createWorld(
       pts = [];
     for (let i = 0; i <= 12; i++) {
       const t = i / 12;
-      pts.push(new V3(-len / 2 + t * len, (Math.sin(t * 3.2 + seed) * 0.25 * len) / 4, 0));
+      // (the wave starts from nothing at the stem's foot: a foot off the axis came out through a vase's neck)
+      pts.push(new V3(-len / 2 + t * len, ((Math.sin(t * 3.2 + seed) - Math.sin(seed)) * 0.25 * len) / 4, 0));
     }
     const stem = new THREE.CatmullRomCurve3(pts);
     mesh(new THREE.TubeGeometry(stem, 48, 0.026, 6), MAT.ink, g);
@@ -1121,7 +1159,18 @@ export function createWorld(
       g,
     ).material = mat.clone();
     g.children[0].material.side = THREE.DoubleSide;
-    const top = prof.at(-1)[1] * s;
+    const top = prof.at(-1)[1] * s,
+      // (an open bowl — wider at its mouth than at its waist — is filled with earth, the stems standing in it; a narrow
+      // neck hides its stems' feet)
+      open = prof.at(-1)[0] > 0.3;
+    let foot = top - 0.12 * s;
+    if (open) {
+      const h = top * 0.72,
+        r = prof.reduce((m, [a, b], i) => (i && b <= h / s ? a : m), prof[0][0]) * s;
+      const soil = mesh(new THREE.CylinderGeometry(r * 0.97, r * 0.9, 0.04, 40), MAT.soil, g);
+      soil.position.y = h;
+      foot = h - 0.02;
+    }
     for (let k = 0; k < stems; k++) {
       const len = 1.4 + rnd(x + k) * 1.1,
         b = branch(x * 3 + z + k * 7, len, 2.6),
@@ -1129,7 +1178,7 @@ export function createWorld(
       b.position.x = len / 2;
       hold.add(b); // the stem starts inside the neck
       hold.rotation.set(0, k * 1.9, Math.PI / 2 - (k - (stems - 1) / 2) * 0.22);
-      hold.position.y = top - 0.12 * s;
+      hold.position.y = foot;
       hold.scale.setScalar(0.9);
       g.add(hold);
       swaying.push({ o: hold, x0: hold.rotation.x, ph: rnd(x * 7 + z * 3 + k) * 6.28 });
@@ -1242,6 +1291,9 @@ export function createWorld(
       b = PL.at(Math.PI + 0.16, PL.RING.r1 - 1.3);
     ornament('sphereCube', a.x, a.z, 0.3, MAT.kraft, MAT.clay);
     ornament('halfArch', b.x, b.z, -0.4, MAT.mist);
+    // the viewing window: a long seat square to it, a few steps back, facing out (sit, and look at the hills)
+    const c = PL.at(Math.PI, PL.RING.r1 - 2.7);
+    sofa(2.8, MAT.kraft, c.x, c.z, 0);
   }
   // the atrium: a shallow round pool at the centre with the sky in it, a ring sofa round its rim, ornaments by the
   // doorways
@@ -1261,6 +1313,13 @@ export function createWorld(
     sofa(2.6, m, CROSS.c.x + dx * 5.6, CROSS.c.z + dz * 5.6, Math.atan2(dx, dz));
   }
   table(CROSS.c.x - Math.sin((Math.PI * 3) / 4) * 5.4, CROSS.c.z - Math.cos((Math.PI * 3) / 4) * 5.4);
+  // a single chair turned to the middle: sit and watch the pool and the light coming down the well
+  {
+    const a = (Math.PI * 7) / 4,
+      dx = -Math.sin(a),
+      dz = -Math.cos(a);
+    armchair(MAT.olive, CROSS.c.x + dx * 6.2, CROSS.c.z + dz * 6.2, Math.atan2(-dx, -dz));
+  }
   vase(
     1,
     MAT.ivory,
@@ -3253,6 +3312,30 @@ export function createWorld(
       canvas.requestPointerLock?.();
     }
   }
+  // another program over the window (a screen grab drawn over everything, a switch away): the lock is let go cleanly,
+  // and taken back as soon as the window has the focus again — the pointer hidden as before. (Left to the system, the
+  // view stayed "locked" with the pointer showing, or the lock was gone with nothing to bring it back.)
+  let relockOnFocus = false;
+  const awayFrom = () => {
+    if (locked && immersive()) {
+      relockOnFocus = true;
+      document.exitPointerLock?.();
+    }
+  };
+  const backTo = () => {
+    if (!relockOnFocus || !immersive() || document.hidden) return;
+    relockOnFocus = false;
+    // (a lock asked for the moment the focus comes back can be refused: tried again shortly, and a click takes it too)
+    const tryLock = (n) => {
+      if (locked || !immersive() || n <= 0) return;
+      Promise.resolve(canvas.requestPointerLock?.()).catch(() => {});
+      setTimeout(() => tryLock(n - 1), 250);
+    };
+    tryLock(4);
+  };
+  onW('blur', awayFrom);
+  onD('visibilitychange', () => (document.hidden ? awayFrom() : backTo()));
+  onW('focus', backTo);
   onD('pointerlockchange', () => {
     locked = document.pointerLockElement === canvas;
     lockAt = performance.now();
@@ -3773,7 +3856,7 @@ export function createWorld(
       landables = [];
       world.traverse((o) => {
         if (o.isMesh && !o.isInstancedMesh && !o.userData.thin && !noLine.includes(o) && !glassList.includes(o))
-          landables.push(o);
+          landables.push(o.userData.proxy || o);
       });
     }
     return landables;
@@ -3811,8 +3894,9 @@ export function createWorld(
       });
     },
     solids,
-    obstacles: () => bowl,
-    inside: (p) => !!regionAt(p),
+    obstacles: () => [],
+    // (and in the atrium, clear of the wall of songs: tested by distance, not by rays through its thousand covers)
+    inside: (p) => !!regionAt(p) && !(regionAt(p).room === 'atrium' && !inAtrium(p, PL.ATRIUM.r - 11.2)),
     freeBand,
     velocity: () => me.vel,
     reduced: RM,
@@ -4148,10 +4232,14 @@ export function createWorld(
     atlas.flush(now);
     // one bad frame (a texture the GPU refuses, say) must not stop the picture: it is reported, the next frame tries again
     try {
+      renderer.info.reset();
+      cullRooms();
       composer.render();
       renderErrors = 0;
     } catch (e) {
       if (renderErrors++ < 3) console.error('[space] frame', e);
+    } finally {
+      uncull();
     }
   }
   window.__cad = {
@@ -4233,6 +4321,18 @@ export function createWorld(
     },
     C: () => [SANCT.c.x, SANCT.c.z, CROSS.c.x, CROSS.c.z],
     camera: () => camera,
+    // (for the tests: what the GPU was asked to draw last frame, and the rooms drawn from here)
+    drawn: () => ({
+      calls: renderer.info.render.calls,
+      tris: renderer.info.render.triangles,
+      seen: [...roomsInSight()],
+      filed: FILED.reduce((m, f) => ((m[f.r] = (m[f.r] || 0) + 1), m), {}),
+      kids: world.children.length,
+    }),
+    cullOff: (off) => {
+      if (off) FILED.length = 0;
+      else if (!FILED.length) fileRooms();
+    },
     sitAt: () => {
       const s = sofas.find((x) => Math.hypot(x.seat.x - SANCT.c.x, x.seat.z - SANCT.c.z) < 4);
       if (s) {
@@ -4299,9 +4399,74 @@ export function createWorld(
       apply();
     },
   };
+  /* ---------- rooms out of sight are not drawn ----------
+     Every small thing built into the world is filed under the room it stands in. Each frame, before the picture is
+     drawn, the rooms that cannot be seen from where the eye is are hidden, and shown again straight after: the walls
+     hide them anyway, but the GPU would still draw them (and the ink pass draw them twice). From a room off the ring
+     only that room and the ring can be seen (the atrium too when standing in line with the doors); from the atrium,
+     a room off the ring only in line with its doorways; from the ring, the rooms whose doors are round its curve
+     within sight. Big things (walls, the sky, the hills) and things that move between rooms are always drawn. */
+  const FILED = [];
+  function fileRooms() {
+    const bb = new THREE.Box3(),
+      sp = new THREE.Sphere();
+    world.updateMatrixWorld(true);
+    for (const o of world.children) {
+      if (o === radio.g || o.userData.noCull) continue;
+      bb.setFromObject(o);
+      if (bb.isEmpty()) continue;
+      bb.getBoundingSphere(sp);
+      if (sp.radius > 7) continue;
+      const r = regionAt(sp.center)?.room;
+      if (r) FILED.push({ o, r });
+    }
+  }
+  const SIDE = ['lists', 'listening', 'settings'];
+  const _cv = new V3();
+  function roomsInSight() {
+    const c = camera.getWorldPosition(_cv),
+      th = Math.atan2(c.x - CROSS.c.x, -(c.z - CROSS.c.z)),
+      lat = (id) => {
+        const t = PL.ROOMS[id].th;
+        // (how far the eye is to one side of the line through this room's doorways)
+        return Math.abs((c.x - CROSS.c.x) * Math.cos(t) + (c.z - CROSS.c.z) * Math.sin(t));
+      },
+      inLine = (id) => lat(id) < PL.DOOR_HALF + 1.6 && Math.abs(PL.turn(th, PL.ROOMS[id].th)) < Math.PI / 2,
+      seen = new Set(['gallery']);
+    const here = regionAt(c)?.room || room;
+    if (here === 'gallery') {
+      seen.add('atrium');
+      for (const id of SIDE) if (Math.abs(PL.turn(th, PL.ROOMS[id].th)) < (75 * Math.PI) / 180) seen.add(id);
+    } else if (here === 'atrium') {
+      seen.add('atrium');
+      for (const id of SIDE) if (inLine(id)) seen.add(id);
+    } else {
+      seen.add(here);
+      if (inLine(here)) seen.add('atrium');
+    }
+    return seen;
+  }
+  const culled = [];
+  function cullRooms() {
+    culled.length = 0;
+    // (the shadows are drawn from everything: never culled on a frame that redraws them)
+    if (renderer.shadowMap.needsUpdate || !FILED.length) return;
+    const seen = roomsInSight();
+    for (const f of FILED)
+      if (!seen.has(f.r) && f.o.visible) {
+        f.o.visible = false;
+        culled.push(f.o);
+      }
+  }
+  const uncull = () => {
+    for (const o of culled) o.visible = true;
+    culled.length = 0;
+  };
   const start = () => {
+    renderer.info.autoReset = false; // (counted over the whole frame, every pass)
     apply();
     buildBeams();
+    fileRooms();
     resize();
     layoutBowl();
     setPlace(room, false);
