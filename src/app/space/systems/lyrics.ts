@@ -179,7 +179,9 @@ export class AirLyrics {
         if (
           !mine ||
           t < mine.t - 1 ||
-          (next && t >= next.t - LEAVE_EARLY) ||
+          // (a little before the next comes — but never before its own last character has been sung and lit: a last word
+          // sung in that moment once left unlit)
+          (next && t >= Math.max(next.t - LEAVE_EARLY, (l.times ? l.times[l.times.length - 1] : mine.t) + 0.3)) ||
           t > Math.max(mine.end, mine.harm ? mine.sung : 0) + 0.4
         )
           this.fall(l);

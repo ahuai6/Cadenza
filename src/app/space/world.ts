@@ -175,16 +175,40 @@ export function createWorld(
   const flat = (c, o = {}) => new THREE.MeshBasicMaterial({ color: c, ...o });
   // walls brighten from wheat at the floor to ivory under the vault: light comes from above
   const WASH_TOP = { value: new THREE.Color(C.ivory) }; // the colour the walls lighten toward under the vault (tinted by the cover)
+  // the sconces' light on the walls, worked out on the walls themselves: each sconce a point a little above its dish, its
+  // glow an upright oval round it, fading to nothing (no square of texture laid on the wall, no sprite turning with the
+  // view — both showed their edges). xyz: where, w: how bright now (sconceTick)
+  const SC_MAX = 64,
+    SC = { value: Array.from({ length: SC_MAX }, () => new THREE.Vector4(0, -100, 0, 0)) },
+    SC_N = { value: 0 },
+    SC_COL = { value: NIGHT ? new THREE.Color(0.62, 0.5, 0.36) : new THREE.Color(0.5, 0.38, 0.24) };
   const skyWash = (m, y0 = 1, y1 = 18, k = 0.55) => {
     m.onBeforeCompile = (sh) => {
+      sh.uniforms.uSc = SC;
+      sh.uniforms.uScN = SC_N;
+      sh.uniforms.uScCol = SC_COL;
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying float vWY;')
+        .replace('#include <common>', '#include <common>\nvarying float vWY; varying vec3 vWP;')
         .replace(
           '#include <project_vertex>',
-          '#include <project_vertex>\nvWY = (modelMatrix * vec4(transformed, 1.)).y;',
+          '#include <project_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.)).xyz; vWY = vWP.y;',
         );
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vWY;')
+        .replace(
+          '#include <common>',
+          `#include <common>\nvarying float vWY; varying vec3 vWP; uniform vec4 uSc[${SC_MAX}]; uniform int uScN; uniform vec3 uScCol;`,
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          `float scG = 0.;
+          for (int i = 0; i < ${SC_MAX}; i++) { if (i >= uScN) break; vec4 q = uSc[i]; vec3 d = vWP - q.xyz;
+            float h2 = d.x*d.x + d.z*d.z; if (h2 > 9.) continue;
+            // (an upright oval, wider above the dish than below it: the light is thrown up the wall)
+            float dy = d.y > 0. ? d.y / 1.15 : d.y / .45;
+            scG += q.w * exp(-(h2 / .55 + dy*dy) * 1.6); }
+          gl_FragColor.rgb += uScCol * scG;
+          #include <dithering_fragment>`,
+        )
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uWashTop, smoothstep(${y0.toFixed(1)}, ${y1.toFixed(1)}, vWY) * ${k.toFixed(2)});`,
@@ -452,6 +476,8 @@ export function createWorld(
       g.fillStyle = r;
       g.fillRect(0, 0, w, h);
     });
+  // (the setting sun's light, as a multiple of the beams' own colour)
+  const DUSK_COL = [1.15, 0.72, 0.48];
   const DUSK = softTex('255,150,90', 0.9),
     GLOW = softTex('255,227,184', 1),
     BLOB = softTex('110,92,70', 1);
@@ -782,24 +808,35 @@ export function createWorld(
   // far out in the sky: the sun (high, where the light through the windows and the wells comes from) — at midnight, the
   // moon — and, low in the west, a setting sun seen only through the ring's two western windows (dusk only)
   {
+    // (one soft light: a bright core easing out into its glow, added onto the sky — never a solid disc laid over its own
+    // glow, which showed as a darker circle in a bright ring, like a mask)
+    const ORB = textTex(256, 256, (g, w, h) => {
+      const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+      r.addColorStop(0, 'rgba(255,255,255,1)');
+      r.addColorStop(0.1, 'rgba(255,255,255,.95)');
+      r.addColorStop(0.16, 'rgba(255,255,255,.45)');
+      r.addColorStop(0.4, 'rgba(255,255,255,.12)');
+      r.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = r;
+      g.fillRect(0, 0, w, h);
+    });
     const disc = (dir, dist, size, col, glow, glowSize) => {
       const p = new V3(CROSS.c.x, 0, CROSS.c.z).addScaledVector(dir, dist),
-        g = new THREE.Group();
-      g.position.copy(p);
-      g.lookAt(CROSS.c.x, p.y * 0.2, CROSS.c.z);
-      const d = new THREE.Mesh(
-        new THREE.CircleGeometry(size, 48),
-        flat(col, { fog: false, transparent: true, depthWrite: false }),
-      );
-      const h = new THREE.Mesh(
-        new THREE.PlaneGeometry(glowSize, glowSize * 0.75),
-        flat(glow, { map: GLOW, fog: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
-      );
-      h.position.z = -0.5;
-      g.add(h, d);
-      world.add(g);
-      noLine.push(d, h);
-      return g;
+        m = new THREE.Mesh(
+          new THREE.PlaneGeometry(glowSize, glowSize),
+          flat(col, {
+            map: ORB,
+            fog: false,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+      m.position.copy(p);
+      m.lookAt(CROSS.c.x, p.y * 0.2, CROSS.c.z);
+      world.add(m);
+      noLine.push(m);
+      return m;
     };
     const sun = SUN_DIR.clone();
     disc(sun, 96, NIGHT ? 3.2 : 4.2, NIGHT ? '#E9E6DA' : '#FFF4DE', NIGHT ? '#8A93B8' : '#FFD9A6', NIGHT ? 26 : 40);
@@ -1286,9 +1323,8 @@ export function createWorld(
       b = soft(world, GLOW, r * 4.4, r * 4.4, f.x, 0.02, f.z, -Math.PI / 2, 0, 0.35, true);
     lightPools.push(a, b);
   };
-  pool(new V3(CROSS.c.x, 0, CROSS.c.z), 2.1);
-  // (and under each room's skylight, a smaller one)
-  for (const R of [LISTS, SETS, SANCT]) pool(new V3(R.c.x, 0, R.c.z), 1.3);
+  // (no pools of light laid straight under the wells any more: each well's light lands where the sun puts it — see
+  // buildBeams — and a second, centred pool beating with the music made two patches of light under every skylight)
   const focusLight = new THREE.PointLight(lin(1, 0.86, 0.62), 9, 9, 1.4);
   focusLight.position.set(CROSS.c.x, 0.9, CROSS.c.z);
   scene.add(focusLight);
@@ -1422,17 +1458,6 @@ export function createWorld(
   const BULB = new THREE.Color(1.7, 1.38, 0.98);
   // a sconce (docs/SPACE.md, 壁燈): a half disc standing out from the wall like a shallow dish, its light thrown up the
   // wall in a soft fan; the lamp itself only a warm line along the dish's rim, never looked into
-  const FAN = textTex(128, 128, (g, w, h) => {
-    // (a glow brightest at the dish — a quarter of the way up its square, not on its edge, where it was cut off in a
-    // straight line — fading to nothing well inside the square on every side, so no edge of the square is ever seen)
-    const cy = h * 0.75,
-      r = g.createRadialGradient(w / 2, cy, 0, w / 2, cy, w * 0.42);
-    r.addColorStop(0, 'rgba(255,236,205,.95)');
-    r.addColorStop(0.4, 'rgba(255,226,190,.35)');
-    r.addColorStop(1, 'rgba(255,220,180,0)');
-    g.fillStyle = r;
-    g.fillRect(0, 0, w, h);
-  });
   function sconce(w) {
     const g = hang(new THREE.Group(), w);
     // (the dish: a half disc, flat side to the wall, a little thicker at its rim than a plate)
@@ -1445,23 +1470,14 @@ export function createWorld(
     bulb.position.set(0, 0.05, 0.01);
     g.add(bulb);
     noLine.push(bulb);
-    const halo = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: GLOW,
-        color: new THREE.Color(1.3, 1.05, 0.78),
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
-    );
-    halo.scale.set(1.1, 0.55, 1);
-    halo.position.set(0, 0.1, 0.12);
-    g.add(halo);
-    noLine.push(halo);
-    // (the glow's middle on the dish: a quarter of the way up the square)
-    const wash = soft(g, FAN, 2.6, 2.6, 0, 0.63, 0.012, 0, 0, 0.36, true);
-    sconces.push({ bulb, halo, wash, ph: rnd(w.x * 3.1 + w.z) * 6.28 });
+    // (its light on the wall: a point a little above the dish, a hand's breadth off the wall's face)
+    const i = SC_N.value;
+    if (i < SC_MAX) {
+      const off = new V3(Math.sin(w.ry), 0, Math.cos(w.ry)).multiplyScalar(0.05);
+      SC.value[i].set(w.x + off.x, w.y + 0.12, w.z + off.z, 1);
+      SC_N.value = i + 1;
+    }
+    sconces.push({ bulb, i, ph: rnd(w.x * 3.1 + w.z) * 6.28 });
     return g;
   }
   // the sconces breathe a little on their own (a flame's slow unevenness), and brighten with each beat
@@ -1469,8 +1485,7 @@ export function createWorld(
     const t = now / 1000;
     for (const s of sconces) {
       const f = 1 + 0.05 * Math.sin(t * 1.7 + s.ph) * Math.sin(t * 2.9 + s.ph * 2) + 0.55 * push + 0.25 * sw;
-      s.halo.material.opacity = Math.min(1, 0.5 * f);
-      s.wash.material.opacity = Math.min(0.8, 0.26 * f);
+      if (s.i < SC_MAX) SC.value[s.i].w = f;
       s.bulb.material.color.copy(BULB).multiplyScalar(f);
     }
   }
@@ -2537,19 +2552,63 @@ export function createWorld(
   const segs = [];
   // strength per room: the crossing pours hardest, the sanctuary keeps its words readable
   const beamK = () => 1; // one brightness for every beam in the building
-  function prism(pts0, toFloor, sunlit, k = 1) {
+  // a pool of light on the floor: soft all through, no solid middle (it is light, not paint), fading to nothing well
+  // inside its square
+  const POOL = textTex(256, 256, (g, w, h) => {
+    const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    r.addColorStop(0, 'rgba(255,255,255,.62)');
+    r.addColorStop(0.35, 'rgba(255,255,255,.42)');
+    r.addColorStop(0.7, 'rgba(255,255,255,.12)');
+    r.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = r;
+    g.fillRect(0, 0, w, h);
+  });
+  const sunPools = [];
+  /** A shaft of light from an opening (`pts0`, its outline) to where `toFloor` carries each point. `col`: the light's own
+   *  colour as a multiple of the beams' (the sun's 1, 1, 1; the setting sun warmer) — the shaft and its pool both. */
+  function prism(pts0, toFloor, sunlit, k = 1, col = [1, 1, 1]) {
     const c = pts0.reduce((a, p) => a.add(p), new V3()).multiplyScalar(1 / pts0.length),
       q = pts0.map(toFloor),
       qc = q.reduce((a, p) => a.add(p), new V3()).multiplyScalar(1 / q.length);
     const ra = Math.max(...pts0.map((p) => p.distanceTo(c))),
       rb = Math.max(...q.map((p) => p.distanceTo(qc)));
-    segs.push([c.clone(), qc, ra * 0.8, Math.max(0.4, rb * 0.8), k]);
+    // (as wide as the opening it comes through, and as wide as the patch it lands on)
+    segs.push([c.clone(), qc, ra, Math.max(0.4, rb * 0.95), k, 0, col]);
     if (sunlit) {
-      const bb = new THREE.Box3().setFromPoints(q),
-        sz = bb.getSize(new V3()),
-        ce = bb.getCenter(new V3());
-      soft(beams, GLOW, sz.x * 1.6 + 1.4, sz.z * 1.6 + 1.4, ce.x, 0.02, ce.z, -Math.PI / 2, 0, 0.85, true).renderOrder =
-        3;
+      // the pool: the patch the opening casts — an oval drawn out the way the light slants, its own colour
+      const hz = new V3(SUN_DIR.x, 0, SUN_DIR.z).normalize(),
+        pz = new V3(-hz.z, 0, hz.x);
+      let a0 = Infinity,
+        a1 = -Infinity,
+        b0 = Infinity,
+        b1 = -Infinity;
+      for (const p of q) {
+        const d = p.clone().sub(qc);
+        a0 = Math.min(a0, d.dot(hz));
+        a1 = Math.max(a1, d.dot(hz));
+        b0 = Math.min(b0, d.dot(pz));
+        b1 = Math.max(b1, d.dot(pz));
+      }
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry((a1 - a0) * 1.5 + 0.6, (b1 - b0) * 1.5 + 0.6).rotateX(-Math.PI / 2),
+        flat('#fff', {
+          map: POOL,
+          transparent: true,
+          opacity: 0.5,
+          depthWrite: false,
+          alphaTest: 0.01,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      biasDepth(m.material, 8);
+      m.position.set(qc.x + hz.x * (a0 + a1) * 0.5, 0.02, qc.z + hz.z * (a0 + a1) * 0.5);
+      m.rotation.y = Math.atan2(-hz.z, hz.x);
+      m.renderOrder = 3;
+      m.userData.col = new THREE.Color(C.beam).multiply(new THREE.Color(...col));
+      m.material.color.copy(m.userData.col);
+      beams.add(m);
+      noLine.push(m);
+      sunPools.push(m);
     }
   }
   function buildBeams() {
@@ -2646,7 +2705,7 @@ export function createWorld(
         if (t <= 0) continue;
         const hit = c.clone().addScaledVector(dir, t),
           n = new V3(hit.x - CROSS.c.x, 0, hit.z - CROSS.c.z).normalize();
-        segs.push([c.clone(), hit.clone(), w.r * 0.8, w.r * 1.1, 0.55]);
+        segs.push([c.clone(), hit.clone(), w.r, w.r * 1.15, 0.55, 0, DUSK_COL]);
         const glow = soft(
           world,
           DUSK,
@@ -2667,13 +2726,16 @@ export function createWorld(
 
   function segTex() {
     if (segTex.t) return segTex.t;
-    const data = new Float32Array(64 * 3 * 4);
+    const data = new Float32Array(64 * 4 * 4);
     segs.slice(0, 64).forEach((s, k) => {
       data.set([s[0].x, s[0].y, s[0].z, s[2]], k * 4);
       data.set([s[1].x, s[1].y, s[1].z, s[3]], (64 + k) * 4);
       data.set([s[4], s[5] || 0, 0, 0], (128 + k) * 4);
+      // (each shaft's own colour, as a multiple of the beams')
+      const col = s[6] || [1, 1, 1];
+      data.set([col[0], col[1], col[2], 1], (192 + k) * 4);
     });
-    const t = new THREE.DataTexture(data, 64, 3, THREE.RGBAFormat, THREE.FloatType);
+    const t = new THREE.DataTexture(data, 64, 4, THREE.RGBAFormat, THREE.FloatType);
     t.needsUpdate = true;
     segTex.t = t;
     return t;
@@ -3883,6 +3945,7 @@ export function createWorld(
     tone(_a, tintNow, 0.8, 1.1, 0.3, 0.85);
     shafts.mat.uniforms.col.value.copy(B.beam).lerp(_a, A * 0.85);
     lightPools.forEach((m) => m.material.color.set('#fff').lerp(_a, A * 0.7));
+    sunPools.forEach((m) => m.material.color.copy(m.userData.col).lerp(_a, A * 0.4));
     if (B.mote) motes.material.uniforms.col.value.copy(B.mote).lerp(_a, A * 0.85);
     B.glass.forEach(([m, w]) => m.material.uniforms.warm.value.copy(w).lerp(_a, A * 0.6));
     B.glare.forEach(([g, c]) => g.material.color.copy(c).lerp(_b.copy(_a).multiplyScalar(1.5), A * 0.6));

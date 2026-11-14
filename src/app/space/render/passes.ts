@@ -175,17 +175,23 @@ export class ShaftsPass extends Pass {
         void main(){ vec4 base = texture2D(tDiffuse, vUv);
           vec4 v = projInv*vec4(vUv*2.-1., 1., 1.); vec3 dir = normalize((camWorld*vec4(v.xyz/v.w, 0.)).xyz); vec3 fwd = normalize((camWorld*vec4(0.,0.,-1.,0.)).xyz);
           float L = (exp2(texture2D(tD, vUv).x*log2(far+1.)) - 1.)/max(.05, dot(dir, fwd));
-          float acc = 0., accS = 0.;
+          vec3 acc = vec3(0.); float accS = 0.;
           for (int i = 0; i < 64; i++) { if (i >= nSeg) break; vec4 a = texelFetch(segs, ivec2(i,0), 0), b = texelFetch(segs, ivec2(i,1), 0); vec2 kk = texelFetch(segs, ivec2(i,2), 0).xy; float k = kk.x;
             vec3 u = b.xyz-a.xyz, w0 = camPos-a.xyz; float bb = dot(dir,u), cc = dot(u,u), dd = dot(dir,w0), ee = dot(u,w0), den = max(cc-bb*bb, 1e-4);
             float tu = (ee-bb*dd)/den, t = clamp(tu, 0., 1.); vec3 q = a.xyz+u*t; float s = clamp(dot(q-camPos, dir), 0., L);
             vec3 p = camPos+dir*s; float r = mix(a.w, b.w, t), d = length(p-q), sn = sqrt(max(1.-bb*bb/cc, .03));
             float near = smoothstep(.8, 4., s);
             // a narrow bright core inside a faint wide halo; thickness no longer adds brightness, so every beam reads the same
-            float prof = kk.y > .5 ? .7*exp(-d*d/(r*r)*1.1) : exp(-d*d/(r*r)*7.) + .38*exp(-d*d/(r*r)*1.4);
+            // (soft all across the opening's width: no thin bright thread down a wide window's shaft)
+            float prof = kk.y > .5 ? .7*exp(-d*d/(r*r)*1.1) : .75*exp(-d*d/(r*r)*2.2) + .25*exp(-d*d/(r*r)*.8);
+            // looking along a shaft — up it at the sun, or down it from the window — it fades: seen end on, its round edge
+            // showed as a ring, like a mask over the sky
+            float along = abs(bb)/sqrt(cc);
+            prof *= smoothstep(.97, .82, along);
+            vec3 sc = texelFetch(segs, ivec2(i,3), 0).rgb;
             // each beam breathes on its own slow, unrelated rhythm
             float fi = float(i), breathe = 1. + .09*sin(time*.21 + fi*1.71)*sin(time*.133 + fi*4.13) + .05*sin(time*.47 + fi*2.93);
-            float add = k*breathe*prof*min(1.25/sn, 3.2)*smoothstep(0., .2, tu)*(1.-.35*t)*near; if (kk.y > .5) accS += add; else acc += add; }   // fade softly past the window end (a hard cut there left a ring)
+            float add = k*breathe*prof*min(1.25/sn, 3.2)*smoothstep(0., .2, tu)*(1.-.35*t)*near; if (kk.y > .5) accS += add; else acc += add*sc; }   // fade softly past the window end (a hard cut there left a ring)
           float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898,78.233)))*43758.5453)*.04;
           gl_FragColor = vec4(base.rgb + (col*acc + colS*accS)*gain*(1.+n), base.a); }`,
     });
