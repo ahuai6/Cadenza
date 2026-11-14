@@ -727,7 +727,100 @@ export function createWorld(
   // (a room's walls: its own colour, lightening toward the ceiling as every wall does)
   const WALL = {};
   const wallMat = (room) => (WALL[room] ||= skyWash(toon(C.walls[room])));
-  function roundWall(c, r, h, doors, wins = [], mat = MAT.paper) {
+  /* ---------- the rims of doorways and round windows, drawn as lines of their own ----------
+     The ink pass finds edges in the picture, a pixel or two apart; seen at a slant, a doorway's rim and the step to
+     its lining are slivers thinner than a pixel and their outline broke into dashes or went. So each rim is also a
+     line in the world, the same width on screen at any angle (widened in the vertex shader, like the ink's own width)
+     and faded with distance as the ink is: on both faces of the wall, and where a passage's lining starts inside it. */
+  const RIMS = [];
+  function rims(doors, wins, lined, place) {
+    const lines = [],
+      arc = (u, cy, r, z, a0, a1, n) => {
+        const pts = [];
+        for (let k = 0; k <= n; k++) {
+          const a = a0 + ((a1 - a0) * k) / n;
+          pts.push(u + r * Math.cos(a), cy + r * Math.sin(a), z);
+        }
+        return pts;
+      },
+      door = (u, r, z) => {
+        const f = Math.asin(Math.min(1, PL.DOOR.cy / r));
+        return arc(u, PL.DOOR.cy, r, z, Math.PI + f, -f, 48);
+      };
+    for (const u of doors) {
+      lines.push(door(u, PL.DOOR.r, 0), door(u, PL.DOOR.r, T));
+      if (lined) lines.push(door(u, PL.DOOR.r - 0.12, T / 2));
+    }
+    for (const w of wins)
+      lines.push(arc(w.u, w.y, w.r, 0, 0, Math.PI * 2, 64), arc(w.u, w.y, w.r, T, 0, Math.PI * 2, 64));
+    if (!lines.length) return;
+    // (placed exactly as the wall is: one geometry, bent or stood up, then cut back into its lines)
+    const all = lines.flat(),
+      geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(all, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(all.length).fill(0), 3));
+    place(geo);
+    const P = geo.attributes.position;
+    let i = 0;
+    for (const l of lines) {
+      const pts = [];
+      for (let k = 0; k < l.length / 3; k++, i++) pts.push(new V3(P.getX(i), P.getY(i), P.getZ(i)));
+      RIMS.push(pts);
+    }
+    geo.dispose();
+  }
+  const rimMat = new THREE.ShaderMaterial({
+    side: THREE.DoubleSide, // (which way a strip winds on screen depends on which way it runs)
+    transparent: true,
+    depthWrite: false,
+    uniforms: { res: { value: new V2(1, 1) }, wpx: { value: 2 }, col: { value: new THREE.Color(C.ink) } },
+    vertexShader: `#include <common>\n#include <logdepthbuf_pars_vertex>\nuniform vec2 res; uniform float wpx; attribute vec3 nb; attribute float side; varying float vD;
+      void main(){ mat4 VP = projectionMatrix*viewMatrix*modelMatrix;
+        // (lifted a little toward the eye, off the surfaces it lies on — the log depth ignores a polygon offset)
+        vec3 w = (modelMatrix*vec4(position, 1.)).xyz, e = normalize(cameraPosition - w)*.025;
+        vec4 a = projectionMatrix*viewMatrix*vec4(w + e, 1.), b = projectionMatrix*viewMatrix*vec4((modelMatrix*vec4(nb, 1.)).xyz + e, 1.);
+        vec2 d = b.xy/max(b.w, 1e-3) - a.xy/max(a.w, 1e-3); d = length(d*res) > 1e-6 ? normalize(d*res) : vec2(1., 0.);
+        a.xy += vec2(-d.y, d.x)*side*wpx/res*a.w; vD = a.w; gl_Position = a;\n#include <logdepthbuf_vertex>\n}`,
+    fragmentShader: `#include <common>\n#include <logdepthbuf_pars_fragment>\nuniform vec3 col; varying float vD; void main(){\n#include <logdepthbuf_fragment>\n
+      gl_FragColor = vec4(col, .92*(1. - smoothstep(14., 40., vD)*.85)); }`,
+  });
+  function buildRims() {
+    const pos = [],
+      nb = [],
+      side = [],
+      idx = [];
+    let base = 0;
+    for (const pts of RIMS) {
+      pts.forEach((p, k) => {
+        const q =
+          pts[k + 1] ||
+          p
+            .clone()
+            .multiplyScalar(2)
+            .sub(pts[k - 1]);
+        for (const sd of [-1, 1]) {
+          pos.push(p.x, p.y, p.z);
+          nb.push(q.x, q.y, q.z);
+          side.push(sd);
+        }
+        if (k) idx.push(base - 2, base - 1, base, base - 1, base + 1, base);
+        base += 2;
+      });
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('nb', new THREE.Float32BufferAttribute(nb, 3));
+    g.setAttribute('side', new THREE.Float32BufferAttribute(side, 1));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, rimMat);
+    m.frustumCulled = false;
+    m.renderOrder = 2;
+    m.userData.noCull = true;
+    world.add(m);
+    noLine.push(m);
+  }
+  function roundWall(c, r, h, doors, wins = [], mat = MAT.paper, lined = false) {
     const U = (th) => alongRound(th, r, SEAM),
       // (drawn in panels: a doorway's arc never joined to corners metres away — see wallPanels)
       g = wallPanels(
@@ -739,6 +832,12 @@ export function createWorld(
         1.1,
       );
     bendRound(g, r, c.x, c.z, SEAM);
+    rims(
+      doors.map(U),
+      wins.map((w) => ({ u: U(w.th), y: w.y, r: w.r })),
+      lined,
+      (geo) => bendRound(geo, r, c.x, c.z, SEAM),
+    );
     const m = mesh(g, mat);
     // (what rays in the room test against instead: a plain cylinder of the wall's middle, a few hundred triangles — the
     // wall itself is tens of thousands, and placing one line of lyrics in the air casts hundreds of rays)
@@ -923,7 +1022,7 @@ export function createWorld(
   // the ring: its outer wall (a doorway to each room, a great round window to the south), its low ceiling
   // (the great window to the south looks away from the sun; high over the albums, two windows face the sun and pour it
   // in, two more just let the sky in; low, either side of the studio's door, two look west at the setting sun)
-  roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, RING_WINS, wallMat('gallery'));
+  roundWall(CROSS.c, PL.RING.r1, PL.RING.h, PL.RING_DOORS, RING_WINS, wallMat('gallery'), true);
   ringRoof(CROSS.c, PL.ATRIUM.r + T / 2, PL.RING.r1 + T, PL.RING.h);
   // the rooms off the ring, each through a short round passage: only its lining, a little narrower than the doorways it
   // joins, from the middle of the ring's wall to the middle of the room's — the two ends cut to each wall's own curve.
@@ -954,7 +1053,10 @@ export function createWorld(
       const n0 = PL.ROOM_IN,
         n1 = n0 + R.d,
         hw = R.w / 2,
-        wall = (p0, p1, len, doors) => mesh(standFlat(slab(wallShape(len, R.h, doors), T), p0, p1), wallMat(id));
+        wall = (p0, p1, len, doors) => {
+          rims(doors, [], true, (geo) => standFlat(geo, p0, p1));
+          return mesh(standFlat(slab(wallShape(len, R.h, doors), T), p0, p1), wallMat(id));
+        };
       // (each wall runs on past its corner by its thickness, so the corners are solid)
       wall(P(n0, -hw), P(n0, hw), R.w + T, [hw]);
       wall(P(n0, hw), P(n1, hw), R.d + T, []);
@@ -968,7 +1070,7 @@ export function createWorld(
       cs.holes.push(hole);
       mesh(floorShape(cs, R.h), MAT_CEIL);
     } else {
-      roundWall(c, R.r, R.h, [PL.norm(R.th + Math.PI)], [], wallMat(id));
+      roundWall(c, R.r, R.h, [PL.norm(R.th + Math.PI)], [], wallMat(id), true);
       ringRoof(c, 1.6, R.r + T, R.h);
     }
     skylight(c, 1.6, R.h);
@@ -3209,6 +3311,8 @@ export function createWorld(
       composer.setPixelRatio(pr);
       resize();
     }
+    // (a line as wide as the ink's: its edges are found that far either side of a pixel)
+    rimMat.uniforms.wpx.value = 1.7 * ink.mat.uniforms.w.value * renderer.getPixelRatio();
     const ls = { s: 0.8, m: 1, l: 1.2 }[S.lyric] || 1;
     lyricMeshes.forEach((L) => (L.base = ls));
   }
@@ -3931,6 +4035,7 @@ export function createWorld(
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
+    rimMat.uniforms.res.value.set(w * pr, h * pr);
     if (motes) motes.material.uniforms.px.value = (pr * h) / 800;
     if (wallStars) wallStars.material.uniforms.px.value = (pr * h) / 800;
   }
@@ -4417,32 +4522,69 @@ export function createWorld(
       if (bb.isEmpty()) continue;
       bb.getBoundingSphere(sp);
       if (sp.radius > 7) continue;
-      const r = regionAt(sp.center)?.room;
+      // (filed by where it was put — a chair and the soft shade under it go together — or, built in place, by its middle)
+      const r = regionAt(o.position.lengthSq() > 1e-4 ? o.position : sp.center)?.room;
       if (r) FILED.push({ o, r });
     }
   }
   const SIDE = ['lists', 'listening', 'settings'];
   const _cv = new V3();
+  // A room off the ring is reached through four openings in a row along its own line: the atrium's door, the far side
+  // of that door's tube, the ring's outer door, the end of the passage. A room can be seen when one straight line
+  // from the eye passes through every opening between the eye and the room; each opening is a range of directions
+  // from the eye, so the room is in sight when those ranges overlap. (Doors are taken a little wider than they are.)
+  const OPEN = [PL.ATRIUM.r, PL.RING.r0, PL.RING.r1, PL.ROOM_IN];
+  const _ref = new V3();
+  function throughAll(c, gaps) {
+    if (!gaps.length) return true;
+    // (directions measured as angles from the line to the middle of the first opening, so they never wrap round)
+    const m0 = gaps[0];
+    const rx = (m0[0] + m0[2]) / 2 - c.x,
+      rz = (m0[1] + m0[3]) / 2 - c.z;
+    _ref.set(rx, 0, rz).normalize();
+    let lo = -Infinity,
+      hi = Infinity;
+    for (const [ax, az, bx, bz] of gaps) {
+      const ang = (x, z) =>
+        Math.atan2((x - c.x) * _ref.z - (z - c.z) * _ref.x, (x - c.x) * _ref.x + (z - c.z) * _ref.z);
+      const p = ang(ax, az),
+        q = ang(bx, bz);
+      lo = Math.max(lo, Math.min(p, q));
+      hi = Math.min(hi, Math.max(p, q));
+      if (lo > hi) return false;
+    }
+    return true;
+  }
+  function gaps(id, c, toward) {
+    const th = PL.ROOMS[id].th,
+      along = (c.x - CROSS.c.x) * Math.sin(th) - (c.z - CROSS.c.z) * Math.cos(th),
+      h = PL.DOOR_HALF + 0.35,
+      out = [];
+    for (const r of OPEN) {
+      if (toward ? r <= along : r >= along) continue;
+      const p = PL.at(th, r, -h),
+        q = PL.at(th, r, h);
+      out.push([p.x, p.z, q.x, q.z]);
+    }
+    return toward ? out : out.reverse();
+  }
   function roomsInSight() {
     const c = camera.getWorldPosition(_cv),
       th = Math.atan2(c.x - CROSS.c.x, -(c.z - CROSS.c.z)),
-      lat = (id) => {
-        const t = PL.ROOMS[id].th;
-        // (how far the eye is to one side of the line through this room's doorways)
-        return Math.abs((c.x - CROSS.c.x) * Math.cos(t) + (c.z - CROSS.c.z) * Math.sin(t));
-      },
-      inLine = (id) => lat(id) < PL.DOOR_HALF + 1.6 && Math.abs(PL.turn(th, PL.ROOMS[id].th)) < Math.PI / 2,
-      seen = new Set(['gallery']);
+      seen = new Set(['gallery', 'atrium']);
     const here = regionAt(c)?.room || room;
-    if (here === 'gallery') {
-      seen.add('atrium');
-      for (const id of SIDE) if (Math.abs(PL.turn(th, PL.ROOMS[id].th)) < (75 * Math.PI) / 180) seen.add(id);
-    } else if (here === 'atrium') {
-      seen.add('atrium');
-      for (const id of SIDE) if (inLine(id)) seen.add(id);
-    } else {
+    if (SIDE.includes(here)) {
       seen.add(here);
-      if (inLine(here)) seen.add('atrium');
+      const out = gaps(here, c, false);
+      if (!throughAll(c, out)) seen.delete('atrium');
+      for (const id of SIDE) if (id !== here && throughAll(c, [...out, ...gaps(id, c, true)])) seen.add(id);
+      return seen;
+    }
+    for (const id of SIDE) {
+      // (from the ring a room's door can also be seen round the ring's curve, the atrium's openings aside)
+      const round = here === 'gallery' && Math.abs(PL.turn(th, PL.ROOMS[id].th)) < (95 * Math.PI) / 180;
+      const all = gaps(id, c, true);
+      if (throughAll(c, all) || (round && throughAll(c, all.slice(-2)))) seen.add(id);
     }
     return seen;
   }
@@ -4466,6 +4608,7 @@ export function createWorld(
     renderer.info.autoReset = false; // (counted over the whole frame, every pass)
     apply();
     buildBeams();
+    buildRims();
     fileRooms();
     resize();
     layoutBowl();

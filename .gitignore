@@ -10,3 +10,4 @@ build/.ico.html
 dist-harness/
 tests/.cache/
 models/
+build/installer/out/
