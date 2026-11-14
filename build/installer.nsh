@@ -6,10 +6,11 @@
 
 ManifestDPIAware true
 ; (the PNGs become BMPs while this compiles: NSIS shows nothing else)
-!system 'node "${BUILD_RESOURCES_DIR}/installer/bmp.cjs"' = 0
-!include "${BUILD_RESOURCES_DIR}/installer/layout.nsh"
+!system 'node "${BUILD_RESOURCES_DIR}\installer\bmp.cjs"' = 0
+!include "${BUILD_RESOURCES_DIR}\installer\layout.nsh"
 
-!define CZ_ART "${BUILD_RESOURCES_DIR}/installer/out"
+; (backslashes: makensis on Windows does not take a path that mixes the two)
+!define CZ_ART "${BUILD_RESOURCES_DIR}\installer\out"
 
 ; (only for trying the pages under Wine, where the stock "is the app running" check always says yes)
 !if "$%CZ_NSIS_TRY%" == "1"
@@ -22,7 +23,7 @@ ManifestDPIAware true
   !ifdef MUI_UNWELCOMEFINISHPAGE_BITMAP
     !undef MUI_UNWELCOMEFINISHPAGE_BITMAP
   !endif
-  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${CZ_ART}/side-100.bmp"
+  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${CZ_ART}\side-100.bmp"
 !endif
 
 !ifndef BUILD_UNINSTALLER
@@ -96,29 +97,29 @@ ManifestDPIAware true
     ${endif}
     InitPluginsDir
     ${if} $czScale == 100
-      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}/welcome-100.bmp"
-      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}/progress-100.bmp"
-      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}/finish-100.bmp"
-      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}/install-100.bmp"
-      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}/open-100.bmp"
+      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}\welcome-100.bmp"
+      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}\progress-100.bmp"
+      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}\finish-100.bmp"
+      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}\install-100.bmp"
+      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}\open-100.bmp"
     ${elseif} $czScale == 125
-      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}/welcome-125.bmp"
-      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}/progress-125.bmp"
-      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}/finish-125.bmp"
-      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}/install-125.bmp"
-      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}/open-125.bmp"
+      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}\welcome-125.bmp"
+      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}\progress-125.bmp"
+      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}\finish-125.bmp"
+      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}\install-125.bmp"
+      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}\open-125.bmp"
     ${elseif} $czScale == 150
-      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}/welcome-150.bmp"
-      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}/progress-150.bmp"
-      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}/finish-150.bmp"
-      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}/install-150.bmp"
-      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}/open-150.bmp"
+      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}\welcome-150.bmp"
+      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}\progress-150.bmp"
+      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}\finish-150.bmp"
+      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}\install-150.bmp"
+      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}\open-150.bmp"
     ${else}
-      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}/welcome-200.bmp"
-      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}/progress-200.bmp"
-      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}/finish-200.bmp"
-      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}/install-200.bmp"
-      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}/open-200.bmp"
+      File "/oname=$PLUGINSDIR\cz-welcome.bmp" "${CZ_ART}\welcome-200.bmp"
+      File "/oname=$PLUGINSDIR\cz-progress.bmp" "${CZ_ART}\progress-200.bmp"
+      File "/oname=$PLUGINSDIR\cz-finish.bmp" "${CZ_ART}\finish-200.bmp"
+      File "/oname=$PLUGINSDIR\cz-install.bmp" "${CZ_ART}\install-200.bmp"
+      File "/oname=$PLUGINSDIR\cz-open.bmp" "${CZ_ART}\open-200.bmp"
     ${endif}
     ; (no caption, no sizing border, no sunken edges)
     System::Call 'user32::GetWindowLong(p $HWNDPARENT, i -16) i .r0'
