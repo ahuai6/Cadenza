@@ -4,7 +4,9 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
 import { tx } from '../../i18n';
-import { useStore, trackOf, lib, toast, ui } from '../state';
+import { useStore, trackOf, lib, toast, ui, settings } from '../state';
+import { hifi, refresh as hifiRefresh } from '../playback/hifi';
+import { setSettings } from '../actions/settings';
 import { Lib, D } from '../bridge';
 import { Icon } from '../ui/icons';
 import { Seg, Cover } from '../ui/kit';
@@ -21,6 +23,7 @@ import {
   type Mode,
 } from '../playback/player';
 import { ts } from './i18n';
+import { useOutsideClose } from '../ui/outside';
 import s from './SpacePanels.module.css';
 
 export type Panel = 'lyrics' | 'queue' | null;
@@ -36,7 +39,12 @@ export function PlayerExtras({
   setPanel: (p: Panel) => void;
 }) {
   const mode = useStore(player, (x) => x.mode),
-    hasSong = useStore(player, (x) => !!x.id);
+    hasSong = useStore(player, (x) => !!x.id),
+    hifiOk = useStore(hifi, (x) => !!x.supported),
+    hifiOn = useStore(settings, (x) => x.audioOut === 'hifi');
+  useEffect(() => {
+    hifiRefresh();
+  }, []);
   if (!host) return null;
   const btn = (n: string, label: string, on: boolean, f: () => void, dis = false) => (
     <button
@@ -63,6 +71,20 @@ export function PlayerExtras({
       {btn('queue', tx('s.queue'), panel === 'queue', () => setPanel(panel === 'queue' ? null : 'queue'))}
       {btn(MODE_ICON[mode], tx('s.mode.' + mode), mode !== 'stop', () =>
         setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]),
+      )}
+      {/* Hi-Fi passthrough in one press, where this machine has it (the same setting as Settings → Audio → Output) */}
+      {hifiOk && (
+        <button
+          type="button"
+          className={'btn ' + s.hifi}
+          aria-pressed={hifiOn}
+          title={tx('s.set.out.hifi')}
+          data-test="space-hifi"
+          onClick={() => void setSettings({ audioOut: hifiOn ? 'standard' : 'hifi' })}
+        >
+          <i aria-hidden="true" />
+          Hi-Fi
+        </button>
       )}
     </>,
     host,
@@ -108,6 +130,8 @@ export function SpacePanel({ panel, onClose }: { panel: Panel; onClose: () => vo
     addEventListener('keydown', k);
     return () => removeEventListener('keydown', k);
   }, [panel, onClose]);
+  // (a press anywhere else closes it; the player's buttons open and close it themselves)
+  useOutsideClose(!!panel, onClose, '[data-test="space-lyrics"]', '[data-test="space-queue"]', '#p-extra');
   if (panel === 'lyrics')
     return <Lyrics key={shownId || ''} onClose={onClose} hasLyrics={hasLyrics} session={session} shownId={shownId} />;
   if (panel === 'queue') return <Queue onClose={onClose} />;

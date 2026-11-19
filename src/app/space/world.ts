@@ -24,6 +24,7 @@ import { ts } from './i18n';
 import * as PL from './plan';
 import { wallShape, slab, wallPanels, doorTube, bendRound, alongRound, standFlat, floorShape } from './shapes';
 import AMBIENT from './ambient.ogg?url';
+import { frameLoop } from '../../core/frames';
 
 export interface SpaceUi {
   openSettings(section?: string): void;
@@ -44,6 +45,7 @@ export function createWorld(
 ): { dispose(): void; takePointer(): void; closed(): void; pause(on: boolean): void } {
   const ac = new AbortController();
   let alive = true;
+  let loop = null;
   const opt = (o) => ({ ...(typeof o === 'object' ? o : { capture: !!o }), signal: ac.signal });
   const onW = (t, f, o) => window.addEventListener(t, f, opt(o)),
     onD = (t, f, o) => document.addEventListener(t, f, opt(o));
@@ -3651,6 +3653,16 @@ export function createWorld(
     hideCards();
     takePointer();
   };
+  // (the card goes away, kept as it was, when the pointer is pressed anywhere outside it)
+  addEventListener(
+    'pointerdown',
+    (e) => {
+      const f = $('focus');
+      if (f.hidden || e.button !== 0 || (e.target && e.target.closest && e.target.closest('#focus'))) return;
+      hideCards();
+    },
+    { capture: true, signal: ac.signal },
+  );
   $('f-play').onclick = () => {
     onPlay && onPlay();
     takePointer();
@@ -3975,11 +3987,11 @@ export function createWorld(
       const r = el.getBoundingClientRect();
       if (r.height > 1 && r.bottom < H * 0.5) top = Math.max(top, r.bottom + 14);
     }
-    const pl = document.querySelector('.hud.player');
-    if (pl) {
-      const r = pl.getBoundingClientRect();
-      if (r.height > 1) bot = Math.min(bot, r.top - 74);
-    } // (the subtitles sit just over the player)
+    const sub = document.querySelector('.hud.subs');
+    if (sub) {
+      const r = sub.getBoundingClientRect();
+      if (r.bottom > 1) bot = Math.min(bot, r.bottom - 74);
+    } // (the subtitles sit near the foot of the window)
     return { yTop: 1 - (2 * top) / H, yBot: 1 - (2 * bot) / H };
   }
   const air = new AirLyrics({
@@ -4154,7 +4166,6 @@ export function createWorld(
     camDir = new V3();
   function frame(now) {
     if (!alive) return;
-    requestAnimationFrame(frame);
     frameN++;
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now; // (the first frame can be stamped before the loop began)
@@ -4615,7 +4626,8 @@ export function createWorld(
     setPlace(room, false);
     $('loading').style.opacity = 0;
     setTimeout(() => ($('loading').hidden = true), 800);
-    requestAnimationFrame(frame);
+    // (drawn on even when the browser stops giving frames while the window is shown — a screen recorder over it)
+    loop = frameLoop(frame);
   };
   stations.forEach((s) => {
     const sec = SECTIONS.find((x) => x[0] === s.key);
@@ -4655,6 +4667,7 @@ export function createWorld(
     },
     dispose() {
       alive = false;
+      loop?.stop();
       ac.abort();
       offLibrary();
       offPrefs();

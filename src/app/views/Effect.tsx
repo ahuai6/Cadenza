@@ -2,7 +2,8 @@
 // engine's (the hand-over from the now-playing page); these controls appear as it lands. The bottom bar rises whenever
 // the pointer moves and sinks after a still moment; the pointer itself hides with it and comes back on any movement.
 // The song's own settings slide in from the right edge.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useOutsideClose } from '../ui/outside';
 import { tx } from '../../i18n';
 import { D, Lib } from '../bridge';
 import { ui, settings, useStore, trackOf, toast, openMenu } from '../state';
@@ -96,6 +97,18 @@ export function EffectView() {
     addEventListener('keydown', k, true);
     return () => removeEventListener('keydown', k, true);
   }, [on, list, panel]);
+  // (the lyric list and the song's panel go away when the picture is pressed; the bar's own buttons open and close them)
+  const closeAll = useCallback(() => {
+    setList(false);
+    setPanel(false);
+  }, []);
+  useOutsideClose(
+    on && (list || panel),
+    closeAll,
+    '[data-test="song-panel"]',
+    '[data-test="fx-list"]',
+    '[data-test="fx-bar"]',
+  );
   if (!t) return null;
   const bar = !idle || near || list || panel || queue || modal;
   const cursor = !idle || near || panel || list || queue || modal;
@@ -114,7 +127,7 @@ export function EffectView() {
       {hud && on && <PerfHud />}
       <div className={s.edge} onPointerEnter={() => setPanel(true)} />
       {list && hasLyrics && session && (
-        <div className={s.list + ' glass'} role="dialog" aria-label={tx('s.lyricList')}>
+        <div className={s.list + ' glass'} role="dialog" data-test="fx-list" aria-label={tx('s.lyricList')}>
           <NpLyrics lines={session.doc.lines} live compact />
         </div>
       )}

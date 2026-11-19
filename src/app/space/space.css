@@ -800,3 +800,150 @@
   top: 4px;
   height: 6px;
 }
+
+/* ---- the player in the top bar's left corner (3.2.10; the name moved to the bottom right) ----
+   One row, as tall as the rooms beside it (4 px of glass round a 40 px row) and pill-shaped like them, its top and left
+   edges on the bar's own lines. */
+.top > .player {
+  position: static;
+  transform: none;
+  justify-self: start;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 4px 4px 4px 4px;
+  gap: 4px;
+  border-radius: var(--r-pill);
+}
+.top > .player #pp {
+  min-width: 40px;
+  width: 40px;
+  min-height: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  flex: none;
+}
+.top > .player .t {
+  flex: 0 1 190px;
+  min-width: 56px;
+  gap: 0;
+  margin: 0 4px;
+}
+.top > .player b {
+  font-size: 13px;
+  line-height: 16px;
+}
+.top > .player .t span {
+  font-size: 11px;
+  line-height: 13px;
+}
+.top > .player .bar {
+  height: 9px;
+  margin-top: 1px;
+}
+.top > .player .bar::before,
+.top > .player .bar i {
+  top: 4px;
+}
+.top > .player .bar:hover::before,
+.top > .player .bar:hover i,
+.top > .player .bar.drag::before,
+.top > .player .bar.drag i,
+.top > .player .bar:focus-visible::before,
+.top > .player .bar:focus-visible i {
+  top: 3px;
+}
+.top > .player .hp {
+  min-height: 40px;
+  padding: 0 12px;
+  flex: none;
+}
+.top > .player .btn.mini,
+.top > .player .extras .btn:not([data-test='space-hifi']) {
+  min-width: 40px;
+  width: 40px;
+  min-height: 40px;
+  height: 40px;
+  padding: 0;
+  flex: none;
+}
+.top > .player .extras {
+  flex: none;
+}
+/* (the room switcher keeps the middle of the window until the bar no longer fits beside it, then takes a row of its own) */
+@media (max-width: 1240px) {
+  .top {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .top > .places {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+}
+@media (max-width: 720px) {
+  .top > .player {
+    right: auto;
+    transform: none;
+  }
+}
+/* the name, in the bottom right corner on the same margins */
+.mark.corner {
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+/* the captions and the cards that rose over the player sit lower now the bottom is free */
+.subs {
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+.focus {
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ---- pressing a button on the glass: it answers at once ----
+   A light wash under the pointer, and on the press a quick dip (a little smaller, the wash deeper) that springs back
+   as the button is let go; a solid button brightens instead. Rows in the lists answer the same way. */
+.card button,
+.card [role='button'],
+.card li[tabindex] {
+  transition:
+    transform var(--t-fast) cubic-bezier(0.2, 0.9, 0.3, 1.3),
+    background-color var(--t-fast) ease,
+    filter var(--t-fast) ease,
+    box-shadow var(--t-fast) ease;
+}
+.card button:not(:disabled):not(.solid):not([aria-pressed='true']):hover,
+.card [role='button']:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.card button:not(:disabled):active,
+.card [role='button']:active,
+.card li[tabindex]:active {
+  transform: scale(0.93);
+  transition-duration: calc(var(--t-fast) / 2);
+}
+.card button:not(:disabled):not(.solid):active {
+  background-color: rgba(255, 255, 255, 0.28) !important;
+}
+.card button.solid:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+.card button.solid:not(:disabled):active {
+  filter: brightness(0.92);
+}
+@media (prefers-reduced-motion: reduce) {
+  .card button:not(:disabled):active,
+  .card [role='button']:active,
+  .card li[tabindex]:active {
+    transform: none;
+  }
+}
+/* (a wide row dips only a little: the same press, in proportion) */
+.card button[class*='_row']:not(:disabled):active,
+.results button:not(:disabled):active {
+  transform: scale(0.985);
+}

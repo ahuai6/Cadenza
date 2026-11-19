@@ -26,7 +26,8 @@ import {
   clearQueue,
   type Mode,
 } from '../playback/player';
-import { hifi, describe } from '../playback/hifi';
+import { hifi, describe, refresh as hifiRefresh } from '../playback/hifi';
+import { setSettings } from '../actions/settings';
 import { refs, openNp, npProgress } from '../layers';
 import { splitBrackets } from '../../engine';
 import { Marquee } from '../ui/Marquee';
@@ -201,6 +202,30 @@ export function Volume() {
     </label>
   );
 }
+/** Hi-Fi passthrough on or off in one press (the same setting as Settings → Audio → Output). Only where it exists. */
+export function HifiSwitch({ className = '', hidden }: { className?: string; hidden?: boolean }) {
+  const h = useStore(hifi),
+    on = useStore(settings, (x) => x.audioOut === 'hifi');
+  useEffect(() => {
+    hifiRefresh();
+  }, []);
+  if (!h.supported) return null;
+  return (
+    <button
+      type="button"
+      className={`${s.hifiSw} ${className}`}
+      aria-pressed={on}
+      aria-hidden={hidden || undefined}
+      tabIndex={hidden ? -1 : 0}
+      title={tx('s.set.out.hifi')}
+      data-test="hifi-switch"
+      onClick={() => setSettings({ audioOut: on ? 'standard' : 'hifi' })}
+    >
+      <i aria-hidden="true" />
+      Hi-Fi
+    </button>
+  );
+}
 /** What is playing and what reaches the DAC: "FLAC 24/96 → 96 kHz / 24 bit · Bit-perfect". */
 export function HifiBadge() {
   const h = useStore(hifi),
@@ -310,6 +335,8 @@ export function PlayerCard() {
             </span>
           </Swap>
         </div>
+        {/* (over the stage, where the song's own corner has faded: the quick way in and out of Hi-Fi) */}
+        <HifiSwitch className={s.hifiQuick} hidden={!onStage} />
         <div className={s.center}>
           <ModeButton />
           <Transport />

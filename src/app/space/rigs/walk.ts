@@ -47,6 +47,7 @@ const ACCEL = 26,
   COAST = 0.02;
 /** a flight ends when the hand has moved this many pixels: a deliberate look, not a hand resting on the mouse */
 const DELIBERATE = 40;
+const RISE_HAND = 14;
 /** how fast the view turns to a point it was asked to follow (a critically damped spring's frequency) */
 const TURN = 2.6;
 /** on a path through the rooms: how far ahead the view looks (metres), and how fast it turns after that point */
@@ -61,6 +62,10 @@ export class WalkRig implements Rig {
   seated = false;
   private flight: Flight | null = null;
   private rising = false;
+  /** while getting up, the view levels itself — until the hand moves the view by more than a little (RISE_HAND px):
+   *  from then on the view is the hand's alone (the getting up never fights it) */
+  private leveling = false;
+  private riseDrift = 0;
   private drift = 0;
   private turnTo: number | null = null;
   private turnV = 0;
@@ -137,6 +142,8 @@ export class WalkRig implements Rig {
   /** Stand up (back to eye height, wherever one floats or sits). */
   stand() {
     this.rising = true;
+    this.leveling = true;
+    this.riseDrift = 0;
     this.seated = false;
     this.flight = null;
   }
@@ -168,6 +175,10 @@ export class WalkRig implements Rig {
     if (moved > 2) {
       this.turnTo = null;
       this.turnV = 0;
+    }
+    if (this.rising && this.leveling) {
+      this.riseDrift += moved;
+      if (this.riseDrift > RISE_HAND) this.leveling = false;
     }
     const k = this.o.sensitivity();
     me.yaw -= dx * 0.0024 * k;
@@ -230,12 +241,14 @@ export class WalkRig implements Rig {
       if (this.seated && level) {
         this.seated = false;
         this.rising = true;
+        this.leveling = true;
+        this.riseDrift = 0;
       }
     }
     if (m.up) this.rising = false;
     if (this.rising) {
       me.pos.y += (eye - me.pos.y) * Math.min(1, dt * 5);
-      me.pitch *= Math.pow(0.2, dt);
+      if (this.leveling) me.pitch *= Math.pow(0.2, dt);
       if (Math.abs(me.pos.y - eye) < 0.005) {
         me.pos.y = eye;
         this.rising = false;

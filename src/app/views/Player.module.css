@@ -480,3 +480,60 @@
 .qx:focus-visible {
   opacity: 1;
 }
+
+/* the Hi-Fi switch: in the bar's left corner over the stage (the song's own corner there has faded), coming with it */
+.row {
+  position: relative;
+}
+.hifiQuick {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: clamp(0, var(--stage) * 2 - 1, 1);
+  pointer-events: none;
+}
+.card[data-stage='true'] .hifiQuick {
+  pointer-events: auto;
+}
+.hifiSw {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px 0 10px;
+  border-radius: var(--r-pill);
+  font: 600 12.5px/1 var(--font-ui, system-ui);
+  letter-spacing: 0.04em;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 14%, transparent);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+.hifiSw:hover {
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+.hifiSw:active {
+  transform: scale(0.96);
+}
+.hifiSw:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+/* (the light: dim when off, lit when on) */
+.hifiSw i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 30%, transparent);
+  transition:
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.hifiSw[aria-pressed='true'] i {
+  background: #7ee0a8;
+  box-shadow: 0 0 8px 1px rgba(126, 224, 168, 0.7);
+}

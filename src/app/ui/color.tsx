@@ -221,6 +221,7 @@ function Picker({
   return createPortal(
     <div
       ref={box}
+      data-keep-open
       className={s.pop + ' glass' + (pict ? ' on-picture' : '')}
       role="dialog"
       aria-label={label}

@@ -30,6 +30,11 @@ app.commandLine.appendSwitch('disable-quic');
 // (Windows: the window is not taken for hidden when something lies over it. A screen recorder's overlay covered it, the
 // page stopped drawing frames and the picture froze while the sound went on. A minimised window is still hidden)
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+// (and, should it be taken for covered or behind anyway, its drawing and timers are never put on the back burner:
+// the picture of a window being recorded went on standing still with the occlusion check alone)
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 if (process.env.CADENZA_USER_DATA) app.setPath('userData', process.env.CADENZA_USER_DATA); // tests run against a clean profile
 // everything reset (Settings → data): the profile is removed here, as the app starts again, before anything opens it
 if (process.argv.includes('--reset-data')) {
@@ -197,37 +202,41 @@ Menu.setApplicationMenu(
 );
 
 /* ---------- window buttons and settings ---------- */
-// the taskbar preview's buttons (Windows): previous, play / pause, next. Their pictures are drawn here, white on clear.
+// the taskbar preview's buttons (Windows): previous, play / pause, next. Their pictures are drawn here, in the colour the
+// taskbar's own icons take — dark on a light taskbar, white on a dark one (white alone vanished on the light preview) —
+// with smooth edges (each pixel's cover worked out from 4 × 4 samples).
 function thumbIcon(kind) {
   const N = 32,
-    buf = Buffer.alloc(N * N * 4),
-    put = (x, y) => {
-      if (x < 0 || y < 0 || x >= N || y >= N) return;
-      const o = (y * N + x) * 4;
-      buf[o] = buf[o + 1] = buf[o + 2] = 255;
-      buf[o + 3] = 255;
-    };
-  const rect = (x0, y0, x1, y1) => {
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) put(x, y);
+    S = 4,
+    dark = !nativeTheme.shouldUseDarkColorsForSystemIntegratedUI,
+    rgb = dark ? [0x22, 0x1d, 0x33] : [0xff, 0xff, 0xff];
+  // (the shapes, in 32-pixel units)
+  const inRect = (x, y, x0, y0, x1, y1) => x >= x0 && x < x1 && y >= y0 && y < y1;
+  const inTri = (x, y, x0, x1, dir) => {
+    if (y < 7 || y >= 25) return false;
+    const w = (x1 - x0) * (1 - Math.abs(y - 16) / 9);
+    return dir > 0 ? x >= x0 && x < x0 + w : x <= x1 && x > x1 - w;
   };
-  const tri = (x0, x1, dir) => {
-    for (let y = 7; y < 25; y++) {
-      const k = 1 - Math.abs(y - 15.5) / 9,
-        w = Math.round((x1 - x0) * k);
-      for (let i = 0; i < w; i++) put(dir > 0 ? x0 + i : x1 - i, y);
+  const inside = (x, y) => {
+    if (kind === 'play') return inTri(x, y, 10, 25, 1);
+    if (kind === 'pause') return inRect(x, y, 9, 7, 14, 25) || inRect(x, y, 18, 7, 23, 25);
+    if (kind === 'next') return inTri(x, y, 7, 21, 1) || inRect(x, y, 22, 7, 25, 25);
+    return inTri(x, y, 11, 25, -1) || inRect(x, y, 7, 7, 10, 25);
+  };
+  const buf = Buffer.alloc(N * N * 4);
+  for (let py = 0; py < N; py++)
+    for (let px = 0; px < N; px++) {
+      let c = 0;
+      for (let j = 0; j < S; j++)
+        for (let i = 0; i < S; i++) c += inside(px + (i + 0.5) / S, py + (j + 0.5) / S) ? 1 : 0;
+      const a = c / (S * S),
+        o = (py * N + px) * 4;
+      // (premultiplied BGRA)
+      buf[o] = Math.round(rgb[2] * a);
+      buf[o + 1] = Math.round(rgb[1] * a);
+      buf[o + 2] = Math.round(rgb[0] * a);
+      buf[o + 3] = Math.round(255 * a);
     }
-  };
-  if (kind === 'play') tri(10, 25, 1);
-  else if (kind === 'pause') {
-    rect(9, 7, 14, 25);
-    rect(18, 7, 23, 25);
-  } else if (kind === 'next') {
-    tri(7, 21, 1);
-    rect(22, 7, 25, 25);
-  } else {
-    tri(10, 24, -1);
-    rect(7, 7, 10, 25);
-  }
   return nativeImage.createFromBitmap(buf, { width: N, height: N, scaleFactor: 2 });
 }
 let thumbPlaying = false;
@@ -248,6 +257,8 @@ function setThumbar() {
     /* no taskbar */
   }
 }
+// (the taskbar turning light or dark: its buttons drawn again in the colour that reads on it)
+nativeTheme.on('updated', () => setThumbar());
 ipcMain.handle('win:playing', (_e, on) => {
   if (!!on !== thumbPlaying) {
     thumbPlaying = !!on;

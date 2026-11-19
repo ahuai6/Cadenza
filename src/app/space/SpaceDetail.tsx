@@ -2,6 +2,7 @@
 // out into its songs, or one song; with everything the classic library offers for them — play from any song, add to
 // the queue, favourites, playlists made, renamed, deleted, songs added and taken out.
 import { useEffect, useMemo, useState } from 'react';
+import { useOutsideClose } from '../ui/outside';
 import { tx } from '../../i18n';
 import { Lib, type Track } from '../bridge';
 import { lib, useStore, useIndex, fmtTime } from '../state';
@@ -36,6 +37,8 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
     addEventListener('keydown', k);
     return () => removeEventListener('keydown', k);
   }, [detail, onClose, adding]);
+  // (a press anywhere else closes it: the scene, the top bar)
+  useOutsideClose(!!detail, onClose, '[data-test="space-detail"]');
   const view = useMemo(() => {
     if (!detail) return null;
     if (detail.kind === 'album') {
