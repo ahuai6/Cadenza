@@ -81,6 +81,13 @@ export const SCHEMA = {
   fxCapSubs: toggle(true, { group: 'lyrics', label: 's.set.fxCapSubs' }),
   fxCapReads: toggle(true, { group: 'lyrics', label: 's.set.fxCapReads' }),
   lyricsTarget: choice(['tag', 'lrc'], 'tag', { group: 'lyrics' }),
+  // the lyrics on the desktop: three lines in a window of their own, over everything; locked, it lets the pointer through
+  // (and is unlocked only from the app)
+  deskLyrics: toggle(false, { group: 'lyrics', label: 's.set.desk', help: 's.set.desk.help' }),
+  deskLock: toggle(false, { group: 'lyrics', label: 's.set.deskLock', help: 's.set.deskLock.help' }),
+  deskSize: range(18, 72, 1, 34, { group: 'lyrics', label: 's.set.deskSize' }),
+  /** where it was left on the screen (x, y, width, height; empty: the foot of the main screen) */
+  deskBounds: text('', { group: 'lyrics' }),
   // the library, the system
   scanOnLaunch: toggle(true, { group: 'library', label: 's.set.scanOnLaunch' }),
   openAtLogin: toggle(false, { group: 'system', label: 's.set.openAtLogin' }),

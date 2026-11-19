@@ -1317,7 +1317,9 @@ function register(ipcMain, getWin) {
   });
   ipcMain.handle('lib:setSong', (_e, id, d) => setSong(id, d));
   ipcMain.handle('lib:lyrics', (_e, id) => readLyrics(id));
-  ipcMain.handle('lib:writeLyrics', (_e, id, text, target) => writeLyrics(id, text, target === 'tag' ? 'tag' : 'lrc'));
+  ipcMain.handle('lib:writeLyrics', (_e, id, text, target) =>
+    writeLyrics(id, text, target === 'tag' || target === 'ttml' ? target : 'lrc'),
+  );
   ipcMain.handle('lib:searchLyrics', (_e, q) => searchLyrics(q));
   ipcMain.handle('lib:searchMeta', (_e, q) => searchMeta(q));
   ipcMain.handle('lib:applyMeta', (_e, id, m) => applyMeta(id, m));

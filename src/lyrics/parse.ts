@@ -232,11 +232,18 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
     }
     // the unit's characters, the brackets taken out (they only say that the unit is a harmony): a unit is the harmony's
     // when it starts inside brackets or opens them
-    let c = '';
+    let c = '',
+      pre = '';
     const before = depth;
     let opened = false;
     for (const ch of raw) {
       if (OPEN.test(ch)) {
+        // (characters before the bracket, in a unit that opens it — `<00:06.50>見(` — are the line's own, not the
+        // harmony's: they were taken into it, and the word lost its last character)
+        if (!before && !opened) {
+          pre = c;
+          c = '';
+        }
         depth++;
         opened = true;
         continue;
@@ -246,6 +253,18 @@ function parseKar(body: string, shift: number): { words: RawWord[]; close: numbe
         continue;
       }
       c += ch;
+    }
+    if (pre.trim() && !before) {
+      const pt = pre.replace(/#/g, '').trim();
+      if (!cur) {
+        cur = { text: '', units: [], ...(mark ? { mark } : {}) };
+        mark = undefined;
+      }
+      cur.units!.push({ t: tt, c: pt, sp: /\s$/.test(pre) });
+      cur.text += pt;
+      inHarm = false;
+      close = null;
+      if (!c.trim()) continue;
     }
     const legacyBreak = /#\s*$/.test(c);
     c = c.replace(/#/g, '');

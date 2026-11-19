@@ -120,6 +120,27 @@ export interface DesktopApi {
   settings(): Promise<Settings>;
   setSettings(p: Partial<Settings>): Promise<Settings>;
   /** restart the app (the interface mode takes effect at start) */ relaunch(): Promise<void>;
+  /** the settings as the main process has them, when they change from elsewhere (the desktop lyrics' own buttons) */
+  onSettings?(f: (s: Settings) => void): Off;
+  /** the lyrics on the desktop (electron/desk.cjs): fed by the main window, read by their own */
+  deskFeed?(d: DeskFeed): void;
+  onDeskFeed?(f: (d: DeskFeed) => void): Off;
+  onDeskState?(f: (s: DeskState) => void): Off;
+  deskState?(): Promise<DeskState>;
+  deskOp?(op: 'lock' | 'bigger' | 'smaller' | 'close'): Promise<boolean>;
+}
+/** What the desktop lyrics show: three lines from the one being sung (each its words and, timed word by word, each
+ *  character's time), the song's time and whether it plays (they run on from it between feeds). */
+export interface DeskFeed {
+  id: string | null;
+  t: number;
+  playing: boolean;
+  lines: { t: number; text: string; units: { c: string; t: number | null; sp: boolean }[] }[];
+  /** the index in `lines` of the line being sung (-1: none yet) */ cur: number;
+}
+export interface DeskState {
+  locked: boolean;
+  size: number;
 }
 export interface LibApi {
   get(): Promise<LibView>;

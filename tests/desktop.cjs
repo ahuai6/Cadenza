@@ -12,6 +12,14 @@ const ROOT = path.resolve(__dirname, '..'),
   CACHE = path.join(__dirname, '.cache'),
   SHOTS = process.argv[2] || os.tmpdir();
 let failed = 0;
+// the song panel's 外觀與風格 page, with its Advanced open (the knobs, one's own styles and the effects are under it)
+async function openStyle(sp) {
+  await sp.getByRole('tab', { name: '外觀與風格' }).click();
+  await new Promise((r) => setTimeout(r, 300));
+  const adv = sp.locator('button[aria-expanded=false]', { hasText: '展開' }).first();
+  if (await adv.count()) await adv.click();
+  await new Promise((r) => setTimeout(r, 300));
+}
 const ok = (name, pass, detail) => {
   if (!pass) failed++;
   console.log(`${pass ? 'pass' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
@@ -269,6 +277,36 @@ const ok = (name, pass, detail) => {
       JSON.stringify(r),
     );
   }
+  // the desktop lyrics: a window of their own with the line being sung and the two after it; locked from their own
+  // button, they say so to the main window's settings; switched off, the window goes
+  {
+    await C(() => window.cadenzaDesktop.setSettings({ deskLyrics: true, deskLock: false }));
+    let desk = null;
+    for (let i = 0; i < 40 && !desk; i++) {
+      await W(250);
+      desk = app.windows().find((w) => w.url().endsWith('#desk')) || null;
+    }
+    let lines = [],
+      locked = false,
+      gone = false;
+    if (desk) {
+      await desk.waitForSelector('p', { timeout: 8000 }).catch(() => {});
+      lines = await desk.$$eval('p', (ps) => ps.map((p) => p.textContent));
+      await desk.evaluate(() => window.cadenzaDesktop.deskOp('lock'));
+      await W(500);
+      locked = await C(() => window.__cadenza.settings.get().deskLock === true);
+      await C(() => window.cadenzaDesktop.setSettings({ deskLyrics: false, deskLock: false }));
+      for (let i = 0; i < 20 && !gone; i++) {
+        await W(200);
+        gone = !app.windows().some((w) => w.url().endsWith('#desk'));
+      }
+    }
+    ok(
+      'desktop lyrics: their own window shows the lines, locks from its button, and closes',
+      !!desk && lines.length >= 1 && lines.length <= 3 && lines[0].length > 0 && locked && gone,
+      JSON.stringify({ desk: !!desk, lines, locked, gone }),
+    );
+  }
   // a song change while the bar shows a late line of the last song, into one with fewer lines (here none): the bar must
   // not read a line the new song does not have (it once took the whole window white)
   {
@@ -379,6 +417,8 @@ const ok = (name, pass, detail) => {
       mid.clips === 0,
     JSON.stringify(mid),
   );
+  // (where it is the moment it is turned round: the screenshot above takes a while, and the opening goes on meanwhile)
+  const at = await C(() => window.__cadenza.layers.npProgress());
   await win.keyboard.press('Escape');
   await W(120);
   const rev = await C(() => window.__cadenza.layers.npProgress());
@@ -391,13 +431,13 @@ const ok = (name, pass, detail) => {
   }));
   ok(
     'reversed half-way: it turns round from where it is and closes completely (nothing left stuck)',
-    rev < mid.p + 0.4 &&
+    rev < at + 0.12 &&
       closed &&
       after.np === 'false' &&
       after.stage === 'false' &&
       after.view === 'hidden' &&
       after.mini === '',
-    JSON.stringify({ mid: mid.p, rev, ...after }),
+    JSON.stringify({ mid: mid.p, at, rev, ...after }),
   );
   await win.locator('[data-test=card]').getByTitle('展開').first().click();
   ok('now playing: open', await layerIs('np'));
@@ -609,14 +649,13 @@ const ok = (name, pass, detail) => {
     'song panel: slides in from the right edge',
     await C(() => document.querySelector('[data-test=song-panel]').dataset.open === 'true'),
   );
-  await win.locator('[data-test=song-panel]').getByRole('tab', { name: '背景' }).click();
-  await W(300);
+  await openStyle(win.locator('[data-test=song-panel]'));
   await shot('fx-panel-bg');
   {
     const sp = win.locator('[data-test=song-panel]'),
       heads = await sp.locator('h2, h3, header').allInnerTexts();
     ok(
-      'song panel: the background tab holds the MV settings (no empty section)',
+      'song panel: the style page Advanced holds the MV settings (no empty section)',
       (await sp.getByText('MV 畫面').count()) > 0 && (await sp.getByRole('slider').count()) >= 3,
       JSON.stringify(heads),
     );
@@ -654,8 +693,6 @@ const ok = (name, pass, detail) => {
   {
     const sp = win.locator('[data-test=song-panel]'),
       links = () => C(() => document.querySelectorAll('link[rel=stylesheet][href*="fonts/"]').length);
-    await sp.getByRole('tab', { name: '文字' }).click();
-    await W(400);
     const before = await links(),
       t0 = Date.now();
     await sp.getByRole('combobox', { name: '字體' }).click();
@@ -681,8 +718,7 @@ const ok = (name, pass, detail) => {
   // a knob the plan reads: dragging it does not replan at every step — only once it is let go
   {
     const sp = win.locator('[data-test=song-panel]');
-    await sp.getByRole('tab', { name: '風格' }).click();
-    await W(400);
+    await openStyle(sp);
     const r = await C(async () => {
       const s = window.__cadenza.player.get().session,
         inp = [...document.querySelectorAll('[data-test=song-panel] input[type=range]')].find(
@@ -883,8 +919,7 @@ const ok = (name, pass, detail) => {
     await win.keyboard.press('Backspace');
     await C(() => document.activeElement.blur());
   }
-  await win.locator('[data-test=song-panel]').getByRole('tab', { name: '風格' }).click();
-  await W(300);
+  await openStyle(win.locator('[data-test=song-panel]'));
   await C(() => window.__cadenza.api.editSong((s) => s.setKnob('energy', 1.6)));
   await W(1000);
   const saved = await C(

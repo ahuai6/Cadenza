@@ -5,7 +5,7 @@ import { UI_FONTS, applyUiFont } from '../uifont';
 import { D, Lib, Infer, type Settings } from '../bridge';
 import { settings, lib, useStore, remember, keep } from '../state';
 import { Icon } from '../ui/icons';
-import { Button, Seg, Toggle, Note, Slider, Dropdown } from '../ui/kit';
+import { Button, Seg, Toggle, Note, Slider, Dropdown, splitNote } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { neuralStatus, neuralRecheck, DEBUG } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
@@ -94,6 +94,11 @@ export function SettingsView() {
         <Group title={tx('s.set.fxCaps')} help={tx('s.set.fxCapsHelp')}>
           <SettingField k="fxCapSubs" />
           <SettingField k="fxCapReads" />
+        </Group>
+        <Group title={tx('s.set.desk')} help={tx('s.set.desk.help')}>
+          <SettingField k="deskLyrics" />
+          <SettingField k="deskLock" />
+          <SettingField k="deskSize" />
         </Group>
         <Group title={tx('s.set.folders')} help={tx('s.set.watchHelp')}>
           <div className={s.folders}>
@@ -520,7 +525,7 @@ function SettingsIndex() {
 }
 const Field = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className={s.field}>
-    <span>{label}</span>
+    <span title={splitNote(label)[1] || undefined}>{splitNote(label)[0]}</span>
     {children}
   </div>
 );

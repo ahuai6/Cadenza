@@ -67,6 +67,13 @@
   transition: transform var(--t-stage) var(--ease);
   will-change: transform;
 }
+/* held or coasting: the row goes with the pointer, no easing behind it */
+.river[data-drag] .row {
+  transition: none;
+}
+.river[data-drag] {
+  cursor: grabbing;
+}
 .item {
   flex: none;
   width: var(--size);

@@ -73,7 +73,7 @@
 }
 .row {
   display: grid;
-  grid-template-columns: var(--grip, 0px) 56px minmax(0, 1.6fr) minmax(0, 1fr) 28px 30px 30px 52px 30px;
+  grid-template-columns: var(--grip, 0px) 56px minmax(0, 1.6fr) minmax(0, 1fr) 132px 30px 30px 52px 30px;
   align-items: center;
   column-gap: 16px;
   height: 72px;
@@ -173,7 +173,10 @@
 }
 .badges {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 .noWords {
   display: grid;
@@ -201,7 +204,8 @@
     grid-template-columns: var(--grip, 0px) 56px minmax(0, 1fr) 28px 30px 52px 30px;
   }
   .album,
-  .qadd {
+  .qadd,
+  .badges > [data-q] {
     display: none;
   }
 }

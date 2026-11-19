@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('cadenzaDesktop', {
   setSettings: (patch) => L('settings:set', patch),
   relaunch: () => L('app:relaunch'),
   playing: (on) => L('win:playing', on),
+  onSettings: on('settings:pushed'),
+  // the lyrics on the desktop (electron/desk.cjs): fed by the main window, read by their own
+  deskFeed: (d) => ipcRenderer.send('desk:feed', d),
+  onDeskFeed: on('desk:feed'),
+  onDeskState: on('desk:state'),
+  deskState: () => L('desk:state'),
+  deskOp: (op) => L('desk:op', op),
 });
 contextBridge.exposeInMainWorld('cadenzaLib', {
   get: () => L('lib:get'),

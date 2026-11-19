@@ -1,0 +1,89 @@
+/* the desktop lyrics: no window of their own to see — only the lines, readable over anything (a dark edge round light
+   type, and a soft shadow), and, unlocked, a faint ground and the buttons while the pointer is over it */
+:global(html[data-desk]),
+:global(html[data-desk] body) {
+  background: transparent !important;
+}
+.desk {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-3);
+  user-select: none;
+  -webkit-app-region: drag;
+  app-region: drag;
+  transition: background var(--t-fast) var(--ease);
+}
+.desk:not([data-locked]):hover {
+  background: rgba(10, 10, 14, 0.32);
+}
+.desk[data-locked] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.lines {
+  display: grid;
+  gap: calc(var(--fs) * 0.18);
+  justify-items: center;
+  width: 100%;
+  padding: 0 calc(var(--fs) * 0.6);
+  text-align: center;
+}
+.line {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-ui);
+  font-weight: 800;
+  font-size: calc(var(--fs) * 0.62);
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.62);
+  -webkit-text-stroke: calc(var(--fs) * 0.03) rgba(0, 0, 0, 0.55);
+  paint-order: stroke fill;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+.line[data-now] {
+  font-size: var(--fs);
+  color: rgba(255, 255, 255, 0.55);
+}
+/* (the line being sung: each character lights as it is sung; a line timed only as a whole is lit together) */
+.line[data-now]:not(:has([data-t])) {
+  color: #fff;
+}
+.line span {
+  transition: color var(--t-fast) var(--ease);
+}
+.line[data-now] span[data-on] {
+  color: #fff;
+}
+.tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.desk:hover .tools {
+  opacity: 1;
+}
+.tools button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font: 700 12px var(--font-ui);
+}
+.tools button:hover {
+  background: rgba(255, 255, 255, 0.3);
+}

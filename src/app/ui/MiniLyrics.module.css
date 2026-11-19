@@ -85,11 +85,13 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 18px;
-  bottom: 50px;
+  top: 6px;
+  bottom: 44px;
   z-index: 1;
-  mask-image: linear-gradient(transparent, #000 16%, #000 80%, transparent);
-  --np-fs: 0.95;
+  mask-image: linear-gradient(transparent, #000 10%, #000 86%, transparent);
+  /* the lyrics are what the small window is for: as large as it allows, growing with it (about 30 px at its 480 × 300,
+     against the play page's own 17 px lists) */
+  --np-fs: clamp(1.4, calc(100vmin / 160), 3.2);
 }
 .none {
   position: absolute;
@@ -124,7 +126,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 50px;
+  height: 44px;
   z-index: 2;
   display: flex;
   align-items: center;

@@ -11,7 +11,7 @@ import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropd
 import { CueBar, cueKeyDown } from '../../ui/cues';
 import { yieldAudio, songForWorkshop } from '../../playback/player';
 import { storedStyle } from '../../../theme/style';
-import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, EndPane, ExportPanel } from '../panes';
+import { StylePage, EndPane, ExportPanel } from '../panes';
 import {
   ws,
   engine,
@@ -35,9 +35,7 @@ import s from './Workshop.module.css';
 
 const TABS: [string, string, string][] = [
   ['lyrics', 'tab.lyrics', 'lyrics'],
-  ['look', 'tab.look', 'palette'],
-  ['motion', 'tab.motion', 'motion'],
-  ['fx', 'tab.fx', 'sparkles'],
+  ['look', 's.sec.style', 'palette'],
   ['end', 'tab.end', 'film'],
 ];
 const fmt = (x: number) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${(x % 60).toFixed(2).padStart(5, '0')}`;
@@ -200,15 +198,7 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
           {props && (
             <>
               {tab === 'lyrics' && <LyricsPane s={props.s} />}
-              {tab === 'look' && (
-                <>
-                  <ThemePane {...props} />
-                  <LookPane {...props} media={<MediaBox s={props.s} />} />
-                  <TextPane {...props} />
-                </>
-              )}
-              {tab === 'motion' && <MotionPane {...props} />}
-              {tab === 'fx' && <EffectsPane {...props} />}
+              {tab === 'look' && <StylePage {...props} media={<MediaBox s={props.s} />} />}
               {tab === 'end' && <EndPane {...props} />}
             </>
           )}

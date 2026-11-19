@@ -34,14 +34,13 @@
 .lookIcon {
   display: grid;
   place-items: center;
-  height: 34px;
+  height: 46px;
 }
-.swatch {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  height: 26px;
+/* a theme of one's own: its look's mark in its accent, on a wash of its own two grounds */
+.lookIcon[data-own] {
   border-radius: calc(var(--r-md) - 4px);
-  overflow: hidden;
+  background: linear-gradient(135deg, var(--own-bg), var(--own-bg2));
+  color: var(--own-ink);
 }
 .colors {
   display: grid;

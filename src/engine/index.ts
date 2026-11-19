@@ -41,7 +41,7 @@ export {
   type NativeRuntime,
 } from '../rhythm';
 export { parseLyrics, CUE_SYMBOLS } from '../lyrics/parse';
-export { isTtml, ttmlToLrc } from '../lyrics/ttml';
+export { isTtml, ttmlToLrc, lrcToTtml } from '../lyrics/ttml';
 export { subLines, splitBrackets } from '../lyrics/subs';
 export { autoSpacing, spacingKey, type Spacing } from '../lyrics/spacing';
 export { loadSegmenter } from '../text/segment';

@@ -42,30 +42,22 @@ export function quality(
 }
 const detail = (t: Pick<Track, 'sampleRate' | 'bits'>) =>
   (t.sampleRate ? `${+(t.sampleRate / 1000).toFixed(1)} kHz` : '') + (t.bits ? ` / ${t.bits}-bit` : '');
-/** The sound in a few characters: "24/96" for a lossless file (bits / kHz), "320K" for a lossy one. */
-const short = (t: Pick<Track, 'sampleRate' | 'bits' | 'bitrate'>, lossless: boolean) =>
-  lossless
-    ? t.bits || t.sampleRate
-      ? `${t.bits || 16}/${Math.round((t.sampleRate || 44100) / 1000)}`
-      : ''
-    : t.bitrate
-      ? `${Math.round(t.bitrate / 1000)}K`
-      : '';
 /** look: 'solid' (a coloured label), 'glass' (translucent, over the picture) or 'text' (the lists: a line of small capitals in
- *  the tier's ink — "FLAC · 24/96", "MP3 · 320K") */
+ *  the tier's ink — "Hi-Res FLAC", "標準 MP3" — the rate and depth on hover) */
 export function QualityTag({ t, look = 'solid' }: { t: Track; look?: 'solid' | 'glass' | 'text' }) {
   const q = quality(t);
   if (!q) return null;
+  // (the lists: the tier and the format in words — "Hi-Res FLAC", "無損 ALAC" — the numbers on hover)
   if (look === 'text') {
-    const d = short(t, q.tier === 'lossless' || q.tier === 'hires');
+    const lossy = q.tier === 'std' || q.tier === 'hq',
+      sr = [detail(t), lossy && t.bitrate ? `${Math.round(t.bitrate / 1000)} kbps` : ''].filter(Boolean).join(' · ');
     return (
       <span
         className={s.qt}
         data-q={q.tier}
-        title={tx('q.title', { tier: tx('q.' + q.tier), fmt: q.fmt, sr: detail(t), bits: '' })}
+        title={tx('q.title', { tier: tx('q.' + q.tier), fmt: q.fmt, sr, bits: '' })}
       >
-        {q.fmt}
-        {d ? ` · ${d}` : ''}
+        {tx('q.' + q.tier)} {q.fmt}
       </span>
     );
   }

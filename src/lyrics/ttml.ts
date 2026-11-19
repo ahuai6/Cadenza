@@ -341,3 +341,144 @@ export function ttmlToLrc(src: string): string {
   });
   return out.join('\n');
 }
+
+/* ---------- edited as LRC, written back as TTML ---------- */
+const escXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escAttr = (s: string) => escXml(s).replace(/"/g, '&quot;');
+/**
+ * Lyrics that came as TTML, edited as LRC (ttmlToLrc), written back as TTML in the original's own form: its head kept
+ * (metadata, songwriters, agents — and its translations and readings, with what was edited of them), every line keeping
+ * its own attributes (its key, its singer) and its translations where they were (in the head by key, inside the line, or
+ * as a line of the same timing after it). Only the times, the words, the syllables and the harmonies are written anew.
+ * Lines are matched in order: one added gets no attributes of its own, one taken out is gone.
+ */
+export function lrcToTtml(lrc: string, original: string, parseLrc: (s: string) => Parsed): string {
+  const doc = readXml(original),
+    tt = find(doc, 'tt'),
+    body = tt && find(tt, 'body');
+  if (!tt || !body) return original;
+  // the original's lines, as parseTtml takes them (a keyless line with the timing of the one before is its translation)
+  const ps: { el: El; b: number; trP: boolean; inline: Set<string>; lang: string }[] = [];
+  let prev: (typeof ps)[number] | null = null,
+    prevE: number | null = null;
+  for (const p of walk(body)) {
+    if (local(p.tag) !== 'p') continue;
+    const b = ttmlTime(attr(p, 'begin')),
+      e = ttmlTime(attr(p, 'end'));
+    if (b == null) continue;
+    if (
+      !attr(p, 'key') &&
+      prev &&
+      Math.abs(prev.b - b) < 0.005 &&
+      (e == null || prevE == null || Math.abs(prevE - e) < 0.005)
+    ) {
+      prev.trP = true;
+      continue;
+    }
+    if (!lineOf(p, b, e)) continue;
+    const inline = new Set<string>();
+    let lang = '';
+    for (const s of walk(p)) {
+      const r = role(s);
+      if (r === 'x-translation' || r === 'x-roman') {
+        inline.add(r);
+        if (r === 'x-translation') lang = attr(s, 'lang') || lang;
+      }
+    }
+    prev = { el: p, b, trP: false, inline, lang };
+    prevE = e;
+    ps.push(prev);
+  }
+  ps.sort((a, b) => a.b - b.b);
+  const was = parseTtml(original).lines,
+    now = parseLrc(lrc).lines;
+  const clock = /\d:\d/.test(original.slice(original.search(/<body/i))),
+    tm = (t: number) => {
+      t = Math.max(0, t);
+      if (!clock) return t.toFixed(3);
+      const m = Math.floor(t / 60);
+      return `${m}:${(t - m * 60).toFixed(3).padStart(6, '0')}`;
+    };
+  // the head: translations and readings by line key, rewritten where they were edited
+  let head = original.slice(0, original.search(/<body\b/i));
+  const setHead = (section: string, key: string, text: string) => {
+    const at = head.search(new RegExp(`<(?:\\w+:)?${section}s\\b`, 'i'));
+    if (at < 0) return false;
+    const re = new RegExp(
+        `(<(?:\\w+:)?text\\b[^>]*\\bfor="${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>)([\\s\\S]*?)(</(?:\\w+:)?text>)`,
+      ),
+      rest = head.slice(at),
+      m = re.exec(rest);
+    if (!m) return false;
+    head = head.slice(0, at) + rest.slice(0, m.index) + m[1] + escXml(text) + m[3] + rest.slice(m.index + m[0].length);
+    return true;
+  };
+  const span = (u: RawUnit, end: number) => `<span begin="${tm(u.t)}" end="${tm(end)}">${escXml(u.c)}</span>`;
+  const lines: string[] = [];
+  now.forEach((L, i) => {
+    const P = ps[i],
+      W = was[i],
+      next = now[i + 1];
+    const units = L.words.flatMap((w) => w.units || []),
+      lastE = units.length ? (units[units.length - 1].e ?? null) : null,
+      end = L.close ?? L.stop ?? lastE ?? (next ? next.t : L.t + 4);
+    const keep = P
+      ? Object.entries(P.el.attrs)
+          .filter(([k]) => !['begin', 'end', 'dur'].includes(local(k)))
+          .map(([k, v]) => ` ${k}="${escAttr(v)}"`)
+          .join('')
+      : '';
+    let inner = '';
+    L.words.forEach((w, k) => {
+      if (k) inner += ' ';
+      const us = w.units || [];
+      if (L.kar && us.length)
+        inner += us
+          .map(
+            (u, j) =>
+              span(u, u.e ?? us[j + 1]?.t ?? L.words[k + 1]?.units?.[0]?.t ?? end) +
+              (u.sp && j < us.length - 1 ? ' ' : ''),
+          )
+          .join('');
+      else inner += escXml(w.text);
+      if (w.harm) {
+        const hu = w.harm.units || [];
+        inner += ` <span ttm:role="x-bg">${
+          hu.length ? hu.map((u, j) => span(u, u.e ?? hu[j + 1]?.t ?? end)).join('') : escXml(w.harm.text)
+        }</span>`;
+      }
+    });
+    // its translations and readings: a sub line that was one of the line's readings is a reading still
+    const reads0 = new Set(W?.reads || []),
+      subs = L.subs.filter((s) => !reads0.has(s)),
+      reads = L.subs.filter((s) => reads0.has(s));
+    const key = P ? attr(P.el, 'key') : undefined;
+    let trInHead = false,
+      rdInHead = false;
+    if (key) {
+      if (subs[0] != null) trInHead = setHead('translation', key, subs[0]);
+      else trInHead = !!(W?.subs.length && head.includes(`for="${key}"`));
+      if (reads[0] != null) rdInHead = setHead('transliteration', key, reads[0]);
+    }
+    if (!trInHead && !P?.trP)
+      for (const s of subs)
+        inner += ` <span ttm:role="x-translation"${P?.lang ? ` xml:lang="${escAttr(P.lang)}"` : ''}>${escXml(s)}</span>`;
+    if (!rdInHead) for (const s of reads) inner += ` <span ttm:role="x-roman">${escXml(s)}</span>`;
+    lines.push(`<p begin="${tm(L.t)}" end="${tm(end)}"${keep}>${inner}</p>`);
+    if (P?.trP && !trInHead)
+      for (const s of subs) lines.push(`<p begin="${tm(L.t)}" end="${tm(end)}">${escXml(s)}</p>`);
+  });
+  // the body: its own opening tags (and the div's) kept, the lines written anew
+  const rest = original.slice(original.search(/<body\b/i)),
+    open = /^<body\b[^>]*>(\s*<div\b[^>]*>)?/i.exec(rest),
+    hasDiv = !!open?.[1];
+  return (
+    head +
+    (open ? open[0] : '<body>') +
+    '\n' +
+    lines.map((l) => '      ' + l).join('\n') +
+    '\n' +
+    (hasDiv ? '    </div>\n' : '') +
+    '  </body>\n</tt>\n'
+  );
+}

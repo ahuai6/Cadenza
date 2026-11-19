@@ -27,9 +27,9 @@ import {
   setFxAspect,
 } from '../playback/player';
 import { refs, back } from '../layers';
-import { Progress, Transport, QueueButton } from './Player';
+import { Progress, Transport, QueueButton, ModeButton } from './Player';
 import { NpLyrics } from '../ui/NpLyrics';
-import { ThemePane, LookPane, TextPane, MotionPane, EffectsPane, ExportPanel } from './panes';
+import { StylePage, ExportPanel } from './panes';
 import { askMv, askMvOffset } from './Modals';
 import { MvLook } from './Settings';
 import { setSettings } from '../actions/settings';
@@ -137,6 +137,8 @@ export function EffectView() {
           <b>{t.title}</b>
           <small>{t.artist}</small>
         </div>
+        {/* (how the queue moves on, right before the progress line) */}
+        <ModeButton />
         <Progress />
         <Transport />
         <div className={s.tools}>
@@ -232,12 +234,8 @@ function MvPane() {
   );
 }
 const TABS: [string, string, string][] = [
-  ['theme', 's.sec.theme', 'palette'],
-  ['motion', 's.sec.motion', 'motion'],
+  ['style', 's.sec.style', 'palette'],
   ['lyrics', 's.sec.lyrics', 'lyrics'],
-  ['bg', 's.sec.bg', 'image'],
-  ['text', 's.sec.text', 'type'],
-  ['fx', 's.sec.fx', 'sparkles'],
   ['export', 's.sec.export', 'download'],
 ]; // (the ending's card follows the song's own details, like its title)
 function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -245,7 +243,7 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const session = useStore(player, (x) => x.session)!,
     song = useStore(player, (x) => x.song),
     locked = !!song?.locked;
-  const [tab, setTab] = useState('theme'),
+  const [tab, setTab] = useState('style'),
     el = useRef<HTMLElement>(null),
     leaveTm = useRef(0);
   // a song's panel always edits the song's own copy: a preset becomes a custom theme bound to the song when it opens
@@ -354,17 +352,8 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
         />
       </header>
       <div className={s.pbody} data-locked={locked}>
-        {tab === 'theme' && <ThemePane {...props} />}
+        {tab === 'style' && <StylePage {...props} media={<MvPane />} />}
         {tab === 'lyrics' && <LyricsTab />}
-        {tab === 'bg' && (
-          <>
-            <LookPane {...props} />
-            <MvPane />
-          </>
-        )}
-        {tab === 'text' && <TextPane {...props} />}
-        {tab === 'motion' && <MotionPane {...props} />}
-        {tab === 'fx' && <EffectsPane {...props} />}
         {tab === 'export' && (
           <ExportPanel
             engine={engine}
@@ -439,8 +428,8 @@ export function LyricsTab() {
     const x = (player.get().hasLyrics ? player.get().session?.spec.lyrics : '') || '';
     setText(isTtml(x) ? ttmlToLrc(x) : x);
   }, [p.shownId]);
-  const use = async (src: string) => {
-    const ok = await useLyrics(src);
+  const use = async (src: string, edit = false) => {
+    const ok = await useLyrics(src, { edit });
     setText(isTtml(src) ? ttmlToLrc(src) : src);
     setMsg(tx(ok ? 's.lyr.saved' : 'load.none'));
   };
@@ -476,7 +465,11 @@ export function LyricsTab() {
           placeholder="[00:12.30]…"
         />
         <Row>
-          <Button kind="primary" size="sm" onClick={() => use(hasTimedLines(text) ? text : spreadPlain(text, end))}>
+          <Button
+            kind="primary"
+            size="sm"
+            onClick={() => use(hasTimedLines(text) ? text : spreadPlain(text, end), true)}
+          >
             {tx('s.lyr.saveLrc')}
           </Button>
           <Dropdown

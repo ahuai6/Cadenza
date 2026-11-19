@@ -467,8 +467,11 @@ export class Session {
    *  style and knobs kept. */
   applyLook(id: string) {
     if (!this.custom) return false;
-    this.style = withLook(this.style, id);
-    this.style.edited = true;
+    // (choosing a look is not making a theme of one's own: only a saved theme changed this way is marked as changed —
+    // a look picked over a preset stays that look, never "an unsaved custom theme")
+    const was = this.style;
+    this.style = withLook(was, id);
+    this.style.edited = !!was.edited || !!was.id;
     if (this.cover) Object.assign(this.style, paletteForPreset(id, this.cover) || {});
     this.colors();
     this.dirty |= BUILD;
@@ -485,8 +488,10 @@ export class Session {
   }
   applyMotion(id: string) {
     if (!this.custom) return false;
-    this.style = withMotion(this.style, id);
-    this.style.edited = true;
+    // (a motion style chosen: as with a look, not an edit of its own)
+    const was = this.style;
+    this.style = withMotion(was, id);
+    this.style.edited = !!was.edited || !!was.id;
     this.dirty |= REPLAN;
     return true;
   }

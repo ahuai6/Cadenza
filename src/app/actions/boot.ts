@@ -13,6 +13,7 @@ import * as layers from '../layers';
 import { back } from '../layers';
 import { applyUiFont } from '../uifont';
 import { setSettings } from './settings';
+import '../playback/desk'; // (the desktop lyrics are fed from here, in either interface)
 import { ws as workshop, engine as wsEngine } from '../workshop/project';
 
 /** Start: `ready` is called once the settings and the library are in. Returns the cleanup (the live updates off). */

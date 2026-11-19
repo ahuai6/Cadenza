@@ -40,11 +40,16 @@ const f2 = (v: number) => (+v).toFixed(2),
   fmtK = (v: number) => `${(+v).toFixed(2)}×`;
 const opts = (list: string[], prefix: string): [string, string][] => list.map((v) => [v, tx(prefix + v)]);
 
-const Swatch = ({ st }: { st: Partial<Style> }) => (
-  <span className={s.swatch} aria-hidden="true">
-    {[st.bg, st.bg2, st.text, st.accent].map((c, i) => (
-      <i key={i} style={{ background: c }} />
-    ))}
+/** A theme of one's own, as the looks are shown: the mark of the look it was made from, in its own accent on its own
+ *  ground (never a strip of colour blocks) */
+const ThemeMark = ({ st }: { st: Partial<Style> }) => (
+  <span
+    className={s.lookIcon}
+    data-own=""
+    aria-hidden="true"
+    style={{ '--own-bg': st.bg, '--own-bg2': st.bg2, '--own-ink': st.accent } as React.CSSProperties}
+  >
+    <Icon n={LOOK_ICON[st.from || st.bgStyle || ''] || 'palette'} size={30} />
   </span>
 );
 const LOOK_ICON: Record<string, string> = {
@@ -99,7 +104,7 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
           >
             {/* (a look is known by its mark, not by colours: every look takes its colours from the cover) */}
             <span className={s.lookIcon} aria-hidden="true">
-              <Icon n={LOOK_ICON[k] || 'palette'} size={22} />
+              <Icon n={LOOK_ICON[k] || 'palette'} size={30} />
             </span>
             <span>{tx('preset.' + k)}</span>
           </button>
@@ -112,13 +117,13 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
             aria-pressed={custom && st.id === t.id}
             onClick={() => edit((x) => x.applyTheme({ ...(t.style as object), id: t.id, name: t.name }))}
           >
-            <Swatch st={t.style as Style} />
+            <ThemeMark st={t.style as Style} />
             <span>{t.name}</span>
           </button>
         ))}
         {custom && !isSaved && st.edited && (
           <button type="button" className={s.preset} aria-pressed="true">
-            <Swatch st={st} />
+            <ThemeMark st={st} />
             <span>{tx('th.unsaved')}</span>
           </button>
         )}
@@ -342,8 +347,8 @@ const GLYPHS: Record<string, string> = {
 function MotionGlyph({ id }: { id: string }) {
   return (
     <svg
-      width="44"
-      height="18"
+      width="58"
+      height="24"
       viewBox="0 0 44 18"
       fill="none"
       stroke="currentColor"
@@ -364,7 +369,8 @@ const knob = (edit: Edit, k: string) => ({
 });
 /** The motion style (風格) with the one that fits this song marked, five knobs to tune it, and everything in detail
  *  under 進階 (the camera, lyric type, entrance, exit and the detailed knobs the five multiply). */
-export function MotionPane({ s: ss, edit }: PaneProps) {
+/** part: 'tiles' — only the motion styles to pick from (the simple page); 'rest' — everything else (its Advanced) */
+export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' | 'rest' }) {
   const st = ss.style,
     custom = st.preset === 'custom',
     set = (k: string, v: unknown) => edit((x) => x.setStyle(k, v)),
@@ -418,181 +424,222 @@ export function MotionPane({ s: ss, edit }: PaneProps) {
     });
   return (
     <>
-      {!custom && <Note>{tx('th.locked')}</Note>}
+      {!custom && part !== 'rest' && <Note>{tx('th.locked')}</Note>}
       <fieldset disabled={!custom} className={s.set}>
-        <Section title={tx('mo.builtin')} note={tx('mo.help')}>
-          <div className={s.motions} role="radiogroup" aria-label={tx('mo.style')}>
-            {Object.keys(MOTIONS).map((id) => (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                className={s.motion}
-                aria-checked={!own && cur === id}
-                onClick={() => pick(id)}
-              >
-                <MotionGlyph id={id} />
-                <span>
-                  {name(id)}
-                  {id === rec && <em>{tx('mo.rec')}</em>}
-                </span>
-              </button>
-            ))}
-          </div>
-          <Note>
-            {own ? tx('mo.mineFit', { name: name(own.motion.base) }) : tx('mo.' + cur + '.fit')}
-            {!own && cur !== rec ? ' ' + tx('mo.recNote', { name: name(rec) }) : ''}
-          </Note>
-        </Section>
-        <Section title={tx('mo.mine')} note={tx('mo.mineHelp')}>
-          {!!mine.length && (
-            <div className={s.motions} role="radiogroup" aria-label={tx('mo.mine')}>
-              {mine.map((m) => (
+        {part !== 'rest' && (
+          <Section title={tx('mo.builtin')} note={tx('mo.help')}>
+            <div className={s.motions} role="radiogroup" aria-label={tx('mo.style')}>
+              {Object.keys(MOTIONS).map((id) => (
                 <button
-                  key={m.id}
+                  key={id}
                   type="button"
                   role="radio"
-                  className={s.motion + ' ' + s.mine}
-                  aria-checked={own?.id === m.id}
-                  onClick={() => pick('u:' + m.id)}
+                  className={s.motion}
+                  aria-checked={!own && cur === id}
+                  onClick={() => pick(id)}
                 >
-                  <span>{m.name}</span>
-                  <small>{tx('mo.basedOn', { name: name(m.motion.base) })}</small>
+                  <MotionGlyph id={id} />
+                  <span>
+                    {name(id)}
+                    {id === rec && <em>{tx('mo.rec')}</em>}
+                  </span>
                 </button>
               ))}
             </div>
-          )}
-          <TextField label={tx('mo.name')} value={mName} placeholder={tx('mo.untitled')} onCommit={setMName} />
-          <Row>
-            <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>
-              {tx(own ? 'mo.save' : 'mo.saveNew')}
-            </Button>
-            {own && (
-              <Button size="sm" onClick={() => saveMine(true)}>
-                {tx('mo.saveAs')}
-              </Button>
-            )}
-            {own && (
-              <Button kind="ghost" size="sm" onClick={delMine}>
-                {tx('mo.del')}
-              </Button>
-            )}
-          </Row>
-        </Section>
-        <Section
-          title={tx('mo.tune')}
-          note={tx('help.knobs')}
-          action={
-            <Button kind="ghost" size="sm" onClick={resetTune}>
-              {tx('reset.group')}
-            </Button>
-          }
-        >
-          {MACROS.map(([k, mn, mx, sp]) => (
-            <Slider
-              key={k}
-              label={tx('km.' + k)}
-              min={mn}
-              max={mx}
-              step={sp}
-              value={st.k[k] ?? 1}
-              format={fmtK}
-              home={1}
-              {...knob(edit, k)}
-            />
-          ))}
-        </Section>
-        <Section
-          title={tx('adv.h')}
-          note={adv ? tx('adv.help') : undefined}
-          action={
-            <Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv((v) => !v)}>
-              {tx(adv ? 'adv.hide' : 'adv.show')}
-            </Button>
-          }
-        >
-          {adv && (
-            <>
-              <Select label={tx('cut')} value={st.cut} options={opts(CUTS, 'cut.')} onChange={(v) => set('cut', v)} />
-              <Row>
-                <Select
-                  label={tx('trans')}
-                  value={st.trans || 'auto'}
-                  options={opts(['auto', 'off'], 'trans.')}
-                  onChange={(v) => set('trans', v)}
-                />
-                <Select
-                  label={tx('flash')}
-                  value={st.flashMode}
-                  options={opts(['color', 'invert'], 'flash.')}
-                  onChange={(v) => set('flashMode', v)}
-                />
-              </Row>
-              <Select
-                label={tx('ltype')}
-                value={st.ltype || 'flow'}
-                options={opts(Object.keys(LYRIC_TYPES), 'lt.')}
-                onChange={(v) => set('ltype', v)}
-              />
-              <Select
-                label={tx('future')}
-                value={st.future}
-                options={opts(['dim', 'hide'], 'future.')}
-                onChange={(v) => set('future', v)}
-              />
-              <Row>
-                <Select
-                  label={tx('tin')}
-                  value={st.tin || 'mix'}
-                  options={opts(TIN, 'tin.')}
-                  onChange={(v) => set('tin', v)}
-                />
-                <Select
-                  label={tx('tout')}
-                  value={st.tout === 'drift' || st.tout === 'spread' ? st.tout : 'none'}
-                  options={opts(['none', 'drift', 'spread'], 'tout.')}
-                  onChange={(v) => set('tout', v)}
-                />
-              </Row>
-              {GROUPS.map((g) => (
-                <Section
-                  key={g}
-                  title={tx(g)}
-                  action={
-                    <Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>
-                      {tx('reset.group')}
-                    </Button>
-                  }
-                  note={g === 'grp.triggers' ? tx('help.triggers') : undefined}
-                >
-                  {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => (
-                    <Slider
-                      key={k}
-                      label={tx('k.' + k)}
-                      min={mn}
-                      max={mx}
-                      step={sp}
-                      value={st.k[k]}
-                      format={fmtK}
-                      home={1}
-                      {...knob(edit, k)}
-                    />
+            <Note>
+              {own ? tx('mo.mineFit', { name: name(own.motion.base) }) : tx('mo.' + cur + '.fit')}
+              {!own && cur !== rec ? ' ' + tx('mo.recNote', { name: name(rec) }) : ''}
+            </Note>
+          </Section>
+        )}
+        {part !== 'tiles' && (
+          <>
+            <Section title={tx('mo.mine')} note={tx('mo.mineHelp')}>
+              {!!mine.length && (
+                <div className={s.motions} role="radiogroup" aria-label={tx('mo.mine')}>
+                  {mine.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="radio"
+                      className={s.motion + ' ' + s.mine}
+                      aria-checked={own?.id === m.id}
+                      onClick={() => pick('u:' + m.id)}
+                    >
+                      <span>{m.name}</span>
+                      <small>{tx('mo.basedOn', { name: name(m.motion.base) })}</small>
+                    </button>
                   ))}
-                </Section>
-              ))}
+                </div>
+              )}
+              <TextField label={tx('mo.name')} value={mName} placeholder={tx('mo.untitled')} onCommit={setMName} />
               <Row>
-                <Button size="sm" onClick={resetAll}>
-                  {tx('reset.all')}
+                <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>
+                  {tx(own ? 'mo.save' : 'mo.saveNew')}
                 </Button>
+                {own && (
+                  <Button size="sm" onClick={() => saveMine(true)}>
+                    {tx('mo.saveAs')}
+                  </Button>
+                )}
+                {own && (
+                  <Button kind="ghost" size="sm" onClick={delMine}>
+                    {tx('mo.del')}
+                  </Button>
+                )}
               </Row>
-            </>
-          )}
-        </Section>
+            </Section>
+            <Section
+              title={tx('mo.tune')}
+              note={tx('help.knobs')}
+              action={
+                <Button kind="ghost" size="sm" onClick={resetTune}>
+                  {tx('reset.group')}
+                </Button>
+              }
+            >
+              {MACROS.map(([k, mn, mx, sp]) => (
+                <Slider
+                  key={k}
+                  label={tx('km.' + k)}
+                  min={mn}
+                  max={mx}
+                  step={sp}
+                  value={st.k[k] ?? 1}
+                  format={fmtK}
+                  home={1}
+                  {...knob(edit, k)}
+                />
+              ))}
+            </Section>
+            <Section
+              title={tx('adv.h')}
+              note={adv ? tx('adv.help') : undefined}
+              action={
+                <Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv((v) => !v)}>
+                  {tx(adv ? 'adv.hide' : 'adv.show')}
+                </Button>
+              }
+            >
+              {adv && (
+                <>
+                  <Select
+                    label={tx('cut')}
+                    value={st.cut}
+                    options={opts(CUTS, 'cut.')}
+                    onChange={(v) => set('cut', v)}
+                  />
+                  <Row>
+                    <Select
+                      label={tx('trans')}
+                      value={st.trans || 'auto'}
+                      options={opts(['auto', 'off'], 'trans.')}
+                      onChange={(v) => set('trans', v)}
+                    />
+                    <Select
+                      label={tx('flash')}
+                      value={st.flashMode}
+                      options={opts(['color', 'invert'], 'flash.')}
+                      onChange={(v) => set('flashMode', v)}
+                    />
+                  </Row>
+                  <Select
+                    label={tx('ltype')}
+                    value={st.ltype || 'flow'}
+                    options={opts(Object.keys(LYRIC_TYPES), 'lt.')}
+                    onChange={(v) => set('ltype', v)}
+                  />
+                  <Select
+                    label={tx('future')}
+                    value={st.future}
+                    options={opts(['dim', 'hide'], 'future.')}
+                    onChange={(v) => set('future', v)}
+                  />
+                  <Row>
+                    <Select
+                      label={tx('tin')}
+                      value={st.tin || 'mix'}
+                      options={opts(TIN, 'tin.')}
+                      onChange={(v) => set('tin', v)}
+                    />
+                    <Select
+                      label={tx('tout')}
+                      value={st.tout === 'drift' || st.tout === 'spread' ? st.tout : 'none'}
+                      options={opts(['none', 'drift', 'spread'], 'tout.')}
+                      onChange={(v) => set('tout', v)}
+                    />
+                  </Row>
+                  {GROUPS.map((g) => (
+                    <Section
+                      key={g}
+                      title={tx(g)}
+                      action={
+                        <Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>
+                          {tx('reset.group')}
+                        </Button>
+                      }
+                      note={g === 'grp.triggers' ? tx('help.triggers') : undefined}
+                    >
+                      {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => (
+                        <Slider
+                          key={k}
+                          label={tx('k.' + k)}
+                          min={mn}
+                          max={mx}
+                          step={sp}
+                          value={st.k[k]}
+                          format={fmtK}
+                          home={1}
+                          {...knob(edit, k)}
+                        />
+                      ))}
+                    </Section>
+                  ))}
+                  <Row>
+                    <Button size="sm" onClick={resetAll}>
+                      {tx('reset.all')}
+                    </Button>
+                  </Row>
+                </>
+              )}
+            </Section>
+          </>
+        )}
       </fieldset>
     </>
   );
 }
 // effects drawn as companions of a backdrop or of another effect (they follow it, not a switch of their own)
+/** The look and the style on one page (外觀與風格): the looks and one's own themes, the motion styles — and, under
+ *  Advanced, everything they are made of: the backdrop (`media`: what else goes with it, the MV), the type, the camera
+ *  and its knobs, the effects. One choice at a time is enough for most; the rest is there when it is wanted. */
+export function StylePage({ media, ...p }: PaneProps & { media?: React.ReactNode }) {
+  const [adv, setAdv] = useState(false);
+  return (
+    <>
+      <ThemePane {...p} />
+      <MotionPane {...p} part="tiles" />
+      <Section
+        title={tx('adv.h')}
+        note={tx('adv.style')}
+        action={
+          <Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv((v) => !v)}>
+            {tx(adv ? 'adv.hide' : 'adv.show')}
+          </Button>
+        }
+      >
+        {adv && (
+          <>
+            <LookPane {...p} media={media} />
+            <TextPane {...p} />
+            <MotionPane {...p} part="rest" />
+            <EffectsPane {...p} />
+          </>
+        )}
+      </Section>
+    </>
+  );
+}
 const COMPANIONS = new Set(['gothic-chains', 'geo-front', 'glass-shards', 'feathers-fg', 'mv']);
 /** The effects in groups: the air of the picture, the screen's own texture, the lyrics' own, and the ones made for a
  *  backdrop (they work on any; their group says which they were made for). Anything new lands in the last. */

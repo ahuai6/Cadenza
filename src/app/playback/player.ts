@@ -16,6 +16,7 @@ import {
   balanceDb,
   parseLyrics as parse,
   isTtml,
+  lrcToTtml,
   spacingKey,
   type RhythmAnalysis,
   type Spacing,
@@ -792,7 +793,13 @@ export function editSong(fn: (s: Session) => unknown) {
 }
 
 /* ---------- lyrics ---------- */
-export async function useLyrics(text: string) {
+/** New lyrics for the shown song. `edit`: the listener's own edit of the lyrics shown — lyrics that came as TTML were
+ *  edited as LRC (ttmlToLrc), and are written back as TTML in their own form (lrcToTtml), never turned into an LRC. */
+export async function useLyrics(text: string, o: { edit?: boolean } = {}) {
+  {
+    const was = player.get().session?.spec.lyrics || '';
+    if (o.edit && !isTtml(text) && isTtml(was)) text = lrcToTtml(text, was, (x) => parse(x));
+  }
   const p = player.get(),
     s = p.session;
   if (!p.shownId || !s || !Lib) return false;

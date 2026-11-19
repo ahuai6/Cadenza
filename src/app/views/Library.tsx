@@ -7,7 +7,7 @@ import { player, playIds, enqueue, setMode, shufflePick } from '../playback/play
 import { Icon } from '../ui/icons';
 import { Button, IconButton, Cover, Mosaic, Empty, Dropdown, Turn } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
-import { quality } from '../ui/quality';
+import { quality, QualityTag } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
 import { menuFor, run } from '../commands';
 import { askText } from './Modals';
@@ -348,12 +348,14 @@ export const TrackList = memo(function TrackList({
             </span>
             <span className={s.album}>{t.album}</span>
             <span className={s.badges}>
+              {/* (its sound: the tier and the format — "Hi-Res FLAC" — and the details when the pointer rests on it) */}
+              {!t.protected && <QualityTag t={t} look="text" />}
               {t.protected ? (
                 <span className={s.noWords} title={tx('s.badge.protected')} aria-label={tx('s.badge.protected')}>
                   <Icon n="lock" size={14} />
                 </span>
               ) : (
-                // (a song with no words yet: a quiet mark. What the file is — its format, its rate — is on the play page)
+                // (a song with no words yet: a quiet mark)
                 !(t.lrc || t.embedded || t.ttml || t.instrumental) && (
                   <span className={s.noWords} title={tx('s.badge.noLyrics')} aria-label={tx('s.badge.noLyrics')}>
                     <Icon n="lyrics" size={14} />

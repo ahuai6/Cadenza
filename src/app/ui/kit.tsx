@@ -21,6 +21,14 @@ import s from './kit.module.css';
 export { s as kit };
 
 /** How long a thing takes to leave (--t-out): it stays mounted that long, marked closing. */
+/** A label with a long note in brackets at its end ("懸停（鏡頭停在歌詞中間，帶圓舞般的弧線移動）"): the label alone,
+ *  the note shown when the pointer rests on it — a settings list read as names, not as sentences. A short bracket
+ *  ("下載（約 40 MB）") stays where it is. */
+export function splitNote(label: string): [string, string] {
+  const m = /^(.+?)\s*[（(]([^（）()]+)[）)]\s*$/.exec(label);
+  // (long: seven characters or more, spaces not counted)
+  return m && m[2].replace(/\s/g, '').length >= 7 ? [m[1], m[2]] : [label, ''];
+}
 export const OUT_MS = 130;
 /** Keep a thing mounted while it leaves: `shown` stays true for OUT_MS after `open` goes false, `closing` meanwhile. */
 export function usePresence(open: boolean, ms = OUT_MS) {
@@ -156,21 +164,25 @@ export function Seg<T extends string | number>({
   return (
     <div className={s.seg} ref={box} data-size={size} data-fit={fit || undefined} role={role} aria-label={label}>
       {mark && <i className={s.segMark} style={mark} aria-hidden="true" />}
-      {options.map(([v, text, ic, tip]) => (
-        <button
-          key={String(v)}
-          type="button"
-          role={item}
-          aria-selected={item === 'tab' ? value === v : undefined}
-          aria-checked={item === 'radio' ? value === v : undefined}
-          title={tip || text}
-          aria-label={tip || undefined}
-          onClick={() => onChange(v)}
-        >
-          {ic && <Icon n={ic} size={size === 'sm' ? 14 : 15} />}
-          {text && <span>{text}</span>}
-        </button>
-      ))}
+      {options.map(([v, full, ic, tip0]) => {
+        const [text, note] = splitNote(full),
+          tip = tip0 || note;
+        return (
+          <button
+            key={String(v)}
+            type="button"
+            role={item}
+            aria-selected={item === 'tab' ? value === v : undefined}
+            aria-checked={item === 'radio' ? value === v : undefined}
+            title={tip ? (note && !tip0 ? `${text}：${note}` : tip) : text}
+            aria-label={tip0 || undefined}
+            onClick={() => onChange(v)}
+          >
+            {ic && <Icon n={ic} size={size === 'sm' ? 14 : 15} />}
+            {text && <span>{text}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -188,7 +200,7 @@ export function Toggle({
   return (
     <label className={s.toggle}>
       <span>
-        <b>{label}</b>
+        <b title={splitNote(label)[1] || undefined}>{splitNote(label)[0]}</b>
         {help && <small>{help}</small>}
       </span>
       <input type="checkbox" role="switch" checked={!!on} onChange={(e) => set(e.target.checked)} />
@@ -211,7 +223,7 @@ export function Check({
       <i aria-hidden="true">
         <Icon n="check" size={13} />
       </i>
-      <span>{label}</span>
+      <span title={splitNote(label)[1] || undefined}>{splitNote(label)[0]}</span>
     </label>
   );
 }
@@ -263,8 +275,8 @@ export function Slider({
   }, []);
   return (
     <div className={s.slider} data-off={off || undefined}>
-      <label htmlFor={id} title={label}>
-        {label}
+      <label htmlFor={id} title={splitNote(label)[1] || label}>
+        {splitNote(label)[0]}
       </label>
       <span className={s.rw}>
         {hp != null && (
@@ -335,7 +347,9 @@ export function Dropdown({
           }
         }}
       >
-        <span style={cur?.[2]}>{cur ? cur[1] : ''}</span>
+        <span style={cur?.[2]} title={cur ? splitNote(cur[1])[1] || undefined : undefined}>
+          {cur ? splitNote(cur[1])[0] : ''}
+        </span>
         <Icon n="chevronDown" size={14} />
       </button>
       <DropList
@@ -458,7 +472,9 @@ function DropList({
           onPointerEnter={() => setHi(i)}
           onClick={() => onPick(v)}
         >
-          <span style={st}>{l}</span>
+          <span style={st} title={splitNote(l)[1] || undefined}>
+            {splitNote(l)[0]}
+          </span>
           {note && <small>{note}</small>}
           {v === value && <Icon n="check" size={14} />}
         </div>

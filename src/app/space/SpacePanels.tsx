@@ -23,6 +23,10 @@ import {
   type Mode,
 } from '../playback/player';
 import { ts } from './i18n';
+import { isTtml, ttmlToLrc } from '../../engine';
+
+// (TTML is edited as LRC, and written back as TTML: player.ts useLyrics)
+const asLrc = (x: string) => (isTtml(x) ? ttmlToLrc(x) : x);
 import { useOutsideClose } from '../ui/outside';
 import s from './SpacePanels.module.css';
 
@@ -41,7 +45,8 @@ export function PlayerExtras({
   const mode = useStore(player, (x) => x.mode),
     hasSong = useStore(player, (x) => !!x.id),
     hifiOk = useStore(hifi, (x) => !!x.supported),
-    hifiOn = useStore(settings, (x) => x.audioOut === 'hifi');
+    hifiOn = useStore(settings, (x) => x.audioOut === 'hifi'),
+    deskOn = useStore(settings, (x) => !!x.deskLyrics);
   useEffect(() => {
     hifiRefresh();
   }, []);
@@ -72,6 +77,7 @@ export function PlayerExtras({
       {btn(MODE_ICON[mode], tx('s.mode.' + mode), mode !== 'stop', () =>
         setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]),
       )}
+      {!!D?.deskFeed && btn('lyrics', tx('s.desk'), deskOn, () => void setSettings({ deskLyrics: !deskOn }))}
       {/* Hi-Fi passthrough in one press, where this machine has it (the same setting as Settings → Audio → Output) */}
       {hifiOk && (
         <button
@@ -154,13 +160,13 @@ function Lyrics({
     [edit, setEdit] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!hasLyrics && edit == null) setEdit(text);
+    if (!hasLyrics && edit == null) setEdit(asLrc(text));
   }, [hasLyrics]);
   const save = async () => {
     if (edit == null) return;
     setBusy(true);
     try {
-      await useLyrics(edit);
+      await useLyrics(edit, { edit: true });
       setEdit(null);
     } finally {
       setBusy(false);
@@ -171,7 +177,7 @@ function Lyrics({
       <header className={s.head}>
         <b>{edit != null ? ts('lyr.edit') : tx('s.lyricList')}</b>
         {edit == null && (
-          <button type="button" className={s.clear} onClick={() => setEdit(text)}>
+          <button type="button" className={s.clear} onClick={() => setEdit(asLrc(text))}>
             {ts('lyr.edit')}
           </button>
         )}

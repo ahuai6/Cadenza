@@ -90,6 +90,71 @@ export function AlbumLine({ items: given }: { items: Albums }) {
     el.addEventListener('wheel', wheel, { passive: false });
     return () => el.removeEventListener('wheel', wheel);
   });
+  // held and dragged, the line goes with the pointer; let go, it carries on and slows to a stop (its speed as it was
+  // let go), then settles on the album nearest the middle. Where it is meanwhile: `pos`, in albums along the line.
+  const [pos, setPos] = useState<number | null>(null);
+  const drag = useRef<{
+    x0: number;
+    p0: number;
+    moved: boolean;
+    v: number;
+    lx: number;
+    lt: number;
+    raf: number;
+  } | null>(null);
+  const STEP = SIZE + GAP;
+  const clampPos = (p: number) => Math.max(-0.45, Math.min(items.length - 0.55, p));
+  const down = (e: React.PointerEvent) => {
+    if (e.button !== 0 || items.length < 2) return;
+    const d = drag.current;
+    if (d) cancelAnimationFrame(d.raf);
+    const p0 = pos ?? at;
+    drag.current = { x0: e.clientX, p0, moved: false, v: 0, lx: e.clientX, lt: performance.now(), raf: 0 };
+  };
+  const move = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || d.raf) return;
+    if (!d.moved && Math.abs(e.clientX - d.x0) < 6) return;
+    if (!d.moved) {
+      d.moved = true;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
+    const now = performance.now(),
+      dt = Math.max(1, now - d.lt);
+    // (its speed, albums a millisecond, eased over the last moves)
+    d.v = d.v * 0.6 + (-(e.clientX - d.lx) / STEP / dt) * 0.4;
+    d.lx = e.clientX;
+    d.lt = now;
+    setPos(clampPos(d.p0 - (e.clientX - d.x0) / STEP));
+  };
+  const up = () => {
+    const d = drag.current;
+    if (!d) return;
+    if (!d.moved) {
+      drag.current = null;
+      return;
+    }
+    let p = pos ?? at,
+      v = performance.now() - d.lt > 80 ? 0 : d.v,
+      last = performance.now();
+    const coast = (now: number) => {
+      const dt = Math.min(40, now - last);
+      last = now;
+      p = clampPos(p + v * dt);
+      v *= Math.pow(0.994, dt); // (slows by about a tenth every 16 ms)
+      if (Math.abs(v) > 0.0004 && p > -0.45 && p < items.length - 0.55) {
+        setPos(p);
+        d.raf = requestAnimationFrame(coast);
+        return;
+      }
+      drag.current = null;
+      setPos(null);
+      pick(Math.round(p));
+    };
+    d.raf = requestAnimationFrame(coast);
+  };
+  useEffect(() => () => cancelAnimationFrame(drag.current?.raf ?? 0), []);
+  const shown = pos ?? at;
   // the line fills with the song, and the ring spreads from where it is on every beat — the beat the rhythm engine
   // found, read off the same tick as everything else that keeps time (never a clock of its own at the song's average
   // tempo, drifting off the music; a paused song holds it still). Written straight to the style: no render per frame.
@@ -110,8 +175,8 @@ export function AlbumLine({ items: given }: { items: Albums }) {
     return engine.on('tick', (p) => paint(p.t, p.rs ? p.rs.phase : 1));
   }, [mine, playing]);
   if (!album) return <Empty title={tx('s.empty.results')} icon="search" />;
-  const from = Math.max(0, at - NEAR),
-    to = Math.min(items.length, at + NEAR + 1),
+  const from = Math.max(0, Math.round(shown) - NEAR),
+    to = Math.min(items.length, Math.round(shown) + NEAR + 1),
     ids = album.tracks.map((t) => t.id);
   return (
     <div className={s.wrap} data-test="album-line">
@@ -144,6 +209,18 @@ export function AlbumLine({ items: given }: { items: Albums }) {
         role="listbox"
         aria-label={tx('s.albums')}
         tabIndex={0}
+        data-drag={pos != null || undefined}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+        // (a drag is not a click on the cover it ended over)
+        onClickCapture={(e) => {
+          if (drag.current?.moved || pos != null) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
             e.preventDefault();
@@ -154,7 +231,7 @@ export function AlbumLine({ items: given }: { items: Albums }) {
         <div
           className={s.row}
           style={{
-            transform: `translate3d(${-(at * (SIZE + GAP) + ROOM + SIZE / 2)}px,0,0)`,
+            transform: `translate3d(${-(shown * (SIZE + GAP) + ROOM + SIZE / 2)}px,0,0)`,
             paddingLeft: from * (SIZE + GAP),
           }}
         >

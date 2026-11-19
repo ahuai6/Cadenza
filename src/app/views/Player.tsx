@@ -2,7 +2,7 @@
 // which opens from the card, the now-playing page and the effect view alike.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { tx } from '../../i18n';
-import { Lib } from '../bridge';
+import { D, Lib } from '../bridge';
 import { ui, lib, settings, useStore, useIndex, fmtTime, trackOf } from '../state';
 import { Icon } from '../ui/icons';
 import { IconButton, Seg, Cover, Swap, kit } from '../ui/kit';
@@ -159,6 +159,14 @@ export function Transport({ big }: { big?: boolean }) {
         onClick={() => next()}
       />
     </div>
+  );
+}
+/** The desktop lyrics on and off (electron/desk.cjs); the same setting as Settings → Desktop lyrics. */
+export function DeskButton() {
+  const on = useStore(settings, (x) => !!x.deskLyrics);
+  if (!D?.deskFeed) return null;
+  return (
+    <IconButton n="lyrics" label={tx('s.desk')} pressed={on} onClick={() => void setSettings({ deskLyrics: !on })} />
   );
 }
 /** How the queue moves on; one click steps to the next mode. */
@@ -346,6 +354,7 @@ export function PlayerCard() {
           <BarLyric />
           <div className={s.end}>
             <Volume />
+            <DeskButton />
             <QueueButton />
             <Heart id={t.id} />
           </div>

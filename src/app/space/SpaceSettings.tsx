@@ -7,7 +7,7 @@ import { settings, lib, useStore } from '../state';
 import { Lib, D, type Settings } from '../bridge';
 import { setSettings, setLang } from '../actions/settings';
 import { readAllRhythmsAgain, clearStoredData, resetEverything } from '../actions/data';
-import { Button, Dropdown } from '../ui/kit';
+import { Button, Dropdown, splitNote } from '../ui/kit';
 import { FontPicker } from '../ui/fonts';
 import { SettingField } from '../ui/SettingField';
 import type { SettingKey } from '../settings/schema';
@@ -25,7 +25,7 @@ const Group = ({ id, title, children }: { id: SpaceSection; title: string; child
 const Field = ({ label, help, children }: { label: string; help?: string; children: ReactNode }) => (
   <div className={s.field}>
     <div>
-      <span>{label}</span>
+      <span title={splitNote(label)[1] || undefined}>{splitNote(label)[0]}</span>
       {help && <small>{help}</small>}
     </div>
     {children}
@@ -159,7 +159,7 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
               onChange={(v) => set({ spaceFont: v })}
             />
           </Field>
-          {fields('fxCapSubs', 'fxCapReads', 'spaceLyric')}
+          {fields('fxCapSubs', 'fxCapReads', 'spaceLyric', 'deskLyrics', 'deskLock', 'deskSize')}
         </Group>
         <Group id="look" title={ts('g.look')}>
           {fields('theme', 'ui')}

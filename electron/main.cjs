@@ -50,6 +50,7 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 
+const desk = require('./desk.cjs');
 let win = null,
   tray = null,
   quitting = false,
@@ -188,6 +189,8 @@ function createWindow() {
     win = null;
   });
   win.loadFile(path.join(__dirname, '..', 'dist-app', 'index.html'));
+  // the lyrics on the desktop, if they were left open (electron/desk.cjs)
+  desk.init({ settings: () => settings, save: (p) => saveSettings(p), main: () => win });
 }
 
 Menu.setApplicationMenu(
@@ -316,7 +319,7 @@ ipcMain.handle('app:relaunch', () => {
   app.exit(0);
 });
 ipcMain.handle('settings:get', () => ({ ...settings, platform: process.platform, version: app.getVersion() }));
-ipcMain.handle('settings:set', (_e, patch) => {
+function saveSettings(patch) {
   for (const k of Object.keys(patch || {})) if (k in DEFAULTS) settings[k] = patch[k];
   try {
     fs.writeFileSync(SETTINGS(), JSON.stringify(settings));
@@ -324,6 +327,12 @@ ipcMain.handle('settings:set', (_e, patch) => {
     /* read-only profile */
   }
   applySettings();
+  desk.sync();
+  // (the page hears of every change, wherever it was made: the desktop lyrics' own buttons, another window)
+  if (win && !win.isDestroyed()) win.webContents.send('settings:pushed', { ...settings });
+}
+ipcMain.handle('settings:set', (_e, patch) => {
+  saveSettings(patch);
   if (win) win.setBackgroundColor(bgColor());
   if (hifi && ['audioOut', 'audioMode', 'audioDevice'].some((k) => k in (patch || {}))) hifi.apply();
   if (infer && 'rhythmDevice' in (patch || {})) infer.restart();
