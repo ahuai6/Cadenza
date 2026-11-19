@@ -122,10 +122,18 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     if (!el) return;
     const w = S.wait >= 0 ? S.ls[S.wait] : null;
     if (!w) {
-      if (el.dataset.on !== 'false') el.dataset.on = 'false';
+      // (the wait over: the dots stay where they are and shrink away there — never carried up with the lines)
+      if (el.dataset.on === 'true') {
+        el.dataset.on = 'leaving';
+        setTimeout(() => {
+          if (el.dataset.on === 'leaving') el.dataset.on = 'false';
+        }, 420);
+      }
       return;
     }
     el.dataset.on = 'true';
+    // (leaving already: held in place while they shrink)
+    if (parseFloat(el.style.getPropertyValue('--end') || '0') > 0) return;
     el.style.transform = `translate3d(0,${(S.tops[S.wait] + w.y - 3 - S.gap * 0.5).toFixed(2)}px,0)`;
   };
   const step = (now: number) => {
@@ -229,6 +237,12 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         put(el, '--gl', '0');
       }
       el.style.setProperty('--d', String(Math.min(5, Math.abs(d))));
+      // (how a line comes on: the first of the song, or the first after a long wait, softly enough to be seen; any
+      // other in a few tens of ms — the singing is already on it)
+      if (d === 0) {
+        const P = lines[i - 1];
+        el.dataset.soft = String(!P || starts[i] - P.sung >= WAIT_MIN);
+      }
       el.dataset.on = String(d === 0);
     });
   const measure = () => {
@@ -313,7 +327,8 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
             end = Math.min(1, Math.max(0, (p.t - (to - bl * 0.5)) / (bl * 0.5)));
           put(el, '--wait', Math.min(1, (p.t - from) / Math.max(0.5, tb - bl * 0.5 - from)).toFixed(3));
           put(el, '--pulse', pulse.toFixed(3));
-          put(el, '--end', end.toFixed(3));
+          // (eased in and out: they shrink on a curve, not at a steady rate)
+          put(el, '--end', (end < 0.5 ? 4 * end ** 3 : 1 - (-2 * end + 2) ** 3 / 2).toFixed(3));
         }
       }
       {

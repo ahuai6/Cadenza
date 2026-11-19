@@ -207,7 +207,8 @@ export function cameraAt(plan: ScenePlan, sig: Signals, t: number, motion = 1): 
       if (dt < 0) break;
       if (dt > 2.2) continue;
       const u = dt / tempo,
-        on = 1 - Math.exp(-u * 22),
+        // (the push in comes on over about a quarter second: in a tenth, it read as the words jumping in size)
+        on = 1 - Math.exp(-u * 10),
         k1 = lobe(u, 0.16),
         k2 = on * Math.exp(-u * 4.5);
       kr += q.sg * q.a * 7 * k1;

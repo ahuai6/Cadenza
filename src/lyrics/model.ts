@@ -195,6 +195,10 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
         if (lu.e != null) W.endGiven = true;
       } else W.end = Math.min(nx, W.t + syllableTime(syllables(W.text), bpm) + 0.35, L.end);
       W.end = Math.max(W.end, W.t + 0.12);
+      // one stamp over several characters ("[00:12.30]你好", a syllable timed as one): its characters light one after
+      // another until the next stamp, as a word timed only as a whole is sung — not all at the stamp's moment
+      if (W.timed) W.units = spreadUnits(W.units, W.end);
+      if (W.harm && W.harm.units.every((u) => u.t != null)) W.harm.units = spreadUnits(W.harm.units, Infinity);
       // a word timed only as a whole: its characters spread over its singing, so it is still sung (and followed) one
       // character at a time
       if (!W.timed && W.units.length > 1) {
@@ -239,6 +243,25 @@ export function buildLyrics(p: Parsed, map: BeatGrid, end: number): LyricDoc {
 
 /** Line-timed words: each starts at its share of the line's syllables across the sung part, drawn onto a beat when
  *  one is close (an eighth otherwise), always after the word before. */
+/** Timed units split into the characters they hold (as `unitsOf` breaks a word), each a share of the way from its
+ *  stamp to the next one (or to `end`, the word's last stamp to its end): a unit of one character is left as it is. */
+export function spreadUnits(units: Unit[], end: number): Unit[] {
+  if (units.every((u) => unitsOf(u.c).length < 2)) return units;
+  const out: Unit[] = [];
+  units.forEach((u, j) => {
+    const cs = unitsOf(u.c);
+    if (cs.length < 2 || u.t == null) return void out.push(u);
+    const nx = j + 1 < units.length ? units[j + 1].t : null,
+      // (the last unit: over most of what is left of the word, at most a third of a second a character)
+      to =
+        nx != null && nx > u.t
+          ? nx
+          : Math.min(isFinite(end) ? u.t + (end - u.t) * 0.85 : Infinity, u.t + cs.length * 0.3),
+      D = Math.max(0, to - u.t);
+    cs.forEach((c, k) => out.push({ c, t: u.t! + (D * k) / cs.length }));
+  });
+  return out;
+}
 function paceWords(L: Line, map: BeatGrid) {
   const n = L.words.length;
   if (!n) return;

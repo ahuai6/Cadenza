@@ -24,6 +24,7 @@ import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
 import { Lib, D, coverUrl, mediaUrl, type Settings, type SongData, type Track } from '../bridge';
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
+import { insertNext, followList } from './queue';
 import { SCHEMA } from '../settings/schema';
 import { engine, sessionEnv } from './stage';
 import { analyzeNow, decodeForAnalysis } from './analysis';
@@ -45,6 +46,18 @@ import {
 export type Mode = 'loop' | 'shuffle' | 'one' | 'stop';
 export const MODES: Mode[] = ['loop', 'shuffle', 'one', 'stop'];
 export const MODE_ICON: Record<Mode, string> = { loop: 'repeat', shuffle: 'shuffle', one: 'repeat1', stop: 'once' };
+/** The play mode at start: the one chosen last — except that "stop at the end", left over from earlier versions where
+ *  it was easy to land on, gives way once to playing on in order, the default everywhere (3.2.11). */
+function startMode(): Mode {
+  const m = remember<Mode>('mode', 'loop');
+  if (remember('mode.v2', false)) return MODES.includes(m) ? m : 'loop';
+  keep('mode.v2', true);
+  if (m === 'stop' || !MODES.includes(m)) {
+    keep('mode', 'loop');
+    return 'loop';
+  }
+  return m;
+}
 export interface MvState {
   bound: boolean;
   name: string;
@@ -67,7 +80,7 @@ export const player = createStore({
   hasLyrics: false,
   route: 'std' as 'std' | 'hifi',
   mv: { bound: false, name: '', offset: 0, on: false, ready: false } as MvState,
-  mode: remember<Mode>('mode', 'loop'),
+  mode: startMode(),
   error: null as string | null,
   volume: remember('vol', 1),
   /** album play: the queue is one album, played through in order as one continuous film in the first song's look */
@@ -455,6 +468,34 @@ export function yieldAudio() {
 }
 
 /* ---------- edits to the playing song's tags or cover show at once, in every view ---------- */
+// a song added to the list the queue was taken from (a playlist, the favourites, the library) joins the queue too
+lib.subscribe((L, prev) => {
+  const p = player.get();
+  if (p.album || !p.queue.length) return;
+  const lists: [string[], string[]][] = [];
+  if (L.favorites !== prev.favorites) lists.push([prev.favorites, L.favorites]);
+  if (L.playlists !== prev.playlists)
+    for (const pl of L.playlists) {
+      const was = prev.playlists.find((x) => x.id === pl.id);
+      if (was && was.tracks !== pl.tracks) lists.push([was.tracks, pl.tracks]);
+    }
+  if (L.tracks !== prev.tracks && L.tracks.length > prev.tracks.length)
+    lists.push([prev.tracks.map((t) => t.id), L.tracks.map((t) => t.id)]);
+  for (const [before, now] of lists) {
+    const q = followList(
+      p.queue,
+      before,
+      now.filter((id) => {
+        const t = trackOf(id);
+        return t && !t.protected;
+      }),
+    );
+    if (q) {
+      player.set({ queue: q });
+      return;
+    }
+  }
+});
 lib.subscribe((L, prev) => {
   if (L.tracks === prev.tracks) return;
   const p = player.get(),
@@ -662,6 +703,22 @@ export async function enqueue(ids: string[]) {
   const t = trackOf(add[0]);
   toast(add.length > 1 ? tx('s.queue.addedN', { n: add.length }) : tx('s.queue.added', { title: t ? t.title : '' }));
   if (!p.id) await loadAt(q.length - add.length, true);
+}
+/** Songs to play next, right after the one playing; with nothing playing, the first of them starts. */
+export async function playNext(ids: string[]) {
+  const p = player.get(),
+    add = ids.filter((id) => {
+      const t = trackOf(id);
+      return t && !t.protected && id !== p.id;
+    });
+  if (!add.length) return;
+  if (!p.id || p.index < 0) {
+    await playIds(add, 0);
+    return;
+  }
+  player.set({ queue: insertNext(p.queue, p.index, add) });
+  const t = trackOf(add[0]);
+  toast(add.length > 1 ? tx('s.queue.nextN', { n: add.length }) : tx('s.queue.nextOne', { title: t ? t.title : '' }));
 }
 export async function playQueueAt(i: number) {
   const p = player.get();

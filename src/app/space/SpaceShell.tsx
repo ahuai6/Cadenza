@@ -12,7 +12,8 @@ import { SpaceSettings } from './SpaceSettings';
 import { PlayerExtras, SpacePanel, WinButtons, type Panel } from './SpacePanels';
 import { SpaceDetail, type Detail } from './SpaceDetail';
 import { ContextMenu, Toast } from '../ui/kit';
-import { menuFor } from '../commands';
+import { menuFor, setHost } from '../commands';
+import { ModalHost, askText, editMeta } from '../ui/dialogs';
 import { targetOf } from './targets';
 import { MiniLyrics } from '../ui/MiniLyrics';
 import { lang as langStore } from '../../i18n';
@@ -76,6 +77,15 @@ export function SpaceShell() {
           }
         },
         closeSettings: () => setCfg((c) => (c.open ? { open: false } : c)),
+        toggleSettings: () => {
+          setPanel(null);
+          setDetail(null);
+          setCfg((c) => {
+            if (!c.open) return { open: true };
+            world.current?.takePointer();
+            return { open: false };
+          });
+        },
         menu: (d, x, y) => {
           const t = targetOf(d);
           if (!t) return world.current?.takePointer();
@@ -93,10 +103,13 @@ export function SpaceShell() {
     };
   }, [ready, lang, gen, night]);
   // (a menu closed: the view held again, if it was let out for the menu)
-  const menuOpen = useStore(ui, (x) => !!x.menu);
+  const menuOpen = useStore(ui, (x) => !!x.menu),
+    modalOpen = useStore(ui, (x) => !!x.modal);
   useEffect(() => {
-    if (!menuOpen) world.current?.takePointer();
-  }, [menuOpen]);
+    if (!menuOpen && !modalOpen) world.current?.takePointer();
+  }, [menuOpen, modalOpen]);
+  // (what the space can do for the library's commands: ask a name, open a song's information)
+  useEffect(() => setHost({ ask: askText, editTags: editMeta }), []);
   useEffect(() => {
     document.getElementById('mini')?.setAttribute('aria-pressed', String(mini));
     world.current?.pause(mini || away);
@@ -143,10 +156,19 @@ export function SpaceShell() {
         />
       )}
       {ready && <ContextMenu />}
+      {ready && <ModalHost />}
       {ready && <Toast />}
       {ready && <WinButtons host={winHost} />}
       {ready && mini && <MiniLyrics />}
-      {ready && !cfg.open && <SpacePanel panel={panel} onClose={() => setPanel(null)} />}
+      {ready && !cfg.open && (
+        <SpacePanel
+          panel={panel}
+          onClose={() => {
+            setPanel(null);
+            world.current?.takePointer();
+          }}
+        />
+      )}
     </div>
   );
 }

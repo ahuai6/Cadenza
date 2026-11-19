@@ -191,6 +191,7 @@ const NAV: [Page, string][] = [
   ['wall', 's.wall'],
   ['workshop', 's.workshop'],
 ];
+let beforeSettings: Page = 'library';
 function TitleBar() {
   const st = useStore(ui, (x) => x.win),
     page = useStore(ui, (x) => x.page),
@@ -234,7 +235,16 @@ function TitleBar() {
           aria-current={!onStage && page === 'settings' ? 'page' : undefined}
           title={tx('s.settings')}
           aria-label={tx('s.settings')}
-          onClick={() => (ui.get().page === 'settings' ? ui.set({ layer: 'none', queue: false }) : go('settings'))}
+          onClick={() => {
+            const u = ui.get();
+            // (the settings are opened by this button, and closed by it: back to the page they were opened over)
+            if (u.page === 'settings' && u.layer === 'none') go(beforeSettings);
+            else if (u.page === 'settings') ui.set({ layer: 'none', queue: false });
+            else {
+              beforeSettings = u.page;
+              go('settings');
+            }
+          }}
         >
           <Icon n="settings" size={18} />
         </button>

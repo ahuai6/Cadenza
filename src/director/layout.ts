@@ -284,10 +284,10 @@ export function layout(inp: LayoutInput): LayoutResult {
         end: Wd.end,
         tin,
         seed: L.i * 101 + k * 7 + 1,
-        // the line's harmony goes with the line's first word, its first character under the line's first (as it stands in the
-        // lyrics: the line's own backing voice, wherever in the line its brackets were) — all of a line's harmonies on one
+        // the line's harmony goes under the line's last word, its first character under that word's first (the backing
+        // voice answers the line as it ends, wherever in the line its brackets were) — all of a line's harmonies on one
         // row, from the first of them to sound
-        harm: k === 0 ? lineHarm(L, measure) : null,
+        harm: k === L.words.length - 1 ? lineHarm(L, measure) : null,
       };
       P.words.push(pw);
       words.push(pw);
@@ -503,7 +503,20 @@ export function layout(inp: LayoutInput): LayoutResult {
     n: [number, number],
     i: number,
     k: number,
+    from: [number, number],
   ): [number, number] | null => {
+    // along a line the words go on to the right, and the camera with them — never up and down while it goes (a word
+    // below, the next above: the camera zig-zagged after them). Only when the next word would no longer fit the frame
+    // beside the line so far does the line step up a little and go on from there: the camera rises slowly as it travels.
+    if (!LT.together && S.w.timed) {
+      // (once per frame's width of travel: the word that would cross into the next one steps up)
+      const fw = (W / zOf(Q)) * 0.8,
+        run = (Q.x - from[0]) * d[0] + (Q.y - from[1]) * d[1] + Q.lw / 2 + gap + w;
+      if (Math.floor(run / fw) === Math.floor((run - gap - w) / fw)) return null;
+      const ax = Q.lw / 2 + (S.w.latin && Q.w.latin ? Math.max(gap, h * 0.32) : gap) + w / 2,
+        up = (Q.lh + h) * 0.2;
+      return [Q.x + d[0] * ax - n[0] * up, Q.y + d[1] * ax - n[1] * up];
+    }
     let r = rnd(i * 61.7 + k * 4.3 + 3),
       mode = 'right';
     for (const [m, wt] of FLOW) {
@@ -1033,7 +1046,7 @@ export function layout(inp: LayoutInput): LayoutResult {
           !prevSeg.vert &&
           mode !== 'right' &&
           mode !== 'dash' &&
-          (cc = placeNext(S, prevSeg, w, h, d, nrm, i, k))
+          (cc = placeNext(S, prevSeg, w, h, d, nrm, i, k, lineStart))
         ) {
           P = [cc[0] + (d[0] * w) / 2, cc[1] + (d[1] * w) / 2];
         } else {

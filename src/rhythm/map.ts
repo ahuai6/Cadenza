@@ -228,7 +228,9 @@ export class RhythmMap {
       if (t >= this.sections[i].t0 && t < this.sections[i].t1) return { i, s: this.sections[i] };
     return { i: -1, s: null };
   }
-  /** Inside a build: 0 outside, rising to 1 at the drop; `still` is the half beat right before the drop. */
+  /** Inside a build: 0 outside, rising to 1 at the drop and easing back to 0 over the beat after it (it fell to 0 in
+   *  one frame at the drop: the picture, leaning in with it, jumped in size); `still` is the half beat right before the
+   *  drop. */
   build(t: number): { k: number; still: number } {
     for (const [a0, a1] of this.a.builds) {
       const t0 = a0 - this.offset,
@@ -238,6 +240,10 @@ export class RhythmMap {
           bl = this.beatLen(t1),
           st = t > t1 - bl * 0.5 ? sstep(clamp((t - (t1 - bl * 0.5)) / (bl * 0.15))) : 0;
         return { k: u ** 1.6, still: st };
+      }
+      if (t >= t1) {
+        const bl = this.beatLen(t1);
+        if (t < t1 + bl) return { k: 1 - sstep((t - t1) / bl), still: 0 };
       }
     }
     return { k: 0, still: 0 };

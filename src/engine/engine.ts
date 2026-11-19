@@ -83,6 +83,8 @@ const SWAP_FADE = 0.9; // seconds a newer rhythm's picture takes over from the o
 const SWAP_UNDER = 0.4; // … and at a blur's peak (the picture before, nearly all blur, dissolves into the new one)
 const RM = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/** how far ahead the look-ahead draws, in turn (s) */
+const AHEAD = [0.5, 1, 1.5];
 export class Engine extends Emitter<EngineEvents> {
   readonly canvas: HTMLCanvasElement;
   private g: CanvasRenderingContext2D;
@@ -821,13 +823,19 @@ export class Engine extends Emitter<EngineEvents> {
         }
         break;
       }
-    // look ahead: draw ~0.6 s ahead into a tiny canvas when the frame had time to spare (fills the glyph caches)
-    if (vis && this.view === 'effect' && this.render.prerender && this.playing && performance.now() - t0 < 9) {
-      try {
-        withMakeBudget(4, () => this.lookAhead(s, this.t + 0.6));
-      } catch {
-        /* ignore */
-      }
+    // look ahead: draw a moment ahead into a tiny canvas (fills the glyph caches), in turn half a second, one and one and
+    // a half seconds on — a line's words come in over a while, at sizes that change as they do. Every frame that has any
+    // time left, with less of it on a busy one: only on frames under 9 ms, a busy machine never looked ahead, and each new
+    // line made all its glyphs in the frame it came in (the hitch as lines appear)
+    if (vis && this.view === 'effect' && this.render.prerender && this.playing) {
+      const used = performance.now() - t0;
+      if (used < 14)
+        try {
+          this.aheadK = (this.aheadK + 1) % AHEAD.length;
+          withMakeBudget(used < 9 ? 4 : 2, () => this.lookAhead(s, this.t + AHEAD[this.aheadK]));
+        } catch {
+          /* ignore */
+        }
     }
     {
       const d = performance.now() - t0;
@@ -837,6 +845,7 @@ export class Engine extends Emitter<EngineEvents> {
     this.emit('frame', now);
   }
   private warmedPass = new WeakSet<object>();
+  private aheadK = 0;
   /** the last frame whose numbers were all numbers (stood in for one that is not), how many were not, the last one's fields */
   private goodCf: CamFrame | null = null;
   badFrames = 0;

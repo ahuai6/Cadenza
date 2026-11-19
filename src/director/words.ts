@@ -26,9 +26,11 @@ const DRIFT_DIRS = [
   [-0.7, 0.7],
 ];
 /** The spread exit: how long the line takes to fade once it leaves (s), and the space it has opened between letters
- *  by then (× the letters' height: plain to see, never strewn apart). */
+ *  by then (× the letters' height: plain to see, never strewn apart), and how much wider the whole line grows at most
+ *  (× the letters' height). */
 const SPREAD = 2.2,
-  SPREAD_GAP = 0.2;
+  SPREAD_GAP = 0.14,
+  SPREAD_WIDE = 0.5;
 export const SUNG = 0.42,
   PAST = 0.3,
   END_DIM = 0.3,
@@ -134,19 +136,24 @@ export function wordState(S: PWord, t: number, ov: number, card: boolean, c: Wor
   if (c.drift) oy -= dimK * 16 + pastK * 26;
   // (each word moves along with its letters' share, so the whole line opens out evenly from its middle; the letters
   // move off at once, a little more gently towards the end)
+  // (the line as a whole widens by at most SPREAD_WIDE letter heights, whatever its length: its letters loosen where
+  // they are — a long line's ends once travelled a word's width sideways, and the line read as sliding off)
   let gapx = 0;
   if (xs > 0) {
-    const h0 = S.lh / S.s;
-    gapx = h0 * SPREAD_GAP * (xs * (1.3 - 0.3 * xs));
-    const n = (Q: PWord) => Q.units.length;
+    const h0 = S.lh / S.s,
+      n = (Q: PWord) => Q.units.length;
     let before = 0;
     for (let j = 0; j < S.k; j++) before += n(L.words[j]);
     const all = L.words.reduce((a, Q) => a + n(Q), 0);
+    gapx = h0 * Math.min(SPREAD_GAP, SPREAD_WIDE / Math.max(1, all - 1)) * eSine(xs);
     ox += gapx * (before + (n(S) - 1) / 2 - (all - 1) / 2);
   }
+  // (floating: two slow swells that never line up, across as well as up and down, the turn lagging behind — one sine
+  // alone read as the word sliding to and fro on a rail)
   const ph = rnd(L.i * 3.1 + S.k * 1.7) * 6.28;
-  oy += Math.sin(t * 0.9 + ph) * c.float * 7;
-  const frot = Math.sin(t * 0.6 + ph * 1.3) * c.float * 1.2;
+  oy += (Math.sin(t * 0.9 + ph) * 0.7 + Math.sin(t * 0.53 + ph * 2.1) * 0.45) * c.float * 7;
+  ox += Math.sin(t * 0.41 + ph * 1.7) * c.float * 3.5;
+  const frot = (Math.sin(t * 0.6 + ph * 1.3) * 0.8 + Math.sin(t * 0.37 + ph) * 0.4) * c.float * 1.2;
   // (the glow of a word being sung goes as the ending comes in, over the ending's own ramp — switched off in its first
   // frame, it vanished in one step under the words that stay on)
   return { o, pe, dimK, pastK, live, gk: (1 - dimK) * (1 - pastK) * (1 - ov), sc, ox, oy, frot, tin, dur, gapx };

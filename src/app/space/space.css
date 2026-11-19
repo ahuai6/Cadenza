@@ -198,7 +198,7 @@
 }
 .results {
   position: absolute;
-  top: 52px;
+  top: 60px;
   right: 0;
   width: 100%;
   border-radius: var(--r-3);
@@ -801,9 +801,42 @@
   height: 6px;
 }
 
-/* ---- the player in the top bar's left corner (3.2.10; the name moved to the bottom right) ----
-   One row, as tall as the rooms beside it (4 px of glass round a 40 px row) and pill-shaped like them, its top and left
-   edges on the bar's own lines. */
+/* ---- the top bar: one height for everything in it (3.2.11) ----
+   Every glass piece in the bar — the player, the rooms, the search, the window's buttons, the settings — is the same
+   height, 4 px of glass round a row of 44 px controls, so their top and bottom edges run on the same two lines. */
+.top {
+  --bar-h: 52px;
+  --bar-in: 44px;
+}
+.top > .player,
+.top > .places,
+.top .search,
+.top .winbtns,
+.top .cfg {
+  height: var(--bar-h);
+  min-height: var(--bar-h);
+  box-sizing: border-box;
+}
+.top > .places {
+  padding: 4px;
+  align-items: center;
+}
+.top > .places button {
+  min-height: var(--bar-in);
+  height: var(--bar-in);
+}
+.top .winbtns {
+  padding: 4px;
+  align-items: center;
+}
+.top .winbtns button {
+  width: var(--bar-in);
+  height: var(--bar-in);
+}
+.top .cfg {
+  width: var(--bar-h);
+}
+/* the player, in the bar's left corner (the name moved to the bottom right) */
 .top > .player {
   position: static;
   transform: none;
@@ -811,37 +844,35 @@
   width: auto;
   max-width: 100%;
   min-width: 0;
-  height: 48px;
-  box-sizing: border-box;
-  padding: 4px 4px 4px 4px;
+  padding: 4px 6px 4px 4px;
   gap: 4px;
   border-radius: var(--r-pill);
 }
 .top > .player #pp {
-  min-width: 40px;
-  width: 40px;
-  min-height: 40px;
-  height: 40px;
+  min-width: var(--bar-in);
+  width: var(--bar-in);
+  min-height: var(--bar-in);
+  height: var(--bar-in);
   padding: 0;
   border-radius: 50%;
   flex: none;
 }
 .top > .player .t {
-  flex: 0 1 190px;
-  min-width: 56px;
-  gap: 0;
-  margin: 0 4px;
+  flex: 0 1 200px;
+  min-width: 64px;
+  gap: 1px;
+  margin: 0 6px 0 8px;
 }
 .top > .player b {
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 14px;
+  line-height: 17px;
 }
 .top > .player .t span {
-  font-size: 11px;
-  line-height: 13px;
+  font-size: 11.5px;
+  line-height: 14px;
 }
 .top > .player .bar {
-  height: 9px;
+  height: 10px;
   margin-top: 1px;
 }
 .top > .player .bar::before,
@@ -857,7 +888,8 @@
   top: 3px;
 }
 .top > .player .hp {
-  min-height: 40px;
+  min-height: 36px;
+  height: 36px;
   padding: 0 12px;
   flex: none;
 }
@@ -870,8 +902,13 @@
   padding: 0;
   flex: none;
 }
+.top > .player .extras [data-test='space-hifi'] {
+  min-height: 36px;
+  height: 36px;
+}
 .top > .player .extras {
   flex: none;
+  align-items: center;
 }
 /* (the room switcher keeps the middle of the window until the bar no longer fits beside it, then takes a row of its own) */
 @media (max-width: 1240px) {
@@ -946,4 +983,25 @@
 .card button[class*='_row']:not(:disabled):active,
 .results button:not(:disabled):active {
   transform: scale(0.985);
+}
+
+/* (every icon on the glass sits at the middle of its button, never on the text's baseline) */
+.card button > svg {
+  display: block;
+  flex: none;
+}
+.btn.mini,
+.cfg {
+  line-height: 0;
+}
+/* the room's name sits under the bar, clear of it at every width (the rooms on a row of their own when narrow) */
+.sign,
+.ledger {
+  top: calc(16px + 52px + 20px + env(safe-area-inset-top, 0px));
+}
+@media (max-width: 1240px) {
+  .sign,
+  .ledger {
+    top: calc(16px + 52px + 12px + 52px + 20px + env(safe-area-inset-top, 0px));
+  }
 }

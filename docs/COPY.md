@@ -57,6 +57,7 @@
 | --- | --- | --- |
 | 播放 | Play | 一首歌 |
 | 全部播放 | Play all | 一張專輯、一張歌單、一組歌；選單與按鈕同名 |
+| 下一首播放 | Play next | 插在正在播的歌後面；「加入播放佇列」放到最後 |
 | 加入播放佇列 | Add to queue | |
 | 加入收藏／取消收藏 | Add to favourites／Remove from favourites | 那張清單叫「收藏」 |
 | 加入歌單 | Add to playlist | |

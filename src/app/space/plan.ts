@@ -86,6 +86,12 @@ export interface Region {
 }
 /** the margin kept from every wall */
 const M = 0.6;
+/** how far to either side of a doorway's line one may walk through it: the opening's own half width a metre up (a
+ *  doorway is round — at the eye it is far wider than at the floor — and one judges it by what one sees, not by its
+ *  foot), less the margin. Through the passages' linings, a little narrower than the doorways they join. */
+const passHalf = (inset: number) => Math.sqrt((DOOR.r - inset) ** 2 - (DOOR.cy - 1) ** 2) - 0.4;
+export const DOOR_PASS = passHalf(0),
+  PASSAGE_PASS = passHalf(0.12);
 /** Where a point on the floor belongs, or null where no one may stand (a wall, outside). Every doorway reaches 1.5 m
  *  into the rooms on both its sides, so the walkable areas always overlap. */
 export function regionAt(p: P2): Region | null {
@@ -94,14 +100,14 @@ export function regionAt(p: P2): Region | null {
   const doorTop = DOOR_TOP - 0.6;
   for (const d of ATRIUM_DOORS) {
     const q = local(p, d);
-    if (Math.abs(q.lat) < DOOR_HALF - 0.4 && q.along > ATRIUM.r - 1.5 && q.along < RING.r0 + 1.5)
+    if (Math.abs(q.lat) < DOOR_PASS && q.along > ATRIUM.r - 1.5 && q.along < RING.r0 + 1.5)
       return { room: q.along < ATRIUM.r + T / 2 ? 'atrium' : 'gallery', top: doorTop, door: true };
   }
   if (rho > RING.r0 + M && rho < RING.r1 - M) return { room: 'gallery', top: RING.h - 0.6 };
   for (const id of Object.keys(ROOMS) as SideRoom[]) {
     const R = ROOMS[id],
       q = local(p, R.th);
-    if (Math.abs(q.lat) < DOOR_HALF - 0.4 && q.along > RING.r1 - 1.5 && q.along < ROOM_IN + 1.5)
+    if (Math.abs(q.lat) < PASSAGE_PASS && q.along > RING.r1 - 1.5 && q.along < ROOM_IN + 1.5)
       return { room: q.along < PASSAGE.from + PASSAGE.len / 2 ? 'gallery' : id, top: doorTop, door: true };
     if (R.kind === 'rect') {
       if (q.along > ROOM_IN + M && q.along < ROOM_IN + R.d - M && Math.abs(q.lat) < R.w / 2 - M)
@@ -182,17 +188,51 @@ export const ALBUM_SLOTS = (() => {
 /** The walls' footprints as segments (for the floor's shading where wall meets floor). */
 export function wallSegments(step = Math.PI / 48): [number, number, number, number][] {
   const segs: [number, number, number, number][] = [];
-  const circle = (c: P2, r: number, gaps: number[], gapHalf: number) => {
+  // (an arc clipped exactly at each doorway's edges — cut at whole steps, the gap's ends sat off the wall's true end and
+  // the floor's shade gathered there in round smudges — and each doorway's two side faces, through the wall's thickness
+  // `thick` outward, so the shade follows the opening's own corners)
+  const circle = (c: P2, r: number, gaps: number[], gapHalf: number, thick = 0) => {
+    const P = (a: number, rr = r) => [c.x + Math.sin(a) * rr, c.z - Math.cos(a) * rr] as const;
+    const inGap = (a: number) => gaps.some((g) => Math.abs(turn(a, g)) < gapHalf);
     for (let a = 0; a < Math.PI * 2 - 1e-9; a += step) {
-      const b = a + step,
-        m = (a + b) / 2;
-      if (gaps.some((g) => Math.abs(turn(m, g)) < gapHalf)) continue;
-      segs.push([c.x + Math.sin(a) * r, c.z - Math.cos(a) * r, c.x + Math.sin(b) * r, c.z - Math.cos(b) * r]);
+      const b = a + step;
+      // the piece's open parts: split at any doorway edge inside it
+      const cuts = [a, b];
+      for (const g of gaps)
+        for (const e of [g - gapHalf, g + gapHalf]) {
+          const k = a + ((((e - a) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2));
+          if (k > a && k < b) cuts.push(k);
+        }
+      cuts.sort((x, y) => x - y);
+      for (let i = 0; i + 1 < cuts.length; i++) {
+        const u = cuts[i],
+          v = cuts[i + 1];
+        if (v - u < 1e-6 || inGap((u + v) / 2)) continue;
+        segs.push([...P(u), ...P(v)]);
+      }
     }
+    // (a side face runs straight through the wall, parallel to the doorway's line, at the doorway's half width)
+    if (thick)
+      for (const g of gaps)
+        for (const sd of [-1, 1]) {
+          const half = r * Math.sin(gapHalf),
+            ux = Math.sin(g),
+            uz = -Math.cos(g),
+            vx = Math.sin(g + Math.PI / 2),
+            vz = -Math.cos(g + Math.PI / 2),
+            a0 = Math.sqrt(r * r - half * half),
+            a1 = Math.sqrt((r + thick) ** 2 - half * half);
+          segs.push([
+            c.x + ux * a0 + vx * sd * half,
+            c.z + uz * a0 + vz * sd * half,
+            c.x + ux * a1 + vx * sd * half,
+            c.z + uz * a1 + vz * sd * half,
+          ]);
+        }
   };
-  circle(A, ATRIUM.r, ATRIUM_DOORS, DOOR_HALF / ATRIUM.r);
+  circle(A, ATRIUM.r, ATRIUM_DOORS, DOOR_HALF / ATRIUM.r, T);
   circle(A, RING.r0, ATRIUM_DOORS, DOOR_HALF / RING.r0);
-  circle(A, RING.r1, RING_DOORS, DOOR_HALF / RING.r1);
+  circle(A, RING.r1, RING_DOORS, DOOR_HALF / RING.r1, T);
   for (const id of Object.keys(ROOMS) as SideRoom[]) {
     const R = ROOMS[id];
     // the passage's two sides
@@ -217,10 +257,16 @@ export function wallSegments(step = Math.PI / 48): [number, number, number, numb
           q = c(n0, l1);
         segs.push([p.x, p.z, q.x, q.z]);
       }
+      // (the doorway's side faces through the near wall)
+      for (const l of [-DOOR_HALF, DOOR_HALF]) {
+        const p = c(n0 - T, l),
+          q = c(n0, l);
+        segs.push([p.x, p.z, q.x, q.z]);
+      }
     } else {
       const cc = centre(id);
       // (the doorway faces back toward the atrium)
-      circle(cc, R.r, [norm(R.th + Math.PI)], DOOR_HALF / R.r);
+      circle(cc, R.r, [norm(R.th + Math.PI)], DOOR_HALF / R.r, T);
     }
   }
   return segs;

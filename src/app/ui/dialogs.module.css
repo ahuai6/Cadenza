@@ -28,6 +28,9 @@
   padding: 26px 26px 22px;
   border-radius: var(--r-3);
   background: var(--float);
+  /* (its own text colour and face: over the space, whose HUD sets others, it reads as it does on the classic pages) */
+  color: var(--fg);
+  font: 450 14px/1.45 var(--font-ui);
   box-shadow:
     inset 0 0 0 1px var(--line),
     var(--shadow-2);
@@ -42,6 +45,9 @@
   box-shadow:
     inset 0 0 0 1px var(--glass-edge),
     0 24px 70px -16px rgba(0, 0, 0, 0.6);
+}
+.modal > * {
+  min-width: 0;
 }
 .modal[data-kind='meta'],
 .modal[data-kind='export'],
@@ -253,6 +259,13 @@
 .field {
   display: grid;
   gap: 6px;
+  min-width: 0;
+}
+/* (a field takes its column's width: a text box's own default width pushed the form past the dialog's right edge) */
+.field input,
+.field textarea {
+  width: 100%;
+  min-width: 0;
 }
 .field > span {
   color: var(--fg-3);

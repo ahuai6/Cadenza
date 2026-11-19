@@ -195,9 +195,10 @@ describe('the spread exit', () => {
     const P = make('flow', 'glide', src, {}, { tout: 'spread' }),
       L = P.lines[0],
       hel = L.words.find((S) => S.w.text === 'hello')!;
-    expect(hel.w.units.map((u) => u.c)).toEqual(['hel', 'lo']);
+    // (a stamp over a syllable lights its letters one after another, up to the next stamp)
+    expect(hel.w.units.map((u) => u.c)).toEqual(['h', 'e', 'l', 'l', 'o']);
     expect(hel.units.map((u) => u.c)).toEqual(['h', 'e', 'l', 'l', 'o']);
-    expect(hel.units.map((u) => u.t)).toEqual([0, 0, 0, 1, 1].map((i) => hel.w.units[i].t));
+    expect(hel.units.map((u) => +u.t!.toFixed(3))).toEqual([2, 2.133, 2.267, 2.4, 2.506]);
     const c = (tempo: number) => ({
       enter: 0.35,
       tempo,
@@ -282,5 +283,25 @@ describe('the halo word ring', () => {
     expect(lo).toBeGreaterThanOrEqual(1.3 - 1e-9);
     expect(hi).toBeLessThanOrEqual(2.5 + 1e-9);
     expect(hi).toBeGreaterThan(2.4);
+  });
+});
+
+describe('one stamp over several characters', () => {
+  it('lights them one after another up to the next stamp, in the model every view reads', async () => {
+    const { spreadUnits } = await import('../../src/lyrics/model');
+    const u = spreadUnits(
+      [
+        { c: '你好', t: 1 },
+        { c: '嗎', t: 2 },
+      ],
+      3,
+    );
+    expect(u.map((x) => [x.c, x.t])).toEqual([
+      ['你', 1],
+      ['好', 1.5],
+      ['嗎', 2],
+    ]);
+    // (the last stamp: over most of the rest of the word, at most a third of a second a character)
+    expect(spreadUnits([{ c: 'ab', t: 0 }], 10).map((x) => x.t)).toEqual([0, 0.3]);
   });
 });

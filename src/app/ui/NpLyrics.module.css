@@ -57,11 +57,26 @@
 /* like Apple Music: the line being sung is sharp, the others softer the further they are; all sharp while the user
    scrolls through them, and the one under the pointer */
 .line[data-on='true'] {
-  opacity: 1;
   filter: none;
   --o: 1;
   --bu: 0.42;
   --onk: 1;
+  /* (its opacity stays var(--o), easing with --bu: set to 1 outright, the words to come — drawn at --bu / --o, still
+     1 at that moment — lit up white for an instant before settling: the flash on every line change) */
+  transition:
+    filter var(--t-fast) var(--ease),
+    --o calc(var(--t-fast) / 2) var(--ease),
+    --bu calc(var(--t-fast) / 2) var(--ease),
+    --onk var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.line[data-on='true'][data-soft='true'] {
+  transition:
+    filter var(--t-slow) var(--ease),
+    --o var(--t-slow) var(--ease),
+    --bu var(--t-slow) var(--ease),
+    --onk var(--t-slow) var(--ease),
+    background var(--t-fast) var(--ease);
 }
 .line:hover,
 .lyr[data-manual='true'] .line,
@@ -141,8 +156,8 @@
 
 /* a wait (the intro, a long break): three dots come in as a line of their own — in the room the line to come and those
    after it make for them (--gap, set with the places; NpLyrics moves the row with that line) — each dot lighting in its
-   turn as the wait runs (--wait: 0..1); a beat before the voice they swell once (--pulse), then draw in and go (--end)
-   as it comes in. Every value is set from the song's time: a paused song holds them still. The line to come keeps its
+   turn as the wait runs (--wait: 0..1); a beat before the voice they swell once (--pulse), then shrink away where they
+   are, on a curve (--end, eased; a wait cut short finishes the same way: 'leaving') as it comes in. Every value is set from the song's time: a paused song holds them still. The line to come keeps its
    own light: the dots are not it, and do not light it early. */
 .dots {
   position: absolute;
@@ -160,10 +175,20 @@
   left: 18px;
   font-size: calc(17px * var(--np-fs, 1));
 }
-.dots[data-on='true'] {
+.dots[data-on='true'],
+.dots[data-on='leaving'] {
   display: flex;
-  scale: calc((1 - var(--end, 0) * 0.6) * (1 + var(--pulse, 0) * 0.16));
-  opacity: calc(1 - var(--end, 0));
+  scale: calc((1 - var(--end, 0)) * (1 + var(--pulse, 0) * 0.16));
+  opacity: calc(1 - var(--end, 0) * var(--end, 0));
+}
+.dots[data-on='leaving'] {
+  animation: dotsOut var(--t-enter) var(--ease-in) forwards;
+}
+@keyframes dotsOut {
+  to {
+    scale: 0;
+    opacity: 0;
+  }
 }
 /* each dot comes up in its turn: its light and its size grow over its third of the wait, softly, never switched on */
 .dots i {
@@ -185,7 +210,8 @@
   --k: 2;
 }
 @media (prefers-reduced-motion: reduce) {
-  .dots[data-on='true'] {
+  .dots[data-on='true'],
+  .dots[data-on='leaving'] {
     scale: 1;
   }
 }

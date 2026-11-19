@@ -2,7 +2,7 @@
 import { tx } from '../../i18n';
 import { Lib } from '../bridge';
 import { lib, toast } from '../state';
-import { enqueue, forgetPrepared, playIds, setInstrumental } from '../playback/player';
+import { enqueue, forgetPrepared, playIds, playNext, setInstrumental } from '../playback/player';
 import { define } from './registry';
 
 const isFav = (id: string) => lib.get().favorites.includes(id);
@@ -44,6 +44,16 @@ define({
   when: (t) => !t.track.protected,
   run: (t) => enqueue([t.track.id]),
 });
+define({
+  id: 'track.playNext',
+  on: 'track',
+  section: 'play',
+  icon: 'next',
+  label: () => tx('s.queue.next'),
+  when: (t) => !t.track.protected,
+  run: (t) => playNext([t.track.id]),
+});
+
 define({
   id: 'track.favorite',
   on: 'track',
@@ -159,6 +169,15 @@ define({
     toast(tx('s.queue.addedN', { n: t.ids.length }));
   },
 });
+define({
+  id: 'tracks.playNext',
+  on: 'tracks',
+  section: 'play',
+  icon: 'next',
+  label: () => tx('s.queue.next'),
+  when: (t) => t.ids.length > 0,
+  run: (t) => playNext(t.ids),
+});
 
 /* ---------- a playlist ---------- */
 define({
@@ -182,6 +201,16 @@ define({
     toast(tx('s.queue.addedN', { n: t.ids.length }));
   },
 });
+define({
+  id: 'playlist.playNext',
+  on: 'playlist',
+  section: 'play',
+  icon: 'next',
+  label: () => tx('s.queue.next'),
+  when: (t) => t.ids.length > 0,
+  run: (t) => playNext(t.ids),
+});
+
 define({
   id: 'playlist.rename',
   on: 'playlist',

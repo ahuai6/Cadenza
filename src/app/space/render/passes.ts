@@ -180,24 +180,37 @@ export class ShaftsPass extends Pass {
           vec4 v = projInv*vec4(vUv*2.-1., 1., 1.); vec3 dir = normalize((camWorld*vec4(v.xyz/v.w, 0.)).xyz); vec3 fwd = normalize((camWorld*vec4(0.,0.,-1.,0.)).xyz);
           float L = (exp2(texture2D(tD, vUv).x*log2(far+1.)) - 1.)/max(.05, dot(dir, fwd));
           vec3 acc = vec3(0.); float accS = 0.;
+          // Each beam is a round volume of light about its axis, nearly even across and softening only at its edge (a
+          // bell-shaped glow read as fog, not as a shaft). The light reaching the eye is that volume summed along the view
+          // ray, up to the first surface: sixteen samples across the stretch of the ray that passes near the axis. (It took
+          // one point — where the ray passes the axis closest — and stopped there at the surface: since the beams lean with
+          // the sun that point lay behind a wall for most of the picture, and the beams all but vanished.)
           for (int i = 0; i < 64; i++) { if (i >= nSeg) break; vec4 a = texelFetch(segs, ivec2(i,0), 0), b = texelFetch(segs, ivec2(i,1), 0); vec2 kk = texelFetch(segs, ivec2(i,2), 0).xy; float k = kk.x;
-            vec3 u = b.xyz-a.xyz, w0 = camPos-a.xyz; float bb = dot(dir,u), cc = dot(u,u), dd = dot(dir,w0), ee = dot(u,w0), den = max(cc-bb*bb, 1e-4);
-            float tu = (ee-bb*dd)/den, t = clamp(tu, 0., 1.); vec3 q = a.xyz+u*t; float s = clamp(dot(q-camPos, dir), 0., L);
-            vec3 p = camPos+dir*s; float r = mix(a.w, b.w, t), d = length(p-q), sn = sqrt(max(1.-bb*bb/cc, .03));
-            float near = smoothstep(.8, 4., s);
-            // a narrow bright core inside a faint wide halo; thickness no longer adds brightness, so every beam reads the same
-            // (soft all across the opening's width: no thin bright thread down a wide window's shaft)
-            float prof = kk.y > .5 ? .7*exp(-d*d/(r*r)*1.1) : .75*exp(-d*d/(r*r)*2.2) + .25*exp(-d*d/(r*r)*.8);
-            // looking along a shaft — up it at the sun, or down it from the window — it fades: seen end on, its round edge
-            // showed as a ring, like a mask over the sky
-            float along = abs(bb)/sqrt(cc);
-            prof *= smoothstep(.97, .82, along);
+            vec3 u = b.xyz-a.xyz; float len = max(length(u), 1e-4); vec3 e = u/len, w = camPos-a.xyz;
+            float bb = dot(dir, e), A = max(1.-bb*bb, .02), s0 = (bb*dot(e, w) - dot(dir, w))/A;
+            float rm = max(a.w, b.w), span = 1.6*rm/sqrt(A), S0 = max(0., s0 - span), S1 = min(L, s0 + span);
+            if (S1 <= S0) continue;
+            float st = (S1 - S0)/16., sum = 0., tm = 0.;
+            for (int j = 0; j < 16; j++) {
+              vec3 q = w + dir*(S0 + (float(j) + .5)*st); float along = dot(q, e), t = along/len;
+              float r = max(mix(a.w, b.w, clamp(t, 0., 1.)), .05), d = length(q - e*along);
+              float f = (1. - smoothstep(.55, 1., d/r))*smoothstep(-.05, .15, t)*smoothstep(1.15, 1., t);
+              sum += f*st/r; tm += f*t*st/r; }
+            // (looking along a shaft — up it at the sun, or down it from the window — it fades: seen end on its round edge
+            // showed as a ring, like a mask over the sky)
+            float prof = .5*sum*smoothstep(.97, .82, abs(bb))*smoothstep(.6, 3., S0 + (S1 - S0)*.5);
+            float t = sum > 1e-4 ? tm/sum : 0.;
             vec3 sc = texelFetch(segs, ivec2(i,3), 0).rgb;
             // each beam breathes on its own slow, unrelated rhythm
             float fi = float(i), breathe = 1. + .09*sin(time*.21 + fi*1.71)*sin(time*.133 + fi*4.13) + .05*sin(time*.47 + fi*2.93);
-            float add = k*breathe*prof*min(1.25/sn, 3.2)*smoothstep(0., .2, tu)*(1.-.35*t)*near; if (kk.y > .5) accS += add; else acc += add*sc; }   // fade softly past the window end (a hard cut there left a ring)
+            float add = k*breathe*prof*(1. - .35*t); if (kk.y > .5) accS += add; else acc += add*sc; }
           float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898,78.233)))*43758.5453)*.04;
-          gl_FragColor = vec4(base.rgb + (col*acc + colS*accS)*gain*(1.+n), base.a); }`,
+          // (light in the air: it lifts what is behind it and veils it toward the light's own colour — added light alone was
+          // lost on the pale walls of the dusk palette, already near white)
+          vec3 lit = (col*acc + colS*accS)*gain*(1.+n);
+          float veil = clamp(max(lit.r, max(lit.g, lit.b))*1.35, 0., .62);
+          vec3 tone = (col + vec3(.02))/max(max(col.r, col.g), max(col.b, .02));
+          gl_FragColor = vec4(mix(base.rgb, tone, veil) + lit*.35, base.a); }`,
     });
     this.q = new FullScreenQuad(this.mat);
   }

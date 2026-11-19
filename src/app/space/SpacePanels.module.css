@@ -2,7 +2,7 @@
 /* (opening down from the player, which sits in the top bar's left corner, on the same left edge) */
 .panel {
   left: max(16px, env(safe-area-inset-left, 0px));
-  top: calc(76px + env(safe-area-inset-top, 0px));
+  top: calc(80px + env(safe-area-inset-top, 0px));
   width: min(420px, calc(100% - 32px));
   height: min(60vh, 560px);
   display: flex;
@@ -43,6 +43,20 @@
 .x {
   width: 34px;
   height: 34px;
+}
+/* (an icon alone on a round button: the icon at its very centre — not on the text's baseline, which sat it low) */
+.x,
+.rm,
+.ib {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  line-height: 0;
+}
+.x > svg,
+.rm > svg,
+.ib > svg {
+  display: block;
 }
 .clear {
   height: 30px;
@@ -158,6 +172,8 @@
   padding: 0 !important;
   min-width: 40px !important;
   width: 40px;
+  height: 40px;
+  min-height: 40px !important;
 }
 .ib[aria-pressed='true'] {
   background: rgba(255, 255, 255, 0.22) !important;
@@ -168,9 +184,9 @@
 }
 /* an album, a playlist or a song opened where you stand */
 .detail {
-  top: calc(84px + env(safe-area-inset-top, 0px));
+  top: calc(80px + env(safe-area-inset-top, 0px));
   height: auto;
-  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 .dhead {
   display: flex;
@@ -355,8 +371,9 @@
 
 /* (a narrow window: the rooms take a second row of the top bar, the panel opens below them) */
 @media (max-width: 1240px) {
-  .panel {
-    top: calc(136px + env(safe-area-inset-top, 0px));
+  .panel,
+  .detail {
+    top: calc(144px + env(safe-area-inset-top, 0px));
   }
 }
 

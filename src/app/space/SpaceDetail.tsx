@@ -13,7 +13,9 @@ import { addToPlaylist, renamePlaylist, run, type Target } from '../commands';
 import { ts } from './i18n';
 import s from './SpacePanels.module.css';
 
-export type Detail = { kind: 'album' | 'playlist' | 'song'; key: string } | null;
+/** `from`: for a song, the list it was picked from (the atrium's wall: every song, in its order) — playing it plays on
+ *  through that list, as a song picked in the classic library's list does */
+export type Detail = { kind: 'album' | 'playlist' | 'song'; key: string; from?: string[] } | null;
 
 export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () => void }) {
   const idx = useIndex(),
@@ -87,7 +89,9 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
   // (a song of this card, as the commands take it)
   const song = (t: Track): Target => ({ kind: 'track', track: t, list: view.tracks, playlist: view.list?.id });
   const play = (i: number) => {
-    playIds(ids, i).catch(() => {});
+    const from = one ? detail.from : undefined,
+      at = from ? from.indexOf(ids[i]) : -1;
+    (at >= 0 ? playIds(from!, at) : playIds(ids, i)).catch(() => {});
   };
   return (
     <section className={`hud card ${s.panel} ${s.detail}`} aria-label={view.title} data-test="space-detail">
@@ -136,6 +140,15 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
         >
           <Icon n="queue" size={15} />
           {tx('s.queue.add')}
+        </button>
+        <button
+          type="button"
+          className={s.ghost}
+          disabled={!ids.length}
+          onClick={() => run('tracks.playNext', { kind: 'tracks', ids })}
+        >
+          <Icon n="next" size={15} />
+          {tx('s.queue.next')}
         </button>
         {one && (
           <button

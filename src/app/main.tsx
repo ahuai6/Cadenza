@@ -7,6 +7,9 @@ import { createRoot } from 'react-dom/client';
 import { D, Lib } from './bridge';
 import { Shell } from './views/Shell';
 import { WebApp } from './views/workshop/WebApp';
+import { pointerFocusRelease } from './focus';
+
+pointerFocusRelease();
 
 const root = createRoot(document.getElementById('root')!);
 (async () => {

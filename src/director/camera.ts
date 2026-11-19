@@ -30,6 +30,8 @@ import { timePassage, roomForQuick } from './passages';
 
 export const EASES: Record<string, Ease> = {
   lin: (u) => u,
+  // (a hover's drift: it eases off and settles, never a constant slide)
+  breathe: (u) => 0.5 - 0.5 * Math.cos(Math.PI * u),
   cruise: (u) => 0.5 * u + 0.5 * (1 - (1 - u) ** 2),
   reach: (u) => 1 - (1 - u) ** 2.4, // (a long way: most of it at once, landing on the move)
   // (off at pace, still moving as it lands: it never comes to a stop)
@@ -584,7 +586,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
           ax = A.fax || A.dir;
         if (A.drift > 0 && Number.isFinite(A.drift) && h1 - h0 > 0.2 && !A.over) {
           const dd = Math.min(A.drift, (A.drift * (h1 - h0)) / 2.5);
-          drifts.push([h0, h1, ax[0] * dd, ax[1] * dd, smooth ? 'lin' : undefined]);
+          drifts.push([h0, h1, ax[0] * dd, ax[1] * dd, hover || A.hov ? 'breathe' : smooth ? 'lin' : undefined]);
           A.x += ax[0] * dd;
           A.y += ax[1] * dd;
         }
@@ -635,7 +637,17 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     {
       const C = stops[i + 1];
       let j = -1;
-      if (C && !C.cut && !roll && !B.cut && arrive > B.t + 0.3 && arrive >= Math.min(B.sungEnd - 0.1, C.t - 0.15)) {
+      // (only when those next words are coming in soon: with the next stop seconds away — a long note, a harmony still
+      // sung under these words — the camera comes here late rather than waiting by words not yet sung)
+      if (
+        C &&
+        !C.cut &&
+        !roll &&
+        !B.cut &&
+        arrive > B.t + 0.3 &&
+        arrive >= Math.min(B.sungEnd - 0.1, C.t - 0.15) &&
+        C.t <= arrive + 1.2
+      ) {
         j = i + 1;
         while (
           stops[j + 1] &&

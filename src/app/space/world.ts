@@ -29,6 +29,7 @@ import { frameLoop } from '../../core/frames';
 export interface SpaceUi {
   openSettings(section?: string): void;
   closeSettings(): void;
+  /** the settings button: opens them, or closes them when they are open */ toggleSettings(): void;
   /** open what was clicked (an album, a playlist, a song) where you stand, or close it */ show(
     d: { kind: 'album' | 'playlist' | 'song'; key: string } | null,
   ): void;
@@ -38,6 +39,21 @@ export interface SpaceUi {
     x: number,
     y: number,
   ): void;
+}
+// Round things (a vase, a column, a stool) showed stripes of shadow across their curve: where the surface turns away from
+// the sun, its own shadow map sampled itself in bands (acne). Their own shade there comes from the toon ramp anyway, so a
+// cast shadow fades out over the last few degrees before the turn — a shadow cast on anything facing the sun at all
+// (the floor, every wall that is lit) is left whole. Patched into three's shared chunk once.
+function noTerminatorAcne() {
+  const C = THREE.ShaderChunk as Record<string, string>,
+    k = 'lights_fragment_begin',
+    from =
+      'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
+  if (!C[k].includes(from)) return;
+  C[k] = C[k].replace(
+    from,
+    'directLight.color *= ( directLight.visible && receiveShadow ) ? mix( 1.0, getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ), smoothstep( 0.0, 0.12, dot( geometryNormal, directLight.direction ) ) ) : 1.0;',
+  );
 }
 export function createWorld(
   bind: SpaceBind,
@@ -157,6 +173,7 @@ export function createWorld(
   sun.castShadow = true;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.09;
+  noTerminatorAcne();
   scene.add(sun, sun.target);
   const fill = new THREE.DirectionalLight(NIGHT ? lin(0.06, 0.07, 0.1) : lin(0.12, 0.11, 0.1), Math.PI);
   // (the sky's own light, from the side away from the sun: the shade of round things turns toward it, never a second sun)
@@ -2044,13 +2061,37 @@ export function createWorld(
       albumMeshes.push({ g, art, pl, s });
     });
   }
+  // a page turned: each frame swings in about its upright axis, one after another along the wall
+  const flips = [];
+  function flipIn(objs, dir) {
+    const t0 = performance.now();
+    objs.forEach((o, k) => {
+      flips.push({ o, base: o.rotation.y, from: (dir >= 0 ? 1 : -1) * Math.PI * 0.5, t0: t0 + k * 45 });
+      o.rotation.y += (dir >= 0 ? 1 : -1) * Math.PI * 0.5;
+    });
+  }
+  function flipStep(now) {
+    for (let k = flips.length - 1; k >= 0; k--) {
+      const f = flips[k],
+        u = Math.max(0, Math.min(1, (now - f.t0) / 420)),
+        e = 1 - Math.pow(1 - u, 3);
+      f.o.rotation.y = f.base + f.from * (1 - e);
+      if (u >= 1) flips.splice(k, 1);
+    }
+  }
   function setNavePage(pg) {
-    const n = navePages(LIB);
+    const n = navePages(LIB),
+      dir = Math.sign(pg - navePg) || 1;
     pg = ((pg % n) + n) % n;
     if (pg === navePg && albumMeshes.length) return;
     navePg = pg;
     ALBUMS = navePage(LIB, pg);
     buildNave();
+    if (!RM())
+      flipIn(
+        albumMeshes.map((m) => m.g),
+        dir,
+      );
   }
   buildNave();
   sofas.forEach((s) =>
@@ -2496,12 +2537,18 @@ export function createWorld(
   const listTone = [toon('#B2C0CF'), toon('#C9D2DA')];
   const listPages = () => Math.max(1, Math.ceil(LIB.playlists.length / LIST_SLOTS));
   function setListPage(pg) {
-    const n = listPages();
+    const n = listPages(),
+      dir = Math.sign(pg - listPg) || 1;
     pg = ((pg % n) + n) % n;
     if (pg === listPg && listMeshes.length) return;
     listPg = pg;
     PLAYLISTS = LIB.playlists.slice(pg * LIST_SLOTS, (pg + 1) * LIST_SLOTS);
     buildLists();
+    if (!RM())
+      flipIn(
+        listMeshes.map((L) => L.im),
+        dir,
+      );
   }
   buildLists();
 
@@ -3245,7 +3292,8 @@ export function createWorld(
     tierGoal = Math.floor(i / PER);
     const at = new V3();
     songPose(i, tierGoal, at);
-    show({ kind: 'song', key: SONGS[i].id }, room === 'atrium' ? at : null);
+    // (played from here, the song plays on through the whole wall, in its order)
+    show({ kind: 'song', key: SONGS[i].id, from: SONGS.map((x) => x.id) }, room === 'atrium' ? at : null);
   }
   function focusList(k) {
     const L = listMeshes[k],
@@ -3481,6 +3529,8 @@ export function createWorld(
       tip.hidden = false;
     } else tip.hidden = true;
   }
+  // (where there is more than one page, the tip says which, and how to turn it)
+  const withPage = (sub, pg, n) => (n > 1 ? `${sub ? sub + ' · ' : ''}${ts('tip.page', { p: pg + 1, n })}` : sub);
   const tipText = (h) =>
     h.kind === 'radio'
       ? [ts('radio'), ts(radio.held ? 'radio.drop' : 'radio.take')]
@@ -3489,9 +3539,9 @@ export function createWorld(
         : h.kind === 'song'
           ? [SONGS[h.i]?.title || '', SONGS[h.i]?.artist || '']
           : h.kind === 'album'
-            ? [ALBUMS[h.i]?.title || '', ALBUMS[h.i]?.artist || '']
+            ? [ALBUMS[h.i]?.title || '', withPage(ALBUMS[h.i]?.artist || '', navePg, navePages(LIB))]
             : h.kind === 'playlist'
-              ? [PLAYLISTS[h.i]?.name || '', PLAYLISTS[h.i]?.note || '']
+              ? [PLAYLISTS[h.i]?.name || '', withPage(PLAYLISTS[h.i]?.note || '', listPg, listPages())]
               : [SECTIONS.find((s) => s[0] === h.key)[1], ts('tip.settings')];
   canvas.addEventListener('pointermove', (e) => {
     if (looking || locked) {
@@ -3520,6 +3570,9 @@ export function createWorld(
       tip.hidden = false;
     } else tip.hidden = true;
   }
+  let pageWheel = 0,
+    pageWheelAt = 0,
+    pageTurnAt = 0;
   canvas.addEventListener(
     'wheel',
     (e) => {
@@ -3528,7 +3581,31 @@ export function createWorld(
       if (room === 'atrium' && inAtrium(me.pos, 1)) {
         tierGoal = Math.max(-0.35, Math.min(TIERS - 0.65, tierGoal + d / 110));
         wheelRest = performance.now();
-      } else walk.push(-d * 0.02);
+        return;
+      }
+      // the gallery's albums and the collection room's playlists turn their pages as the atrium's songs do: the wheel
+      // over one of them (a notch or a swipe's worth a page, at most a page every half second); elsewhere it walks
+      if (room === 'gallery' || room === 'lists') {
+        const pt = locked ? { x: innerWidth / 2, y: innerHeight / 2 } : { x: e.clientX, y: e.clientY },
+          h = pickAt(pt.x, pt.y),
+          over = h && ((room === 'gallery' && h.kind === 'album') || (room === 'lists' && h.kind === 'playlist'));
+        if (over) {
+          const now = performance.now();
+          pageWheel = now - pageWheelAt > 400 ? d : pageWheel + d;
+          pageWheelAt = now;
+          if (Math.abs(pageWheel) >= 60 && now - pageTurnAt > 500) {
+            pageTurnAt = now;
+            const step = pageWheel > 0 ? 1 : -1;
+            pageWheel = 0;
+            hideCards();
+            if (room === 'gallery') {
+              if (navePages(LIB) > 1) setNavePage(navePg + step);
+            } else if (listPages() > 1) setListPage(listPg + step);
+          }
+          return;
+        }
+      }
+      walk.push(-d * 0.02);
     },
     { passive: false },
   );
@@ -3560,9 +3637,17 @@ export function createWorld(
       ui.openSettings();
       return;
     }
-    if (e.key === 'Alt' && locked) {
+    // Alt, immersive: the pointer out for a moment, for the HUD — once. Closing what it opened, a click on the scene or
+    // Alt again takes the view back (relock: takePointer)
+    if (e.key === 'Alt' && immersive()) {
       e.preventDefault();
-      document.exitPointerLock?.();
+      if (locked) {
+        relock = true;
+        document.exitPointerLock?.();
+      } else if (!e.repeat) {
+        relock = false;
+        canvas.requestPointerLock?.();
+      }
       return;
     }
     if (e.code === 'KeyR') {
@@ -3679,7 +3764,7 @@ export function createWorld(
   $('cfg').onclick = () => {
     hideCards();
     freePointer();
-    ui.openSettings();
+    ui.toggleSettings();
   };
   $('q').addEventListener('input', () => {
     const q = $('q').value.trim(),
@@ -4155,6 +4240,8 @@ export function createWorld(
     air.tint.edge.value.set(C.clay).lerp(_a, A);
     tone(_b, tintNow, 0.44, 0.9, 0.3, 0.7);
     air.tint.top.value.set('#6E5A49').lerp(_b, A);
+    // (a character still to be sung: the pale paper, leaning a little to the fill's own top so the two belong together)
+    air.tint.pale.value.set(C.ivory).lerp(air.tint.top.value, 0.22);
     tone(_b, tintNow, 0.12, 0.7, 0.2, 0.5);
     air.tint.bottom.value.set(C.ink).lerp(_b, A * 0.8);
     beatFloor.material.uniforms.col.value.set(C.clay).lerp(_a, A);
@@ -4166,6 +4253,7 @@ export function createWorld(
     camDir = new V3();
   function frame(now) {
     if (!alive) return;
+    if (flips.length) flipStep(now);
     frameN++;
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now; // (the first frame can be stamped before the loop began)
@@ -4280,7 +4368,7 @@ export function createWorld(
     // the clear-sky panels brighten with the accents as the beams do
     for (const d of domes) if (d.sky?.material?.color) d.sky.material.color.setScalar(1.05 * (1 + 0.35 * swell));
     shafts.mat.uniforms.gain.value =
-      0.145 * (S.beams ? 1 : 0) * S.fxBeams * (1 + 0.9 * swell + (P.beatBeams ? 0.35 * beatPush : 0));
+      0.38 * (S.beams ? 1 : 0) * S.fxBeams * (1 + 0.9 * swell + (P.beatBeams ? 0.35 * beatPush : 0));
     // the floor of the crossing: ripples spread out every 8 s; pools follow the beat and breathe on their own phase
     lightPools.forEach((m, k) => {
       const t = now / 1000,
@@ -4445,6 +4533,43 @@ export function createWorld(
       filed: FILED.reduce((m, f) => ((m[f.r] = (m[f.r] || 0) + 1), m), {}),
       kids: world.children.length,
     }),
+    // (for the tests: soft shades on the floor with nothing standing over them — a shade left behind)
+    orphans: () => {
+      world.updateMatrixWorld(true);
+      const shades = [],
+        things = [],
+        bb = new THREE.Box3();
+      world.traverse((o) => {
+        if (!o.isMesh || !o.visible) return;
+        if (o.material?.map === BLOB) shades.push(o);
+        else if (!o.isInstancedMesh && !ARCH_MATS().has(o.material)) {
+          bb.setFromObject(o);
+          if (!bb.isEmpty() && bb.min.y < 2.2 && bb.max.x - bb.min.x < 8 && bb.max.z - bb.min.z < 8)
+            things.push(bb.clone());
+        }
+      });
+      return shades
+        .map((o) => o.getWorldPosition(new V3()))
+        .filter(
+          (p) =>
+            !things.some(
+              (b) => p.x > b.min.x - 0.3 && p.x < b.max.x + 0.3 && p.z > b.min.z - 0.3 && p.z < b.max.z + 0.3,
+            ),
+        )
+        .map((p) => [+p.x.toFixed(2), +p.z.toFixed(2), regionAt(p)?.room || '-']);
+    },
+    // (for the tests: the beams the shaft pass is given — how many, and each one's strength as the pass reads it)
+    beamInfo: () => {
+      const d = segTex().image.data;
+      return {
+        count: segs.length,
+        k: segs.map((x) => +x[4].toFixed(3)),
+        texK: segs.map((_, i) => +d[(128 + i) * 4].toFixed(3)),
+        r: segs.map((x) => [+x[2].toFixed(2), +x[3].toFixed(2)]),
+        gain: shafts.mat.uniforms.gain.value,
+        on: shafts.enabled,
+      };
+    },
     cullOff: (off) => {
       if (off) FILED.length = 0;
       else if (!FILED.length) fileRooms();
@@ -4527,8 +4652,18 @@ export function createWorld(
     const bb = new THREE.Box3(),
       sp = new THREE.Sphere();
     world.updateMatrixWorld(true);
+    // (the building itself is never hidden: a passage's lining or a room's wall is seen through doorways at angles a
+    // room's contents are not, and a lining whose middle lay on the room's side of the passage went missing from the ring)
+    const ARCH = ARCH_MATS();
+    const arch = (o) => {
+      let a = false;
+      o.traverse((c) => {
+        if (c.isMesh && ARCH.has(c.material)) a = true;
+      });
+      return a;
+    };
     for (const o of world.children) {
-      if (o === radio.g || o.userData.noCull) continue;
+      if (o === radio.g || o.userData.noCull || arch(o)) continue;
       bb.setFromObject(o);
       if (bb.isEmpty()) continue;
       bb.getBoundingSphere(sp);
@@ -4538,6 +4673,8 @@ export function createWorld(
       if (r) FILED.push({ o, r });
     }
   }
+  // the building's own materials: walls, floors, ceilings
+  const ARCH_MATS = () => new Set([MAT_CEIL, MAT.floor, ...Object.values(WALL)]);
   const SIDE = ['lists', 'listening', 'settings'];
   const _cv = new V3();
   // A room off the ring is reached through four openings in a row along its own line: the atrium's door, the far side
@@ -4583,7 +4720,10 @@ export function createWorld(
     const c = camera.getWorldPosition(_cv),
       th = Math.atan2(c.x - CROSS.c.x, -(c.z - CROSS.c.z)),
       seen = new Set(['gallery', 'atrium']);
-    const here = regionAt(c)?.room || room;
+    // (the eye pressed into a wall or a doorway's edge belongs to no room: nothing is hidden then)
+    const reg = regionAt(c);
+    if (!reg) return new Set(['gallery', 'atrium', ...SIDE]);
+    const here = reg.room;
     if (SIDE.includes(here)) {
       seen.add(here);
       const out = gaps(here, c, false);

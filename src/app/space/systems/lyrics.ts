@@ -57,6 +57,7 @@ interface Glyph {
   card: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   m: THREE.MeshBasicMaterial;
   ek: { value: number };
+  /** how far it has been sung (0: still to come — drawn paler, never thinner) */ sk: { value: number };
   ch: string;
   /** its size against a main glyph's (a harmony is smaller) */ s: number;
   harm: boolean;
@@ -88,6 +89,10 @@ export interface Flying {
   harmT: number | null;
   nMain: number;
   times: number[] | null;
+  /** where the line keeps to, relative to the visitor, and how high it sits */
+  off: THREE.Vector3;
+  /** when it was hurried away (too many falling at once): it fades fast instead of vanishing (ms; 0: not) */
+  hurry: number;
 }
 
 /** character height in metres */
@@ -102,10 +107,13 @@ const GLYPHS_KEPT = 360;
 /** seconds before the next line that the one in the air begins to leave */
 const LEAVE_EARLY = 0.6;
 /** how much of the view's width a line may take: tried widest first */
-const SHARES = [0.84, 0.62, 0.46];
+const SHARES = [0.94, 0.76, 0.58];
 /** lines in the air, and falling, at most */
 const MAX_AIR = 4,
-  MAX_FALLING = 6;
+  MAX_FALLING = 8;
+/** draw order: a line still sung always over one leaving (both are drawn over the room) */
+const ORDER_AIR = 7,
+  ORDER_FALLING = 6;
 
 export class AirLyrics {
   /** every line in the air or falling, oldest first */
@@ -117,8 +125,12 @@ export class AirLyrics {
     edge: { value: new THREE.Color() },
     top: { value: new THREE.Color('#6E5A49') },
     bottom: { value: new THREE.Color() },
+    /** what a character still to be sung leans to */
+    pale: { value: new THREE.Color() },
   };
   private on = false;
+  /** the free band this frame (read from the page once a frame, at most) */
+  private band: { yTop: number; yBot: number } | null = null;
   private lastIdx = -1;
   private lastPos: THREE.Vector3 | null = null;
   private faceNow: { stack: string; w: number };
@@ -142,6 +154,7 @@ export class AirLyrics {
     this.faded = new THREE.Color(o.colours.faded);
     this.tint.edge.value.set(o.colours.edge);
     this.tint.bottom.value.set(o.colours.ink);
+    this.tint.pale.value.set(o.colours.faded);
   }
 
   /** The face in use (what else is drawn in the lyric face reads it). */
@@ -157,6 +170,7 @@ export class AirLyrics {
   /** Every frame. `cur`: the index of the line being sung (-1: none). */
   tick(now: number, dt: number, song: AirSong, cur: number) {
     this.faceTick(song);
+    this.band = null;
     if (song.playing && !this.on) {
       this.on = true;
       this.lastIdx = -1;
@@ -194,15 +208,19 @@ export class AirLyrics {
     while (air.length > MAX_AIR) this.fall(air.shift()!);
     for (let i = this.lines.length - 1; i >= 0; i--) {
       const l = this.lines[i];
-      if (!l.falling) this.hover(l, now, song.t);
+      if (!l.falling) this.hover(l, now, dt, song.t);
       else if (this.drop(l, now, dt)) {
         this.free(l);
         this.lines.splice(i, 1);
       }
     }
-    const falling = this.lines.filter((l) => l.falling);
-    while (falling.length > MAX_FALLING) {
-      const l = falling.shift()!;
+    // too many falling at once (lines coming fast): the oldest are hurried — they fade out quickly where they are, never
+    // simply vanish; only far past that are any let go at once
+    const falling = this.lines.filter((l) => l.falling && !l.hurry);
+    while (falling.length > MAX_FALLING) falling.shift()!.hurry = now;
+    const all = this.lines.filter((l) => l.falling);
+    while (all.length > MAX_FALLING * 3) {
+      const l = all.shift()!;
       this.free(l);
       this.lines.splice(this.lines.indexOf(l), 1);
     }
@@ -291,9 +309,14 @@ export class AirLyrics {
   }
 
   /** The fill runs top to bottom from a light tone to a deep one, with a soft sheen across its upper part and a bevel
-   *  lit from the upper left (the glyph's own edges, read from its texture); a thin outline in the accent. Bleaching
-   *  (`ek` to 0), all of it turns to the faded colour together. */
-  private glyphMat(map: THREE.Texture): { m: THREE.MeshBasicMaterial; ek: { value: number } } {
+   *  lit from the upper left (the glyph's own edges, read from its texture); the outline, in the accent, runs the same
+   *  way from light to deep, so the two read as one. Solid throughout: a character still to be sung is paler (`sk`),
+   *  never see-through. Bleaching (`ek` to 0), all of it turns to the faded colour together. */
+  private glyphMat(map: THREE.Texture): {
+    m: THREE.MeshBasicMaterial;
+    ek: { value: number };
+    sk: { value: number };
+  } {
     const m = new THREE.MeshBasicMaterial({
         map,
         color: this.ink.clone(),
@@ -303,14 +326,20 @@ export class AirLyrics {
         depthTest: false, // (drawn over the room from first to last: a glyph that ends up in a wall is still seen)
       }),
       ek = { value: 1 },
+      sk = { value: 1 },
       T = this.tint;
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uEdge = T.edge;
       sh.uniforms.uEdgeK = ek;
       sh.uniforms.uTop = T.top;
       sh.uniforms.uBot = T.bottom;
+      sh.uniforms.uPale = T.pale;
+      sh.uniforms.uSung = sk;
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec3 uEdge, uTop, uBot; uniform float uEdgeK;')
+        .replace(
+          '#include <common>',
+          '#include <common>\nuniform vec3 uEdge, uTop, uBot, uPale; uniform float uEdgeK, uSung;',
+        )
         .replace(
           '#include <map_fragment>',
           `
@@ -319,19 +348,22 @@ export class AirLyrics {
         float v = vMapUv.y; vec3 grad = mix(uBot, uTop, smoothstep(.22, .82, v));
         grad += vec3(.16) * smoothstep(.56, .68, v) * (1. - smoothstep(.68, .84, v));
         grad = grad + hl * .42 * (vec3(1.) - grad) - sd * .3 * grad;
-        vec3 fillC = mix(diffuseColor.rgb, grad, uEdgeK), edgeC = uEdge + hl * .35 * (vec3(1.) - uEdge);
+        float shade = smoothstep(.15, .85, v), un = (1. - uSung) * .6;
+        vec3 edgeG = mix(uEdge * .72, mix(uEdge, vec3(1.), .12), shade);
+        grad = mix(grad, uPale, un); edgeG = mix(edgeG, mix(uEdge, uPale, .5), un);
+        vec3 fillC = mix(diffuseColor.rgb, grad, uEdgeK), edgeC = edgeG + hl * .35 * (vec3(1.) - edgeG);
         diffuseColor = vec4(mix(mix(edgeC, fillC, 1. - uEdgeK), fillC, gF), diffuseColor.a * gT.a * mix(1., gF, 1. - uEdgeK));`,
         );
     };
     m.customProgramCacheKey = () => 'glyph';
-    return { m, ek };
+    return { m, ek, sk };
   }
 
   private glyph(ch: string, s: number, harm: boolean): Glyph {
-    const { m, ek } = this.glyphMat(this.glyphTex(ch));
+    const { m, ek, sk } = this.glyphMat(this.glyphTex(ch));
     const card = new THREE.Mesh(new THREE.PlaneGeometry(CH, CH), m);
     card.position.y = CH / 2;
-    card.renderOrder = 6;
+    card.renderOrder = ORDER_AIR;
     this.o.unlisted.add(card);
     const pivot = new THREE.Group();
     pivot.scale.setScalar(s);
@@ -341,6 +373,7 @@ export class AirLyrics {
       card,
       m,
       ek,
+      sk,
       ch,
       s,
       harm,
@@ -388,7 +421,7 @@ export class AirLyrics {
    *  space where there is one late enough. */
   private rowsOf(text: string, share: number): string[][] {
     const cam = this.o.camera,
-      wide = 2 * 3.6 * Math.tan((cam.fov * Math.PI) / 360) * cam.aspect * share;
+      wide = 2 * 5 * Math.tan((cam.fov * Math.PI) / 360) * cam.aspect * share;
     const cs = [...text.trim()],
       rows: string[][] = [];
     let i = 0;
@@ -478,17 +511,17 @@ export class AirLyrics {
     for (let k = 0; k < 72; k++) {
       const a = yaw + Math.max(-0.9, Math.min(0.9, gauss() * 0.24)),
         el = Math.max(-0.3, Math.min(0.5, pitch * 0.6 + gauss() * 0.07)),
-        d = 3.3 + Math.random() * 2.6;
+        d = 4 + Math.random() * 2.4;
       const dir = new THREE.Vector3(-Math.sin(a) * Math.cos(el), Math.sin(el), -Math.cos(a) * Math.cos(el)),
         p = ahead.clone().addScaledVector(dir, d);
-      p.y = Math.max(0.9 + height / 2, Math.min(6, p.y));
+      p.y = Math.max(0.35 + height / 2, Math.min(6, p.y));
       if (p.distanceTo(cam) < 2.2) continue; // (never in your face)
       const side = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a)).multiplyScalar(width / 2 + 0.3);
       if (!this.o.inside(p.clone().add(side)) || !this.o.inside(p.clone().sub(side)) || !this.o.inside(p)) continue;
       const toCam = Math.atan2(cam.x - p.x, cam.z - p.z),
         rect = this.screenRect(p, toCam, width, height);
       if (this._q.copy(p).project(camera).z > 1) continue;
-      const fits = rect[0] > -0.92 && rect[1] < 0.92 && rect[2] > band.yBot && rect[3] < band.yTop,
+      const fits = rect[0] > -0.96 && rect[1] < 0.96 && rect[2] > band.yBot && rect[3] < band.yTop,
         free = !this.lines.some((l) => !l.falling && overlaps(rect, this.screenRect(l.pos, l.yaw, l.width, l.height)));
       if (strict && (!fits || !free)) continue;
       const cx = (rect[0] + rect[1]) / 2,
@@ -541,7 +574,13 @@ export class AirLyrics {
     const g = new THREE.Group(),
       cam = this.o.camera.position;
     g.position.copy(pos);
-    g.rotation.set(0, Math.atan2(cam.x - pos.x, cam.z - pos.z), 0); // (it turns to you once, then stays put)
+    // (it faces you, tipped up or down to where your eyes are; and keeps facing you as you go: hover)
+    g.rotation.order = 'YXZ';
+    g.rotation.set(
+      -Math.atan2(cam.y - pos.y, Math.hypot(cam.x - pos.x, cam.z - pos.z)),
+      Math.atan2(cam.x - pos.x, cam.z - pos.z),
+      0,
+    );
     this.o.scene.add(g);
     const glyphs: Glyph[] = [];
     let y = height / 2;
@@ -580,6 +619,8 @@ export class AirLyrics {
       harmT: L.harm ? L.harm.t : null,
       nMain: glyphs.filter((x) => !x.harm).length,
       times: L.kar && L.times.length ? L.times : null,
+      off: pos.clone().sub(cam),
+      hurry: 0,
     });
     this.lastPos = pos;
     this.lastIdx = idx;
@@ -589,9 +630,12 @@ export class AirLyrics {
   /* ---------- in the air, and falling ---------- */
 
   /** A line in the air: each glyph arrives a moment after the last (rises a little, unfolds from a slight tilt, settles
-   *  with a soft overshoot). A line timed word by word darkens as each is sung; a line timed only as a whole is shown
-   *  whole, never swept by a guess. Its harmony comes in when it is sung. */
-  private hover(l: Flying, now: number, t: number) {
+   *  with a soft overshoot). A line timed word by word deepens as each is sung (the rest is paler, never see-through); a
+   *  line timed only as a whole is shown whole, never swept by a guess. Its harmony comes in when it is sung.
+   *  It goes along with the visitor (it keeps where it was from them, easing after them as they walk), turns and tips to
+   *  face them, and keeps out from under the HUD. */
+  private hover(l: Flying, now: number, dt: number, t: number) {
+    this.follow(l, dt);
     const age = (now - l.t0) / 1000,
       hIn = l.harmT == null ? 0 : clamp01((t - l.harmT + 0.2) / 0.5);
     l.glyphs.forEach((gl, k) => {
@@ -605,7 +649,8 @@ export class AirLyrics {
       const v = gl.harm ? hIn : clamp01((age - kk * 0.045) / 0.55),
         ob = 1 + 2.2 * Math.pow(v - 1, 3) + 1.2 * Math.pow(v - 1, 2);
       gl.m.color.copy(this.ink);
-      gl.m.opacity = (gl.harm ? 0.8 * hIn : 0.35 + 0.65 * sung) * Math.min(1, v * 2.2);
+      gl.sk.value = sung;
+      gl.m.opacity = (gl.harm ? hIn : 1) * Math.min(1, v * 2.2);
       gl.card.position.y = CH / 2 - (1 - ob) * 0.3;
       gl.card.rotation.set((1 - ob) * 0.5, 0, (1 - ob) * 0.25 * (kk % 2 ? 1 : -1));
       gl.card.scale.setScalar((l.from ? 0.6 : 0.82) + (l.from ? 0.4 : 0.18) * ob);
@@ -614,7 +659,32 @@ export class AirLyrics {
       const e = 1 - Math.pow(1 - Math.min(1, age / 0.9), 3);
       l.g.position.lerpVectors(l.from, l.pos, e);
       l.g.position.y += Math.sin(Math.PI * e) * 1.2; // (an arc)
+      if (e >= 1) l.from = null;
+    } else l.g.position.copy(l.pos);
+  }
+
+  /** The line after the visitor: where it keeps to from them, eased (never into a wall); out from under the HUD; facing
+   *  them. */
+  private follow(l: Flying, dt: number) {
+    const cam = this.o.camera.position,
+      k = 1 - Math.exp(-dt * 2.2);
+    // (out from under the HUD: what of it is above the free band, or below it, is taken back in, a little each frame)
+    const band = (this.band ??= this.o.freeBand()),
+      r = this.screenRect(l.pos, l.yaw, l.width, l.height),
+      d = Math.max(1, l.pos.distanceTo(cam)),
+      perNdc = d * Math.tan((this.o.camera.fov * Math.PI) / 360);
+    if (this._q.copy(l.pos).project(this.o.camera).z < 1) {
+      if (r[3] > band.yTop) l.off.y -= Math.min(r[3] - band.yTop, 0.5) * perNdc * Math.min(1, dt * 6);
+      else if (r[2] < band.yBot) l.off.y += Math.min(band.yBot - r[2], 0.5) * perNdc * Math.min(1, dt * 6);
     }
+    this._a.copy(cam).add(l.off);
+    this._a.y = Math.max(0.35 + l.height / 2, Math.min(6, this._a.y));
+    if (this.o.inside(this._a)) l.pos.lerp(this._a, k);
+    else l.off.copy(l.pos).sub(cam); // (held where it is: the next step on starts from here)
+    const yaw = Math.atan2(cam.x - l.pos.x, cam.z - l.pos.z),
+      pitch = -Math.atan2(cam.y - l.pos.y, Math.hypot(cam.x - l.pos.x, cam.z - l.pos.z));
+    l.yaw += wrap(yaw - l.yaw) * k;
+    l.g.rotation.set(l.g.rotation.x + (pitch - l.g.rotation.x) * k, l.yaw, 0);
   }
 
   /** A line lets go. Where each glyph will come to rest is found now — one look straight down under its pivot, its
@@ -625,7 +695,9 @@ export class AirLyrics {
     line.falling = true;
     line.fallT = performance.now();
     line.g.position.copy(line.pos);
+    line.g.rotation.x = 0; // (upright again: its glyphs tip over and land flat)
     for (const gl of line.glyphs) {
+      gl.card.renderOrder = ORDER_FALLING;
       gl.card.position.y = CH / 2;
       gl.card.rotation.set(0, 0, 0);
       gl.card.scale.setScalar(1);
@@ -665,7 +737,9 @@ export class AirLyrics {
    *  shrinks away. True once all of it is gone. */
   private drop(l: Flying, now: number, dt: number): boolean {
     const ft = (now - l.fallT) / 1000,
-      still = this.o.reduced();
+      still = this.o.reduced(),
+      hurried = l.hurry ? 1 - (now - l.hurry) / 350 : 1;
+    if (hurried <= 0) return true;
     let done = true;
     for (const gl of l.glyphs) {
       const t = ft - gl.delay;
@@ -710,12 +784,14 @@ export class AirLyrics {
         if (s > 0) done = false;
       } else done = false;
     }
+    if (hurried < 1) for (const gl of l.glyphs) gl.m.opacity *= hurried;
     return done;
   }
 }
 
 const DOWN = new THREE.Vector3(0, -1, 0);
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const overlaps = (a: number[], b: number[], m = 0.06) =>
   a[0] < b[1] + m && b[0] < a[1] + m && a[2] < b[3] + m && b[2] < a[3] + m;
 function gauss() {
