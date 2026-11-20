@@ -5,7 +5,7 @@ Windows 桌面音乐播放器（Electron + React + TypeScript）。它不是「�
 | 部分 | 做什么 | 主要位置 |
 | --- | --- | --- |
 | 音乐库与播放 | 扫描文件夹、标签与封面、歌单与收藏、播放队列；一般输出与高保真输出（Rust 音频程序）、音量平衡 | `electron/`、`native/cadenza-audio`、`src/app/playback` |
-| 节奏 | 读出每首歌的拍点、重音、段落（神经网络或信号分析），存成缓存；全项目「跟着音乐动」的唯一来源 | `src/rhythm`、`electron/infer*.cjs` |
+| 节奏 | 分析并缓存拍点、重音、段落等事件。播放时钟决定当前时间，节奏事件决定此刻有哪些响应 | `src/rhythm`、`electron/infer*.cjs` |
 | 歌词 | 各种格式解析（LRC、逐字、TTML、和声、翻译、读音）、分词、在线取得与写回文件 | `src/lyrics`、`src/text` |
 | 特效歌词 | 导演依节奏排版、运镜、转场，渲染器与特效插件画出来；Folia 的风格与背景（商籁、凝彩、五种背景）也接在这里；可导出视频 | `src/director`、`src/render`、`src/folia`、`src/engine` |
 | 正在播放页 | 封面、逐字上浮的歌词清单、等待的三点；与特效歌词无缝切换 | `src/app/views/NowPlaying.tsx`、`src/app/ui/NpLyrics.tsx` |
@@ -14,7 +14,7 @@ Windows 桌面音乐播放器（Electron + React + TypeScript）。它不是「�
 
 它们互相依赖：节奏同时驱动特效歌词、正在播放页、专辑线的节奏环与空间里的光和声音；歌词模型同时供给播放列、正在播放页、特效歌词与空间；播放器的一个状态同时被两种界面读取。改其中一处，先想它还被谁用。
 
-**动手之前先读 `.claude/skills/cadenza/SKILL.md`**：分层规则、新增功能的固定流程、测试与发布流程都在那里。它是这个项目的开发范式，不是参考数据。
+**动手之前先读 `.claude/skills/cadenza/SKILL.md`**，并对照 [架构现状](docs/ARCHITECTURE.md) 和 [项目方向](docs/DIRECTION.md)。用户已确定的产品要求和当次授权决定范围。经过源码和测试验证后，可以在获授权的阶段更新开发范式、依赖规则与对应文档。
 
 设计语言见 `docs/DESIGN.md`。经典界面和空间界面都使用方向 B「书页」。经典界面的播放栏向左展开成为歌词页，空间保留展馆和马赛克背景。专辑网格保留可切换的节拍线。
 

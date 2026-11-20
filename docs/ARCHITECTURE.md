@@ -29,19 +29,21 @@ core ──► text ──► lyrics ──┐
 electron（主进程：音乐库、设置、窗口、Hi-Fi、原生推理）   native（Rust 播放核心）
 ```
 
-依赖只往下走。`tests/unit/arch.test.ts` 检查 `src/` 下每一个 import：
+现行目录边界由 `tests/unit/arch.test.ts` 检查。它用 Vite 的 TypeScript AST 与模块解析识别静态导入、重导出、类型引用、字面量动态导入及别名。运行时图排除纯类型依赖。计算生成的路径与 IPC 流程另用行为测试。
 
 - 每个模块只能引用它下层的模块；`lyrics` 用自己的最小接口 `BeatGrid` 读节拍，不引用 `rhythm`。
-- 界面（`app`）只能经由 `src/engine/index.ts` 取用引擎以下的一切（以及 `core`、`theme`、`i18n`）。
+- 目前界面经 `src/engine/index.ts` 访问引擎下层，另可访问 `core`、`theme`、`i18n`。4.0.0 的目标是按播放、视觉和共享契约设置入口，迁移时同步更新测试。
 - `app` 里：`views/` 与 `space/` 互不引用；逻辑层（`state.ts`、`bridge.ts`、`playback/`、`actions/`、`commands/`、`settings/`）不引用任何画面；只有 `bridge.ts` 碰主进程；空间的场景只经过 `space/bind.ts` 读写 Cadenza。
 - 组件样式不写字面的圆角与时长（只用 `styles/tokens.css`）。
+
+G0 记录了 10 条现有运行时循环边，涉及四组模块。`AlbumLine ↔ Library` 以及 `Effect / Modals / Settings` 的解环留到界面治理。`rhythm/index ↔ rhythm/stream` 随分析调度治理。`lyrics/parse ↔ lyrics/ttml` 是解析和转换的现有耦合，后续改动相关职责时处理。测试允许移除已有边，并拒绝新增循环边。
 
 ## 七个部分怎么咬合
 
 | 部分 | 做什么 | 主要位置 | 读谁、被谁读 |
 | --- | --- | --- | --- |
-| 音乐库与播放 | 扫描文件夹、标签与封面、歌单与收藏、队列；一般与高保真输出、音量平衡 | `electron/`、`native/`、`src/app/playback` | 播放器状态是唯一的「现在在放什么」，两种界面都读它 |
-| 节奏 | 拍点、强拍、重音、鼓点、段落、频段；存成缓存（以音频本体的哈希为键） | `src/rhythm`、`electron/infer*.cjs` | 唯一的时间来源：导演、特效、正在播放页、专辑线、Folia、空间的光和声音 |
+| 音乐库与播放 | 扫描文件夹、标签与封面、歌单与收藏、队列；普通与高保真输出、音量平衡 | `electron/`、`native/`、`src/app/playback` | 3.6.0 的页面状态持有目标和展示项，`Engine` 持有输出与结束事件 |
+| 节奏 | 拍点、强拍、重音、鼓点、段落与频段。库按曲目 ID 保存分析，当前扫描使用抽样 `audioKey` | `src/rhythm`、`electron/infer*.cjs` | 在给定播放时间下提供事件与特征，供导演、特效、Folia 和空间使用 |
 | 歌词 | 解析、分词、依唱法合词、翻译与读音、在线取得、写回文件 | `src/lyrics`、`src/text` | 唯一的文字来源：播放列、正在播放页、特效歌词、Folia、空间 |
 | 特效歌词 | 导演规划（或 Folia 的引擎），渲染器与特效插件画出来；可导出视频 | `src/director`、`src/render`、`src/folia`、`src/engine` | 读节奏与歌词；风格与外观来自 `theme` |
 | 正在播放页 | 封面、逐字上浮的歌词、等待的三点；背景由引擎画；与特效歌词无缝交接 | `views/NowPlaying.tsx`、`ui/NpLyrics.tsx` | 读歌词模型、节奏（三点的拍）、引擎的环境视图 |
@@ -52,10 +54,10 @@ electron（主进程：音乐库、设置、窗口、Hi-Fi、原生推理）   n
 
 ## 时间模型
 
-- **歌曲时间** `t`（秒）：0 是歌词时间轴的 0。所有动画以歌曲时间或节拍为准，不以帧数为准。
-- **时钟来源**只有一个是权威：标准输出（以 `getOutputTimestamp` 平滑成不倒退的时钟）、高保真输出（以 DAC 正在送出的样本为准），或没有音频时的自由时钟。
-- 每帧只采样一次时钟，得到一个 `RenderFrame`（`render/frame.ts`）；画布每一层、每个特效、正在播放页的歌词与进度、空间的灯都读同一个时间。没有模块自己用 `performance.now()` 推算音乐时间。
-- 导演的规划是纯函数（`evaluate(plan, t)`），所以预览、预读、导出画出的同一时刻完全相同。
+- **歌曲时间** `t`（秒）用 Session 的 `audioStart` 把输出文件位置换算到歌词时间轴。节奏图提供这个时刻附近的事件与特征。
+- **3.6.0 现况**为普通输出用 Web Audio 时标，高保真用原生样本队列与 padding 估时。页面与桌面歌词还会各自外推。两条路径的真实端点误差需独立测量。
+- **4.0.0 目标**为播放端提供带代次的输出时钟。缓冲、暂停、跳转和设备恢复有统一语义。菜单与页面使用界面单调时钟，离线导出用帧时刻，无音频工坊可用项目时钟。
+- `evaluate(plan, t)` 是导演的求值入口。预览与导出的完整画面还涉及媒体帧、字体、特效状态和合成路径，使用逐帧对照验证一致性。
 
 ## 一帧的数据流
 

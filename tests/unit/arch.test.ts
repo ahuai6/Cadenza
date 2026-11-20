@@ -1,11 +1,11 @@
-// The dependency direction of docs/ARCHITECTURE.md, checked on every import under src/: a module imports only the
-// modules below it, and the interface reaches everything under the engine through the engine's own index.
+// The current boundary and its known exceptions are documented in docs/ARCHITECTURE.md.
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, dirname, relative, resolve, sep } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { boundaryViolation, buildDependencies, cyclicRuntimeEdges, references, type Edge } from './_dependencies';
 
-const SRC = resolve(__dirname, '../../src');
-/** What each module may import (besides itself). */
+const ROOT = resolve(__dirname, '../..');
+const SRC = join(ROOT, 'src');
 const ALLOWED: Record<string, string[]> = {
   core: [],
   i18n: ['core'],
@@ -14,8 +14,6 @@ const ALLOWED: Record<string, string[]> = {
   rhythm: ['core'],
   lyrics: ['core', 'text'],
   director: ['core', 'text', 'theme', 'rhythm', 'lyrics'],
-  // Folia's visualizers (vendored), the Pixi-compatible stage they draw with, and their runtimes: below the renderer,
-  // which picks a lyric engine per style (render/engines.ts)
   folia: ['core', 'text', 'theme', 'rhythm', 'lyrics'],
   render: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'folia'],
   engine: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'render', 'folia'],
@@ -23,78 +21,113 @@ const ALLOWED: Record<string, string[]> = {
   harness: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'render', 'engine', 'folia'],
 };
 
-const walk = (d: string): string[] =>
-  readdirSync(d, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory()
-      ? walk(join(d, e.name))
-      : /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts')
-        ? [join(d, e.name)]
-        : [],
-  );
-const files = walk(SRC);
-const imports = files.flatMap((f) => {
-  const from = relative(SRC, f).split(sep)[0];
-  return [...readFileSync(f, 'utf8').matchAll(/(?:from|import\()\s*'(\.[^'?]+)/g)]
-    .map((m) => {
-      const target = relative(SRC, resolve(dirname(f), m[1])),
-        to = target.split(sep)[0];
-      return { file: relative(SRC, f), from, to, target };
-    })
-    .filter((x) => x.to !== x.from);
-});
+const files = readdirSync(SRC, { recursive: true, withFileTypes: true })
+  .filter((file) => file.isFile() && /\.tsx?$/.test(file.name))
+  .map((file) => join(file.parentPath, file.name));
+const { edges, unresolved } = await buildDependencies(files, ROOT);
+
+const dependency = (from: string, to: string, typeOnly = false): Edge => ({ from, to, line: 1, typeOnly });
 
 describe('architecture', () => {
-  it('every module under src/ is one the dependency rules know', () => {
-    const mods = [...new Set(files.map((f) => relative(SRC, f).split(sep)[0]))].filter((m) => !/\.tsx?$/.test(m));
-    expect(mods.filter((m) => !(m in ALLOWED))).toEqual([]);
+  it('resolves local imports and checks layer direction, entry points and views', () => {
+    expect(unresolved).toEqual([]);
+    expect(
+      edges.flatMap((edge) => {
+        const why = boundaryViolation(edge, ALLOWED);
+        return why ? [edge.from + ':' + edge.line + ' → ' + edge.to + ' (' + why + ')'] : [];
+      }),
+    ).toEqual([]);
   });
-  it('imports only go down the layers', () => {
-    const bad = imports
-      .filter((x) => x.to in ALLOWED && !ALLOWED[x.from]?.includes(x.to))
-      .map((x) => `${x.file} → ${x.target}`);
-    expect(bad).toEqual([]);
+
+  it('knows every source layer', () => {
+    const layers = new Set(
+      files.map((name) => relative(SRC, name).split(/[\\/]/)[0]).filter((layer) => !/\.tsx?$/.test(layer)),
+    );
+    expect([...layers].filter((layer) => !(layer in ALLOWED))).toEqual([]);
   });
-  it('in the interface, the logic never reaches into the views: an interface redo replaces views/ and ui/ only', () => {
-    // (main.tsx is the entry that mounts the views; everything else — state, playback, actions, the bridge — is the
-    // part a new interface keeps)
-    // (the space, src/app/space, is an appearance too: the second one, beside views/)
-    const viewish = (t: string) =>
-      t.startsWith(`app${sep}views${sep}`) || t.startsWith(`app${sep}ui${sep}`) || t.startsWith(`app${sep}space${sep}`);
-    const bad = files
-      .filter((f) => {
-        const r = relative(SRC, f);
-        return r.startsWith(`app${sep}`) && !viewish(r) && r !== `app${sep}main.tsx`;
-      })
-      .flatMap((f) =>
-        [...readFileSync(f, 'utf8').matchAll(/(?:from|import\()\s*'(\.[^'?]+)/g)].map((m) => [
-          relative(SRC, f),
-          relative(SRC, resolve(dirname(f), m[1])),
-        ]),
-      )
-      .filter(([, t]) => viewish(t))
-      .map(([f, t]) => `${f} → ${t}`);
-    expect(bad).toEqual([]);
+
+  it('does not add runtime cycle edges to the 3.6.0 graph', () => {
+    const baseline = new Set([
+      // G9: shared controls and album presentation still reach across sibling views.
+      'src/app/views/AlbumLine.tsx → src/app/views/Library.tsx',
+      'src/app/views/Effect.tsx → src/app/views/Modals.tsx',
+      'src/app/views/Effect.tsx → src/app/views/Settings.tsx',
+      'src/app/views/Library.tsx → src/app/views/AlbumLine.tsx',
+      'src/app/views/Modals.tsx → src/app/views/Effect.tsx',
+      'src/app/views/Settings.tsx → src/app/views/Modals.tsx',
+      // Lyrics parsing and TTML conversion currently call back into each other.
+      'src/lyrics/parse.ts → src/lyrics/ttml.ts',
+      'src/lyrics/ttml.ts → src/lyrics/parse.ts',
+      // G6: the analysis entry re-exports the streaming helper that calls it.
+      'src/rhythm/index.ts → src/rhythm/stream.ts',
+      'src/rhythm/stream.ts → src/rhythm/index.ts',
+    ]);
+    expect(cyclicRuntimeEdges(edges).filter((edge) => !baseline.has(edge))).toEqual([]);
   });
-  it('the two appearances (the classic views and the space) never reach into each other', () => {
-    const under = (r: string, d: string) => r.startsWith(`app${sep}${d}${sep}`);
-    const bad = files
-      .map((f) => relative(SRC, f))
-      .filter((r) => under(r, 'space') || under(r, 'views'))
-      .flatMap((r) =>
-        [...readFileSync(join(SRC, r), 'utf8').matchAll(/(?:from|import\()\s*'(\.[^'?]+)/g)].map((m) => [
-          r,
-          relative(SRC, resolve(dirname(join(SRC, r)), m[1])),
-        ]),
-      )
-      .filter(([f, t]) => (under(f, 'space') && under(t, 'views')) || (under(f, 'views') && under(t, 'space')))
-      .map(([f, t]) => `${f} → ${t}`);
-    expect(bad).toEqual([]);
+});
+
+describe('architecture checker', () => {
+  it('finds executable and type references without interpreting comments or strings', () => {
+    const content = [
+      '// import fake from "../fake";',
+      'const label = "import fake from another";',
+      'import "../side-effect";',
+      'import { thing } from "../double";',
+      'export { other } from "../re-export";',
+      'export type { Style } from "../types";',
+      'import { type Shape } from "../shape";',
+      'type T = import("../contract").T;',
+      'const worker = import(`../worker?worker&inline`);',
+      'const fromAlias = require("@app/alias");',
+    ].join('\n');
+    expect(references('fixture.ts', content)).toEqual([
+      { specifier: '../side-effect', line: 3, typeOnly: false },
+      { specifier: '../double', line: 4, typeOnly: false },
+      { specifier: '../re-export', line: 5, typeOnly: false },
+      { specifier: '../types', line: 6, typeOnly: true },
+      { specifier: '../shape', line: 7, typeOnly: true },
+      { specifier: '../contract', line: 8, typeOnly: true },
+      { specifier: '../worker?worker&inline', line: 9, typeOnly: false },
+      { specifier: '@app/alias', line: 10, typeOnly: false },
+    ]);
   });
-  it('the interface reaches the engine only through its index', () => {
-    const bad = imports
-      .filter((x) => x.from === 'app' && x.to === 'engine' && x.target !== 'engine')
-      .map((x) => `${x.file} → ${x.target}`);
-    expect(bad).toEqual([]);
+
+  it('checks the resolved alias, even when it points to an internal file rather than a public entry', async () => {
+    const file = join(__dirname, 'fixtures/architecture/importer.ts.txt');
+    const { edges: imports, unresolved: missing } = await buildDependencies([file], ROOT, {
+      '@stage': join(SRC, 'engine/engine.ts'),
+      '@engine': join(SRC, 'engine/index.ts'),
+    });
+    expect(missing).toEqual([]);
+    expect(imports.map((edge) => edge.to)).toEqual([
+      'src/engine/engine.ts',
+      'src/engine/index.ts',
+      'electron',
+      'node:fs',
+    ]);
+    expect(imports.map((edge) => boundaryViolation({ ...edge, from: 'src/app/playback/player.ts' }, ALLOWED))).toEqual([
+      'engine public entry',
+      null,
+      'source must use the platform bridge',
+      'source must use the platform bridge',
+    ]);
+  });
+
+  it('keeps platform access and view dependencies behind their boundaries', () => {
+    expect(boundaryViolation(dependency('src/app/playback/player.ts', 'electron/main.cjs'), ALLOWED)).toBeTruthy();
+    expect(boundaryViolation(dependency('src/app/actions/a.ts', 'src/app/ui/widget.tsx'), ALLOWED)).toBeTruthy();
+    expect(boundaryViolation(dependency('src/app/views/a.tsx', 'src/app/space/b.ts'), ALLOWED)).toBeTruthy();
+    expect(boundaryViolation(dependency('src/rhythm/a.ts', 'src/app/actions/b.ts'), ALLOWED)).toBeTruthy();
+    expect(boundaryViolation(dependency('src/app/views/a.tsx', 'src/app/ui/widget.tsx'), ALLOWED)).toBeNull();
+    expect(boundaryViolation(dependency('src/app/main.tsx', 'src/app/views/a.tsx'), ALLOWED)).toBeNull();
+  });
+
+  it('finds indirect runtime cycles without treating references to types as runtime loads', () => {
+    const a = dependency('a', 'b');
+    const b = dependency('b', 'c');
+    const c = dependency('c', 'a');
+    expect(cyclicRuntimeEdges([a, b, c, dependency('d', 'a')])).toEqual(['a → b', 'b → c', 'c → a']);
+    expect(cyclicRuntimeEdges([a, b, { ...c, typeOnly: true }])).toEqual([]);
   });
 });
 

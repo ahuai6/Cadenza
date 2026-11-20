@@ -121,12 +121,12 @@ class Side {
   // Folia's side: the reference page, built inside the checkout so its imports resolve as upstream's do
   const refDir = path.join(folia, 'ref-harness');
   fs.mkdirSync(refDir, { recursive: true });
-  for (const f of ['index.html', 'main.ts', 'vite.config.mjs'])
+  for (const f of ['index.html', 'main.ts', 'bg.html', 'bg.tsx', 'vite.config.mjs'])
     fs.copyFileSync(path.join(__dirname, 'folia-ref', f), path.join(refDir, f));
   execFileSync(
     'node',
     [path.join(folia, 'node_modules/vite/bin/vite.js'), 'build', '--config', 'ref-harness/vite.config.mjs'],
-    { cwd: folia, stdio: 'inherit' },
+    { cwd: folia, stdio: 'inherit', env: { ...process.env, CADENZA_FOLIA_SHIM: path.join(ROOT, 'src/folia/shim') } },
   );
   const a = await serve(path.join(refDir, 'dist'));
   const b = await serve(path.join(ROOT, 'dist-harness'));

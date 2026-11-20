@@ -77,7 +77,7 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 
 ## 还没搬的
 
-上游 `components/visualizer/` 下其余的风格（cappella、claddagh、classic、diorama、fume、hanabi、lumiere、machi、metaphor、nebbia、partita、pendolo、still、tilt…）是下一轮的工作，见 `docs/DIRECTION.md`。
+上游 `components/visualizer/` 下其余风格（cappella、claddagh、classic、diorama、fume、hanabi、lumiere、machi、metaphor、nebbia、partita、pendolo、still、tilt…）保留在后续积压。4.0.0 重构优先保证现有风格的还原、效果组合和上游同步，见 [项目方向](DIRECTION.md) 与 [3.6.0 对照基线](BASELINE-3.6.0.md)。
 
 ## 授权与注意
 

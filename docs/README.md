@@ -6,7 +6,7 @@
 
 1. **`/CLAUDE.md`**：项目是什么、七个部分、最常用的指令、不可违反的几件事。
 2. **[`DIRECTION.md`](DIRECTION.md)**：要变成什么、走到哪、接下来做什么、用户已经决定过的事（不要再问、不要改回）。
-3. **`.claude/skills/cadenza/SKILL.md`**：开发范式——分层规则、新增东西的固定流程、代码规范、测试与发布流程。**它是规则，不是参考数据。**
+3. **`.claude/skills/cadenza/SKILL.md`**：开发范式、现行工程约束和维护流程。判断当前行为时以源码和验证为依据，修订规则时同步架构文档和测试。
 4. **[`ARCHITECTURE.md`](ARCHITECTURE.md)**：模块、数据流、时间模型、登记表（扩充点）。
 
 ## 动手时查
@@ -24,6 +24,7 @@
 | 风格、外观、旋钮的结构 | [`STYLE-SYSTEM.md`](STYLE-SYSTEM.md) |
 | 界面上的任何一个字 | [`COPY.md`](COPY.md)（词汇表；先查再用，没有就先加） |
 | 跑测试、看对照数字 | [`TESTING.md`](TESTING.md) |
+| 重跑 3.6.0 基线、核对 G0 记录 | [`BASELINE-3.6.0.md`](BASELINE-3.6.0.md) |
 | 发布、依赖、数据兼容、环境的坑、已知的债 | [`MAINTENANCE.md`](MAINTENANCE.md) |
 | 每一版改了什么（写给用户） | [`RELEASE.md`](RELEASE.md) |
 

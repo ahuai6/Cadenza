@@ -56,7 +56,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   require('child_process').execFileSync(
     'node',
     [path.join(folia, 'node_modules/vite/bin/vite.js'), 'build', '--config', 'ref-harness/vite.config.mjs'],
-    { cwd: folia, stdio: 'inherit' },
+    { cwd: folia, stdio: 'inherit', env: { ...process.env, CADENZA_FOLIA_SHIM: path.join(ROOT, 'src/folia/shim') } },
   );
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'cover.jpg'), path.join(refDist, 'cover.jpg'));
   fs.copyFileSync(path.join(__dirname, 'fixtures', 'cover.jpg'), path.join(ROOT, 'dist-harness', 'cover.jpg'));
