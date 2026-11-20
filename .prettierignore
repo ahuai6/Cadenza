@@ -13,3 +13,4 @@ src/i18n/dict.json
 src/app/ui/font-previews
 tests/fixtures
 *.md
+src/folia/vendor

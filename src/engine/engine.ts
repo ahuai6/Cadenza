@@ -11,6 +11,7 @@ import { frameLoop, type FrameLoop } from '../core/frames';
 import { cameraAt, settleAt, type CamFrame } from '../director/evaluate';
 import { pathDiag, basePose } from '../director/camera';
 import { drawFrame, PROFILE } from '../render/renderer';
+import { ENGINE_WAIT } from '../render/engines';
 import { setGpuLyrics, gpuLyrics } from '../render/gfx';
 import { MV_LOOK, type RenderFrame, type MvLook, type BackdropPose } from '../render/frame';
 import { makeCanvas } from '../render/palette';
@@ -660,6 +661,7 @@ export class Engine extends Emitter<EngineEvents> {
       view: { effect: opts.offline ? 1 : this.view === 'effect' || p > 0 ? scene : 0 },
       motion,
       offline: !!opts.offline,
+      playing: opts.offline ? true : this.playing,
       labels: this.labels,
       I: clamp(0.35 + 0.65 * rs.level),
       P: rs.pulse * clamp(M.pulse, 0, 2) * cf.calm * (1 - rs.still),
@@ -731,7 +733,7 @@ export class Engine extends Emitter<EngineEvents> {
     if (this.mv.tick()) this.dirty = true;
     if (this.handoff.tick()) this.dirty = true;
     if (this.playing && this.mv.k > 0) this.dirty = true;
-    if (this.fadeOut || this.carry) this.dirty = true;
+    if (this.fadeOut || this.carry || ENGINE_WAIT.on) this.dirty = true;
     if (this.view === 'ambient') this.dirty = true; // the ambient field is alive even while paused
     const cap = this.render.fps > 0 ? 1000 / this.render.fps : 0,
       due = !cap || now - this.lastDraw >= cap - 1.5;

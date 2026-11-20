@@ -59,6 +59,11 @@ export interface Style {
   future: 'dim' | 'hide';
   trans?: 'auto' | 'off';
   /** the lyric type (director/lyrictypes.ts): how the lyrics are presented and come in; 'flow' by default */ ltype?: string;
+  /** the lyric engine: unset for Cadenza's director, else a Folia style ('sonnet', 'tempera') that lays out, moves and
+   *  draws the lyrics itself over Cadenza's backdrop (render/engines.ts) */
+  engine?: string;
+  /** each lyric engine's own settings, by engine id (missing values take the engine's defaults) */
+  engp?: Record<string, Record<string, number | string | boolean>>;
   coverEdge?: 'album' | 'float' | 'blend';
   coverBlur?: number;
   coverSize?: number;
@@ -326,6 +331,8 @@ export interface MotionRecipe {
   tin: string;
   tout: string;
   m0: Motion;
+  /** a lyric engine of its own (a Folia style); unset: the director */
+  engine?: string;
 }
 /** What makes a motion style (the rest of a style is its look and its project's). */
 export const MOTION_KEYS: MotionKey[] = ['cut', 'ltype', 'tin', 'tout'];
@@ -361,6 +368,9 @@ export const MOTIONS: Record<string, MotionRecipe> = {
   float: mo('liquid', 'hover', 'orbit', 'blur', 'spread', { depth: 1.5, float: 1 }),
   /** 舞台: held in the middle, whole lines — instrumentals, karaoke, subtitles */
   stage: mo('vinyl', 'center', 'line', 'rise', 'none'),
+  /** 商籟 (Folia's Sonnet): print-design shots — editorial columns, type impact, collage, ribbons, poster blocks —
+   *  each paragraph a scene of its own with guides and line drawings, cut with blur, glitch or a camera pull */
+  sonnet: { ...mo('cover', 'glide', 'flow', 'drift', 'none'), engine: 'sonnet' },
 };
 export const DEFAULT_MOTION = 'story';
 /** The motion style a style's camera reads as (styles from before the styles had names). */
@@ -384,6 +394,7 @@ export function withMotion(st: Style, id: string): Style {
       ltype: r.ltype,
       tin: r.tin,
       tout: r.tout,
+      engine: r.engine,
       m0: clone(r.m0),
       motion: MOTIONS[id] ? id : DEFAULT_MOTION,
       motionId: null,
@@ -397,6 +408,8 @@ export function withMotion(st: Style, id: string): Style {
    a name, and put back on any style, its look kept. ---- */
 export interface SavedMotion {
   base: string;
+  engine?: string;
+  engp?: Record<string, Record<string, number | string | boolean>>;
   cut: CameraStyleId;
   ltype: string;
   tin: string;
@@ -411,6 +424,8 @@ export function motionPart(st: Style): SavedMotion {
   delete k.size;
   return {
     base: motionOf(st),
+    engine: st.engine,
+    engp: st.engp ? clone(st.engp) : undefined,
     cut: st.cut,
     ltype: st.ltype || 'flow',
     tin: st.tin,
@@ -424,6 +439,8 @@ export function motionPart(st: Style): SavedMotion {
 export function withSavedMotion(st: Style, m: SavedMotion, id: string, name: string): Style {
   const out: Style = {
     ...st,
+    engine: m.engine,
+    engp: m.engp ? clone(m.engp) : st.engp,
     cut: m.cut,
     ltype: m.ltype,
     tin: m.tin,

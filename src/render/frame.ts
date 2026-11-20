@@ -45,6 +45,7 @@ export interface RenderFrame {
   view: ViewMix;
   /** reduced motion */ motion: number;
   /** exporting (no live media, deterministic) */ offline: boolean;
+  /** the song is playing (the clock runs): live inputs that rest in a pause read it */ playing?: boolean;
   labels: Record<string, string>;
   /** the music's intensity here (0.35..1) and the beat pulse for effects (0..1), from the shared rhythm signals */
   I: number;

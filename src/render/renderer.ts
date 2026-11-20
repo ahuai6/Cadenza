@@ -32,6 +32,7 @@ import { cameraAt } from '../director/evaluate';
 import type { Signals } from '../rhythm/signals';
 import { gfx, LITE_OFF } from './gfx';
 import { glyphFrame } from './glyphs';
+import { engineFor, drawEngine } from './engines';
 
 const byZ = (a: Effect, b: Effect) => (a.z ?? 0) - (b.z ?? 0);
 const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
@@ -282,8 +283,11 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   }
   f.ink = !invert && flash > 0.32 && f.pal.invertOnFlash ? f.pal.bg : f.pal.text;
   /* ---- the lyric world ---- */
+  // (a lyric engine of the style's own — a Folia style — lays out, moves and draws the words itself: the director's word
+  // layers, its transitions, waiting dots and end card are then its; the backdrop, captions and screen stay Cadenza's)
+  const eng = engineFor(f);
   const card = !!f.plan.titles.end;
-  f.vis = visibleWords(f, card);
+  f.vis = eng ? [] : visibleWords(f, card);
   // a curtain the lyrics asked for ('@N', curtain.ts): its ground under the words, the words fading in as it opens
   const cu = view > 0.001 ? curtainAt(f) : null;
   if (cu) {
@@ -297,7 +301,15 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
       .sort(byZ))
       e.draw(g, fr, { bd, params: paramsFor(e, st.fxp?.[e.id]) });
   };
-  if (view > 0.001) {
+  if (eng && view > 0.001) {
+    mark('backdrop');
+    drawEngine(g as CanvasRenderingContext2D, f, eng);
+    g.setTransform(f.px, 0, 0, f.px, 0, 0);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    g.filter = 'none';
+    mark('lyrics');
+  } else if (view > 0.001) {
     mark('backdrop');
     world('world-back');
     mark('world');
@@ -330,14 +342,14 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
     g.fillRect(0, 0, W, H);
     g.restore();
   }
-  const trk = cf.trans * view;
+  const trk = eng ? 0 : cf.trans * view;
   if (trk > 0.005) drawTransition(g, f, trk);
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
-  drawIdleDots(g, f);
+  if (!eng) drawIdleDots(g, f);
   if (o.captions !== false)
     drawCaptions(g, f, o.captionBottom ?? H * 0.9, { subs: o.capSubs !== false, reads: o.capReads !== false });
   drawIntro(g, f);
-  drawEndCard(g, f);
+  if (!eng || f.style.engp?.[f.style.engine!]?.credits === false) drawEndCard(g, f);
   const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6) * view;
   if (fo > 0) {
     g.fillStyle = rgba(f.pal.bg, fo);

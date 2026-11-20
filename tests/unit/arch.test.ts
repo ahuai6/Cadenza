@@ -14,10 +14,13 @@ const ALLOWED: Record<string, string[]> = {
   rhythm: ['core'],
   lyrics: ['core', 'text'],
   director: ['core', 'text', 'theme', 'rhythm', 'lyrics'],
-  render: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director'],
-  engine: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'render'],
+  // Folia's visualizers (vendored), the Pixi-compatible stage they draw with, and their runtimes: below the renderer,
+  // which picks a lyric engine per style (render/engines.ts)
+  folia: ['core', 'text', 'theme', 'rhythm', 'lyrics'],
+  render: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'folia'],
+  engine: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'render', 'folia'],
   app: ['core', 'theme', 'i18n', 'engine'],
-  harness: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'render', 'engine'],
+  harness: ['core', 'text', 'theme', 'rhythm', 'lyrics', 'director', 'render', 'engine', 'folia'],
 };
 
 const walk = (d: string): string[] =>

@@ -1,0 +1,77 @@
+{
+  "repo": "https://github.com/chthollyphile/folia-major",
+  "commit": "6ee9404",
+  "vendor": "src/folia/vendor",
+  "packages": [
+    "@chenglou/pretext"
+  ],
+  "copy": [
+    "src/components/visualizer/sonnet/*.ts",
+    "!src/components/visualizer/sonnet/createSonnetPixiRuntime.ts",
+    "!src/components/visualizer/sonnet/sonnetIcons.ts",
+    "!src/components/visualizer/sonnet/tuning.ts",
+    "src/components/visualizer/pixiFilterVertex.ts",
+    "src/components/visualizer/pixiSceneCache.ts",
+    "src/components/visualizer/visualizerSeedHash.ts",
+    "src/components/visualizer/pixi/pixiDisplayResources.ts",
+    "src/utils/fontStacks.ts",
+    "src/utils/colorMix.ts",
+    "src/utils/textMeasureCache.ts",
+    "src/utils/lyrics/graphemeTiming.ts",
+    "src/utils/lyrics/renderHints.ts",
+    "src/utils/lyrics/wordSegmentation.ts",
+    "src/services/beatFx/beatFxLive.ts",
+    "src/services/beatFx/clock.ts"
+  ],
+  "extract": [
+    {
+      "file": "src/types.ts",
+      "names": [
+        "Word",
+        "Line",
+        "LyricData",
+        "Theme",
+        "SonnetTuning",
+        "DEFAULT_SONNET_TUNING",
+        "AudioBands",
+        "LyricAntialias",
+        "LyricRenderScale"
+      ]
+    },
+    {
+      "file": "src/services/analysis/beatAccents.ts",
+      "names": [
+        "BeatAccents"
+      ]
+    }
+  ],
+  "shims": {
+    "pixi.js": "src/folia/pixi/index.ts",
+    "framer-motion": "src/folia/shim/framerMotion.ts",
+    "lucide-react": "src/folia/shim/lucide.ts",
+    "src/stores/motionSignals.ts": "src/folia/shim/motionSignals.ts",
+    "src/services/beatFx/beatFxSource.ts": "src/folia/shim/beatFxSource.ts",
+    "src/components/visualizer/sonnet/sonnetIcons.ts": "src/folia/shim/sonnetIcons.ts",
+    "pixi.js/advanced-blend-modes": "src/folia/pixi/advancedBlendModes.ts"
+  },
+  "patches": [
+    {
+      "file": "src/components/visualizer/sonnet/sonnetSceneBuilder.ts",
+      "why": "unused name (noUnusedLocals)",
+      "find": "const { Container, Graphics, Sprite } = pixi;",
+      "replace": "const { Container, Graphics } = pixi;"
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetTextViewBuilder.ts",
+      "why": "unused names (noUnusedLocals): a depth blur upstream computes and never applies",
+      "find": "    const blurAmount = Math.abs(zDepth) * fontSize * 0.12;\n    const isBlurry = blurAmount > 2;\n",
+      "replace": ""
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetTypographyLayout.ts",
+      "why": "unused import, re-exported straight from its module below (noUnusedLocals)",
+      "find": "    findSonnetHeroSegmentIndex,\n    findSonnetSemiHeroSegmentIndex,\n    findSonnetSemiHeroSegmentIndices,\n    getSonnetVisibleSegmentLength,",
+      "replace": "    findSonnetHeroSegmentIndex,\n    findSonnetSemiHeroSegmentIndices,\n    getSonnetVisibleSegmentLength,"
+    }
+  ]
+}
