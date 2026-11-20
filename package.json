@@ -1,7 +1,7 @@
 {
   "name": "cadenza",
   "productName": "Cadenza",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Cadenza: a personal music library whose songs play with lyrics that move to the music, exportable as lyric videos",
   "private": true,
   "type": "module",
@@ -106,6 +106,7 @@
   "license": "AGPL-3.0-only",
   "dependencies": {
     "@chenglou/pretext": "0.0.9",
+    "@paper-design/shaders": "0.0.80",
     "music-metadata": "12.3.2",
     "node-taglib-sharp": "6.0.3",
     "onnxruntime-node": "1.31.1"

@@ -21,6 +21,11 @@ const THEMES = [
   'c:glide:minimal',
   'c:waltz:geo',
   'c:punch:bokeh',
+  'c:glide:f-common',
+  'c:waltz:f-latent',
+  'c:punch:f-sora',
+  'c:glide:f-monet',
+  'c:waltz:f-nomand',
 ];
 const spec = (th) =>
   th.startsWith('c:') ? { theme: 'liquid', cut: th.split(':')[1], bg: th.split(':')[2] } : { theme: th };

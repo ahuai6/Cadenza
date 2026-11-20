@@ -16,6 +16,10 @@ export interface Param {
   step?: number;
   options?: [string, string][];
   def: number | boolean | string;
+  /** shown only while another of the effect's parameters has this value */ showIf?: [
+    string,
+    number | boolean | string,
+  ];
 }
 /** What the backdrop layer adds to a frame: the backdrop's own camera (it never cuts) and the bleed beyond the frame. */
 export interface BackdropView {

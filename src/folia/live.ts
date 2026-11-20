@@ -69,11 +69,11 @@ const spec: number[] = [];
  * One frame of the live inputs at song time `t`. Each band is the analysis' coarse spectrum read at
  * the moment (0..1; Folia's 0..255 readers accept both), the power the section-relative loudness.
  */
-export function tickLive(t: number, playing: boolean, map: RhythmMap | null) {
-  heard.paused = !playing;
-  heard.currentTime = t;
-  tickBeatFx(heard as unknown as HTMLMediaElement, null);
-  if (!map) return;
+/** Folia's five bands and power at song time `t`, as its readers take them (0..255): each band the analysis'
+ *  coarse spectrum read at the moment, the power the section-relative loudness; all 0 while paused. */
+export function bandsAt(map: RhythmMap | null, t: number, playing: boolean) {
+  const out = { bass: 0, lowMid: 0, mid: 0, vocal: 0, treble: 0, power: 0 };
+  if (!map || !playing) return out;
   const s = map.spec(t, spec);
   const n = s?.length ?? 0;
   const band = (lo: number, hi: number) => {
@@ -86,13 +86,28 @@ export function tickLive(t: number, playing: boolean, map: RhythmMap | null) {
     }
     return c ? v / c : 0;
   };
-  const playingK = playing ? 1 : 0;
-  bass.set(band(0, 0.18) * playingK);
-  lowMid.set(band(0.18, 0.34) * playingK);
-  mid.set(band(0.34, 0.55) * playingK);
-  vocal.set((map.voice(t) ?? band(0.5, 0.72)) * playingK);
-  treble.set(band(0.72, 1) * playingK);
-  audioPower.set(map.loud(t) * playingK);
+  out.bass = band(0, 0.18) * 255;
+  out.lowMid = band(0.18, 0.34) * 255;
+  out.mid = band(0.34, 0.55) * 255;
+  out.vocal = (map.voice(t) ?? band(0.5, 0.72)) * 255;
+  out.treble = band(0.72, 1) * 255;
+  out.power = map.loud(t) * 255;
+  return out;
+}
+
+/** One frame of the live inputs at song time `t` (the beat clock and the bands the lyric styles read). */
+export function tickLive(t: number, playing: boolean, map: RhythmMap | null) {
+  heard.paused = !playing;
+  heard.currentTime = t;
+  tickBeatFx(heard as unknown as HTMLMediaElement, null);
+  if (!map) return;
+  const b = bandsAt(map, t, playing);
+  bass.set(b.bass);
+  lowMid.set(b.lowMid);
+  mid.set(b.mid);
+  vocal.set(b.vocal);
+  treble.set(b.treble);
+  audioPower.set(b.power);
 }
 
 export const liveBands: AudioBands = { bass, lowMid, mid, vocal, treble };

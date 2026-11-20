@@ -24,6 +24,7 @@ import './effects/screen';
 import './effects/vinyl';
 import './effects/strike';
 import './effects/folia';
+import './effects/foliaBackdrops';
 import type { RenderFrame } from './frame';
 import { visibleWords, paintLyrics } from './lyrics';
 import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';

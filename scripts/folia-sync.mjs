@@ -242,9 +242,19 @@ function extract(rel, names) {
   const importLines = [...keepImports].map(
     ([spec, used]) => `import type { ${[...used].sort().join(', ')} } from '${spec}';`,
   );
+  // (a name asked for is exported, also where upstream keeps it to its own module: Cadenza uses it from outside)
+  const asked = new Set(names.map((nm) => decls.get(nm)).filter(Boolean));
   const body = [...keep]
     .sort((a, b) => a.start - b.start)
-    .map((st) => st.text.replace(/^\s*\n/, '').trimEnd())
+    .map((st) => {
+      const text = st.text.replace(/^\s*\n/, '').trimEnd();
+      return asked.has(st)
+        ? text.replace(
+            /^((?:\s*(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)\s*\n)*\s*)(?=(?:const|let|interface|type|function|class|enum)\s)/,
+            '$1export ',
+          )
+        : text;
+    })
     .join('\n\n');
   return (importLines.length ? importLines.join('\n') + '\n\n' : '') + body + '\n';
 }

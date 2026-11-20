@@ -47,6 +47,9 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 | `types.ts` | 由同步腳本抽出需要的宣告到 `src/folia/vendor/types.ts` |
 | `utils/lyrics/graphemeTiming.ts`、`renderHints.ts`、`wordSegmentation.ts`、`utils/fontStacks.ts`、`colorMix.ts` | 原樣 |
 | `pixi.js` | `src/folia/pixi/` |
+| `components/visualizer/backgrounds/*`（通用、隱現、空、莫奈、漫遊；React 圖層） | `src/folia/backgrounds.ts` 逐格畫在 Cadenza 的畫布上（`src/render/effects/foliaBackdrops.ts` 登記成背景）；純計算的部分（隱現的速度與配色、空的著色器、莫奈的上色與漂移、漫遊的放大量、通用的封面柔焦）由同步腳本抽出原樣使用 |
+| `@paper-design/shaders-react` | `src/folia/paper.ts`：用同一個套件的 `ShaderMount` 與片段著色器，依歌曲時間畫一格 |
+| 背景配色 | 只用 Cadenza 外觀的顏色（背景、文字、強調、閃光色）與封面取色；不接 Folia 的主題色生成 |
 
 ## 與 Folia 本身對照
 
@@ -67,4 +70,4 @@ node tests/folia-compare.cjs <folia checkout> <輸出資料夾> sonnet,tempera 0
 
 - 搬進來的每個檔案開頭標明來源與版本。上游檔案裡的 `@note Version Control` 等註解保留原樣。
 - 只有 `upstream.json` 的 `patches` 改動上游文字，每條註明原因（目前都是 Cadenza 編譯器較嚴格而未使用的名稱）。
-- Lucide 圖示為 ISC 授權。
+- Lucide 圖示為 ISC 授權；Paper 著色器（`@paper-design/shaders`）為 Apache-2.0 授權。

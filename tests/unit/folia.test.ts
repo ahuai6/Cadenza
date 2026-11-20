@@ -112,3 +112,22 @@ describe('the vendored Folia tree', () => {
     expect(() => execFileSync('node', ['scripts/folia-sync.mjs', '--check', up], { stdio: 'pipe' })).not.toThrow();
   });
 });
+
+describe('Folia backgrounds', () => {
+  it('registers the five as backdrops whose settings read back as Folia tunings', async () => {
+    await import('../../src/render/effects/foliaBackdrops');
+    const { effect } = await import('../../src/render/effects/registry');
+    const { latentTuning, monetTuning, nomandTuning } = await import('../../src/folia/backgrounds');
+    const types = await import('../../src/folia/vendor/types');
+    for (const id of ['f-common', 'f-latent', 'f-sora', 'f-monet', 'f-nomand']) {
+      const e = effect(id);
+      expect(e?.kind).toBe('backdrop');
+      for (const p of e!.params || []) if (p.showIf) expect(e!.params!.some((q) => q.key === p.showIf![0])).toBe(true);
+    }
+    // every setting left at its default gives Folia's own defaults back
+    const defs = (id: string) => Object.fromEntries(effect(id)!.params!.map((p) => [p.key, p.def]));
+    expect(latentTuning(defs('f-latent'))).toEqual(types.DEFAULT_LATENT_BACKGROUND_TUNING);
+    expect(monetTuning(defs('f-monet'))).toEqual(types.DEFAULT_MONET_BACKGROUND_TUNING);
+    expect(nomandTuning(defs('f-nomand'))).toEqual(types.DEFAULT_NOMAND_BACKGROUND_TUNING);
+  });
+});

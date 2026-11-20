@@ -7,7 +7,7 @@ import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
 import { PRESETS, KNOBS, MACROS, MOTIONS, KNOB_REBUILD, motionOf, presetStyle, type Style } from '../../theme/style';
-import { effects, LYRIC_TYPES, ENGINE_PARAMS, type EffectParam as Param, type EngineParam } from '../../engine';
+import { effects, effect, LYRIC_TYPES, ENGINE_PARAMS, type EffectParam as Param, type EngineParam } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
 import { Icon } from '../ui/icons';
@@ -25,7 +25,23 @@ export interface PaneProps {
   edit: Edit;
   ctx: 'song' | 'workshop';
 }
-export const BG_STYLES = ['cover', 'vinyl', 'liquid', 'gothic', 'stage', 'minimal', 'solid', 'bokeh', 'geo', 'video'];
+export const BG_STYLES = [
+  'cover',
+  'vinyl',
+  'liquid',
+  'gothic',
+  'stage',
+  'minimal',
+  'solid',
+  'bokeh',
+  'geo',
+  'f-common',
+  'f-latent',
+  'f-sora',
+  'f-monet',
+  'f-nomand',
+  'video',
+];
 const COVER_EDGE = ['album', 'float', 'blend'],
   ASPECTS: [string, string][] = [
     ['16:9', 'aspect.169'],
@@ -247,6 +263,7 @@ export function LookPane({ s: ss, edit, ctx, media }: PaneProps & { media?: Reac
               />
             </>
           )}
+          {custom && <BackdropParams s={ss} edit={edit} />}
           {ctx === 'workshop' && (
             <Row>
               <Select
@@ -704,6 +721,42 @@ export function EffectsPane({ s: ss, edit }: PaneProps) {
             </Section>
           ))}
       </fieldset>
+    </>
+  );
+}
+/** The chosen backdrop's own settings (Folia's backgrounds have them), shown under it. */
+function BackdropParams({ s: ss, edit }: Pick<PaneProps, 's' | 'edit'>) {
+  const st = ss.style,
+    e = effect(st.bgStyle),
+    vals = st.fxp?.[st.bgStyle] || {};
+  if (!e?.params?.length) return null;
+  const val = (p: Param) => vals[p.key] ?? p.def;
+  return (
+    <>
+      {e.params
+        .filter((p) => !p.showIf || val(e.params!.find((q) => q.key === p.showIf![0])!) === p.showIf[1])
+        .map((p) => (
+          <ParamControl
+            key={p.key}
+            p={p}
+            value={val(p)}
+            onChange={(v) => edit((x) => x.setEffectParam(e.id, p.key, v, true))}
+            onCommit={(v) => edit((x) => x.setEffectParam(e.id, p.key, v))}
+          />
+        ))}
+      <Row>
+        <Button
+          size="sm"
+          kind="ghost"
+          onClick={() =>
+            edit((x) => {
+              for (const p of e.params!) x.setEffectParam(e.id, p.key, p.def);
+            })
+          }
+        >
+          {tx('reset.group')}
+        </Button>
+      </Row>
     </>
   );
 }

@@ -2,9 +2,7 @@
   "repo": "https://github.com/chthollyphile/folia-major",
   "commit": "6ee9404",
   "vendor": "src/folia/vendor",
-  "packages": [
-    "@chenglou/pretext"
-  ],
+  "packages": ["@chenglou/pretext", "@paper-design/shaders"],
   "copy": [
     "src/components/visualizer/sonnet/*.ts",
     "!src/components/visualizer/sonnet/createSonnetPixiRuntime.ts",
@@ -29,7 +27,10 @@
     "src/services/beatFx/beatFxLive.ts",
     "src/services/beatFx/clock.ts",
     "src/components/visualizer/wordColoring.ts",
-    "src/components/visualizer/pixiSongSwap.ts"
+    "src/components/visualizer/pixiSongSwap.ts",
+    "src/components/visualizer/backgrounds/nomand/nomandShaderAdjustments.ts",
+    "src/components/visualizer/backgrounds/monet/monetBackgroundDrift.ts",
+    "src/components/visualizer/monet/monetBackgroundPaint.ts"
   ],
   "extract": [
     {
@@ -48,20 +49,46 @@
         "DEFAULT_TEMPERA_TUNING",
         "TemperaLayerImage",
         "DEFAULT_TEMPERA_LAYER_IMAGE",
-        "TEMPERA_MAX_LAYER_IMAGES"
+        "TEMPERA_MAX_LAYER_IMAGES",
+        "DEFAULT_MONET_BACKGROUND_TUNING",
+        "DEFAULT_NOMAND_BACKGROUND_TUNING",
+        "DEFAULT_LATENT_BACKGROUND_TUNING",
+        "DEFAULT_SORA_BACKGROUND_TUNING"
       ]
     },
     {
       "file": "src/services/analysis/beatAccents.ts",
-      "names": [
-        "BeatAccents"
-      ]
+      "names": ["BeatAccents"]
     },
     {
       "file": "src/services/beatFx/beatEffects.ts",
+      "names": ["BEAT_EFFECT_IDS"]
+    },
+    {
+      "file": "src/components/visualizer/backgrounds/latent/LatentBackground.tsx",
       "names": [
-        "BEAT_EFFECT_IDS"
+        "resolveLatentBroadbandEnergy",
+        "resolveLatentOnsetPulse",
+        "resolveLatentBeatSpeedTarget",
+        "resolveLatentAudioSpeedTarget",
+        "resolveLatentShaderSpeed",
+        "resolveLatentShaderColors",
+        "MAX_SHADER_PIXELS",
+        "PAUSED_SPEED_SCALE",
+        "PAUSE_EASE_MS"
       ]
+    },
+    {
+      "file": "src/components/visualizer/backgrounds/sora/SoraBackground.tsx",
+      "names": ["PARTICLE_COUNT", "VERTEX_SHADER", "FRAGMENT_SHADER"]
+    },
+    {
+      "file": "src/components/visualizer/backgrounds/common/FluidBackground.tsx",
+      "names": ["COVER_CANVAS_WIDTH", "COVER_SOURCE_MAX", "bakeBlurredCover", "drawCover"]
+    },
+    {
+      "file": "src/components/visualizer/backgrounds/common/GeometricBackground.tsx",
+      "names": ["getShapeScaleKey", "BackgroundShape", "BackgroundParticle"]
     }
   ],
   "shims": {
