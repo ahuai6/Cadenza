@@ -442,6 +442,14 @@ export class Session {
     if (!live && id === 'glyph' && key === 'freq') this.dirty |= RECUE;
     return true;
   }
+  /** A lyric engine's own setting (render/engines.ts rebuilds the engine from the style when it changes). */
+  setEngineParam(id: string, key: string, v: number | string | boolean) {
+    if (!this.custom) return false;
+    (this.style.engp ||= {})[id] = { ...(this.style.engp?.[id] || {}), [key]: v };
+    this.style = { ...this.style };
+    this.style.edited = true;
+    return true;
+  }
   makeCustom() {
     if (this.custom) return;
     this.style = {

@@ -36,6 +36,11 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 | `sonnet/createSonnetPixiRuntime.ts` | `src/folia/engines/sonnet.ts`（重寫：場景快取、逐幀更新、片尾模糊照搬，畫布與時鐘交給 Cadenza） |
 | `sonnet/sonnetIcons.ts`（React 渲染 Lucide） | `src/folia/shim/sonnetIcons.ts`（內建數個 Lucide 圖示的 SVG，其餘函式照搬） |
 | `sonnet/VisualizerSonnet.tsx`、`SonnetSettingsPanel.tsx`、`tuning.ts` | Cadenza 的風格頁與設定（不搬） |
+| `components/visualizer/tempera/*.ts`、`compositions/*.ts`（構圖、色塊、排線、反相濾鏡、景深、墨跡、轉場、片尾） | `src/folia/vendor/components/visualizer/tempera/`（原樣） |
+| `tempera/createTemperaPixiRuntime.ts` | `src/folia/engines/tempera.ts`（重寫：場景快取、預捲、色塊掃過、墨跡與景深開關照搬；換歌與使用者圖層交給 Cadenza） |
+| `tempera/tuning.ts`、`Tempera*Panel/Controls/Dialog*.tsx`、`useTemperaLayerImageThumbnails.ts` | Cadenza 的風格頁（不搬） |
+| `services/analysis/drumHits.ts`（瀏覽器內分離鼓軌） | `src/folia/shim/drumHits.ts`（鼓點來自 Cadenza 節奏分析的 htdemucs 鼓軌） |
+| `pixi.js` 的 `Mesh` + 自訂著色器（墨跡閃光） | `src/folia/pixi/mesh.ts` + `gl.ts` 的網格繪製 |
 | `services/beatFx/beatFxLive.ts`、`clock.ts` | 原樣；由 `src/folia/live.ts` 餵 Cadenza 的拍點 |
 | `services/beatFx/beatFxSource.ts`（Beat This! 推理、分軌） | `src/folia/shim/beatFxSource.ts`（只留型別；拍點來自 Cadenza 的節奏） |
 | `stores/motionSignals.ts` | `src/folia/shim/motionSignals.ts` |

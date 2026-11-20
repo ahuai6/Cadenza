@@ -10,6 +10,12 @@
     "!src/components/visualizer/sonnet/createSonnetPixiRuntime.ts",
     "!src/components/visualizer/sonnet/sonnetIcons.ts",
     "!src/components/visualizer/sonnet/tuning.ts",
+    "src/components/visualizer/tempera/*.ts",
+    "!src/components/visualizer/tempera/createTemperaPixiRuntime.ts",
+    "!src/components/visualizer/tempera/tuning.ts",
+    "!src/components/visualizer/tempera/temperaDialogTokens.ts",
+    "!src/components/visualizer/tempera/useTemperaLayerImageThumbnails.ts",
+    "src/components/visualizer/tempera/compositions/*.ts",
     "src/components/visualizer/pixiFilterVertex.ts",
     "src/components/visualizer/pixiSceneCache.ts",
     "src/components/visualizer/visualizerSeedHash.ts",
@@ -21,7 +27,9 @@
     "src/utils/lyrics/renderHints.ts",
     "src/utils/lyrics/wordSegmentation.ts",
     "src/services/beatFx/beatFxLive.ts",
-    "src/services/beatFx/clock.ts"
+    "src/services/beatFx/clock.ts",
+    "src/components/visualizer/wordColoring.ts",
+    "src/components/visualizer/pixiSongSwap.ts"
   ],
   "extract": [
     {
@@ -35,13 +43,24 @@
         "DEFAULT_SONNET_TUNING",
         "AudioBands",
         "LyricAntialias",
-        "LyricRenderScale"
+        "LyricRenderScale",
+        "TemperaTuning",
+        "DEFAULT_TEMPERA_TUNING",
+        "TemperaLayerImage",
+        "DEFAULT_TEMPERA_LAYER_IMAGE",
+        "TEMPERA_MAX_LAYER_IMAGES"
       ]
     },
     {
       "file": "src/services/analysis/beatAccents.ts",
       "names": [
         "BeatAccents"
+      ]
+    },
+    {
+      "file": "src/services/beatFx/beatEffects.ts",
+      "names": [
+        "BEAT_EFFECT_IDS"
       ]
     }
   ],
@@ -52,7 +71,8 @@
     "src/stores/motionSignals.ts": "src/folia/shim/motionSignals.ts",
     "src/services/beatFx/beatFxSource.ts": "src/folia/shim/beatFxSource.ts",
     "src/components/visualizer/sonnet/sonnetIcons.ts": "src/folia/shim/sonnetIcons.ts",
-    "pixi.js/advanced-blend-modes": "src/folia/pixi/advancedBlendModes.ts"
+    "pixi.js/advanced-blend-modes": "src/folia/pixi/advancedBlendModes.ts",
+    "src/services/analysis/drumHits.ts": "src/folia/shim/drumHits.ts"
   },
   "patches": [
     {
@@ -72,6 +92,24 @@
       "why": "unused import, re-exported straight from its module below (noUnusedLocals)",
       "find": "    findSonnetHeroSegmentIndex,\n    findSonnetSemiHeroSegmentIndex,\n    findSonnetSemiHeroSegmentIndices,\n    getSonnetVisibleSegmentLength,",
       "replace": "    findSonnetHeroSegmentIndex,\n    findSonnetSemiHeroSegmentIndices,\n    getSonnetVisibleSegmentLength,"
+    },
+    {
+      "file": "src/components/visualizer/tempera/compositions/temperaApertureCompositions.ts",
+      "why": "unused name (noUnusedLocals)",
+      "find": "    const { width, height, palette } = ctx;\n    const unit = Math.min(width, height);\n    const gate = rectPolygon(width * 0.2, height * 0.1, width * 0.6, height * 0.52);",
+      "replace": "    const { width, height, palette } = ctx;\n    const gate = rectPolygon(width * 0.2, height * 0.1, width * 0.6, height * 0.52);"
+    },
+    {
+      "file": "src/components/visualizer/tempera/temperaLayout.ts",
+      "why": "unused name (noUnusedLocals)",
+      "find": "const TAU = Math.PI * 2;\n",
+      "replace": ""
+    },
+    {
+      "file": "src/components/visualizer/tempera/temperaTextView.ts",
+      "why": "unused name (noUnusedLocals)",
+      "find": "/** The ghost is tinted by the filter, so only its opacity is its own. */\nconst SHADOW_ALPHA = 0.34;\n",
+      "replace": ""
     }
   ]
 }

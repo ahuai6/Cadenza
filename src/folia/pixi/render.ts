@@ -8,7 +8,8 @@ import { Graphics, GraphicsPath, type FillStyle, type StrokeStyle } from './grap
 import { Sprite, Texture, TextureSource, type ImageLike } from './texture';
 import { Text, CanvasTextMetrics, type TextStyle } from './text';
 import { BlurFilter, type Filter } from './filters';
-import { glRunner } from './gl';
+import { glRunner, drawMeshGl } from './gl';
+import { Mesh } from './mesh';
 import { cssColor } from './color';
 
 type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -235,6 +236,7 @@ export class StageRenderer {
     if (n instanceof Graphics) this.graphics(n, f, world, a, b, t);
     else if (n instanceof Text) this.text(n, f, world, a, b, t);
     else if (n instanceof Sprite) this.sprite(n, f, world, a, b, t);
+    else if (n instanceof Mesh) this.mesh(n, f, world, a, b);
     else {
       const draw = (n as { drawCustom?: (g: Ctx2D, m: Matrix, alpha: number) => void }).drawCustom;
       if (draw) {
@@ -368,6 +370,35 @@ export class StageRenderer {
     const x0 = -n.anchor.x * measured.width - pad,
       y0 = -n.anchor.y * measured.height - pad;
     g.drawImage(c as CanvasImageSource, x0, y0, c.width / res, c.height / res);
+    this.stats.draws += 1;
+  }
+
+  /** A mesh with a program of its own (Folia's full-screen shader quads): drawn on the GL canvas, then over the target. */
+  private mesh(n: Mesh, f: Frame, world: Matrix, a: number, b: BLEND_MODES) {
+    const prog = n.shader?.glProgram;
+    if (!prog) return;
+    const runner = glRunner();
+    if (!runner.ok) return;
+    const W = f.ctx.canvas.width,
+      H = f.ctx.canvas.height;
+    const m = Matrix.multiply(f.base, world, new Matrix());
+    const out = drawMeshGl(runner, W, H, {
+      glProgram: prog,
+      resources: n.shader!.resources,
+      positions: n.geometry.positions,
+      uvs: n.geometry.uvs,
+      indices: n.geometry.indices,
+      matrix: [m.a, m.b, m.c, m.d, m.tx, m.ty],
+      alpha: a,
+    });
+    if (!out) return;
+    const g = f.ctx;
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = compositeOf(b);
+    g.drawImage(out as CanvasImageSource, 0, 0);
+    g.restore();
     this.stats.draws += 1;
   }
 

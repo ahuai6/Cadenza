@@ -371,6 +371,9 @@ export const MOTIONS: Record<string, MotionRecipe> = {
   /** 商籟 (Folia's Sonnet): print-design shots — editorial columns, type impact, collage, ribbons, poster blocks —
    *  each paragraph a scene of its own with guides and line drawings, cut with blur, glitch or a camera pull */
   sonnet: { ...mo('cover', 'glide', 'flow', 'drift', 'none'), engine: 'sonnet' },
+  /** 凝彩 (Folia's Tempera): flat colour blocks with cut-outs and hatching, the type inverting against them; paragraphs
+   *  changed by block wipes, ink flashes on the drums */
+  tempera: { ...mo('cover', 'glide', 'flow', 'drift', 'none'), engine: 'tempera' },
 };
 export const DEFAULT_MOTION = 'story';
 /** The motion style a style's camera reads as (styles from before the styles had names). */

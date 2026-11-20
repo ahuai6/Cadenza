@@ -51,4 +51,5 @@ export { LYRIC_TYPES } from '../director/lyrictypes';
 export { ASPECTS } from '../director';
 export { FONTS, FONT_KINDS, fontStack, ensureFont, type Face, type FontKind } from '../text/fonts';
 export { effects, type Param as EffectParam } from '../render/effects/registry';
+export { ENGINES, ENGINE_PARAMS, isFoliaEngine, type EngineParam } from '../render/engines';
 export type { GfxMode } from '../render/gfx';

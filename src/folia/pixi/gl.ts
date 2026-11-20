@@ -234,6 +234,85 @@ export class GlRunner {
     }
   }
 
+  private meshBuf: { pos: WebGLBuffer; uv: WebGLBuffer; idx: WebGLBuffer; vao: WebGLVertexArrayObject } | null = null;
+  /** Draws a mesh with its own program onto the whole (cleared) canvas, W×H device px; returns it to be drawn over. */
+  mesh(
+    W: number,
+    H: number,
+    m: MeshDraw,
+    cache: Map<number, Program | null>,
+  ): HTMLCanvasElement | OffscreenCanvas | null {
+    const gl = this.gl;
+    if (!gl || this.lost) return null;
+    const saved = this.programs;
+    this.programs = cache;
+    const p = this.program({ glProgram: m.glProgram } as unknown as Filter);
+    this.programs = saved;
+    if (!p) return null;
+    if (this.canvas.width !== W) this.canvas.width = W;
+    if (this.canvas.height !== H) this.canvas.height = H;
+    if (!this.meshBuf)
+      this.meshBuf = {
+        pos: gl.createBuffer()!,
+        uv: gl.createBuffer()!,
+        idx: gl.createBuffer()!,
+        vao: gl.createVertexArray()!,
+      };
+    const B = this.meshBuf;
+    gl.bindVertexArray(B.vao);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.disable(gl.BLEND);
+    gl.useProgram(p.prog);
+    const attr = (name: string, buf: WebGLBuffer, data: Float32Array) => {
+      const loc = gl.getAttribLocation(p.prog, name);
+      if (loc < 0) return;
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    };
+    attr('aPosition', B.pos, m.positions);
+    attr('aUV', B.uv, m.uvs);
+    const idx = m.indices instanceof Uint16Array ? m.indices : new Uint16Array(m.indices);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, B.idx);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.DYNAMIC_DRAW);
+    const [a, b, c, d, tx, ty] = m.matrix;
+    const std: Record<string, UniformValue> = {
+      // device px → clip, y down
+      uProjectionMatrix: [2 / W, 0, 0, 0, -2 / H, 0, -1, 1, 1],
+      uWorldTransformMatrix: [a, b, 0, c, d, 0, tx, ty, 1],
+      uTransformMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      uColor: [m.alpha, m.alpha, m.alpha, m.alpha],
+    };
+    for (const [k, v] of Object.entries(std)) {
+      const u = p.uniforms.get(k);
+      if (u) this.setUniform(u, v);
+    }
+    let unit = 0;
+    for (const [k, r] of Object.entries(m.resources)) {
+      if (r instanceof UniformGroup) {
+        for (const [uk, uv] of Object.entries(r.uniforms)) {
+          const u = p.uniforms.get(uk);
+          if (u) this.setUniform(u, uv);
+        }
+        continue;
+      }
+      const source = resourceSource(r);
+      const u = p.uniforms.get(k);
+      if (!source || !u) continue;
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, this.sourceTexture(source));
+      gl.uniform1i(u.loc, unit);
+      unit += 1;
+    }
+    gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
+    gl.bindVertexArray(null);
+    return this.canvas;
+  }
+
   /**
    * Runs `filters` (all GL kind) over `src` — a frame `w`×`h` CSS px drawn at `res` — and returns the
    * canvas holding the result (W×H device px, drawn right away by the caller), or null without a GPU.
@@ -323,6 +402,28 @@ export class GlRunner {
   }
 }
 
+/** A mesh's own program, compiled once (Pixi's mesh conventions: aPosition, aUV, the three matrices). */
+const meshPrograms = new Map<number, Program | null>();
+
+export interface MeshDraw {
+  glProgram: import('./filters').GlProgram;
+  resources: Record<string, FilterResource>;
+  positions: Float32Array;
+  uvs: Float32Array;
+  indices: Uint32Array | Uint16Array;
+  /** stage CSS px → target device px, times the mesh's own transform (a, b, c, d, tx, ty) */
+  matrix: [number, number, number, number, number, number];
+  alpha: number;
+}
+
+export function drawMeshGl(
+  runner: GlRunner,
+  W: number,
+  H: number,
+  m: MeshDraw,
+): HTMLCanvasElement | OffscreenCanvas | null {
+  return runner.mesh(W, H, m, meshPrograms);
+}
 function resourceSource(r: FilterResource): TextureSource | null {
   if (!r || r instanceof UniformGroup) return null;
   if (r instanceof TextureSource) return r.resource ? r : null;

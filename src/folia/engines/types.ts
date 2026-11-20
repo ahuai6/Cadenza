@@ -46,3 +46,20 @@ export interface FoliaEngine {
   setTuning(tuning: Record<string, unknown>): void;
   destroy(): void;
 }
+
+/** One of an engine's own settings, as the style pages show it (the same shape as an effect's parameter). */
+export interface EngineParam {
+  key: string;
+  /** dictionary key of its name */
+  label: string;
+  kind: 'range' | 'toggle' | 'select';
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: [string, string][];
+  def: number | boolean | string;
+  /** where it is offered: 'style' under the style's Advanced, 'fx' with the effects */
+  group: 'style' | 'fx';
+  /** shown only while this other toggle is on */
+  when?: string;
+}

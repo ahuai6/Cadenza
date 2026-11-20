@@ -689,6 +689,30 @@ const ok = (name, pass, detail) => {
       JSON.stringify({ opened, bg, coverUp, closed }),
     );
   }
+  // a Folia style (3.3.0): 商籟 is a motion style like the others — it takes over the words, its own settings show under
+  // the style's Advanced and its finishing with the effects; back to 敘事 the director has the words again
+  {
+    const sp = win.locator('[data-test=song-panel]');
+    await sp.getByRole('radio', { name: /商籟/ }).click();
+    await W(1200);
+    const eng = await C(() => window.__cadenza.player.get().session.style.engine);
+    const own = await sp.getByText('商籟的設定').count();
+    await shot('fx-sonnet-panel');
+    await W(2500);
+    await shot('fx-sonnet');
+    await sp.getByRole('radio', { name: /凝彩/ }).click();
+    await W(1500);
+    const eng2 = await C(() => window.__cadenza.player.get().session.style.engine);
+    await shot('fx-tempera');
+    await sp.getByRole('radio', { name: /敘事/ }).click();
+    await W(600);
+    const back = await C(() => window.__cadenza.player.get().session.style.engine ?? null);
+    ok(
+      'styles: 商籟 takes the words with its own settings; 敘事 gives them back',
+      eng === 'sonnet' && own > 0 && eng2 === 'tempera' && back === null,
+      JSON.stringify({ eng, own, eng2, back }),
+    );
+  }
   // the font picker: its names are baked pictures — opening it loads no face (it used to load thirty, and stall)
   {
     const sp = win.locator('[data-test=song-panel]'),

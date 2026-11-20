@@ -7,7 +7,7 @@ import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
 import { PRESETS, KNOBS, MACROS, MOTIONS, KNOB_REBUILD, motionOf, presetStyle, type Style } from '../../theme/style';
-import { effects, LYRIC_TYPES, type EffectParam as Param } from '../../engine';
+import { effects, LYRIC_TYPES, ENGINE_PARAMS, type EffectParam as Param, type EngineParam } from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
 import { Icon } from '../ui/icons';
@@ -343,6 +343,10 @@ const GLYPHS: Record<string, string> = {
   close: 'M15 2h14v14H15zM3 6h5v6H3zM36 6h5v6h-5z',
   float: 'M15 9a7 7 0 1 0 14 0a7 7 0 1 0-14 0M6 13h.01M38 4h.01',
   stage: 'M8 7h28M12 12h20',
+  // (a printed layout: columns of type beside a rule and a mark)
+  sonnet: 'M6 3v12M11 3v8M17 9h20M17 13h12M38 3l3 3',
+  // (colour blocks, one cut through, hatched)
+  tempera: 'M4 3h16v12H4zM24 6h16v9H24zM8 7l4 4M12 7l4 4M30 9a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
 };
 function MotionGlyph({ id }: { id: string }) {
   return (
@@ -489,120 +493,126 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
                 )}
               </Row>
             </Section>
-            <Section
-              title={tx('mo.tune')}
-              note={tx('help.knobs')}
-              action={
-                <Button kind="ghost" size="sm" onClick={resetTune}>
-                  {tx('reset.group')}
-                </Button>
-              }
-            >
-              {MACROS.map(([k, mn, mx, sp]) => (
-                <Slider
-                  key={k}
-                  label={tx('km.' + k)}
-                  min={mn}
-                  max={mx}
-                  step={sp}
-                  value={st.k[k] ?? 1}
-                  format={fmtK}
-                  home={1}
-                  {...knob(edit, k)}
-                />
-              ))}
-            </Section>
-            <Section
-              title={tx('adv.h')}
-              note={adv ? tx('adv.help') : undefined}
-              action={
-                <Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv((v) => !v)}>
-                  {tx(adv ? 'adv.hide' : 'adv.show')}
-                </Button>
-              }
-            >
-              {adv && (
-                <>
-                  <Select
-                    label={tx('cut')}
-                    value={st.cut}
-                    options={opts(CUTS, 'cut.')}
-                    onChange={(v) => set('cut', v)}
-                  />
-                  <Row>
-                    <Select
-                      label={tx('trans')}
-                      value={st.trans || 'auto'}
-                      options={opts(['auto', 'off'], 'trans.')}
-                      onChange={(v) => set('trans', v)}
-                    />
-                    <Select
-                      label={tx('flash')}
-                      value={st.flashMode}
-                      options={opts(['color', 'invert'], 'flash.')}
-                      onChange={(v) => set('flashMode', v)}
-                    />
-                  </Row>
-                  <Select
-                    label={tx('ltype')}
-                    value={st.ltype || 'flow'}
-                    options={opts(Object.keys(LYRIC_TYPES), 'lt.')}
-                    onChange={(v) => set('ltype', v)}
-                  />
-                  <Select
-                    label={tx('future')}
-                    value={st.future}
-                    options={opts(['dim', 'hide'], 'future.')}
-                    onChange={(v) => set('future', v)}
-                  />
-                  <Row>
-                    <Select
-                      label={tx('tin')}
-                      value={st.tin || 'mix'}
-                      options={opts(TIN, 'tin.')}
-                      onChange={(v) => set('tin', v)}
-                    />
-                    <Select
-                      label={tx('tout')}
-                      value={st.tout === 'drift' || st.tout === 'spread' ? st.tout : 'none'}
-                      options={opts(['none', 'drift', 'spread'], 'tout.')}
-                      onChange={(v) => set('tout', v)}
-                    />
-                  </Row>
-                  {GROUPS.map((g) => (
-                    <Section
-                      key={g}
-                      title={tx(g)}
-                      action={
-                        <Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>
-                          {tx('reset.group')}
-                        </Button>
-                      }
-                      note={g === 'grp.triggers' ? tx('help.triggers') : undefined}
-                    >
-                      {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => (
-                        <Slider
-                          key={k}
-                          label={tx('k.' + k)}
-                          min={mn}
-                          max={mx}
-                          step={sp}
-                          value={st.k[k]}
-                          format={fmtK}
-                          home={1}
-                          {...knob(edit, k)}
-                        />
-                      ))}
-                    </Section>
-                  ))}
-                  <Row>
-                    <Button size="sm" onClick={resetAll}>
-                      {tx('reset.all')}
+            {st.engine && ENGINE_PARAMS[st.engine as keyof typeof ENGINE_PARAMS] ? (
+              <EngineSection s={ss} edit={edit} group="style" />
+            ) : (
+              <>
+                <Section
+                  title={tx('mo.tune')}
+                  note={tx('help.knobs')}
+                  action={
+                    <Button kind="ghost" size="sm" onClick={resetTune}>
+                      {tx('reset.group')}
                     </Button>
-                  </Row>
-                </>
-              )}
-            </Section>
+                  }
+                >
+                  {MACROS.map(([k, mn, mx, sp]) => (
+                    <Slider
+                      key={k}
+                      label={tx('km.' + k)}
+                      min={mn}
+                      max={mx}
+                      step={sp}
+                      value={st.k[k] ?? 1}
+                      format={fmtK}
+                      home={1}
+                      {...knob(edit, k)}
+                    />
+                  ))}
+                </Section>
+                <Section
+                  title={tx('adv.h')}
+                  note={adv ? tx('adv.help') : undefined}
+                  action={
+                    <Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv((v) => !v)}>
+                      {tx(adv ? 'adv.hide' : 'adv.show')}
+                    </Button>
+                  }
+                >
+                  {adv && (
+                    <>
+                      <Select
+                        label={tx('cut')}
+                        value={st.cut}
+                        options={opts(CUTS, 'cut.')}
+                        onChange={(v) => set('cut', v)}
+                      />
+                      <Row>
+                        <Select
+                          label={tx('trans')}
+                          value={st.trans || 'auto'}
+                          options={opts(['auto', 'off'], 'trans.')}
+                          onChange={(v) => set('trans', v)}
+                        />
+                        <Select
+                          label={tx('flash')}
+                          value={st.flashMode}
+                          options={opts(['color', 'invert'], 'flash.')}
+                          onChange={(v) => set('flashMode', v)}
+                        />
+                      </Row>
+                      <Select
+                        label={tx('ltype')}
+                        value={st.ltype || 'flow'}
+                        options={opts(Object.keys(LYRIC_TYPES), 'lt.')}
+                        onChange={(v) => set('ltype', v)}
+                      />
+                      <Select
+                        label={tx('future')}
+                        value={st.future}
+                        options={opts(['dim', 'hide'], 'future.')}
+                        onChange={(v) => set('future', v)}
+                      />
+                      <Row>
+                        <Select
+                          label={tx('tin')}
+                          value={st.tin || 'mix'}
+                          options={opts(TIN, 'tin.')}
+                          onChange={(v) => set('tin', v)}
+                        />
+                        <Select
+                          label={tx('tout')}
+                          value={st.tout === 'drift' || st.tout === 'spread' ? st.tout : 'none'}
+                          options={opts(['none', 'drift', 'spread'], 'tout.')}
+                          onChange={(v) => set('tout', v)}
+                        />
+                      </Row>
+                      {GROUPS.map((g) => (
+                        <Section
+                          key={g}
+                          title={tx(g)}
+                          action={
+                            <Button kind="ghost" size="sm" onClick={() => resetGroup(g)}>
+                              {tx('reset.group')}
+                            </Button>
+                          }
+                          note={g === 'grp.triggers' ? tx('help.triggers') : undefined}
+                        >
+                          {KNOBS.filter(([k, gg]) => gg === g && k !== 'size').map(([k, , mn, mx, sp]) => (
+                            <Slider
+                              key={k}
+                              label={tx('k.' + k)}
+                              min={mn}
+                              max={mx}
+                              step={sp}
+                              value={st.k[k]}
+                              format={fmtK}
+                              home={1}
+                              {...knob(edit, k)}
+                            />
+                          ))}
+                        </Section>
+                      ))}
+                      <Row>
+                        <Button size="sm" onClick={resetAll}>
+                          {tx('reset.all')}
+                        </Button>
+                      </Row>
+                    </>
+                  )}
+                </Section>
+              </>
+            )}
           </>
         )}
       </fieldset>
@@ -665,6 +675,7 @@ export function EffectsPane({ s: ss, edit }: PaneProps) {
     <>
       {!custom && <Note>{tx('th.locked')}</Note>}
       <fieldset disabled={!custom} className={s.set}>
+        {st.engine && <EngineSection s={ss} edit={edit} group="fx" />}
         {groups
           .filter(([, es]) => es.length)
           .map(([g, es]) => (
@@ -694,6 +705,42 @@ export function EffectsPane({ s: ss, edit }: PaneProps) {
           ))}
       </fieldset>
     </>
+  );
+}
+/** A lyric engine's own settings (a Folia style's): 'style' ones under the style's Advanced, 'fx' with the effects. */
+export function EngineSection({ s: ss, edit, group }: Pick<PaneProps, 's' | 'edit'> & { group: 'style' | 'fx' }) {
+  const st = ss.style,
+    id = st.engine as keyof typeof ENGINE_PARAMS,
+    list = (ENGINE_PARAMS[id] || []).filter((p) => p.group === group),
+    vals = st.engp?.[id] || {},
+    val = (p: EngineParam) => vals[p.key] ?? p.def;
+  if (!list.length) return null;
+  const reset = () =>
+    edit((x) => {
+      for (const p of list) x.setEngineParam(id, p.key, p.def);
+    });
+  return (
+    <Section
+      title={tx(group === 'fx' ? 'eng.fxTitle' : 'eng.title', { name: tx('mo.' + id) })}
+      note={tx(group === 'fx' ? 'eng.fxHelp' : 'eng.help')}
+      action={
+        <Button kind="ghost" size="sm" onClick={reset}>
+          {tx('reset.group')}
+        </Button>
+      }
+    >
+      {list
+        .filter((p) => !p.when || !!(vals[p.when] ?? list.find((q) => q.key === p.when)?.def))
+        .map((p) => (
+          <ParamControl
+            key={p.key}
+            p={p}
+            value={val(p)}
+            onChange={(v) => edit((x) => x.setEngineParam(id, p.key, v))}
+            onCommit={(v) => edit((x) => x.setEngineParam(id, p.key, v))}
+          />
+        ))}
+    </Section>
   );
 }
 function ParamControl({

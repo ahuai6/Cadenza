@@ -6,6 +6,8 @@ import type { RhythmMap } from '../rhythm/map';
 import { beginBeatFxTrack, setBeatFxEvents, tickBeatFx, isBeatFxReady } from './vendor/services/beatFx/beatFxLive';
 import type { BeatFxEvent } from './vendor/services/beatFx/clock';
 import { audioPower, bass, lowMid, mid, vocal, treble } from './shim/motionSignals';
+import { setDrumHits } from './shim/drumHits';
+import { setBeatFxLiveEffects } from './vendor/services/beatFx/beatFxLive';
 import type { AudioBands } from './vendor/types';
 import type { MotionValue } from './shim/framerMotion';
 
@@ -39,6 +41,25 @@ export function installBeats(key: string, map: RhythmMap | null) {
   installed = { key, map };
   beginBeatFxTrack(key);
   if (map && map.beats.length) setBeatFxEvents(key, beatEvents(map), 'beat_this');
+  // the drum hits (kick, snare, hats) the neural engine read off the separated drum stem, in song time
+  const d = map?.a.drums;
+  if (map && d && d.t.length) {
+    const n = d.t.length;
+    const times = new Float64Array(n),
+      strengths = new Float32Array(n),
+      kinds = new Uint8Array(n);
+    for (let i = 0; i < n; i += 1) {
+      times[i] = d.t[i] - map.offset;
+      strengths[i] = d.s[i] ?? 1;
+      kinds[i] = d.k[i] ?? 0;
+    }
+    setDrumHits(key, { times, strengths, kinds });
+  } else setDrumHits(key, null);
+}
+
+/** Which of Folia's beat effects play now, and how strongly (0..2): each style asks for its own by id. */
+export function setBeatEffects(strengths: Record<string, number>) {
+  setBeatFxLiveEffects(strengths);
 }
 
 const heard = { paused: true, ended: false, currentTime: 0 };

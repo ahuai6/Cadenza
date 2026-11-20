@@ -4,10 +4,11 @@
    (the look's colours or font, the engine's settings); dropped with its plan. */
 import type { RenderFrame } from './frame';
 import type { ScenePlan } from '../director/types';
-import { SonnetEngine } from '../folia/engines/sonnet';
-import type { FoliaEngine } from '../folia/engines/types';
+import { SonnetEngine, SONNET_PARAMS } from '../folia/engines/sonnet';
+import { TemperaEngine, TEMPERA_PARAMS } from '../folia/engines/tempera';
+import type { EngineParam, FoliaEngine } from '../folia/engines/types';
 import { foliaLines, foliaTheme, rgbHex } from '../folia/adapt';
-import { installBeats, tickLive } from '../folia/live';
+import { installBeats, tickLive, setBeatEffects } from '../folia/live';
 import { fontStack } from '../text/fonts';
 
 interface Held {
@@ -19,10 +20,14 @@ interface Held {
 const held = new WeakMap<ScenePlan, Held>();
 
 /** The engines a style can name (the director is none of them). */
-export const ENGINES = ['sonnet'] as const;
+export const ENGINES = ['sonnet', 'tempera'] as const;
 export type EngineId = (typeof ENGINES)[number];
 export const isFoliaEngine = (id: string | undefined): id is EngineId =>
   !!id && (ENGINES as readonly string[]).includes(id);
+
+/** Each engine's own settings (the style pages draw their controls from these). */
+export const ENGINE_PARAMS: Record<EngineId, EngineParam[]> = { sonnet: SONNET_PARAMS, tempera: TEMPERA_PARAMS };
+export type { EngineParam };
 
 /** Whether the frame's lyrics are an engine's (the director's word layers, transitions and dots are then left out). */
 export const engineOf = (f: RenderFrame) => (isFoliaEngine(f.style.engine) ? f.style.engine : null);
@@ -53,14 +58,15 @@ function specOf(f: RenderFrame, id: EngineId) {
     motion: Math.min(1, Math.max(0, (st.k.energy ?? 1) * 0.5)),
   });
   const tuning = (st.engp?.[id] ?? {}) as Record<string, unknown>;
-  const key = JSON.stringify([id, theme, tuning, st.k.size ?? 1, f.motion < 1]);
+  // (the tuning is applied to a live engine in place: only what it was built from rebuilds it)
+  const key = JSON.stringify([id, theme, st.k.size ?? 1, f.motion < 1, tuning.beatFx, tuning.credits]);
   return { key, theme, tuning };
 }
 
 function build(f: RenderFrame, id: EngineId, theme: ReturnType<typeof foliaTheme>, tuning: Record<string, unknown>) {
   const plan = f.plan,
     st = f.style;
-  return new SonnetEngine({
+  const common = {
     seed: seedOf(plan),
     lines: foliaLines(plan.doc),
     theme,
@@ -75,7 +81,14 @@ function build(f: RenderFrame, id: EngineId, theme: ReturnType<typeof foliaTheme
     beatFx: tuning.beatFx !== false,
     credits: tuning.credits !== false,
     tuning,
-  });
+  };
+  if (id === 'tempera') {
+    const pal = f.pal;
+    // the cover's colours (the gradient colour mode reads them); Cadenza's palette is taken from the cover already
+    const coverColors = [pal.accent, pal.bg2, pal.text, pal.flash, pal.bg].map(rgbHex);
+    return new TemperaEngine({ ...common, coverColors });
+  }
+  return new SonnetEngine(common);
 }
 
 /** The frame's engine runtime (made or rebuilt as needed), or null for the director. */
@@ -88,6 +101,7 @@ export function engineFor(f: RenderFrame): FoliaEngine | null {
   const { key, theme, tuning } = specOf(f, id);
   if (h && h.key === key) {
     h.style = f.style;
+    h.engine.setTuning(tuning);
     return h.engine;
   }
   h?.engine.destroy();
@@ -102,6 +116,9 @@ export const ENGINE_WAIT = { on: false };
 /** Draws the frame's lyrics with its engine: the live inputs first (beats, bands), then the engine's own picture. */
 export function drawEngine(g: CanvasRenderingContext2D, f: RenderFrame, engine: FoliaEngine) {
   installBeats(seedOf(f.plan), f.plan.map);
+  // (the beat effects a style asks for by id, at the strength its settings give)
+  const tuning = f.style.engp?.[engine.id] ?? {};
+  setBeatEffects(engine.id === 'tempera' ? { 'tempera.inkFlash': +(tuning.inkFlash ?? 1) } : {});
   tickLive(f.t, f.playing !== false, f.plan.map);
   ENGINE_WAIT.on = !engine.ready;
   engine.draw(g, { t: f.t, W: f.W, H: f.H, px: f.px, alpha: f.view.effect, playing: f.playing !== false });
