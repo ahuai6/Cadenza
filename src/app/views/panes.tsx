@@ -655,7 +655,7 @@ const COMPANIONS = new Set(['gothic-chains', 'geo-front', 'glass-shards', 'feath
  *  backdrop (they work on any; their group says which they were made for). Anything new lands in the last. */
 const FX_GROUPS: [string, string[]][] = [
   ['fxg.ambience', ['motes', 'feathers', 'stars', 'rings', 'eq', 'grid']],
-  ['fxg.screen', ['grain', 'vignette', 'scan', 'chroma', 'glitch', 'invgeo']],
+  ['fxg.screen', ['grain', 'vignette', 'scan', 'chroma', 'glitch', 'invgeo', 'finish', 'sheet']],
   ['fxg.lyrics', ['frame', 'wordring', 'glyph', 'afterimage']],
   ['fxg.gothic', ['glass']],
   ['fxg.vinyl', ['doors', 'lines', 'wires', 'shards']],

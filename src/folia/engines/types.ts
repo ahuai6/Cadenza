@@ -34,6 +34,9 @@ export interface FoliaEngineFrame {
   px: number;
   /** how far the effect view is in (0..1) */
   alpha: number;
+  /** where its W×H frame sits on the picture (CSS px; 0, 0 for the whole picture), clipped to it */
+  ox?: number;
+  oy?: number;
   playing: boolean;
 }
 

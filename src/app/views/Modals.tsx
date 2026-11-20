@@ -71,6 +71,18 @@ function NpModal({ m }: { m: { tab: string } }) {
       )}
       {tab === 'view' && (
         <div style={{ display: 'grid', gap: 12 }}>
+          <Seg
+            fit
+            size="sm"
+            label={tx('np.style')}
+            value={o.style || 'list'}
+            onChange={(v) => set({ style: v })}
+            options={[
+              ['list', tx('np.style.list')],
+              ['sonnet', tx('mo.sonnet')],
+              ['tempera', tx('mo.tempera')],
+            ]}
+          />
           <div className={s.field}>
             <span>{tx('np.font')}</span>
             <FontPicker
@@ -100,7 +112,7 @@ function NpModal({ m }: { m: { tab: string } }) {
             <Button
               kind="ghost"
               size="sm"
-              onClick={() => set({ size: 1, blur: true, subs: true, reads: true, font: 'ui' })}
+              onClick={() => set({ size: 1, blur: true, subs: true, reads: true, font: 'ui', style: 'list' })}
             >
               {tx('reset.all')}
             </Button>

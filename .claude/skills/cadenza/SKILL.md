@@ -102,6 +102,8 @@ rigs/       鏡頭控制器：walk（自由行走）、director（固定視角�
 
 **新增一種風格（動態）**（現況）：在 `theme/style.ts` 的 `MOTIONS` 加一筆；需要的話在 `director/recommend.ts` 加推薦條件。
 
+**新增一個 Folia 風格**（現況，3.3.0）：先讀 `docs/FOLIA.md`。在 `src/folia/upstream.json` 加上上游檔案（缺的依賴寫 shim，不改上游檔案），跑 `node scripts/folia-sync.mjs <checkout>`；在 `src/folia/engines/` 寫它的執行層（照上游的 runtime，畫布與時鐘交給 Cadenza），在 `render/engines.ts` 登記，在 `theme/style.ts` 的 `MOTIONS` 加一筆 `engine`。它能拆出來的部分（濾鏡、標記）註冊成一般特效。
+
 **新增一種外觀**（現況）：在 `PRESETS` 加一筆。顏色預設取自封面（`render/palette.ts`）。
 
 **新增主程序能力**：`electron/*.cjs` 加 `ipcMain.handle` → `preload.cjs` 暴露 → `bridge.ts` 加型別。三處缺一不可（目標：由一份契約產生）。

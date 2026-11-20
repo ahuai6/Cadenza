@@ -140,12 +140,20 @@ export class StageRenderer {
   private pool: AnyCanvas[] = [];
   readonly stats: StageStats = { nodes: 0, draws: 0, filters: 0, rasters: 0 };
   private tmpLocal = new Matrix();
+  /** matrices for one render, reused from frame to frame (the per-frame path allocates none once warm) */
+  private mats: Matrix[] = [];
+  private matN = 0;
+  private mat() {
+    if (this.matN === this.mats.length) this.mats.push(new Matrix());
+    return this.mats[this.matN++];
+  }
 
   /** Renders `root` into `ctx`. The root's own transform applies (Pixi's stage is usually identity). */
   render(root: Container, ctx: Ctx2D, o: RenderOptions) {
     this.resolution = o.resolution;
     const s = this.stats;
     s.nodes = s.draws = s.filters = s.rasters = 0;
+    this.matN = 0;
     const base = new Matrix(o.resolution, 0, 0, o.resolution, 0, 0);
     if (o.transform) Matrix.multiply(base, o.transform, base);
     if (o.clear !== false) {
@@ -215,7 +223,7 @@ export class StageRenderer {
     if (!n.visible || !n.renderable || n.maskOwner || n.destroyed) return;
     const a = alpha * n.alpha;
     if (a <= 0.0005) return;
-    const world = Matrix.multiply(rootParent ?? parentWorld, n.updateLocalTransform(this.tmpLocal), new Matrix());
+    const world = Matrix.multiply(rootParent ?? parentWorld, n.updateLocalTransform(this.tmpLocal), this.mat());
     const b = n.blendMode === 'inherit' ? blend : n.blendMode;
     const t = mulTint(tint, n.tint);
     this.stats.nodes += 1;
@@ -240,7 +248,7 @@ export class StageRenderer {
     else {
       const draw = (n as { drawCustom?: (g: Ctx2D, m: Matrix, alpha: number) => void }).drawCustom;
       if (draw) {
-        const m = Matrix.multiply(f.base, world, new Matrix());
+        const m = Matrix.multiply(f.base, world, this.mat());
         f.ctx.globalCompositeOperation = compositeOf(b);
         draw.call(n, f.ctx, m, a);
       }
@@ -250,7 +258,7 @@ export class StageRenderer {
   }
 
   private setTransform(f: Frame, world: Matrix) {
-    const m = Matrix.multiply(f.base, world, new Matrix());
+    const m = Matrix.multiply(f.base, world, this.mat());
     f.ctx.setTransform(m.a, m.b, m.c, m.d, m.tx, m.ty);
     return m;
   }
@@ -351,7 +359,7 @@ export class StageRenderer {
   private text(n: Text, f: Frame, world: Matrix, a: number, b: BLEND_MODES, t: number) {
     if (!n.text) return;
     const g = f.ctx;
-    const m = Matrix.multiply(f.base, world, new Matrix());
+    const m = Matrix.multiply(f.base, world, this.mat());
     const res = bucket(scaleOf(m));
     const style = n.style;
     const key = `${n.text}\u0000${textKey(style)}\u0000${res}\u0000${t}`;
@@ -381,7 +389,7 @@ export class StageRenderer {
     if (!runner.ok) return;
     const W = f.ctx.canvas.width,
       H = f.ctx.canvas.height;
-    const m = Matrix.multiply(f.base, world, new Matrix());
+    const m = Matrix.multiply(f.base, world, this.mat());
     const out = drawMeshGl(runner, W, H, {
       glProgram: prog,
       resources: n.shader!.resources,

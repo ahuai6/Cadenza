@@ -439,7 +439,22 @@ export class SonnetEngine implements FoliaEngine {
     this.update(f.t);
     this.stage.alpha = f.alpha;
     g.save();
-    this.renderer.render(this.stage, g, { width: f.W, height: f.H, resolution: f.px, clear: false });
+    const ox = f.ox ?? 0,
+      oy = f.oy ?? 0;
+    if (ox || oy) {
+      // (placed in part of the picture — the play page's lyric area: clipped to it)
+      g.setTransform(f.px, 0, 0, f.px, 0, 0);
+      g.beginPath();
+      g.rect(ox, oy, f.W, f.H);
+      g.clip();
+    }
+    this.renderer.render(this.stage, g, {
+      width: f.W,
+      height: f.H,
+      resolution: f.px,
+      clear: false,
+      transform: ox || oy ? new pixi.Matrix(1, 0, 0, 1, ox, oy) : undefined,
+    });
     g.restore();
   }
 

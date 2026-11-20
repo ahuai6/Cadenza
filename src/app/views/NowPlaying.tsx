@@ -45,6 +45,14 @@ export function NowPlaying() {
     right = useRef<HTMLDivElement>(null),
     halo = useRef<HTMLDivElement>(null);
   const layer = useStore(ui, (x) => x.layer);
+  // the play page's lyrics drawn by a lyric engine (a Folia style) in this area of the picture, in place of the list
+  const npStyle = useStore(ui, (x) => x.npLyr.style || 'list'),
+    byEngine = npStyle !== 'list' && hasLyrics && !!session && !instr,
+    area = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    engine.setPageLyrics(byEngine ? npStyle : null, byEngine ? area.current : null);
+    return () => engine.setPageLyrics(null, null);
+  }, [byEngine, npStyle, shownId]);
   useLayoutEffect(() => {
     refs.np = root.current;
     refs.npAmb = amb.current;
@@ -161,6 +169,8 @@ export function NowPlaying() {
                   <div className={s.fade}>
                     <Instrumental />
                   </div>
+                ) : byEngine ? (
+                  <div ref={area} className={s.engineArea} data-test="np-engine" />
                 ) : hasLyrics && session ? (
                   <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} />
                 ) : (

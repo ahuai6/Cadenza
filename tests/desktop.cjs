@@ -455,6 +455,24 @@ const ok = (name, pass, detail) => {
     np.lines >= 6 && np.cur && np.queue && np.ambient === 'ambient' && np.same,
     JSON.stringify(np),
   );
+  // the play page's lyrics by a Folia style (3.3.0): the list gives way to an area the engine draws 商籟 in; back to the list
+  {
+    await C(() => window.__cadenza.ui.set({ npLyr: { ...window.__cadenza.ui.get().npLyr, style: 'sonnet' } }));
+    await W(1800);
+    const r = await C(() => ({
+      area: !!document.querySelector('[data-test=np-engine]'),
+      list: document.querySelectorAll('[data-test=np] [data-test=line]').length,
+    }));
+    await shot('nowplaying-sonnet');
+    await C(() => window.__cadenza.ui.set({ npLyr: { ...window.__cadenza.ui.get().npLyr, style: 'list' } }));
+    await W(600);
+    const back = await C(() => document.querySelectorAll('[data-test=np] [data-test=line]').length);
+    ok(
+      'now playing: a Folia style draws the lyrics in their place, and the list comes back',
+      r.area && r.list === 0 && back >= 6,
+      JSON.stringify({ ...r, back }),
+    );
+  }
   // the queue from the now-playing page: modes on one line, rows lined up with the header
   await win.locator('[data-test=card] [aria-label="播放佇列"]').click();
   await W(600);

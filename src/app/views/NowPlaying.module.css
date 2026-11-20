@@ -494,3 +494,9 @@
   outline: none;
   box-shadow: var(--focus);
 }
+
+/* the area a lyric engine draws the page's lyrics in (on the picture behind: the box itself shows nothing) */
+.engineArea {
+  position: absolute;
+  inset: 0;
+}

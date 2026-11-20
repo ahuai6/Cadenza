@@ -23,6 +23,7 @@ import './effects/stars';
 import './effects/screen';
 import './effects/vinyl';
 import './effects/strike';
+import './effects/folia';
 import type { RenderFrame } from './frame';
 import { visibleWords, paintLyrics } from './lyrics';
 import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';
@@ -32,7 +33,7 @@ import { cameraAt } from '../director/evaluate';
 import type { Signals } from '../rhythm/signals';
 import { gfx, LITE_OFF } from './gfx';
 import { glyphFrame } from './glyphs';
-import { engineFor, drawEngine } from './engines';
+import { engineFor, drawEngine, drawPageEngine } from './engines';
 
 const byZ = (a: Effect, b: Effect) => (a.z ?? 0) - (b.z ?? 0);
 const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
@@ -242,6 +243,13 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
       g.fillRect(0, 0, W, H);
       g.restore();
     }
+  }
+  // the play page's lyrics, when a lyric engine draws them: on the page's picture, under the flying cover
+  if (f.np && view < 0.999) {
+    drawPageEngine(g as CanvasRenderingContext2D, f, 1 - sstep(view));
+    g.setTransform(f.px, 0, 0, f.px, 0, 0);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
   }
   o.under?.(g, f);
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
