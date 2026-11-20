@@ -7,11 +7,20 @@ import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
 import { PRESETS, KNOBS, MACROS, MOTIONS, KNOB_REBUILD, motionOf, presetStyle, type Style } from '../../theme/style';
-import { effects, effect, LYRIC_TYPES, ENGINE_PARAMS, type EffectParam as Param, type EngineParam } from '../../engine';
+import {
+  effects,
+  effect,
+  cameraPrograms,
+  transitions,
+  LYRIC_TYPES,
+  ENGINE_PARAMS,
+  type EffectParam as Param,
+  type EngineParam,
+} from '../../engine';
 import { desktop, offerFile, pickSavePath, fileSink, D } from '../bridge';
 import { remember, keep, toast } from '../state';
 import { Icon } from '../ui/icons';
-import { Button, Section, Row, Select, Slider, Check, TextField, Note, kit } from '../ui/kit';
+import { Button, Section, Row, Select, Slider, Check, TextField, Note, Seg, kit } from '../ui/kit';
 import { ColorField } from '../ui/color';
 import { FontPicker } from '../ui/fonts';
 import { useThemes, saveTheme, deleteTheme } from '../themes';
@@ -50,8 +59,7 @@ const COVER_EDGE = ['album', 'float', 'blend'],
     ['4:5', 'aspect.45'],
     ['fill', 'aspect.fill'],
   ];
-const CUTS = ['punch', 'waltz', 'glide', 'close', 'hover', 'center'],
-  TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
+const TIN = ['mix', 'blur', 'drift', 'rise', 'track', 'pop'];
 const f2 = (v: number) => (+v).toFixed(2),
   fmtK = (v: number) => `${(+v).toFixed(2)}×`;
 const opts = (list: string[], prefix: string): [string, string][] => list.map((v) => [v, tx(prefix + v)]);
@@ -394,8 +402,7 @@ const knob = (edit: Edit, k: string) => ({
 export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' | 'rest' }) {
   const st = ss.style,
     custom = st.preset === 'custom',
-    set = (k: string, v: unknown) => edit((x) => x.setStyle(k, v)),
-    [adv, setAdv] = useState(false);
+    set = (k: string, v: unknown) => edit((x) => x.setStyle(k, v));
   const cur = motionOf(st),
     rec = ss.recommended,
     name = (id: string) => tx('mo.' + id),
@@ -441,6 +448,7 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
       x.applyMotion(x.recommended);
       for (const [k] of [...KNOBS, ...MACROS]) if (k !== 'size') x.setKnob(k, 1);
       x.setStyle('trans', 'auto');
+      x.setStyle('transFx', 'frost');
       x.setStyle('future', 'dim');
     });
   return (
@@ -473,43 +481,45 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
             </Note>
           </Section>
         )}
+        {part !== 'rest' && (
+          <Section title={tx('mo.mine')} note={tx('mo.mineHelp')}>
+            {!!mine.length && (
+              <div className={s.motions} role="radiogroup" aria-label={tx('mo.mine')}>
+                {mine.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="radio"
+                    className={s.motion + ' ' + s.mine}
+                    aria-checked={own?.id === m.id}
+                    onClick={() => pick('u:' + m.id)}
+                  >
+                    <span>{m.name}</span>
+                    <small>{tx('mo.basedOn', { name: name(m.motion.base) })}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+            <TextField label={tx('mo.name')} value={mName} placeholder={tx('mo.untitled')} onCommit={setMName} />
+            <Row>
+              <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>
+                {tx(own ? 'mo.save' : 'mo.saveNew')}
+              </Button>
+              {own && (
+                <Button size="sm" onClick={() => saveMine(true)}>
+                  {tx('mo.saveAs')}
+                </Button>
+              )}
+              {own && (
+                <Button kind="ghost" size="sm" onClick={delMine}>
+                  {tx('mo.del')}
+                </Button>
+              )}
+            </Row>
+          </Section>
+        )}
         {part !== 'tiles' && (
           <>
-            <Section title={tx('mo.mine')} note={tx('mo.mineHelp')}>
-              {!!mine.length && (
-                <div className={s.motions} role="radiogroup" aria-label={tx('mo.mine')}>
-                  {mine.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      role="radio"
-                      className={s.motion + ' ' + s.mine}
-                      aria-checked={own?.id === m.id}
-                      onClick={() => pick('u:' + m.id)}
-                    >
-                      <span>{m.name}</span>
-                      <small>{tx('mo.basedOn', { name: name(m.motion.base) })}</small>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <TextField label={tx('mo.name')} value={mName} placeholder={tx('mo.untitled')} onCommit={setMName} />
-              <Row>
-                <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>
-                  {tx(own ? 'mo.save' : 'mo.saveNew')}
-                </Button>
-                {own && (
-                  <Button size="sm" onClick={() => saveMine(true)}>
-                    {tx('mo.saveAs')}
-                  </Button>
-                )}
-                {own && (
-                  <Button kind="ghost" size="sm" onClick={delMine}>
-                    {tx('mo.del')}
-                  </Button>
-                )}
-              </Row>
-            </Section>
             {st.engine && ENGINE_PARAMS[st.engine as keyof typeof ENGINE_PARAMS] ? (
               <EngineSection s={ss} edit={edit} group="style" />
             ) : (
@@ -537,21 +547,13 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
                     />
                   ))}
                 </Section>
-                <Section
-                  title={tx('adv.h')}
-                  note={adv ? tx('adv.help') : undefined}
-                  action={
-                    <Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv((v) => !v)}>
-                      {tx(adv ? 'adv.hide' : 'adv.show')}
-                    </Button>
-                  }
-                >
-                  {adv && (
+                <Section title={tx('adv.motion')} note={tx('adv.help')}>
+                  {
                     <>
                       <Select
                         label={tx('cut')}
                         value={st.cut}
-                        options={opts(CUTS, 'cut.')}
+                        options={cameraPrograms().map((c) => [c.id, tx(c.label)] as [string, string])}
                         onChange={(v) => set('cut', v)}
                       />
                       <Row>
@@ -561,6 +563,14 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
                           options={opts(['auto', 'off'], 'trans.')}
                           onChange={(v) => set('trans', v)}
                         />
+                        <Select
+                          label={tx('trf')}
+                          value={st.transFx || 'frost'}
+                          options={transitions().map((t) => [t.id, tx(t.label)] as [string, string])}
+                          onChange={(v) => set('transFx', v)}
+                        />
+                      </Row>
+                      <Row>
                         <Select
                           label={tx('flash')}
                           value={st.flashMode}
@@ -626,7 +636,7 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
                         </Button>
                       </Row>
                     </>
-                  )}
+                  }
                 </Section>
               </>
             )}
@@ -637,33 +647,36 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
   );
 }
 // effects drawn as companions of a backdrop or of another effect (they follow it, not a switch of their own)
-/** The look and the style on one page (外觀與風格): the looks and one's own themes, the motion styles — and, under
- *  Advanced, everything they are made of: the backdrop (`media`: what else goes with it, the MV), the type, the camera
- *  and its knobs, the effects. One choice at a time is enough for most; the rest is there when it is wanted. */
+/** The look and the style (外觀與風格) in four tabs: 外觀 — the looks and one's own themes, the backdrop (`media`: what
+ *  else goes with it, the MV), the colours and the type; 風格 — the motion styles, built in and one's own; 進階 — what a
+ *  style is made of: its own settings (a Folia style's), the tuning, the camera, the transitions and every knob; 特效 —
+ *  the effects. Any look goes with any style, and any effect with both. */
+const PAGE_TABS = ['look', 'style', 'adv', 'fx'] as const;
+type PageTab = (typeof PAGE_TABS)[number];
+let lastTab: PageTab = 'look';
 export function StylePage({ media, ...p }: PaneProps & { media?: React.ReactNode }) {
-  const [adv, setAdv] = useState(false);
+  const [tab, setTab0] = useState<PageTab>(lastTab),
+    setTab = (t: PageTab) => setTab0((lastTab = t));
   return (
     <>
-      <ThemePane {...p} />
-      <MotionPane {...p} part="tiles" />
-      <Section
-        title={tx('adv.h')}
-        note={tx('adv.style')}
-        action={
-          <Button kind="ghost" size="sm" aria-expanded={adv} onClick={() => setAdv((v) => !v)}>
-            {tx(adv ? 'adv.hide' : 'adv.show')}
-          </Button>
-        }
-      >
-        {adv && (
-          <>
-            <LookPane {...p} media={media} />
-            <TextPane {...p} />
-            <MotionPane {...p} part="rest" />
-            <EffectsPane {...p} />
-          </>
-        )}
-      </Section>
+      <Seg<PageTab>
+        role="tablist"
+        fit
+        label={tx('s.sec.style')}
+        value={tab}
+        options={PAGE_TABS.map((t) => [t, tx('stab.' + t)])}
+        onChange={setTab}
+      />
+      {tab === 'look' && (
+        <>
+          <ThemePane {...p} />
+          <LookPane {...p} media={media} />
+          <TextPane {...p} />
+        </>
+      )}
+      {tab === 'style' && <MotionPane {...p} part="tiles" />}
+      {tab === 'adv' && <MotionPane {...p} part="rest" />}
+      {tab === 'fx' && <EffectsPane {...p} />}
     </>
   );
 }

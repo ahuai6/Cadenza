@@ -19,7 +19,7 @@ import {
 } from '../playback/player';
 import { ExportPanel, exportBusy } from './panes';
 import { LyricsTab } from './Effect';
-import { Row, Slider, Check } from '../ui/kit';
+import { Row, Slider, Check, Select } from '../ui/kit';
 import { FontPicker } from '../ui/fonts';
 import { ensureFont } from '../../engine';
 import s from '../ui/dialogs.module.css';
@@ -42,6 +42,8 @@ export async function exportTrack(t: Track, list?: Track[]) {
   open({ kind: 'export' });
 }
 
+/** What the play page can be drawn over: the song's own ambient field, or one of Folia's backgrounds. */
+const NP_BACKDROPS = ['ambient', 'f-common', 'f-latent', 'f-sora', 'f-monet', 'f-nomand'];
 function NpModal({ m }: { m: { tab: string } }) {
   const [tab, setTab] = useState(m.tab),
     o = useStore(ui, (x) => x.npLyr),
@@ -71,17 +73,11 @@ function NpModal({ m }: { m: { tab: string } }) {
       )}
       {tab === 'view' && (
         <div style={{ display: 'grid', gap: 12 }}>
-          <Seg
-            fit
-            size="sm"
-            label={tx('np.style')}
-            value={o.style || 'list'}
-            onChange={(v) => set({ style: v })}
-            options={[
-              ['list', tx('np.style.list')],
-              ['sonnet', tx('mo.sonnet')],
-              ['tempera', tx('mo.tempera')],
-            ]}
+          <Select
+            label={tx('np.bg')}
+            value={o.bg || 'ambient'}
+            options={NP_BACKDROPS.map((v) => [v, tx(v === 'ambient' ? 'np.bg.ambient' : 'bg.' + v)])}
+            onChange={(v) => set({ bg: v })}
           />
           <div className={s.field}>
             <span>{tx('np.font')}</span>
@@ -112,7 +108,7 @@ function NpModal({ m }: { m: { tab: string } }) {
             <Button
               kind="ghost"
               size="sm"
-              onClick={() => set({ size: 1, blur: true, subs: true, reads: true, font: 'ui', style: 'list' })}
+              onClick={() => set({ size: 1, blur: true, subs: true, reads: true, font: 'ui', bg: 'ambient' })}
             >
               {tx('reset.all')}
             </Button>

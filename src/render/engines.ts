@@ -18,8 +18,6 @@ interface Held {
   engine: FoliaEngine;
 }
 const held = new WeakMap<ScenePlan, Held>();
-/** the play page's own runtime (its own size and settings: a second engine beside the effect view's) */
-const heldNp = new WeakMap<ScenePlan, Held>();
 
 /** The engines a style can name (the director is none of them). */
 export const ENGINES = ['sonnet', 'tempera'] as const;
@@ -73,13 +71,7 @@ function specOf(f: RenderFrame, id: EngineId) {
   return { key, theme, tuning };
 }
 
-function build(
-  f: RenderFrame,
-  id: EngineId,
-  theme: ReturnType<typeof foliaTheme>,
-  tuning: Record<string, unknown>,
-  page = false,
-) {
+function build(f: RenderFrame, id: EngineId, theme: ReturnType<typeof foliaTheme>, tuning: Record<string, unknown>) {
   const plan = f.plan,
     st = f.style;
   const common = {
@@ -95,10 +87,8 @@ function build(
     still: f.motion < 1,
     transparent: true,
     beatFx: tuning.beatFx !== false,
-    credits: !page && tuning.credits !== false,
-    tuning: page
-      ? { ...tuning, outerFrameMode: 'none', showCornerMarks: false, showGiantDecorativeText: false }
-      : tuning,
+    credits: tuning.credits !== false,
+    tuning,
   };
   if (id === 'tempera') {
     const pal = f.pal;
@@ -142,37 +132,4 @@ export function drawEngine(g: CanvasRenderingContext2D, f: RenderFrame, engine: 
   tickLive(f.t, f.playing !== false, f.plan.map);
   ENGINE_WAIT.on = !engine.ready;
   engine.draw(g, { t: f.t, W: f.W, H: f.H, px: f.px, alpha: f.view.effect, playing: f.playing !== false });
-}
-
-/** The play page's lyrics by a lyric engine, in its lyric area: fading out as the effect view comes in. */
-export function drawPageEngine(g: CanvasRenderingContext2D, f: RenderFrame, alpha: number) {
-  const np = f.np;
-  if (!np || !isFoliaEngine(np.id) || alpha < 0.005 || np.w < 40 || np.h < 40) return;
-  const id = np.id;
-  let h = heldNp.get(f.plan);
-  const size = `|${id}|${Math.round(np.w)}x${Math.round(np.h)}`;
-  // (the spec is looked at again only when the style or the area changed)
-  if (!h || h.style !== f.style || !h.key.endsWith(size)) {
-    const { key, theme, tuning } = specOf(f, id);
-    const k2 = key + size;
-    if (h && h.key === k2) h.style = f.style;
-    else {
-      h?.engine.destroy();
-      h = { key: k2, style: f.style, engine: build(f, id, theme, tuning, true) };
-      heldNp.set(f.plan, h);
-    }
-  }
-  ENGINE_WAIT.on ||= !h.engine.ready;
-  installBeats(seedOf(f.plan), f.plan.map);
-  tickLive(f.t, f.playing !== false, f.plan.map);
-  h.engine.draw(g, {
-    t: f.t,
-    W: np.w,
-    H: np.h,
-    px: f.px,
-    alpha,
-    playing: f.playing !== false,
-    ox: np.x,
-    oy: np.y,
-  });
 }

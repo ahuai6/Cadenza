@@ -455,22 +455,33 @@ const ok = (name, pass, detail) => {
     np.lines >= 6 && np.cur && np.queue && np.ambient === 'ambient' && np.same,
     JSON.stringify(np),
   );
-  // the play page's lyrics by a Folia style (3.3.0): the list gives way to an area the engine draws 商籟 in; back to the list
+  // the play page over one of Folia's backgrounds (its settings: 顯示 → 背景), and back to the song's ambient field
   {
-    await C(() => window.__cadenza.ui.set({ npLyr: { ...window.__cadenza.ui.get().npLyr, style: 'sonnet' } }));
-    await W(1800);
-    const r = await C(() => ({
-      area: !!document.querySelector('[data-test=np-engine]'),
-      list: document.querySelectorAll('[data-test=np] [data-test=line]').length,
-    }));
-    await shot('nowplaying-sonnet');
-    await C(() => window.__cadenza.ui.set({ npLyr: { ...window.__cadenza.ui.get().npLyr, style: 'list' } }));
+    const px = () =>
+      C(() => {
+        const cv = window.__cadenza.engine.canvas,
+          c = document.createElement('canvas');
+        c.width = 32;
+        c.height = 18;
+        const g = c.getContext('2d');
+        g.drawImage(cv, 0, 0, 32, 18);
+        const d = g.getImageData(0, 0, 32, 18).data;
+        let s = 0;
+        for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2];
+        return Math.round(s / (d.length / 4) / 3);
+      });
+    const amb = await px();
+    await C(() => window.__cadenza.ui.set({ npLyr: { ...window.__cadenza.ui.get().npLyr, bg: 'f-sora' } }));
+    await W(900);
+    const r = { set: await C(() => window.__cadenza.engine.pageBackdrop), lum: await px() };
+    await shot('nowplaying-sora');
+    await C(() => window.__cadenza.ui.set({ npLyr: { ...window.__cadenza.ui.get().npLyr, bg: 'ambient' } }));
     await W(600);
-    const back = await C(() => document.querySelectorAll('[data-test=np] [data-test=line]').length);
+    const back = await C(() => window.__cadenza.engine.pageBackdrop);
     ok(
-      'now playing: a Folia style draws the lyrics in their place, and the list comes back',
-      r.area && r.list === 0 && back >= 6,
-      JSON.stringify({ ...r, back }),
+      "now playing: a Folia background under the page (Sora's dark sky), and the song's ambient field back",
+      r.set === 'f-sora' && r.lum < amb && back === 'ambient',
+      JSON.stringify({ amb, ...r, back }),
     );
   }
   // the queue from the now-playing page: modes on one line, rows lined up with the header

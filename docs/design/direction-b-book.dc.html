@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Cadenza 方向 B：書頁</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;900&display=swap">
+<style>
+body{margin:0}
+a{color:#A03D18}a:hover{color:#7C2E10}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;padding:0}
+button:focus-visible{outline:2px solid #1D1B18;outline-offset:3px}
+.b-row:hover{background:rgba(29,27,24,.05)}
+.b-word:hover{color:#1D1B18}
+@keyframes b-dot{0%,100%{opacity:.2}40%{opacity:1}}
+@keyframes b-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition-duration:.01ms!important}}
+</style>
+</helmet>
+<div style="position: relative; width: 100%; height: 100vh; min-height: 720px; overflow: hidden; background: #F3F1EC; color: #1D1B18; font-family: 'Noto Sans TC', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <div style="flex: none; height: 88px; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 56px; border-bottom: 1px solid rgba(29,27,24,.12)">
+    <div style="display: flex; align-items: baseline; gap: 44px; flex-wrap: wrap">
+      <div style="font-family: 'Noto Serif TC', serif; font-size: 24px; font-weight: 900; font-style: italic">Cadenza</div>
+      <div style="display: flex; gap: 6px">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+          <button type="button" class="b-word" onClick="{{t.pick}}" aria-pressed="{{t.on}}" style="height: 44px; padding: 0 14px; font-size: 16px; font-weight: {{t.w}}; color: {{t.fg}}; box-shadow: {{t.line}}; transition: color 200ms ease, box-shadow 200ms ease">{{t.name}}</button>
+        </sc-for>
+      </div>
+    </div>
+    <button type="button" class="b-word" onClick="{{openSpread}}" style="height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(29,27,24,.3); font-size: 14px; font-weight: 500">展開歌詞</button>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: flex; flex-wrap: wrap; overflow-y: auto">
+    <div style="flex: 999 1 560px; min-width: 0; padding: 48px 56px 56px">
+      <div style="display: flex; flex-direction: column; gap: 10px; padding-bottom: 28px; animation: b-in 320ms ease both" data-k="{{tab}}">
+        <div style="font-family: 'Noto Serif TC', serif; font-size: 72px; font-weight: 900; line-height: 1">{{heading}}</div>
+        <div style="font-size: 14px; color: #5F5A52">{{meta}}</div>
+      </div>
+
+      <sc-if value="{{isSongs}}" hint-placeholder-val="{{true}}">
+        <div style="display: flex; flex-direction: column; border-top: 1px solid rgba(29,27,24,.14)">
+          <sc-for list="{{songs}}" as="s" hint-placeholder-count="7">
+            <button type="button" class="b-row" onClick="{{s.pick}}" aria-label="{{s.say}}" style="display: grid; grid-template-columns: 28px 60px minmax(0, 1.5fr) minmax(0, 1fr) 56px; align-items: center; gap: 18px; padding: 10px 8px; text-align: left; border-bottom: 1px solid rgba(29,27,24,.1); transition: background 160ms ease">
+              <div style="font-size: 13px; font-variant-numeric: tabular-nums; color: {{s.numFg}}; font-weight: {{s.numW}}">{{s.num}}</div>
+              <div style="width: 60px; height: 60px; border-radius: 6px; background: {{s.c1}}; position: relative; overflow: hidden">
+                <div style="position: absolute; left: 22%; top: 22%; width: 56%; height: 56%; border-radius: {{s.r}}; background: {{s.c2}}"></div>
+              </div>
+              <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                <div style="font-size: 17px; font-weight: 700; color: {{s.titleFg}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.t}}</div>
+                <div style="font-size: 14px; color: #5F5A52">{{s.a}}</div>
+              </div>
+              <div style="font-size: 14px; color: #5F5A52; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{s.al}}</div>
+              <div style="font-size: 14px; color: #5F5A52; text-align: right; font-variant-numeric: tabular-nums">{{s.d}}</div>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isAlbums}}" hint-placeholder-val="{{false}}">
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 36px 28px">
+          <sc-for list="{{albums}}" as="s" hint-placeholder-count="4">
+            <button type="button" onClick="{{s.pick}}" style="display: flex; flex-direction: column; gap: 12px; text-align: left">
+              <div style="width: 100%; aspect-ratio: 1; border-radius: 6px; background: {{s.c1}}; position: relative; overflow: hidden">
+                <div style="position: absolute; left: 22%; top: 22%; width: 56%; height: 56%; border-radius: {{s.r}}; background: {{s.c2}}"></div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px">
+                <div style="font-size: 16px; font-weight: 700">{{s.al}}</div>
+                <div style="font-size: 14px; color: #5F5A52">{{s.a}}</div>
+              </div>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isLists}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; border-top: 1px solid rgba(29,27,24,.14); max-width: 640px">
+          <button type="button" class="b-row" onClick="{{playFav}}" style="display: flex; align-items: baseline; justify-content: space-between; padding: 22px 8px; text-align: left; border-bottom: 1px solid rgba(29,27,24,.1)"><div style="font-family: 'Noto Serif TC', serif; font-size: 26px; font-weight: 600">收藏</div><div style="font-size: 14px; color: #5F5A52">3 首</div></button>
+          <button type="button" class="b-row" onClick="{{playFav}}" style="display: flex; align-items: baseline; justify-content: space-between; padding: 22px 8px; text-align: left; border-bottom: 1px solid rgba(29,27,24,.1)"><div style="font-family: 'Noto Serif TC', serif; font-size: 26px; font-weight: 600">雨天</div><div style="font-size: 14px; color: #5F5A52">5 首</div></button>
+          <button type="button" class="b-word" style="align-self: flex-start; height: 44px; margin-top: 18px; padding: 0 18px; border-radius: 999px; border: 1px solid rgba(29,27,24,.3); font-size: 14px; font-weight: 500">新建歌單</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isSet}}" hint-placeholder-val="{{false}}">
+        <div style="display: flex; flex-direction: column; max-width: 640px; border-top: 1px solid rgba(29,27,24,.14)">
+          <sc-for list="{{toggles}}" as="g" hint-placeholder-count="3">
+            <button type="button" role="switch" aria-checked="{{g.on}}" onClick="{{g.flip}}" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 68px; text-align: left; border-bottom: 1px solid rgba(29,27,24,.1)">
+              <div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 500">{{g.name}}</div><div style="font-size: 14px; color: #5F5A52">{{g.help}}</div></div>
+              <div style="flex: none; width: 46px; height: 28px; border-radius: 999px; background: {{g.track}}; position: relative; transition: background 200ms ease"><div style="position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #FFFFFF; transform: {{g.knob}}; transition: transform 240ms cubic-bezier(.2,.8,.2,1)"></div></div>
+            </button>
+          </sc-for>
+          <button type="button" onClick="{{flipAdv}}" aria-expanded="{{adv}}" style="display: flex; align-items: center; justify-content: space-between; min-height: 68px; text-align: left; border-bottom: 1px solid rgba(29,27,24,.1)">
+            <div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 500">進階</div><div style="font-size: 14px; color: #5F5A52">輸出裝置、節奏分析、診斷</div></div>
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: {{advTurn}}; transition: transform 240ms ease"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <sc-if value="{{adv}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-direction: column; padding-left: 20px; animation: b-in 260ms ease both">
+              <div style="display: flex; align-items: center; justify-content: space-between; min-height: 56px; border-bottom: 1px solid rgba(29,27,24,.1); font-size: 15px"><div>高保真輸出</div><div style="color: #5F5A52">關閉</div></div>
+              <div style="display: flex; align-items: center; justify-content: space-between; min-height: 56px; border-bottom: 1px solid rgba(29,27,24,.1); font-size: 15px"><div>節奏分析方式</div><div style="color: #5F5A52">自動</div></div>
+              <div style="display: flex; align-items: center; justify-content: space-between; min-height: 56px; border-bottom: 1px solid rgba(29,27,24,.1); font-size: 15px"><div>診斷資訊</div><div style="color: #5F5A52">關閉</div></div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="flex: 1 1 380px; max-width: 460px; min-width: 0; padding: 48px 56px 56px 0; display: flex; flex-direction: column; gap: 20px">
+      <div style="width: 100%; aspect-ratio: 1; border-radius: 8px; background: {{now.c1}}; position: relative; overflow: hidden; box-shadow: 0 24px 48px -28px rgba(29,27,24,.5); transition: background 700ms ease">
+        <div style="position: absolute; left: 22%; top: 22%; width: 56%; height: 56%; border-radius: {{now.r}}; background: {{now.c2}}; transition: background 700ms ease, border-radius 700ms ease"></div>
+      </div>
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px">
+        <div style="min-width: 0; display: flex; flex-direction: column; gap: 4px">
+          <div style="font-family: 'Noto Serif TC', serif; font-size: 28px; font-weight: 900; line-height: 1.15">{{now.t}}</div>
+          <div style="font-size: 15px; color: #5F5A52">{{now.a}} · {{now.al}}</div>
+        </div>
+        <button type="button" onClick="{{fav}}" aria-label="{{favSay}}" aria-pressed="{{isFav}}" style="flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: {{favFg}}">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="{{favFill}}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-9.6A4 4 0 0 1 12 8a4 4 0 0 1 7 2.4C19 15.6 12 20 12 20z"/></svg>
+        </button>
+      </div>
+      <div style="height: 2px; background: rgba(29,27,24,.14)"><div style="height: 2px; width: {{progress}}; background: #1D1B18; transition: width 2400ms linear"></div></div>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <button type="button" class="b-row" onClick="{{prev}}" aria-label="上一首" style="width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M7 6h2v12H7zM20 6v12l-9-6z"/></svg></button>
+          <button type="button" onClick="{{toggle}}" aria-label="{{toggleSay}}" style="width: 56px; height: 56px; border-radius: 50%; background: #1D1B18; color: #F3F1EC; display: grid; place-items: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="{{toggleIcon}}"/></svg></button>
+          <button type="button" class="b-row" onClick="{{next}}" aria-label="下一首" style="width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M15 6h2v12h-2zM4 6v12l9-6z"/></svg></button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px">
+          <sc-for list="{{looks}}" as="k" hint-placeholder-count="3">
+            <button type="button" onClick="{{k.pick}}" aria-label="{{k.name}}" aria-pressed="{{k.on}}" title="{{k.name}}" style="width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; background: {{k.bg}}; color: {{k.fg}}; transition: background 200ms ease, color 200ms ease">
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{k.icon}}"/></svg>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; padding-top: 6px; min-height: 84px">
+        <div aria-hidden="true" style="display: flex; gap: 7px; height: 12px; align-items: center; opacity: {{dotsO}}; transition: opacity 300ms ease">
+          <div style="width: 7px; height: 7px; border-radius: 50%; background: #1D1B18; animation: b-dot 1.5s ease-in-out infinite"></div>
+          <div style="width: 7px; height: 7px; border-radius: 50%; background: #1D1B18; animation: b-dot 1.5s ease-in-out .25s infinite"></div>
+          <div style="width: 7px; height: 7px; border-radius: 50%; background: #1D1B18; animation: b-dot 1.5s ease-in-out .5s infinite"></div>
+        </div>
+        <div style="font-family: 'Noto Serif TC', serif; font-size: 22px; font-weight: 600; line-height: 1.35; opacity: {{lineO}}; transition: opacity 400ms ease">{{lineNow}}</div>
+        <div style="font-size: 15px; color: #5F5A52">{{lineNext}}</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position: absolute; inset: 0; z-index: 5; background: #1D1B18; color: #F3F1EC; transform: {{spreadT}}; transition: transform 640ms cubic-bezier(.2,.8,.2,1); display: flex; flex-wrap: wrap; overflow-y: auto">
+    <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 24px; padding: 72px 64px">
+      <div style="width: 100%; max-width: 440px; aspect-ratio: 1; border-radius: 8px; background: {{now.c1}}; position: relative; overflow: hidden">
+        <div style="position: absolute; left: 22%; top: 22%; width: 56%; height: 56%; border-radius: {{now.r}}; background: {{now.c2}}"></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <div style="font-family: 'Noto Serif TC', serif; font-size: 36px; font-weight: 900; line-height: 1.15">{{now.t}}</div>
+        <div style="font-size: 16px; color: rgba(243,241,236,.72)">{{now.a}} · {{now.al}}</div>
+      </div>
+    </div>
+    <div style="flex: 1.3 1 480px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 16px; padding: 72px 64px">
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="5">
+        <div style="font-family: 'Noto Serif TC', serif; font-size: 40px; font-weight: 600; line-height: 1.3; opacity: {{l.o}}; transition: opacity 520ms ease">{{l.text}}</div>
+      </sc-for>
+    </div>
+    <button type="button" onClick="{{closeSpread}}" style="position: absolute; top: 22px; right: 56px; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(243,241,236,.4); font-size: 14px; font-weight: 500">收起</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'songs', cur: 0, line: -1, playing: true, spread: false, adv: false, look: 0, favs: { 2: true }, opts: { balance: true, subs: true, reads: false } };
+  }
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      if (!this.state.playing) return;
+      const line = this.state.line + 1;
+      if (line > 5) this.setState({ cur: (this.state.cur + 1) % 7, line: -1 });
+      else this.setState({ line });
+    }, 2400);
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+  }
+  renderVals() {
+    const st = this.state;
+    const raw = [
+      { t: '晚風', a: '雨聲', al: '窗邊', d: '3:42', h: 18 },
+      { t: '燈塔', a: '海岸', al: '遠方的光', d: '4:05', h: 205 },
+      { t: 'Paper Moon', a: 'Mira', al: 'Paper Moon', d: '3:18', h: 48 },
+      { t: '回聲', a: '林間', al: '石與光', d: '5:01', h: 150 },
+      { t: '石與光', a: '林間', al: '石與光', d: '4:27', h: 275 },
+      { t: '夜曲', a: '雨聲', al: '窗邊', d: '3:55', h: 235 },
+      { t: 'Glass', a: 'Mira', al: 'Paper Moon', d: '2:58', h: 330 },
+    ];
+    const shapes = ['50%', '14%', '50% 50% 8% 8%'];
+    const ink = '#1D1B18', grey = '#5F5A52', clay = '#A03D18';
+    const play = (i) => () => this.setState({ cur: i, line: -1, playing: true });
+    const songs = raw.map((s, i) => ({
+      ...s,
+      c1: 'hsl(' + s.h + ' 36% 70%)',
+      c2: 'hsl(' + ((s.h + 160) % 360) + ' 34% 30%)',
+      r: shapes[i % 3],
+      say: '播放 ' + s.t,
+      num: i === st.cur ? '▸' : String(i + 1).padStart(2, '0'),
+      numFg: i === st.cur ? clay : grey,
+      numW: i === st.cur ? 700 : 400,
+      titleFg: i === st.cur ? clay : ink,
+      pick: play(i),
+    }));
+    const now = songs[st.cur];
+    const text = ['清晨的光落在窗邊', '我們沿著長長的街道', '慢慢地走向遠方的海岸', '風把昨天吹得很輕', '明天見'];
+    const at = Math.min(st.line, text.length - 1);
+    const tabDefs = [['songs', '歌曲', '7 首 · 27 分鐘'], ['albums', '專輯', '4 張'], ['lists', '歌單', '2 張'], ['set', '設定', '常用的在這裡，其餘收在進階']];
+    const cur = tabDefs.find((t) => t[0] === st.tab);
+    const lookDefs = [
+      { name: '外觀：封面的顏色', icon: 'M4 5h16v14H4zM4 15l5-5 4 4 3-3 4 4' },
+      { name: '外觀：唱片', icon: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z' },
+      { name: '外觀：影片', icon: 'M4 6h12v12H4zM16 10l4-3v10l-4-3' },
+    ];
+    const optDefs = [
+      ['balance', '音量平衡', '每首歌聽起來一樣大聲'],
+      ['subs', '顯示翻譯', '歌詞下方顯示另一種語言'],
+      ['reads', '顯示讀音', '歌詞上方顯示拼音或假名'],
+    ];
+    const seen = {};
+    return {
+      tab: st.tab,
+      heading: cur[1],
+      meta: cur[2],
+      tabs: tabDefs.map(([id, name]) => ({
+        name,
+        on: st.tab === id,
+        w: st.tab === id ? 700 : 400,
+        fg: st.tab === id ? ink : grey,
+        line: st.tab === id ? 'inset 0 -2px 0 #1D1B18' : 'inset 0 0 0 rgba(0,0,0,0)',
+        pick: () => this.setState({ tab: id }),
+      })),
+      isSongs: st.tab === 'songs',
+      isAlbums: st.tab === 'albums',
+      isLists: st.tab === 'lists',
+      isSet: st.tab === 'set',
+      songs,
+      albums: songs.filter((s) => (seen[s.al] ? false : (seen[s.al] = true))),
+      now,
+      playFav: play(2),
+      // (the first line waits in its place while the dots count the song in)
+      dotsO: st.line < 0 ? 1 : 0,
+      lineNow: text[Math.max(0, at)],
+      lineO: st.line < 0 ? 0.45 : 1,
+      lineNext: text[Math.max(0, at) + 1] || '',
+      lines: text.map((t, k) => ({ text: t, o: k === st.line ? 1 : k < st.line ? 0.3 : st.line < 0 && k === 0 ? 0.6 : 0.45 })),
+      progress: Math.round(((st.line + 1.4) / 6.6) * 100) + '%',
+      toggle: () => this.setState({ playing: !st.playing }),
+      toggleSay: st.playing ? '暫停' : '播放',
+      toggleIcon: st.playing ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z',
+      prev: play((st.cur + songs.length - 1) % songs.length),
+      next: play((st.cur + 1) % songs.length),
+      isFav: !!st.favs[st.cur],
+      favSay: st.favs[st.cur] ? '取消收藏' : '收藏',
+      favFill: st.favs[st.cur] ? 'currentColor' : 'none',
+      favFg: st.favs[st.cur] ? clay : ink,
+      fav: () => this.setState({ favs: { ...st.favs, [st.cur]: !st.favs[st.cur] } }),
+      looks: lookDefs.map((k, i) => ({
+        ...k,
+        on: st.look === i,
+        bg: st.look === i ? ink : 'rgba(29,27,24,0)',
+        fg: st.look === i ? '#F3F1EC' : ink,
+        pick: () => this.setState({ look: i }),
+      })),
+      openSpread: () => this.setState({ spread: true }),
+      closeSpread: () => this.setState({ spread: false }),
+      spreadT: st.spread ? 'translateX(0)' : 'translateX(101%)',
+      toggles: optDefs.map(([id, name, help]) => ({
+        name,
+        help,
+        on: !!st.opts[id],
+        track: st.opts[id] ? ink : 'rgba(29,27,24,.22)',
+        knob: st.opts[id] ? 'translateX(18px)' : 'translateX(0)',
+        flip: () => this.setState({ opts: { ...st.opts, [id]: !st.opts[id] } }),
+      })),
+      adv: st.adv,
+      advTurn: st.adv ? 'rotate(90deg)' : 'rotate(0deg)',
+      flipAdv: () => this.setState({ adv: !st.adv }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -53,9 +53,9 @@ export const ui = createStore({
   wallLayout: remember('wallLayout', 'mosaic'),
   wallSource: remember('wallSource', 'all'),
   /** the play page's lyrics: their size, the soft focus on the lines around the sung one, translations shown */
-  npLyr: { font: 'ui', reads: true, style: 'list', ...remember('npLyr', { size: 1, blur: true, subs: true }) } as {
-    /** 'list': the page's own lyric list; else a lyric engine (a Folia style) draws them in its place */
-    style: string;
+  npLyr: { font: 'ui', reads: true, bg: 'ambient', ...remember('npLyr', { size: 1, blur: true, subs: true }) } as {
+    /** what the page is drawn over: 'ambient' (the song's own colours) or one of Folia's backdrops */
+    bg: string;
     size: number;
     blur: boolean;
     subs: boolean;

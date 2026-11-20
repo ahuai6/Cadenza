@@ -57,6 +57,25 @@ async function launch(url, ready) {
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+    // the beat comparison's clock: performance.now on a virtual clock while it runs, the beat list installed afresh
+    // and stepped at 60 steps a second through the 1.5 s before t (Folia's beat clock lives on both sides as its own
+    // code: window.BEAT on Folia's page, H.folia.beat on Cadenza's)
+    let vnow = 0,
+      virtual = false;
+    const realNow = performance.now.bind(performance);
+    performance.now = () => (virtual ? vnow : realNow());
+    window.__beatTo = (t, events, effects) => {
+      const B = window.BEAT || window.H.folia.beat;
+      virtual = true;
+      B.beginBeatFxTrack('cmp');
+      B.setBeatFxEvents('cmp', events, 'beat_this');
+      B.setBeatFxLiveEffects(effects);
+      B.setBeatFxIntensities(1, 1);
+      for (let k = Math.max(0, t - 1.5); k <= t + 1e-6; k += 1 / 60) {
+        vnow += 1000 / 60;
+        B.tickBeatFx({ paused: false, ended: false, currentTime: k }, null);
+      }
+    };
   });
   p.on('pageerror', (e) => console.log('page error:', e.message));
   await p.goto(url);
@@ -152,8 +171,27 @@ class Side {
 
   const report = {};
   for (const mode of MODES) {
+    // ('sonnet-beat', 'tempera-beat': the same style playing, its beat effects on, the same beats on both sides)
+    const base = mode.replace(/-beat$/, ''),
+      beat = mode !== base,
+      EFFECTS = base === 'tempera' ? { 'tempera.inkFlash': 1 } : { 'sonnet.lensTear': 1 };
+    const EVENTS = [];
+    for (let i = 0, t = 1; t < song.dur; i++, t += 0.5)
+      EVENTS.push({
+        t: +t.toFixed(3),
+        kind: i % 4 ? 'beat' : 'downbeat',
+        impact: 0.45 + 0.55 * (((i * 37) % 11) / 10),
+        tone: [
+          { low: 0.6, mid: 0.3, high: 0.1 },
+          { low: 0.2, mid: 0.5, high: 0.3 },
+          { low: 0.1, mid: 0.3, high: 0.6 },
+        ][i % 3],
+        barPos: i % 4,
+        rhythmic: true,
+      });
     const refOpts = {
-      mode,
+      mode: base,
+      beat,
       lines: song.lines,
       theme: THEME,
       seed: 'compare',
@@ -168,14 +206,22 @@ class Side {
         await s.p.evaluate((o) => (window.__reseed(7), window.REF.open(o)), refOpts);
         return s;
       },
-      (p, t) => p.evaluate((t) => (window.__reseed(Math.round(t * 1000)), window.REF.frame(t)), t),
+      (p, t) =>
+        p.evaluate(
+          ({ t, beat, EVENTS, EFFECTS }) => {
+            if (beat) window.__beatTo(t, EVENTS, EFFECTS);
+            window.__reseed(Math.round(t * 1000));
+            return window.REF.frame(t);
+          },
+          { t, beat, EVENTS, EFFECTS },
+        ),
     );
     const cz = new Side(
       'cadenza',
       async () => {
         const s = await launch(b.url + '/harness.html', () => window.H);
         await s.p.evaluate(
-          async ({ mode, lines, theme, dur, meta }) => {
+          async ({ mode, base, lines, theme, dur, meta }) => {
             const c = document.createElement('canvas');
             c.id = 'cmp';
             c.width = 1280;
@@ -192,27 +238,28 @@ class Side {
               fontScale: 1,
               still: false,
               transparent: true,
-              beatFx: false,
+              beatFx: mode !== base,
               credits: true,
               tuning: {},
               ...meta,
             };
             window.__reseed(7);
             window.__eng =
-              mode === 'tempera'
+              base === 'tempera'
                 ? new H.folia.TemperaEngine({ ...spec, coverColors: [] })
                 : new H.folia.SonnetEngine(spec);
             for (let i = 0; i < 100 && !window.__eng.ready; i++) await new Promise((r) => setTimeout(r, 30));
           },
-          { mode, lines: song.lines, theme: THEME, dur: song.dur, meta: META },
+          { mode, base, lines: song.lines, theme: THEME, dur: song.dur, meta: META },
         );
         return s;
       },
       (p, t) =>
         p.evaluate(
-          ({ t, bg }) => {
+          ({ t, bg, beat, EVENTS, EFFECTS }) => {
             const g = document.getElementById('cmp').getContext('2d');
             const gl = H.folia.pixi.glRunner();
+            if (beat) window.__beatTo(t, EVENTS, EFFECTS);
             window.__reseed(Math.round(t * 1000));
             // (several frames: the pre-rolled scenes are built as they would be by then, as on Folia's side)
             for (let i = 0; i < 3; i++) {
@@ -221,12 +268,12 @@ class Side {
               g.globalCompositeOperation = 'source-over';
               g.fillStyle = bg;
               g.fillRect(0, 0, 1280, 720);
-              window.__eng.draw(g, { t, W: 1280, H: 720, px: 1, alpha: 1, playing: false });
+              window.__eng.draw(g, { t, W: 1280, H: 720, px: 1, alpha: 1, playing: beat });
             }
             // (the filter context lost mid-frame: the picture is missing its filtered parts)
             if (!gl.ok) throw new Error('GPU context lost');
           },
-          { t, bg: THEME.backgroundColor },
+          { t, bg: THEME.backgroundColor, beat, EVENTS, EFFECTS },
         ),
     );
     const rows = [];

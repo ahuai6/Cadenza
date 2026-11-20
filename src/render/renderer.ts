@@ -27,14 +27,16 @@ import './effects/folia';
 import './effects/foliaBackdrops';
 import type { RenderFrame } from './frame';
 import { visibleWords, paintLyrics } from './lyrics';
-import { drawTransition, drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';
+import { drawCaptions, drawIntro, drawEndCard, drawIdleDots } from './post';
 import { curtainAt, curtainWords, drawCurtain, drawCurtainGround } from './curtain';
 import { makeCanvas } from './palette';
 import { cameraAt } from '../director/evaluate';
 import type { Signals } from '../rhythm/signals';
 import { gfx, LITE_OFF } from './gfx';
 import { glyphFrame } from './glyphs';
-import { engineFor, drawEngine, drawPageEngine } from './engines';
+import { engineFor, drawEngine } from './engines';
+import { transition, transPhase } from './transitions';
+import { cameraProgram } from '../director/cameras';
 
 const byZ = (a: Effect, b: Effect) => (a.z ?? 0) - (b.z ?? 0);
 const LAYER = makeCanvas(16, 16) as HTMLCanvasElement;
@@ -146,7 +148,9 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // (an MV is one layer over the song's own theme: one that has run out fades away and leaves the song as it is without
   // it — its theme, whatever it is changed to, and no MV framing — never a stand-in backdrop)
   const bgFx = effect(st.bgStyle) || effect('minimal')!,
-    sameAsAmbient = st.bgStyle === 'cover';
+    pageFx = (f.npBg && f.npBg !== 'ambient' && effect(f.npBg)) || effect('ambient')!,
+    // (the cover theme is the ambient field: over the page's own ambient field, the theme only adds its effects)
+    sameAsAmbient = st.bgStyle === 'cover' && pageFx.id === 'ambient';
   // (lite: the effects that read the whole frame again or blur every frame are left out)
   const lite = gfx() === 'lite',
     bdEffects = effects('effect').filter(
@@ -202,7 +206,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   if (view >= 0.999) drawTheme(g);
   else {
     inBackdrop(g);
-    effect('ambient')!.draw(g, f, { bd, params: {} });
+    pageFx.draw(g, f, { bd, params: paramsFor(pageFx, st.fxp?.[pageFx.id]) });
     g.restore();
     if (view > 0.001) {
       const cv = g.canvas as HTMLCanvasElement;
@@ -245,13 +249,6 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
       g.restore();
     }
   }
-  // the play page's lyrics, when a lyric engine draws them: on the page's picture, under the flying cover
-  if (f.np && view < 0.999) {
-    drawPageEngine(g as CanvasRenderingContext2D, f, 1 - sstep(view));
-    g.setTransform(f.px, 0, 0, f.px, 0, 0);
-    g.globalAlpha = 1;
-    g.globalCompositeOperation = 'source-over';
-  }
   o.under?.(g, f);
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   mark('backdrop');
@@ -264,8 +261,9 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
     const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));
     flash = env(f.rs.phase, 9, 0.05) * (f.rs.inBar === 0 ? 0.12 : 0.05) * f.I * Math.min(3, M.groove ?? 1); // the beat's own glint follows the groove
     if (st.bgStyle === 'solid') flash *= 2.6; // (plainly seen on a plain colour: nothing else on it moves)
-    const fa = st.cut === 'glide' || st.cut === 'close' ? 0.12 : st.cut === 'waltz' ? 0.16 : 0.05,
-      fpk = st.cut === 'waltz' ? 0.5 : 0.6,
+    const CP = cameraProgram(st.cut),
+      fa = CP.flashRise,
+      fpk = CP.flashPeak,
       fd = 6 / tempo;
     for (const q of f.plan.cues.flash) {
       const dt = f.t - q.t;
@@ -352,7 +350,10 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
     g.restore();
   }
   const trk = eng ? 0 : cf.trans * view;
-  if (trk > 0.005) drawTransition(g, f, trk);
+  if (trk > 0.005) {
+    const ph = transPhase(f.plan.passages, f.t);
+    if (ph) transition(st.transFx).draw(g, f, trk, ph);
+  }
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   if (!eng) drawIdleDots(g, f);
   if (o.captions !== false)

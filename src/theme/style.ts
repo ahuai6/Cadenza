@@ -5,7 +5,8 @@
 import { clamp } from '../core/math';
 import { hex2rgb, hexOf, paleOf } from '../core/color';
 
-export type CameraStyleId = 'punch' | 'glide' | 'waltz' | 'close' | 'hover' | 'center';
+/** a camera program's id (director/cameras.ts: punch, glide, waltz, close, hover, center, or any registered) */
+export type CameraStyleId = string;
 export interface Motion {
   shake: number;
   sway: number;
@@ -58,6 +59,8 @@ export interface Style {
   flashMode: 'color' | 'invert';
   future: 'dim' | 'hide';
   trans?: 'auto' | 'off';
+  /** how a transition looks (render/transitions.ts); the frosted blur by default */
+  transFx?: string;
   /** the lyric type (director/lyrictypes.ts): how the lyrics are presented and come in; 'flow' by default */ ltype?: string;
   /** the lyric engine: unset for Cadenza's director, else a Folia style ('sonnet', 'tempera') that lays out, moves and
    *  draws the lyrics itself over Cadenza's backdrop (render/engines.ts) */
@@ -418,6 +421,7 @@ export interface SavedMotion {
   tin: string;
   tout: string;
   trans: 'auto' | 'off';
+  transFx?: string;
   future: 'dim' | 'hide';
   m0: Motion;
   k: Record<string, number>;
@@ -434,6 +438,7 @@ export function motionPart(st: Style): SavedMotion {
     tin: st.tin,
     tout: st.tout,
     trans: st.trans || 'auto',
+    transFx: st.transFx,
     future: st.future,
     m0: clone(st.m0),
     k,
@@ -449,6 +454,7 @@ export function withSavedMotion(st: Style, m: SavedMotion, id: string, name: str
     tin: m.tin,
     tout: m.tout,
     trans: m.trans,
+    transFx: m.transFx,
     future: m.future,
     m0: { ...st.m0, ...clone(m.m0) },
     k: { ...st.k, ...m.k, size: st.k.size ?? 1 },

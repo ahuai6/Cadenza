@@ -5,7 +5,9 @@ description: Cadenza 專案的開發範式：分層與依賴規則、新增功�
 
 # Cadenza 開發範式
 
-> 狀態：第一版（3.0.3）。標「現況」的是今天程式碼裡成立的事；標「目標」的是階段 1 重構要達成、之後必須遵守的事。重構每完成一項，就把那一項從「目標」改成「現況」。任務排程在 `docs/ROADMAP.md`。
+> 狀態：3.5.0。標「現況」的是今天程式碼裡成立的事；標「目標」的是還沒做到、之後必須遵守的事。做到一項就把它改成「現況」。
+>
+> 文件地圖在 `docs/README.md`；方向與使用者已決定的事在 `docs/DIRECTION.md`；架構在 `docs/ARCHITECTURE.md`（細節在 `docs/parts/`）；測試在 `docs/TESTING.md`；發佈與維護在 `docs/MAINTENANCE.md`。
 
 ## 1. 這個專案是什麼
 
@@ -28,8 +30,9 @@ rhythm    節奏分析與 RhythmMap。             ← core
 lyrics    歌詞解析與模型。                    ← core, text
 text      字體、文字量測、分詞。
 theme     風格資料（外觀、動態、旋鈕）。純資料。
-director  排版、運鏡、轉場的規劃（純函式，可在 worker 跑）。
-render    把規劃畫出來；特效是登記在 registry 的外掛。
+director  排版、運鏡、轉場的規劃（純函式，可在 worker 跑）；鏡頭程式登記表。
+folia     Folia 的風格與背景（上游原樣搬入＋Cadenza 的執行層）。在 director 旁、render 之下。
+render    把規劃畫出來；特效、背景、轉場的樣子都是登記表裡的外掛。
 engine    Session（一首歌的一切）＋ Engine（時鐘、畫布、輸出）。對外只有 engine/index.ts。
 app       介面。只能引用 engine/index.ts、core、theme、i18n。
   ├ state.ts / bridge.ts / playback / actions   邏輯（兩種介面共用）
@@ -98,9 +101,13 @@ rigs/       鏡頭控制器：walk（自由行走）、director（固定視角�
 4. 文案：先查 `docs/COPY.md` 的詞彙表；沒有的詞先加進詞彙表再用。六種語言一起補。
 5. 測試（見第 6 節），然後更新 `docs/RELEASE.md`。
 
-**新增一個特效**（現況）：在 `src/render/effects/` 新增檔案並 `register({ id, label, layer, kind, z, params, draw })`；參數由綱要宣告，介面自動生成控制項。不改渲染器本身。
+**新增一個特效或背景**（現況）：在 `src/render/effects/` 新增檔案並 `register({ id, label, layer, kind, z, params, draw })`（背景是 `kind: 'backdrop'`）；參數由 `params` 宣告（可帶 `showIf`），介面自動生成控制項。不改渲染器本身。背景要出現在外觀的背景清單，加進 `views/panes.tsx` 的 `BG_STYLES`。
 
-**新增一種風格（動態）**（現況）：在 `theme/style.ts` 的 `MOTIONS` 加一筆；需要的話在 `director/recommend.ts` 加推薦條件。
+**新增一種鏡頭**（現況，3.5.0）：`director/cameras.ts` 的 `registerCamera()`，只寫和 `base` 不同的特徵；導演只讀特徵，**不准在導演或渲染裡寫 `if (style === '某鏡頭')`**。字典加 `cut.<id>`。
+
+**新增一種轉場的樣子**（現況，3.5.0）：`render/transitions.ts` 的 `registerTransition()`；字典加 `trf.<id>`。轉場「何時」由導演的段落決定，不在這裡改。
+
+**新增一種風格（動態）**（現況）：在 `theme/style.ts` 的 `MOTIONS` 加一筆；需要的話在 `director/recommend.ts` 加推薦條件。新增屬於風格的欄位時，也要加進 `motionPart` 與 `withSavedMotion`（我的風格），並給預設值讓舊資料讀得進來。
 
 **新增一個 Folia 風格**（現況，3.3.0）：先讀 `docs/FOLIA.md`。在 `src/folia/upstream.json` 加上上游檔案（缺的依賴寫 shim，不改上游檔案），跑 `node scripts/folia-sync.mjs <checkout>`；在 `src/folia/engines/` 寫它的執行層（照上游的 runtime，畫布與時鐘交給 Cadenza），在 `render/engines.ts` 登記，在 `theme/style.ts` 的 `MOTIONS` 加一筆 `engine`。它能拆出來的部分（濾鏡、標記）註冊成一般特效。
 
@@ -141,7 +148,10 @@ npm run build:app
 | 導演、渲染 | `npm run test:render`（對照畫面） |
 | 經典介面 | `npm run test:desktop` |
 | 空間介面 | `npm run test:space <截圖資料夾>`（約 5 分鐘），跑完**打開截圖看** |
+| Folia | `docs/TESTING.md` 的 Folia 對照，數字更新到該文件 |
 | 主程序、Hi-Fi | 只能在 Windows 實機確認，回報時明說 |
+
+各套測試的內容、門檻與做法在 `docs/TESTING.md`。
 
 空間測試（`tests/space.cjs`）的做法：用 Playwright＋SwiftShader 開 `dist-app/index.html`，注入假的 `window.cadenzaDesktop` 與 `cadenzaLib`，用 `window.__cad` 的鉤子（`go`、`stand`、`look`、`fakeNow`、`fakeBeats`、`hits`）擺位置與假歌曲。它檢查：各房間、空中歌詞與字幕、進度條拖曳、互動距離、設定卡、播放列、小窗的可點區域、30 秒堆積大小、頁面無錯誤。新增空間功能時在這裡加一段檢查。
 
@@ -155,10 +165,11 @@ npm run build:app
 
 1. 版本號：`package.json` 與 `package-lock.json`。
 2. `docs/RELEASE.md` 最上面加一段，寫給使用者看：改了什麼、為什麼，不寫實作細節。
-3. 提交、推到 `space-mode`，再快轉推到 `main`。`main` 上的 `release` 工作流程會建置 Windows 安裝檔與免安裝版並發佈。
-4. 等工作流程完成，把發佈頁連結回報給使用者。
+3. 提交、推到 `space-mode`（預覽建置），再快轉推到 `main`（`git push origin space-mode:main`）。`main` 上的 `release` 工作流程會建置 Windows 安裝檔與免安裝版並發佈；版本號沒變不會發佈。
+4. 等工作流程完成（GitHub 一律用 REST：`gh api`），把發佈頁連結回報給使用者。細節與指令在 `docs/MAINTENANCE.md`。
+5. 回報用繁體中文：做了什麼、測了什麼（分清通過／沒驗證／無法驗證）、還剩什麼。
 
-## 8. 介面文案（目標：詞彙表在 `docs/COPY.md`，階段 3 定稿）
+## 8. 介面文案（現況：詞彙表在 `docs/COPY.md`）
 
 - 主要畫面不出現技術詞：掃描、分析、解碼、推理、快取、取樣率、位元深度、引擎名稱、API 名稱。這些只在「進階」與「資訊」彈層出現。
 - 一個概念只有一個名字，六種語言各一個。先查詞彙表。
@@ -183,7 +194,10 @@ npm run build:app
 
 ## 10. 已知的債與不要重蹈的坑
 
-- `space/world.ts`：單一巨型閉包、無型別。階段 1 拆分。拆分前要改它，先在這份文件第 3 節的結構裡找到它將來的位置，照那個邊界寫。
+- `space/world.ts`：仍然很大、沒有完整型別（聲音、歌詞、鏡頭、後製已拆出）。要改它，先在這份文件第 3 節的結構裡找到它將來的位置，照那個邊界寫。
+- `src/folia/vendor/` 是同步腳本產生的，不手改；要改上游的行為寫 shim 或在 `upstream.json` 加註明原因的修補。
+- 對照 Folia 時，兩邊都要固定亂數；只比一邊的截圖不算數。
+- 雲端容器沒有顯示卡、磁碟有額度：效能只看相對變化；瀏覽器莫名崩潰先查磁碟（`docs/MAINTENANCE.md`）。
 - Electron 的拖曳區（`app-region: drag`）不看 z-index：蓋在上面的按鈕仍會被下面的拖曳區吃掉點擊。拖曳區只放在沒有任何按鈕重疊的矩形上。
 - Hi-Fi 播放核心獨佔裝置：切回標準輸出時要明確 `release`，否則標準輸出會靜音到它自己放手為止。
 - 畫到 WebGL 的 canvas 來源圖片必須 `crossOrigin='anonymous'`，否則每幀丟 SecurityError。

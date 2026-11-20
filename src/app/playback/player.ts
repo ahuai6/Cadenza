@@ -598,6 +598,11 @@ export function setVolume(v: number) {
   engine.setVolume(v);
 }
 engine.setVolume(player.get().volume);
+// what the play page is drawn over (its settings: 顯示 → 背景)
+engine.setPageBackdrop(ui.get().npLyr.bg || 'ambient');
+ui.subscribe((x, y) => {
+  if (x.npLyr.bg !== y.npLyr.bg) engine.setPageBackdrop(x.npLyr.bg || 'ambient');
+});
 /* the queue and how it moves on:
    loop    the queue in order, round and round
    shuffle a pseudo-random pick each time, from the songs not yet heard this round (no repeats until all have played);

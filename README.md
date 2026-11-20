@@ -5,7 +5,8 @@ Cadenza 是一套個人音樂庫播放器，主打「特效歌詞」：它會分
 - **音樂庫**：掃描你選定的資料夾，讀取標籤、封面與同名 `.lrc`。也可以手動修改歌曲資訊，或從 MusicBrainz、iTunes、Cover Art Archive 查找標籤與封面。
 - **播放**：支援播放列表與四種播放模式。隨機播放會加權，播放次數少的歌更容易被選中。另有 Hi-Fi 輸出（WASAPI 獨佔、位元完美）。
 - **正在播放**：背景直接由引擎繪製，用的是這首歌的封面與節奏；歌詞逐字浮起。
-- **特效歌詞**：從正在播放頁無縫交接，封面和歌詞會飛入畫面。每首歌各自綁定主題、動態與特效設置，也可以綁定 MV。
+- **特效歌詞**：從正在播放頁無縫交接，封面和歌詞會飛入畫面。外觀（背景、顏色、字體）與風格（排版、鏡頭、轉場）任意搭配，每首歌各自綁定，也可以綁定 MV。除了 Cadenza 自己的六種風格，還有移植自 Folia 的商籟、凝彩與五種背景。
+- **空間介面**：同一個播放器的另一種走法——可以走動的展館，空中的歌詞、收音機、聆聽室的六聲道。
 - **歌詞工坊**：獨立的專案，可以導出 MP4（WebCodecs）。
 - **網頁版**：`dist-web/web.html` 是單一 HTML 檔案，內含完整的歌詞工坊。
 
@@ -13,10 +14,10 @@ Cadenza 是一套個人音樂庫播放器，主打「特效歌詞」：它會分
 
 ## 架構
 
-詳見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，審查結論見 [`docs/AUDIT.md`](docs/AUDIT.md)。
+所有文件從 [`docs/README.md`](docs/README.md)（文件地圖）開始；架構總覽在 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，開發範式在 `.claude/skills/cadenza/SKILL.md`。
 
 ```
-core → rhythm（節奏 SDK）→ director（規劃）→ render（繪製與特效插件）→ engine（時鐘、Session、交接、導出）→ app（介面）
+core → rhythm（節奏 SDK）→ director（規劃）／folia（Folia 風格）→ render（繪製與特效插件）→ engine（時鐘、Session、交接、導出）→ app（介面：經典與空間）
 lyrics / text / theme / i18n 為葉子模組
 ```
 
@@ -38,11 +39,14 @@ npm run build:app                        # 桌面介面 → dist-app（含全部
 npm run build:web                        # 網頁版工坊 → dist-web/web.html
 npx vite build --mode harness && node tests/render.cjs   # 繪製測試（主題、裁剪、效能、導出）
 xvfb-run -a node tests/desktop.cjs <截圖資料夾>          # 桌面端到端測試
+xvfb-run -a node tests/space.cjs <截圖資料夾>            # 空間介面端到端測試
 node tests/hifi.cjs && xvfb-run -a node tests/desktop-hifi.cjs   # Hi-Fi（模擬 DAC）
 node scripts/models.mjs                  # 神經網路節奏引擎的模型 → models/（按 SHA-256 校驗）
 node tests/neural.cjs                    # 神經網路引擎端到端（真實模型，WebGPU；無顯示卡時用 SwiftShader）
 npm run dist:win                         # Windows 安裝檔與免安裝版（release/，含模型）
 ```
+
+各套測試的內容與 Folia 對照在 [`docs/TESTING.md`](docs/TESTING.md)；發佈流程在 [`docs/MAINTENANCE.md`](docs/MAINTENANCE.md)。
 
 Hi-Fi 輸出是 `native/cadenza-audio`（Rust）。在 Linux 上可用 `x86_64-pc-windows-gnu` 交叉編譯。
 

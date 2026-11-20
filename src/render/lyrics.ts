@@ -2,6 +2,7 @@
    words can never swap places from one frame to the next), placed by the one projection, culled by its full projected
    bounds, and every layer of a unit (ghost, outline, halo, shadow, colour split, glyph) is drawn from the unit's single
    rest pose. */
+import { cameraProgram } from '../director/cameras';
 import { clamp, D2R } from '../core/math';
 import { mix, rgba } from '../core/color';
 import { rnd } from '../core/rng';
@@ -38,12 +39,12 @@ export function wordCtx(f: RenderFrame): WordCtx {
     tempo: Math.sqrt(clamp(bl / 0.5, 0.5, 2)),
     float: (M.float ?? 0) * f.motion,
     future: f.style.future,
-    smooth: f.style.cut !== 'punch',
+    smooth: cameraProgram(f.style.cut).smooth,
     punch: M.punch,
     motion: f.motion,
     drift: f.style.tout === 'drift',
     spread: f.style.tout === 'spread',
-    held: f.style.cut === 'center',
+    held: cameraProgram(f.style.cut).held,
   };
 }
 /** Which words are on screen this frame, and how. Read by the lyric pass and by world effects (frames, stars, glyphs). */

@@ -6,6 +6,7 @@
    Lyric frames are decided *before* placement and the frame's padding is part of the framed words' footprint, so the
    layout makes room for it and the camera frames it without later corrections. */
 import { clamp, dirv, D2R, angDiff } from '../core/math';
+import { cameraProgram } from './cameras';
 import { rnd } from '../core/rng';
 import type { LyricDoc, Line } from '../lyrics/model';
 import type { RhythmMap } from '../rhythm/map';
@@ -183,8 +184,9 @@ export function layout(inp: LayoutInput): LayoutResult {
     TA = M.tang ?? 90,
     TK = M.tilt,
     DEP = M.depth ?? 1;
-  const waltz = st.cut === 'waltz' || st.cut === 'hover',
-    smooth = st.cut !== 'punch',
+  const CP = cameraProgram(st.cut),
+    waltz = CP.curves,
+    smooth = CP.smooth,
     LT = lyricType(st.ltype),
     LD = LT.depth ?? 1,
     ORBIT = !!LT.orbit;
@@ -192,7 +194,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   /* ---- words, measured ---- */
   const lines: PLine[] = [],
     words: PWord[] = [],
-    vruns = st.cut === 'center' || ORBIT ? new Set<number>() : vertRuns(doc.lines); // (round a centre: no columns — they would run off out of the circle)
+    vruns = CP.held || ORBIT ? new Set<number>() : vertRuns(doc.lines); // (round a centre: no columns — they would run off out of the circle)
   for (const L of doc.lines) {
     const P: PLine = {
       L,
@@ -303,7 +305,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   };
   const med = new Map(lines.map((P) => [P, medLh(P)]));
   // how close each camera style holds a word: what the layout's limits (how far apart words may sit, in frames) are measured in
-  const close = st.cut === 'close';
+  const close = cameraProgram(st.cut).close;
   const zOf = (S: PWord) => (close ? closeZoom(S, H, W, T) : wordZoom(S, med.get(S.line)!, W, H, T));
 
   /* ---- passages at pauses ---- */
@@ -346,7 +348,7 @@ export function layout(inp: LayoutInput): LayoutResult {
         asked.add(P.i);
       }
   // (close up there are none of the chosen ones: a frame would have the camera pull back from the characters to show it whole)
-  if (st.fx.frame && st.cut !== 'close') {
+  if (st.fx.frame && !cameraProgram(st.cut).close) {
     let want = false,
       lastF = -9;
     for (const P of lines) {
@@ -406,7 +408,7 @@ export function layout(inp: LayoutInput): LayoutResult {
   for (const x of starts) mxd = Math.max(mxd, dens(x));
 
   /* ---- the centred stage: the camera holds the middle; each line is set there, alternately above and below it ---- */
-  if (st.cut === 'center') return centerLayout(lines, words, W, H, gap, T, map, (st.trans || 'auto') !== 'off');
+  if (cameraProgram(st.cut).held) return centerLayout(lines, words, W, H, gap, T, map, (st.trans || 'auto') !== 'off');
 
   /* ---- placement ---- */
   const { scenes, rolls } = scenesOf(lines, map, M.speed),

@@ -53,21 +53,7 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 
 ## 與 Folia 本身對照
 
-兩支腳本把同一份歌詞、主題與時間點交給 Folia 自己的執行層（真正的 Pixi 8，`tests/folia-ref/` 在 Folia 的 checkout 裡建置）與 Cadenza 的移植，逐格截圖比較：
-
-```
-npx vite build --mode harness
-node tests/folia-stage-compare.cjs <folia checkout> <輸出資料夾>              # 舞台：文字、圖形、模糊、濾鏡、遮罩
-node tests/folia-compare.cjs <folia checkout> <輸出資料夾> sonnet,tempera 0.5  # 全曲逐格
-node tests/folia-bg-compare.cjs <folia checkout> <輸出資料夾>                 # 五種背景（靜止時），要先跑過上一行建好參考頁
-```
-
-參考頁需要的套件（pixi.js、react、framer-motion、@paper-design/shaders-react、zustand…）照 Folia 的 lockfile 版本另外裝好再放進 checkout 的 node_modules；在 checkout 裡直接 `npm install` 會被它的 git 依賴擋住。
-
-- Folia 有幾處細節用真亂數（裝飾巨字的景深、引導線粒子、動畫線條的起點），自己跑兩次也不會一樣；比對時兩邊換成同一個固定種子的亂數。
-- 每格都在全新頁面上畫：場景的彈簧與已建好的場景會影響下一格，畫過不同的前幾格就不是同一格。
-- 軟體 WebGL 偶爾掉格，腳本會重畫。磁碟額度用完時瀏覽器會直接崩潰，先清空間。
-- 報告：字跡重合率（IoU）與平均色差，各有原尺寸與 1/8 尺寸（看構圖，不看鋸齒）。凝彩自己鋪滿底色，重合率對它意義不大，看色差與截圖。
+四支腳本把同一份歌詞、主題、拍點與時間點交給 Folia 自己的執行層（真正的 Pixi 8 與它的 React 背景，`tests/folia-ref/` 在 Folia 的 checkout 裡建置）與 Cadenza 的移植，逐格截圖比較：舞台、全曲（靜止與播放中）、背景（靜止與動態）。指令、做法與最近一次的數字在 `docs/TESTING.md` 的「Folia 對照」。
 
 ## 交給 Folia 的輸入
 
@@ -75,6 +61,23 @@ node tests/folia-bg-compare.cjs <folia checkout> <輸出資料夾>              
 - **分詞**：預設用 Cadenza 的分詞（含使用者自訂）；風格設定「用 Folia 自己的分詞」打開時改給 Folia 的自動分詞（同一個 icu-folia 分詞器）。
 - **頻段**：Folia 的五個頻段（20–150、150–400、400–1200、1000–3500、3500–12000 Hz）與它的放大曲線，從 Cadenza 節奏分析的頻譜讀出；power 照 Folia 由低音與中低音算。
 - **拍點**：每拍的力道與音色照 Folia 的 beatAccents：拍上低、中、高音的上升（對前 40–120 毫秒）與周圍的響度，各自在整首裡正規化後混合；沒有鼓的小節不觸發拍點特效（以分離出的鼓軌判斷）。
+
+## 拆開與交叉搭配
+
+能從 Folia 的風格拆出來、給任何風格用的部分，各自登記成 Cadenza 的東西：
+
+| 拆出的 | 登記成 | 位置 |
+| --- | --- | --- |
+| 畫面處理（顆粒、網點、色偏、暗角、鏡頭弧度） | 特效「畫面處理」 | `render/effects/folia.ts` |
+| 版面標記（商籟的線框與標記） | 特效「版面標記」 | 同上 |
+| 五種背景 | 背景 `f-*` | `render/effects/foliaBackdrops.ts` |
+| 商籟的段落轉場（模糊、撕裂、淡出） | 轉場的樣子 `blur`、`glitch`、`fade` | `render/transitions.ts` |
+
+商籟、凝彩本身仍由自己的執行層運鏡（Folia 的鏡頭與分段機制原樣保留）。
+
+## 還沒搬的
+
+上游 `components/visualizer/` 下其餘的風格（cappella、claddagh、classic、diorama、fume、hanabi、lumiere、machi、metaphor、nebbia、partita、pendolo、still、tilt…）是下一輪的工作，見 `docs/DIRECTION.md`。
 
 ## 授權與注意
 

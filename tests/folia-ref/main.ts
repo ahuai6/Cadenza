@@ -7,6 +7,10 @@ import { TemperaPixiRuntime } from '../src/components/visualizer/tempera/createT
 import { compileSonnetProgram } from '../src/components/visualizer/sonnet/sonnetProgram';
 import { compileTemperaProgram } from '../src/components/visualizer/tempera/temperaProgram';
 import { DEFAULT_SONNET_TUNING, DEFAULT_TEMPERA_TUNING } from '../src/types';
+import * as beatFxLive from '../src/services/beatFx/beatFxLive';
+
+// Folia's beat clock, for the beat comparison (tests/folia-compare.cjs: the same beats stepped on both sides)
+(window as any).BEAT = beatFxLive;
 
 const host = document.getElementById('host') as HTMLDivElement;
 let rt: { renderOnce(): void; destroy(): void } | null = null;
@@ -46,7 +50,7 @@ const time = motionValue(0);
       currentTime: time,
       lyricsFontScale: 1,
       staticMode: false,
-      paused: true,
+      paused: !o.beat,
       songTitle: o.title,
       songArtist: o.artist,
       songAlbum: o.album,
@@ -63,7 +67,7 @@ const time = motionValue(0);
         program,
         tuning,
         antialiasMode: 'auto',
-        smartBeatEnabled: false,
+        smartBeatEnabled: !!o.beat,
         transparentBackground: !!o.transparent,
       } as any);
     }

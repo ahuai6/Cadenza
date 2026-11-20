@@ -237,6 +237,38 @@ const CHECKS = {
   async perf(p) {
     const r = await p.evaluate(async () => {
       const out = {};
+      // the machine's own speed: a fixed canvas workload with no Cadenza code in it (a gradient, blurred text, the picture
+      // copied back scaled, one pixel read) — the frames are judged against it, so a slower machine raises both alike
+      {
+        const cv = document.createElement('canvas');
+        cv.width = 1280;
+        cv.height = 720;
+        const g = cv.getContext('2d'),
+          ts = [];
+        for (let i = 0; i < 40; i++) {
+          const a = performance.now();
+          const gr = g.createLinearGradient(0, 0, 1280, 720);
+          gr.addColorStop(0, '#203040');
+          gr.addColorStop(1, '#a08060');
+          g.fillStyle = gr;
+          g.fillRect(0, 0, 1280, 720);
+          g.font = '600 48px sans-serif';
+          g.shadowColor = 'rgba(0,0,0,.5)';
+          g.shadowBlur = 12;
+          g.fillStyle = '#fff';
+          for (let j = 0; j < 60; j++)
+            g.fillText('Cadenza ' + ((i * 61 + j) % 97), (j * 211) % 1100, 40 + ((j * 37) % 680));
+          g.shadowBlur = 0;
+          g.globalAlpha = 0.5;
+          g.drawImage(cv, 0, 0, 1280, 720, 40, 20, 1200, 680);
+          g.globalAlpha = 1;
+          g.getImageData(0, 0, 1, 1);
+          ts.push(performance.now() - a);
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        ts.sort((a, b) => a - b);
+        out.ref = +ts[20].toFixed(1);
+      }
       for (const th of ['liquid', 'gothic', 'cover']) {
         const ses = await H.open({ theme: th, coverUrl: 'cover.jpg' });
         const f0 = H.engine.frameAt(1);
@@ -257,15 +289,18 @@ const CHECKS = {
           await new Promise((r) => setTimeout(r, 0));
         }
         ts.sort((a, b) => a - b);
-        out[th] = { med: +ts[45].toFixed(1), p95: +ts[85].toFixed(1) };
+        out[th] = { med: +ts[45].toFixed(1), p95: +ts[85].toFixed(1), x: +(ts[45] / out.ref).toFixed(2) };
       }
       return out;
     });
-    // (headless Chromium rasterises in software, several times slower than a GPU canvas: the bound is 1.5.1's own cost here
-    // — about 80–95 ms a finished frame — with room for noise; a regression past it fails)
+    // (headless Chromium rasterises in software, several times slower than a GPU canvas, and how much slower depends on
+    // the machine: a bound in milliseconds failed on a slow machine at the very code it was set on. So a frame is judged
+    // as a multiple of the machine's own reference workload above. BASE is each theme's multiple as measured at 3.5.0
+    // (three runs, within 5% of each other); a regression of more than a quarter past it fails)
+    const BASE = { liquid: 9.4, gothic: 12.5, cover: 11 };
     ok(
-      'perf: a finished frame costs no more than 1.5.1 did (software canvas, 1280×720)',
-      Object.values(r).every((x) => x.med < 115),
+      'perf: a finished frame costs no more than it did at 3.5.0 (software canvas, 1280×720, against a reference workload on the same machine)',
+      r.ref > 0 && Object.entries(BASE).every(([th, b]) => r[th].x < b * 1.25),
       JSON.stringify(r),
     );
   },

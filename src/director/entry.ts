@@ -3,6 +3,7 @@
    appears nudged just inside the frame and glides to its own place as the camera's move brings that place into view —
    the camera is never held back for it. Off the edge the camera is heading for is fine: it is in view a moment later. */
 import { D2R, clamp } from '../core/math';
+import { cameraProgram } from './cameras';
 import { Signals } from '../rhythm/signals';
 import { cameraAt } from './evaluate';
 import { project, type Cam, type Fx } from './project';
@@ -45,12 +46,12 @@ export function planEntries(plan: ScenePlan) {
     tempo: Math.sqrt(clamp(plan.map.beatLen(t) / 0.5, 0.5, 2)),
     float: M.float ?? 0,
     future: plan.style.future,
-    smooth: plan.style.cut !== 'punch',
+    smooth: cameraProgram(plan.style.cut).smooth,
     punch: M.punch,
     motion: 1,
     drift: plan.style.tout === 'drift',
     spread: plan.style.tout === 'spread',
-    held: plan.style.cut === 'center',
+    held: cameraProgram(plan.style.cut).held,
   });
   for (const S of plan.words) {
     S.entry = null;

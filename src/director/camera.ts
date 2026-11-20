@@ -27,6 +27,7 @@ import type { Style } from '../theme/style';
 import type { PWord, PLine, Passage, Stop, Move, CameraPlan, Pose, UBox } from './types';
 import { boxIn, corners, wordZoom, tsz, centerZoom } from './layout';
 import { timePassage, roomForQuick } from './passages';
+import { cameraProgram, cameraPlanner, registerCamera, type CameraProgram } from './cameras';
 
 export const EASES: Record<string, Ease> = {
   lin: (u) => u,
@@ -69,17 +70,18 @@ export interface CameraInput {
 }
 
 export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassages: Passage[] } {
-  if (inp.style.cut === 'center') return { camera: planCenter(inp), extraPassages: [] };
+  const own = cameraPlanner(inp.style.cut);
+  if (own) return { camera: own(inp), extraPassages: [] };
   const { lines, map, style: st, W, H } = inp,
     M = st.m,
     T = tsz(st),
-    cut = st.cut,
+    CP = cameraProgram(st.cut),
     sp = Math.max(0.3, M.speed);
   // (hover: the camera of before the follow — it rests over the middle of the words — on the waltz's curves)
-  const smooth = cut !== 'punch',
-    hover = cut === 'hover',
-    waltz = cut === 'waltz' || hover,
-    close = cut === 'close',
+  const smooth = CP.smooth,
+    hover = CP.hover,
+    waltz = CP.curves,
+    close = CP.close,
     TK = M.tilt;
   const passByLine = new Map(inp.passages.map((p) => [p.line, p]));
   // (a line set in columns: its characters' size is the columns' width, not their length — so a column is framed a few
@@ -285,8 +287,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
      backwards along it. Each step is timed by the style (punch: a quick step on the character; waltz: a steady one
      around it; glide and close: on the way the whole time from the character before, setting off no earlier than
      LEAD before the next one, and only creeping through a long pause). */
-  const LEADK = { punch: 0.08, waltz: 0.09, glide: 0.1, close: 0.07 }[cut as 'punch'] ?? 0.08;
-  const driftRate = cut === 'punch' ? 0.03 : 0.05,
+  const LEADK = CP.lead;
+  const driftRate = CP.drift,
     LEADT = (close ? 0.8 : 1) / sp;
   const track = (s: Stop) => {
     // hovering: the words framed whole, the camera over their middle with a little room ahead, drifting slowly that way
@@ -355,9 +357,9 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         dx = ax[0] * dc,
         dy = ax[1] * dc;
       // punch: the glide's follow, quicker and crisper (a short drive onto each character); waltz: a steady step around it
-      if (cut === 'punch')
+      if (CP.follow === 'punch')
         s.follow.push([t1 - Math.min(0.06, gap * 0.35), t1 + clamp(0.7 * gap, 0.1, 0.2 / sp), dx, dy, 'punch']);
-      else if (cut === 'waltz')
+      else if (CP.follow === 'step')
         s.follow.push([t1 - Math.min(0.22, gap * 0.45), t1 + clamp(0.6 * gap, 0.12, 0.35 / sp), dx, dy, 'zoom']);
       else if (gap <= LEADT + 0.05)
         s.follow.push([j === 1 ? t0 - 0.35 : t0, t1 + 0.08, dx, dy, 'lin']); // (the first a moment before: no pause on it)
@@ -411,7 +413,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   };
 
   // glide and close never stop: their moves keep the pace they arrive with (a steady run, rounded by the smoothing)
-  const glideE = cut === 'glide' || close ? 'cruise' : 'glide';
+  const glideE = CP.cruise ? 'cruise' : 'glide';
   const lastSung = (A: Stop) => {
     const U = A.ubox || [];
     return U.length ? U[U.length - 1].t : A.t;
@@ -805,7 +807,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
 
   /* ---- cuts: the jump the base path makes at each transition (the backdrop does not follow these) ---- */
   const plan: CameraPlan = {
-    style: cut,
+    style: CP.id,
     start,
     stops,
     moves,
@@ -814,8 +816,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
     idle: idleWindows(lines, inp.musicEnd),
     ...(warnings.length ? { warnings } : {}),
     dyn: {
-      cone: (cut === 'punch' ? 0.03 : waltz ? 0.026 : 0.016) * clamp(M.punch + 0.4, 0.2, 2),
-      coneRoll: (cut === 'punch' ? 0.5 : waltz ? 1.1 : 0.35) * TK * clamp(M.shake + 0.3, 0, 2),
+      cone: CP.cone * clamp(M.punch + 0.4, 0.2, 2),
+      coneRoll: CP.coneRoll * TK * clamp(M.shake + 0.3, 0, 2),
       float: 0.45 + (M.float ?? 0),
       sway: M.sway,
     },
@@ -823,7 +825,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
   for (const m of moves) if (m.ease === 'cut') plan.cuts.push({ t: m.s, dx: m.dx, dy: m.dy, dz: m.dz, dr: m.dr });
   // the frame's answer to arrivals: a spring kick for the waltz, a firm nudge for punch, sized by how hard the music hits
   const sounding = (t: number) => map.sounding(t);
-  if (cut === 'waltz')
+  if (CP.kicks)
     plan.kicks = stops
       .filter((s) => !s.over && s.t > 0.3 && (s.words[0].k === 0 || map.accentAt(s.t) >= 1.3))
       .map((s) => ({
@@ -842,7 +844,7 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
         sg: rnd(s.t * 3.3) < 0.5 ? -1 : 1,
         k: (0.5 + 0.7 * intensity(s.t)) * (s.words[0].k === 0 ? 1 : 0.6),
       }));
-  plan.path = smoothPath(plan, inp.dur, cut, sp, stops.find((s) => s.over) ? moves[moves.length - 1].s : Infinity);
+  plan.path = smoothPath(plan, inp.dur, CP, sp, stops.find((s) => s.over) ? moves[moves.length - 1].s : Infinity);
   // each cut's jump as the smoothed path really makes it (the backdrop's camera takes exactly this out, so it never jumps)
   cutJumps(plan);
   return { camera: plan, extraPassages: extraPass };
@@ -852,6 +854,8 @@ export function planCamera(inp: CameraInput): { camera: CameraPlan; extraPassage
  *  (a tenth of the way, a touch closer: a small focus, at the pace knob's speed); in a pause of a couple of seconds, and
  *  at the end, it comes back to the middle. The beat and the accents still breathe in the frame (evaluate.ts), never in
  *  its angle. */
+// (the held program's own planner: whole lines held in the middle)
+registerCamera(cameraProgram('center'), planCenter);
 function planCenter(inp: CameraInput): CameraPlan {
   const { lines, style: st, H } = inp,
     M = st.m,
@@ -926,7 +930,7 @@ function planCenter(inp: CameraInput): CameraPlan {
     idle: idleWindows(lines, inp.musicEnd),
     dyn: { cone: 0.012 * clamp(M.punch + 0.4, 0.2, 2), coneRoll: 0, float: 0, sway: 0 },
   };
-  plan.path = smoothPath(plan, inp.dur, 'glide', sp, Infinity);
+  plan.path = smoothPath(plan, inp.dur, cameraProgram('glide'), sp, Infinity);
   return plan;
 }
 /** A word as one box; and each of its characters as a box, with when it is sung and until when (the next one). */
@@ -1019,13 +1023,11 @@ const RATE = 60;
 function smoothPath(
   c: CameraPlan,
   dur: number,
-  style: string,
+  CP: CameraProgram,
   sp: number,
   overStart: number,
 ): NonNullable<CameraPlan['path']> {
-  const n = Math.ceil((dur + 1) * RATE) + 1,
-    waltz = style === 'waltz',
-    punch = style === 'punch';
+  const n = Math.ceil((dur + 1) * RATE) + 1;
   const X = new Float32Array(n),
     Y = new Float32Array(n),
     Z = new Float32Array(n),
@@ -1070,8 +1072,8 @@ function smoothPath(
     lineEnds.push(Math.round((m ? m.s : Math.max(A.sungEnd, A.arrive)) * RATE));
   }
   // zoom envelope (the widest framing a moment ahead, never more than 1.25x wider than now)
-  if (!punch && style !== 'close') {
-    const ahead = Math.round(Math.min(1.4, (waltz ? 0.6 : 0.9) / sp) * RATE),
+  if (CP.lookahead > 0) {
+    const ahead = Math.round(Math.min(1.4, CP.lookahead / sp) * RATE),
       back = Math.round(0.35 * RATE),
       Zr = Z.slice(),
       maxWide = Math.log(1.25);
@@ -1126,19 +1128,19 @@ function smoothPath(
     }
     return o;
   };
-  const ps = punch ? 0.05 : waltz ? 0.1 : style === 'close' ? 0.16 : 0.2,
-    rsig = punch ? 0.05 : waltz ? 0.1 : 0.16,
-    zsig = (punch ? 0.15 : waltz ? 0.3 : 0.45) / sp;
+  const [ps, rsig, zsig0] = CP.soften,
+    zsig = zsig0 / sp,
+    near = CP.lookahead > 0;
   return {
     rate: RATE,
     n,
     seg,
     cutT: cuts,
     // (nor is the camera let drift off toward the next line while the last words are still being sung)
-    x: punch || style === 'close' ? gauss(X, ps) : gaussNear(X, ps, lineEnds, 0.08),
-    y: punch || style === 'close' ? gauss(Y, ps) : gaussNear(Y, ps, lineEnds, 0.08),
+    x: near ? gaussNear(X, ps, lineEnds, 0.08) : gauss(X, ps),
+    y: near ? gaussNear(Y, ps, lineEnds, 0.08) : gauss(Y, ps),
     // (a line's last words keep their size while they are sung: the next line's framing is not let in before them)
-    lz: punch || style === 'close' ? gauss(Z, zsig) : gaussNear(Z, zsig, lineEnds, 0.12),
+    lz: near ? gaussNear(Z, zsig, lineEnds, 0.12) : gauss(Z, zsig),
     r: gauss(R, rsig),
     d: gauss(Dd, ps),
   };

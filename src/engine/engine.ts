@@ -102,6 +102,13 @@ export class Engine extends Emitter<EngineEvents> {
   readonly perf: PerfStats = { fps: 0, frameMs: 0, drawMs: 0, layers: {}, w: 0, h: 0 };
   private lastFrameAt = 0;
   labels: Record<string, string> = {};
+  /** what the play page is drawn over: the song's ambient field, or a backdrop of the listener's choice (Folia's) */
+  pageBackdrop = 'ambient';
+  setPageBackdrop(id: string) {
+    if (id === this.pageBackdrop) return;
+    this.pageBackdrop = id;
+    this.dirty = true;
+  }
   /** how the song's own video (MV mode) is graded and framed (an app setting) */
   mvLook: MvLook = { ...MV_LOOK };
   private t = 0;
@@ -259,38 +266,6 @@ export class Engine extends Emitter<EngineEvents> {
   }
 
   /* ---------- mounting and size ---------- */
-  /** The play page's lyrics drawn by a lyric engine (a Folia style) in `el`'s area of the picture; null: the page draws
-   *  its own list. The area is measured when set and when it or the picture changes size, never per frame. */
-  private page: {
-    id: string;
-    el: HTMLElement;
-    ro: ResizeObserver;
-    /** the area in the canvas's CSS px, and the canvas's CSS height */
-    r: { x: number; y: number; w: number; h: number; ch: number } | null;
-  } | null = null;
-  setPageLyrics(id: string | null, el: HTMLElement | null) {
-    this.page?.ro.disconnect();
-    this.page = null;
-    if (id && el) {
-      const ro = new ResizeObserver(() => this.measurePage());
-      this.page = { id, el, ro, r: null };
-      ro.observe(el);
-      ro.observe(this.canvas);
-      this.measurePage();
-    }
-    this.dirty = true;
-  }
-  private measurePage() {
-    const p = this.page;
-    if (!p) return;
-    const r = p.el.getBoundingClientRect(),
-      c = this.canvas.getBoundingClientRect();
-    // (in the canvas's CSS px: frameAt turns them into the picture's units)
-    // (from the lyric column's left edge to the picture's right, top to bottom: the engine's compositions reach past the
-    // column, and only the edge toward the cover cuts them)
-    p.r = c.height > 2 ? { x: r.left - c.left, y: 0, w: c.right - r.left, h: c.height, ch: c.height } : null;
-    this.dirty = true;
-  }
   mount(host: HTMLElement) {
     if (this.canvas.parentNode !== host) host.prepend(this.canvas);
     this.host = host;
@@ -694,8 +669,8 @@ export class Engine extends Emitter<EngineEvents> {
       motion,
       offline: !!opts.offline,
       playing: opts.offline ? true : this.playing,
-      np: this.pageArea(plan.H, opts.offline),
       labels: this.labels,
+      npBg: this.pageBackdrop,
       I: clamp(0.35 + 0.65 * rs.level),
       P: rs.pulse * clamp(M.pulse, 0, 2) * cf.calm * (1 - rs.still),
       ink: s.pal.text,
@@ -703,13 +678,6 @@ export class Engine extends Emitter<EngineEvents> {
       vinylOut: opts.offline ? 1 : this.handoff.vinyl,
       wordAlpha: opts.offline ? undefined : (i: number, k: number) => this.handoff.wordAlpha(i, k),
     } as RenderFrame;
-  }
-  private pageArea(H: number, offline?: boolean) {
-    const p = this.page,
-      r = p?.r;
-    if (!p || !r || offline) return undefined;
-    const k = H / r.ch;
-    return { id: p.id, x: r.x * k, y: r.y * k, w: r.w * k, h: r.h * k };
   }
   private frame(now: number) {
     const t0 = performance.now(),

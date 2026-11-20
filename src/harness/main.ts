@@ -24,6 +24,7 @@ import { TemperaEngine } from '../folia/engines/tempera';
 import { foliaLines, foliaTheme } from '../folia/adapt';
 import * as stage from '../folia/pixi';
 import * as backgrounds from '../folia/backgrounds';
+import * as beat from '../folia/vendor/services/beatFx/beatFxLive';
 
 const canvas = document.createElement('canvas');
 const engine = new Engine(canvas, { audioContext: () => new AudioContext() });
@@ -86,7 +87,7 @@ async function open(spec: Partial<SessionSpec> & { theme?: string; cut?: string;
   setGfx,
   gfx,
   // (the Folia styles' runtimes on their own: tests/folia-compare.cjs measures them against Folia's)
-  folia: { SonnetEngine, TemperaEngine, foliaLines, foliaTheme, pixi: stage, backgrounds },
+  folia: { SonnetEngine, TemperaEngine, foliaLines, foliaTheme, pixi: stage, backgrounds, beat },
 };
 // (the neural engine is off unless a test points it at its models: the other render tests stay on the built-in analysis)
 rhythm.setRhythmEngine('dsp');

@@ -1,5 +1,6 @@
 // Planning a song: layout → camera (which may add transitions) → passages per line → cues → titles. Once, ahead.
 import type { LyricDoc } from '../lyrics/model';
+import { cameraProgram } from './cameras';
 import type { RhythmMap } from '../rhythm/map';
 import type { Style } from '../theme/style';
 import { measureKey, type Measurer, type WordBox } from '../text/metrics';
@@ -91,7 +92,7 @@ export function plan(inp: PlanInput): ScenePlan {
   fitFrames(camera, lay.words, W, H);
   cutJumps(camera);
   // (the centred stage brings its lines in groups that go together: the page's cap is its groups, not a count)
-  applySweeps(lay.lines, lay.sweeps, camera, W, H, style.cut === 'center');
+  applySweeps(lay.lines, lay.sweeps, camera, W, H, cameraProgram(style.cut).held);
   if (lyricType(style.ltype).orbit) sweepUnseen(lay.lines, camera, W, H);
   fadeOverlapped(lay.lines);
   applyCurtains(lay.lines, inp.doc.curtains || []);
