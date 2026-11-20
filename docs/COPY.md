@@ -98,6 +98,7 @@
 
 | 通用、隱現、空、莫奈、漫遊 | Common, Latent, Sora, Monet, Nomand | 來自 Folia 的五種背景，在「外觀 → 背景」裡和 Cadenza 自己的背景並列，名字後面標（Folia）；顏色只取外觀的顏色與封面的顏色，不用 Folia 生成的主題色 |
 | 點陣、波紋玻璃、紙紋、網點、鏡頭 | Dither, Fluted glass, Paper, Halftone, Lens | 漫遊背景處理封面的五種效果 |
+| 用 Folia 自己的分詞 | Use Folia’s own word split | 商籟、凝彩的風格設定：改用 Folia 的自動分詞，不用 Cadenza 的分詞與自訂分詞 |
 | 蓋上底色 | Veil | 在背景上蓋一層外觀的背景色，讓歌詞更清楚；不叫「遮罩」「覆蓋層」 |
 
 風格的專屬設定一律叫「〈風格名〉的設定」，放在風格的「進階」裡；畫面處理放在「特效」。

@@ -606,6 +606,23 @@ const ok = (name, pass, detail) => {
   );
   await W(400);
   await shot('fx-bar');
+  // the bar is one row: every control on it, and the progress line taking the room left over
+  const barRow = await C(() => {
+    const b = document.querySelector('[data-test=fx-bar]'),
+      r = b.getBoundingClientRect(),
+      kids = [...b.children].map((k) => k.getBoundingClientRect()),
+      prog = b.querySelector('[role=slider]')?.getBoundingClientRect();
+    return {
+      h: Math.round(r.height),
+      rows: new Set(kids.map((k) => Math.round(k.top + k.height / 2))).size,
+      prog: prog ? Math.round(prog.width) : 0,
+    };
+  });
+  ok(
+    'effect view: the bar is one row with a progress line',
+    barRow.rows === 1 && barRow.prog > 120,
+    JSON.stringify(barRow),
+  );
 
   /* ---------- song changes, in the effect view, however fast ---------- */
   const order0 = await C(() => window.__cadenza.player.get().queue.length);

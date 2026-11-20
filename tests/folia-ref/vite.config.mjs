@@ -12,6 +12,13 @@ export default defineConfig({
       { find: '@', replacement: resolve(import.meta.dirname, '../src') },
     ],
   },
-  build: { outDir: resolve(import.meta.dirname, 'dist'), emptyOutDir: true, target: 'es2022' },
+  build: {
+    outDir: resolve(import.meta.dirname, 'dist'),
+    emptyOutDir: true,
+    target: 'es2022',
+    rollupOptions: {
+      input: { index: resolve(import.meta.dirname, 'index.html'), bg: resolve(import.meta.dirname, 'bg.html') },
+    },
+  },
   logLevel: 'warn',
 });

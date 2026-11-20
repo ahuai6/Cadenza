@@ -89,7 +89,8 @@ export interface Flying {
   harmT: number | null;
   nMain: number;
   times: number[] | null;
-  /** where the line keeps to, relative to the visitor, and how high it sits */
+  /** where the line keeps to, relative to the visitor and the way they look (x right, z ahead, y up: it turns with
+   *  them), and how high it sits */
   off: THREE.Vector3;
   /** when it was hurried away (too many falling at once): it fades fast instead of vanishing (ms; 0: not) */
   hurry: number;
@@ -147,6 +148,7 @@ export class AirLyrics {
   private readonly _a = new THREE.Vector3();
   private readonly _b = new THREE.Vector3();
   private readonly _q = new THREE.Vector3();
+  private readonly _dir = new THREE.Vector3();
 
   constructor(private o: AirLyricsOptions) {
     this.faceNow = o.face('');
@@ -268,7 +270,7 @@ export class AirLyrics {
   }
 
   /** One texture per character: its fill in the red channel and a ring round it in the green one, so the shader can
-   *  shade the fill and edge the outline apart. */
+   *  shade the fill and edge the outline apart; a soft halo round both in the blue one (its glow). */
   private glyphTex(ch: string): THREE.CanvasTexture {
     const hit = this.glyphCache.get(ch);
     if (hit) {
@@ -296,6 +298,15 @@ export class AirLyrics {
     g.lineJoin = 'round';
     g.miterLimit = 2;
     const y = GPX / 2 + px * 0.05;
+    // (a soft halo round it, in the blue channel: the glyph's glow; the fill and the ring are drawn over it)
+    g.save();
+    g.filter = `blur(${Math.round(px * 0.07)}px)`;
+    g.fillStyle = '#00f';
+    g.strokeStyle = '#00f';
+    g.lineWidth = px * 0.14;
+    g.strokeText(ch, GPX / 2, y);
+    g.fillText(ch, GPX / 2, y);
+    g.restore();
     g.strokeStyle = '#0f0';
     g.lineWidth = Math.max(3, px * 0.075);
     g.strokeText(ch, GPX / 2, y);
@@ -311,7 +322,8 @@ export class AirLyrics {
   /** The fill runs top to bottom from a light tone to a deep one, with a soft sheen across its upper part and a bevel
    *  lit from the upper left (the glyph's own edges, read from its texture); the outline, in the accent, runs the same
    *  way from light to deep, so the two read as one. Solid throughout: a character still to be sung is paler (`sk`),
-   *  never see-through. Bleaching (`ek` to 0), all of it turns to the faded colour together. */
+   *  never see-through. Bleaching (`ek` to 0), all of it turns to the faded colour together. Round it a soft glow in a
+   *  light tone of the outline's colour, stronger once the character is sung; a bleached one has none. */
   private glyphMat(map: THREE.Texture): {
     m: THREE.MeshBasicMaterial;
     ek: { value: number };
@@ -352,10 +364,14 @@ export class AirLyrics {
         vec3 edgeG = mix(uEdge * .72, mix(uEdge, vec3(1.), .12), shade);
         grad = mix(grad, uPale, un); edgeG = mix(edgeG, mix(uEdge, uPale, .5), un);
         vec3 fillC = mix(diffuseColor.rgb, grad, uEdgeK), edgeC = edgeG + hl * .35 * (vec3(1.) - edgeG);
-        diffuseColor = vec4(mix(mix(edgeC, fillC, 1. - uEdgeK), fillC, gF), diffuseColor.a * gT.a * mix(1., gF, 1. - uEdgeK));`,
+        float gC = clamp(gT.r + gT.g, 0., 1.), gA = diffuseColor.a * gT.a * gC * mix(1., gF, 1. - uEdgeK);
+        float hA = diffuseColor.a * gT.a * gT.b * (1. - gC) * (.22 + .5 * uSung) * uEdgeK;
+        vec3 glowC = mix(uEdge, vec3(1.), .4), inkC = mix(mix(edgeC, fillC, 1. - uEdgeK), fillC, gF);
+        float tot = gA + hA * (1. - gA);
+        diffuseColor = vec4(mix(glowC, inkC, gA / max(tot, .0001)), tot);`,
         );
     };
-    m.customProgramCacheKey = () => 'glyph';
+    m.customProgramCacheKey = () => 'glyph-glow';
     return { m, ek, sk };
   }
 
@@ -619,7 +635,7 @@ export class AirLyrics {
       harmT: L.harm ? L.harm.t : null,
       nMain: glyphs.filter((x) => !x.harm).length,
       times: L.kar && L.times.length ? L.times : null,
-      off: pos.clone().sub(cam),
+      off: this.toView(pos.clone().sub(cam)),
       hurry: 0,
     });
     this.lastPos = pos;
@@ -663,8 +679,21 @@ export class AirLyrics {
     } else l.g.position.copy(l.pos);
   }
 
-  /** The line after the visitor: where it keeps to from them, eased (never into a wall); out from under the HUD; facing
-   *  them. */
+  /** Which way the visitor looks (yaw about the up axis; 0 looks down -z). */
+  private viewYaw() {
+    const v = this.o.camera.getWorldDirection(this._dir);
+    return Math.atan2(-v.x, -v.z);
+  }
+  /** A world offset from the visitor, in their view's own frame (and back): turned by how they look. */
+  private toView(v: THREE.Vector3) {
+    return v.applyAxisAngle(UP, -this.viewYaw());
+  }
+  private fromView(v: THREE.Vector3) {
+    return v.applyAxisAngle(UP, this.viewYaw());
+  }
+
+  /** The line after the visitor: it keeps where it was from them — where they walk, and to whichever side they turn —
+   *  eased round them on an arc (never through them); never into a wall; out from under the HUD; facing them. */
   private follow(l: Flying, dt: number) {
     const cam = this.o.camera.position,
       k = 1 - Math.exp(-dt * 2.2);
@@ -677,10 +706,21 @@ export class AirLyrics {
       if (r[3] > band.yTop) l.off.y -= Math.min(r[3] - band.yTop, 0.5) * perNdc * Math.min(1, dt * 6);
       else if (r[2] < band.yBot) l.off.y += Math.min(band.yBot - r[2], 0.5) * perNdc * Math.min(1, dt * 6);
     }
-    this._a.copy(cam).add(l.off);
-    this._a.y = Math.max(0.35 + l.height / 2, Math.min(6, this._a.y));
-    if (this.o.inside(this._a)) l.pos.lerp(this._a, k);
-    else l.off.copy(l.pos).sub(cam); // (held where it is: the next step on starts from here)
+    // where it is now, seen from the visitor's view; eased toward where it keeps to by its angle round them, its
+    // distance and its height apart, so a turn carries it round on a circle
+    const cur = this.toView(this._a.copy(l.pos).sub(cam)),
+      a0 = Math.atan2(cur.x, -cur.z),
+      a1 = Math.atan2(l.off.x, -l.off.z),
+      r0 = Math.hypot(cur.x, cur.z),
+      r1 = Math.hypot(l.off.x, l.off.z),
+      a = a0 + wrap(a1 - a0) * k,
+      rr = r0 + (r1 - r0) * k;
+    cur.set(Math.sin(a) * rr, cur.y + (l.off.y - cur.y) * k, -Math.cos(a) * rr);
+    this.fromView(cur).add(cam);
+    cur.y = Math.max(0.35 + l.height / 2, Math.min(6, cur.y));
+    if (this.o.inside(cur)) l.pos.copy(cur);
+    // (held where it is — a wall between —: where it keeps to is pulled to here a little, so it does not strain forever)
+    else l.off.lerp(this.toView(this._b.copy(l.pos).sub(cam)), k);
     const yaw = Math.atan2(cam.x - l.pos.x, cam.z - l.pos.z),
       pitch = -Math.atan2(cam.y - l.pos.y, Math.hypot(cam.x - l.pos.x, cam.z - l.pos.z));
     l.yaw += wrap(yaw - l.yaw) * k;
@@ -791,6 +831,7 @@ export class AirLyrics {
 
 const DOWN = new THREE.Vector3(0, -1, 0);
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+const UP = new THREE.Vector3(0, 1, 0);
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const overlaps = (a: number[], b: number[], m = 0.06) =>
   a[0] < b[1] + m && b[0] < a[1] + m && a[2] < b[3] + m && b[2] < a[3] + m;

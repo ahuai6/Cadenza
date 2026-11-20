@@ -28,7 +28,15 @@ export const isFoliaEngine = (id: string | undefined): id is EngineId =>
   !!id && (ENGINES as readonly string[]).includes(id);
 
 /** Each engine's own settings (the style pages draw their controls from these). */
-export const ENGINE_PARAMS: Record<EngineId, EngineParam[]> = { sonnet: SONNET_PARAMS, tempera: TEMPERA_PARAMS };
+/** What every Folia style has besides its own: whose word split its layout reads — Cadenza's (the listener's own, where
+ *  they made one) or Folia's own automatic split, as upstream does it. */
+const SHARED_PARAMS: EngineParam[] = [
+  { key: 'foliaSeg', label: 'eng.foliaSeg', kind: 'toggle', def: false, group: 'style' },
+];
+export const ENGINE_PARAMS: Record<EngineId, EngineParam[]> = {
+  sonnet: [...SONNET_PARAMS, ...SHARED_PARAMS],
+  tempera: [...TEMPERA_PARAMS, ...SHARED_PARAMS],
+};
 export type { EngineParam };
 
 /** Whether the frame's lyrics are an engine's (the director's word layers, transitions and dots are then left out). */
@@ -61,7 +69,7 @@ function specOf(f: RenderFrame, id: EngineId) {
   });
   const tuning = (st.engp?.[id] ?? {}) as Record<string, unknown>;
   // (the tuning is applied to a live engine in place: only what it was built from rebuilds it)
-  const key = JSON.stringify([id, theme, st.k.size ?? 1, f.motion < 1, tuning.beatFx, tuning.credits]);
+  const key = JSON.stringify([id, theme, st.k.size ?? 1, f.motion < 1, tuning.beatFx, tuning.credits, tuning.foliaSeg]);
   return { key, theme, tuning };
 }
 
@@ -76,7 +84,7 @@ function build(
     st = f.style;
   const common = {
     seed: seedOf(plan),
-    lines: foliaLines(plan.doc),
+    lines: foliaLines(plan.doc, { foliaSeg: tuning.foliaSeg === true }),
     theme,
     duration: plan.dur,
     instrumental: plan.doc.words.length === 0,
@@ -94,8 +102,10 @@ function build(
   };
   if (id === 'tempera') {
     const pal = f.pal;
-    // the cover's colours (the gradient colour mode reads them); Cadenza's palette is taken from the cover already
-    const coverColors = [pal.accent, pal.bg2, pal.text, pal.flash, pal.bg].map(rgbHex);
+    // the cover's colours (the gradient colour mode reads them), as Cadenza reads them from the cover (the ambient
+    // field's); with no cover, the look's own
+    const A = f.ambient,
+      coverColors = (A.cols.length ? A.cols : [pal.accent, pal.bg2, pal.text, pal.flash, pal.bg]).map(rgbHex);
     return new TemperaEngine({ ...common, coverColors });
   }
   return new SonnetEngine(common);

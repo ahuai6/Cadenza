@@ -417,7 +417,8 @@ export function drawLatent(g: Ctx, f: BgFrame, p: P) {
         1.025 + L.power * 0.018,
         1,
         'source-over',
-        `saturate(${1.04 + L.midv * 0.34}) brightness(${0.94 + L.power * 0.16})`,
+        // (held still, Folia's loop never runs, so the layer keeps no filter)
+        f.still ? '' : `saturate(${1.04 + L.midv * 0.34}) brightness(${0.94 + L.power * 0.16})`,
       );
   }
   if (showDither) {

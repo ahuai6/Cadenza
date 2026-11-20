@@ -498,7 +498,16 @@ export function createWorld(
     });
   // (the setting sun's light, as a multiple of the beams' own colour)
   const DUSK_COL = [1.15, 0.72, 0.48];
-  const DUSK = softTex('255,150,90', 0.9),
+  // (the dusk patch on the wall: a gaussian falloff, no edge anywhere — the low sun's light is diffuse, not a spot)
+  const DUSK = textTex(256, 256, (g, w, h) => {
+      const r = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+      for (let i = 0; i <= 12; i++) {
+        const x = i / 12;
+        r.addColorStop(x, `rgba(255,150,90,${(0.8 * Math.exp(-4.2 * x * x) * (1 - x)).toFixed(4)})`);
+      }
+      g.fillStyle = r;
+      g.fillRect(0, 0, w, h);
+    }),
     GLOW = softTex('255,227,184', 1),
     BLOB = softTex('110,92,70', 1);
   const boxUV = (g) => g;
@@ -2915,18 +2924,18 @@ export function createWorld(
         if (t <= 0) continue;
         const hit = c.clone().addScaledVector(dir, t),
           n = new V3(hit.x - CROSS.c.x, 0, hit.z - CROSS.c.z).normalize();
-        segs.push([c.clone(), hit.clone(), w.r, w.r * 1.15, 0.55, 0, DUSK_COL]);
+        segs.push([c.clone(), hit.clone(), w.r, w.r * 1.6, 0.5, 0, DUSK_COL]);
         const glow = soft(
           world,
           DUSK,
-          w.r * 4.2,
-          w.r * 3,
+          w.r * 6.4,
+          w.r * 4.6,
           hit.x + n.x * 0.05,
           hit.y,
           hit.z + n.z * 0.05,
           0,
           0,
-          0.75,
+          0.6,
           true,
         );
         glow.rotation.set(0, Math.atan2(n.x, n.z), 0);
@@ -3583,27 +3592,24 @@ export function createWorld(
         wheelRest = performance.now();
         return;
       }
-      // the gallery's albums and the collection room's playlists turn their pages as the atrium's songs do: the wheel
-      // over one of them (a notch or a swipe's worth a page, at most a page every half second); elsewhere it walks
+      // the gallery's albums and the collection room's playlists turn their pages as the atrium's songs do: there the wheel
+      // is theirs anywhere in the room (a notch or a swipe's worth a page, at most a page every half second) and never
+      // moves the view; elsewhere it walks
       if (room === 'gallery' || room === 'lists') {
-        const pt = locked ? { x: innerWidth / 2, y: innerHeight / 2 } : { x: e.clientX, y: e.clientY },
-          h = pickAt(pt.x, pt.y),
-          over = h && ((room === 'gallery' && h.kind === 'album') || (room === 'lists' && h.kind === 'playlist'));
-        if (over) {
-          const now = performance.now();
-          pageWheel = now - pageWheelAt > 400 ? d : pageWheel + d;
-          pageWheelAt = now;
-          if (Math.abs(pageWheel) >= 60 && now - pageTurnAt > 500) {
-            pageTurnAt = now;
-            const step = pageWheel > 0 ? 1 : -1;
-            pageWheel = 0;
+        const now = performance.now();
+        pageWheel = now - pageWheelAt > 400 ? d : pageWheel + d;
+        pageWheelAt = now;
+        if (Math.abs(pageWheel) >= 60 && now - pageTurnAt > 500) {
+          pageTurnAt = now;
+          const step = pageWheel > 0 ? 1 : -1;
+          pageWheel = 0;
+          if (room === 'gallery' ? navePages(LIB) > 1 : listPages() > 1) {
             hideCards();
-            if (room === 'gallery') {
-              if (navePages(LIB) > 1) setNavePage(navePg + step);
-            } else if (listPages() > 1) setListPage(listPg + step);
+            if (room === 'gallery') setNavePage(navePg + step);
+            else setListPage(listPg + step);
           }
-          return;
         }
+        return;
       }
       walk.push(-d * 0.02);
     },

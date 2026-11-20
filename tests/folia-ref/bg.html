@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #000;
+      }
+      #host {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 1280px;
+        height: 720px;
+        overflow: hidden;
+      }
+      /* the few utility classes Folia's background layers use (its pages have Tailwind) */
+      .absolute {
+        position: absolute;
+      }
+      .relative {
+        position: relative;
+      }
+      .inset-0 {
+        inset: 0;
+      }
+      .w-full {
+        width: 100%;
+      }
+      .h-full {
+        height: 100%;
+      }
+      .z-0 {
+        z-index: 0;
+      }
+      .overflow-hidden {
+        overflow: hidden;
+      }
+      .pointer-events-none {
+        pointer-events: none;
+      }
+      .block {
+        display: block;
+      }
+      .object-cover {
+        object-fit: cover;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module" src="./bg.tsx"></script>
+  </body>
+</html>

@@ -13,23 +13,136 @@ import type { MotionValue } from './shim/framerMotion';
 
 let installed: { key: string; map: RhythmMap | null } | null = null;
 
-/** The beat list the clock fires: every beat, the bar's first as a downbeat, with how hard it lands. */
+/* Cadenza's coarse spectrum (map.spec) is log-spaced from 30 Hz to 10 kHz; a stretch of it in Hz, as a share of it. */
+const LOG_SPAN = Math.log(10000 / 30);
+const at = (hz: number) => Math.min(1, Math.max(0, Math.log(hz / 30) / LOG_SPAN));
+/** The mean of the spectrum's bands over [lo, hi] (shares of it), each band weighed by how much of it lies inside. */
+function bandMean(s: readonly number[], lo: number, hi: number) {
+  const n = s.length;
+  let v = 0,
+    w = 0;
+  for (let k = 0; k < n; k += 1) {
+    const o = Math.min(hi * n, k + 1) - Math.max(lo * n, k);
+    if (o > 0) {
+      v += s[k] * o;
+      w += o;
+    }
+  }
+  return w ? v / w : 0;
+}
+/** Folia's bands (its analyser's ranges, usePlaybackVisualizerBridge): bass, low mids, mids, the voice's range, treble. */
+const BANDS = {
+  bass: [at(20), at(150)],
+  lowMid: [at(150), at(400)],
+  mid: [at(400), at(1200)],
+  vocal: [at(1000), at(3500)],
+  treble: [at(3500), at(12000)],
+} as const;
+/** Folia's beat accents' three ranges (beatAccents.ts: low under 150 Hz, mid to 2 kHz, high above). */
+const TONE = { low: [0, at(150)], mid: [at(150), at(2000)], high: [at(2000), 1] } as const;
+
+const quantileOf = (v: number[], q: number) => {
+  const a = [...v].sort((x, y) => x - y);
+  return a.length ? a[Math.min(a.length - 1, Math.floor(q * (a.length - 1)))] : 0;
+};
+
+/**
+ * The beat list the clock fires: every beat, the bar's first as a downbeat, each with how hard it lands and what it
+ * sounds like, measured as Folia's beatAccents measures them — on Cadenza's spectrum and loudness instead of its mel
+ * spectrogram: the rise of the low, mid and high ranges at the beat over the moment before it (their shares are its
+ * tone; low weighs most), mixed with how loud the music is around it, each normalised over the song (its 10th to 90th
+ * percentile) and curved so that most beats of a driving song read as real hits.
+ */
 export function beatEvents(map: RhythmMap): BeatFxEvent[] {
-  const out: BeatFxEvent[] = [];
   const meter = Math.max(1, map.meter || 4);
+  const spec: number[] = [];
+  const has = map.hasAudio && !!map.spec(0, spec);
+  const F = 1 / 50; // (the analysis' frame)
+  const tone = (t: number) => {
+    const s = map.spec(t, spec) || [];
+    return { low: bandMean(s, ...TONE.low), mid: bandMean(s, ...TONE.mid), high: bandMean(s, ...TONE.high) };
+  };
+  const rises: { low: number; mid: number; high: number }[] = [],
+    rise: number[] = [],
+    loud: number[] = [];
+  if (has)
+    for (const t of map.beats) {
+      const peak = { low: 0, mid: 0, high: 0 },
+        base = { low: 0, mid: 0, high: 0 };
+      for (let k = -1; k <= 2; k += 1) {
+        const v = tone(t + k * F);
+        peak.low = Math.max(peak.low, v.low);
+        peak.mid = Math.max(peak.mid, v.mid);
+        peak.high = Math.max(peak.high, v.high);
+      }
+      for (let k = -6; k <= -2; k += 1) {
+        const v = tone(t + k * F);
+        base.low += v.low / 5;
+        base.mid += v.mid / 5;
+        base.high += v.high / 5;
+      }
+      const r = {
+        low: Math.max(0, peak.low - base.low),
+        mid: Math.max(0, peak.mid - base.mid),
+        high: Math.max(0, peak.high - base.high),
+      };
+      rises.push(r);
+      rise.push(r.low * 0.5 + r.mid * 0.3 + r.high * 0.2);
+      let l = 0;
+      for (let k = -12; k <= 12; k += 1) l += map.loud(t + k * F) / 25;
+      loud.push(l);
+    }
+  const norm = (v: number[]) => {
+    const lo = quantileOf(v, 0.1),
+      hi = quantileOf(v, 0.9);
+    return (x: number) => (hi > lo ? Math.min(1, Math.max(0, (x - lo) / (hi - lo))) : 1);
+  };
+  const nRise = norm(rise),
+    nLoud = norm(loud),
+    few = map.beats.length < 8;
+  // a bar with no rhythm — sustained sound only — fires no beat effects (Folia gates on the bar's percussive share):
+  // here, no drum hit off the separated drum stem within the bar around the beat; without the stem, near silence
+  const D = map.a.drums,
+    drums = D && D.t.length ? D.t.map((x) => x - map.offset) : null,
+    bar = (60 / Math.max(30, map.bpm || 120)) * meter;
+  const drumsNear = (t: number) => {
+    if (!drums) return true;
+    let lo = 0,
+      hi = drums.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (drums[m] < t - bar / 2) lo = m + 1;
+      else hi = m;
+    }
+    return lo < drums.length && drums[lo] <= t + bar / 2;
+  };
+  const out: BeatFxEvent[] = [];
   let since: number | null = null;
   for (let i = 0; i < map.beats.length; i += 1) {
     const t = map.beats[i];
     const down = map.isDownbeat(t);
     if (down) since = 0;
     else if (since !== null) since = (since + 1) % meter;
-    const accent = map.accentAt(t);
+    const r = rises[i];
+    const sum = r ? r.low + r.mid + r.high : 0;
     out.push({
       t,
       kind: down ? 'downbeat' : 'beat',
-      impact: Math.min(1, accent),
+      impact: has
+        ? few
+          ? 1
+          : Math.pow(0.4 * nRise(rise[i]) + 0.6 * nLoud(loud[i]), 0.7)
+        : Math.min(1, map.accentAt(t)),
+      ...(r
+        ? {
+            tone:
+              sum > 0
+                ? { low: r.low / sum, mid: r.mid / sum, high: r.high / sum }
+                : { low: 1 / 3, mid: 1 / 3, high: 1 / 3 },
+          }
+        : {}),
       barPos: since,
-      rhythmic: map.hasAudio ? map.loud(t) > 0.06 : true,
+      rhythmic: !map.hasAudio ? true : drums ? drumsNear(t) : map.loud(t) > 0.06,
     });
   }
   return out;
@@ -69,29 +182,29 @@ const spec: number[] = [];
  * One frame of the live inputs at song time `t`. Each band is the analysis' coarse spectrum read at
  * the moment (0..1; Folia's 0..255 readers accept both), the power the section-relative loudness.
  */
-/** Folia's five bands and power at song time `t`, as its readers take them (0..255): each band the analysis'
- *  coarse spectrum read at the moment, the power the section-relative loudness; all 0 while paused. */
+/** Folia's five bands and power at song time `t`, as its readers take them (0..255): each band its analyser's range
+ *  read off Cadenza's coarse spectrum, raised by Folia's own curve (the power from the bass and low mids, as there);
+ *  all 0 while paused. */
 export function bandsAt(map: RhythmMap | null, t: number, playing: boolean) {
   const out = { bass: 0, lowMid: 0, mid: 0, vocal: 0, treble: 0, power: 0 };
   if (!map || !playing) return out;
   const s = map.spec(t, spec);
-  const n = s?.length ?? 0;
-  const band = (lo: number, hi: number) => {
-    if (!s || !n) return 0;
-    let v = 0,
-      c = 0;
-    for (let k = Math.floor(lo * n); k < Math.max(Math.floor(lo * n) + 1, Math.ceil(hi * n)); k += 1) {
-      v += s[Math.min(n - 1, k)];
-      c += 1;
-    }
-    return c ? v / c : 0;
-  };
-  out.bass = band(0, 0.18) * 255;
-  out.lowMid = band(0.18, 0.34) * 255;
-  out.mid = band(0.34, 0.55) * 255;
-  out.vocal = (map.voice(t) ?? band(0.5, 0.72)) * 255;
-  out.treble = band(0.72, 1) * 255;
-  out.power = map.loud(t) * 255;
+  if (!s || !s.length) {
+    // (no spectrum — no audio analysis —: the loudness for all of them)
+    const l = map.loud(t);
+    out.bass = out.lowMid = out.mid = out.vocal = out.treble = l * 255;
+    out.power = l ** 3 * 255;
+    return out;
+  }
+  const v = (b: readonly [number, number]) => bandMean(s, b[0], b[1]);
+  const bass = v(BANDS.bass),
+    lowMid = v(BANDS.lowMid);
+  out.bass = bass ** 1.8 * 255;
+  out.lowMid = lowMid ** 2 * 255;
+  out.mid = v(BANDS.mid) ** 2 * 255;
+  out.vocal = v(BANDS.vocal) ** 1.5 * 255;
+  out.treble = v(BANDS.treble) ** 2 * 255;
+  out.power = ((bass + lowMid) / 2) ** 3 * 255;
   return out;
 }
 

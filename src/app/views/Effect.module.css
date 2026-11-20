@@ -24,7 +24,8 @@
   width: min(1120px, calc(100% - 36px));
   translate: -50% 0;
   display: grid;
-  grid-template-columns: auto minmax(120px, 220px) minmax(140px, 1fr) auto auto;
+  /* back, title, play mode, progress, transport, tools */
+  grid-template-columns: auto minmax(120px, 220px) auto minmax(140px, 1fr) auto auto;
   align-items: center;
   gap: 14px;
   padding: 10px 12px;

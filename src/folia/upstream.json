@@ -2,7 +2,10 @@
   "repo": "https://github.com/chthollyphile/folia-major",
   "commit": "6ee9404",
   "vendor": "src/folia/vendor",
-  "packages": ["@chenglou/pretext", "@paper-design/shaders"],
+  "packages": [
+    "@chenglou/pretext",
+    "@paper-design/shaders"
+  ],
   "copy": [
     "src/components/visualizer/sonnet/*.ts",
     "!src/components/visualizer/sonnet/createSonnetPixiRuntime.ts",
@@ -30,7 +33,8 @@
     "src/components/visualizer/pixiSongSwap.ts",
     "src/components/visualizer/backgrounds/nomand/nomandShaderAdjustments.ts",
     "src/components/visualizer/backgrounds/monet/monetBackgroundDrift.ts",
-    "src/components/visualizer/monet/monetBackgroundPaint.ts"
+    "src/components/visualizer/monet/monetBackgroundPaint.ts",
+    "src/utils/lyrics/estimatedLineTiming.ts"
   ],
   "extract": [
     {
@@ -58,11 +62,15 @@
     },
     {
       "file": "src/services/analysis/beatAccents.ts",
-      "names": ["BeatAccents"]
+      "names": [
+        "BeatAccents"
+      ]
     },
     {
       "file": "src/services/beatFx/beatEffects.ts",
-      "names": ["BEAT_EFFECT_IDS"]
+      "names": [
+        "BEAT_EFFECT_IDS"
+      ]
     },
     {
       "file": "src/components/visualizer/backgrounds/latent/LatentBackground.tsx",
@@ -80,15 +88,28 @@
     },
     {
       "file": "src/components/visualizer/backgrounds/sora/SoraBackground.tsx",
-      "names": ["PARTICLE_COUNT", "VERTEX_SHADER", "FRAGMENT_SHADER"]
+      "names": [
+        "PARTICLE_COUNT",
+        "VERTEX_SHADER",
+        "FRAGMENT_SHADER"
+      ]
     },
     {
       "file": "src/components/visualizer/backgrounds/common/FluidBackground.tsx",
-      "names": ["COVER_CANVAS_WIDTH", "COVER_SOURCE_MAX", "bakeBlurredCover", "drawCover"]
+      "names": [
+        "COVER_CANVAS_WIDTH",
+        "COVER_SOURCE_MAX",
+        "bakeBlurredCover",
+        "drawCover"
+      ]
     },
     {
       "file": "src/components/visualizer/backgrounds/common/GeometricBackground.tsx",
-      "names": ["getShapeScaleKey", "BackgroundShape", "BackgroundParticle"]
+      "names": [
+        "getShapeScaleKey",
+        "BackgroundShape",
+        "BackgroundParticle"
+      ]
     }
   ],
   "shims": {

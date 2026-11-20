@@ -53,6 +53,10 @@ function put(el: HTMLElement, k: string, v: string) {
   else el.style.setProperty(k, v);
 }
 let gens = 0;
+// (the dots' curves: soft, no overshoot — Apple Music's)
+const easeOut = (x: number) => 1 - (1 - x) ** 3;
+const easeIn = (x: number) => x ** 3;
+const easeInOut = (x: number) => (x < 0.5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2);
 export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
   const box = useRef<HTMLDivElement>(null),
     dotsEl = useRef<HTMLElement>(null),
@@ -320,15 +324,20 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
         }
         const el = dotsEl.current;
         if (el && w >= 0) {
+          // all of it from the dots' own middle, never toward a side: they open out of nothing as the wait begins (and
+          // the lines make room for them), grow a little and light one by one through it, each breathing with the beat as
+          // the effect lyrics' dots do; half a beat before the voice they swell once and close back into nothing
           const bl = Math.max(0.25, engine.session?.map?.beatLen(to) ?? 0.5),
-            tb = to - bl,
-            x = Math.max(0, 1 - Math.abs(p.t - tb) / (bl * 0.5)),
-            pulse = (1 - Math.cos(Math.PI * x)) / 2,
-            end = Math.min(1, Math.max(0, (p.t - (to - bl * 0.5)) / (bl * 0.5)));
-          put(el, '--wait', Math.min(1, (p.t - from) / Math.max(0.5, tb - bl * 0.5 - from)).toFixed(3));
-          put(el, '--pulse', pulse.toFixed(3));
-          // (eased in and out: they shrink on a curve, not at a steady rate)
-          put(el, '--end', (end < 0.5 ? 4 * end ** 3 : 1 - (-2 * end + 2) ** 3 / 2).toFixed(3));
+            outAt = to - bl * 0.5,
+            span = Math.max(0.5, outAt - from),
+            inK = easeOut(Math.min(1, Math.max(0, (p.t - from) / Math.min(0.7, span * 0.4)))),
+            e = Math.min(1, Math.max(0, (p.t - outAt) / (bl * 0.5))),
+            grow = 1 + 0.07 * easeInOut(Math.min(1, (p.t - from) / span)),
+            out = e <= 0 ? 1 : e < 0.4 ? 1 + 0.14 * easeInOut(e / 0.4) : 1.14 * (1 - easeIn((e - 0.4) / 0.6));
+          put(el, '--wait', Math.min(1, (p.t - from) / span).toFixed(3));
+          put(el, '--pulse', (p.rs ? p.rs.pulse : 0).toFixed(3));
+          put(el, '--s', ((0.55 + 0.45 * inK) * grow * out).toFixed(4));
+          put(el, '--a', (inK * (e < 0.4 ? 1 : 1 - easeIn((e - 0.4) / 0.6))).toFixed(3));
         }
       }
       {
