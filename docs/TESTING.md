@@ -1,12 +1,12 @@
 # 测试
 
-每一套测什么、怎么跑、什么时候要跑、结果怎么读。流程规则（每次改动至少跑哪些、回报怎么写）在 `.claude/skills/cadenza/SKILL.md` 第 6 节。
+每一套测什么、怎么跑、什么时候要跑、结果怎么读。流程规则（每次改动至少跑哪些、反馈怎么写）在 `.claude/skills/cadenza/SKILL.md` 第 6 节。
 
 ## 必过（每次改动）
 
 ```
 npm run format            # 排版（format:check 必须通过）
-npx tsc --noEmit -p .     # 型别
+npx tsc --noEmit -p .     # 类型
 npx vitest run            # 单元测试（约 40 个档、近 400 项，约 2 分钟）
 npm run build:app         # dist-app：端到端测试与桌面版都用它
 ```
@@ -15,24 +15,24 @@ npm run build:app         # dist-app：端到端测试与桌面版都用它
 
 | 套 | 指令 | 测什么 | 何时跑 |
 | --- | --- | --- | --- |
-| 单元 | `npx vitest run` | 节奏、歌词（LRC、TTML、分词、合词、规则）、导演（排版、镜头、转场、清场、取景、规划 worker 与页面一致）、风格资料、设定纲要与字典、指令、伫列、空间的格局资料、Folia 同步的黄金档、**分层规则**（`arch.test.ts`） | 每次 |
-| 渲染 | `npx vite build --mode harness && node tests/render.cjs [名称…]` | 每种外观与背景在每个时刻都画得出画面、显示卡歌词层与画布一致、距离场字形、剔除不吃掉可见的字、效能、画质模式与转场、汇出 MP4 | 改导演、渲染、特效、引擎 |
-| 桌面 | `DISPLAY=:99 node tests/desktop.cjs [截图资料夹]` | 经典介面端到端：音乐库、播放、伫列、正在播放页（含背景切换）、特效歌词与控制列、外观与风格页、工坊、设定、汇出、小视窗、桌面歌词 | 改经典介面、播放 |
-| 空间 | `DISPLAY=:99 node tests/space.cjs [截图资料夹]`（约 5 分钟） | 各房间、空中歌词与字幕、进度拖曳、互动距离、设定卡、播放列、收音机、准星选单、30 秒堆积大小（差小于 1.5 MB）、页面无错误；跑完**打开截图看** | 改空间介面 |
+| 单元 | `npx vitest run` | 节奏、歌词（LRC、TTML、分词、合词、规则）、导演（排版、镜头、转场、清场、取景、规划 worker 与页面一致）、风格数据、设置纲要与字典、指令、队列、空间的格局数据、Folia 同步的黄金档、**分层规则**（`arch.test.ts`） | 每次 |
+| 渲染 | `npx vite build --mode harness && node tests/render.cjs [名称…]` | 每种外观与背景在每个时刻都画得出画面、显卡歌词层与画布一致、距离场字形、剔除不吃掉可见的字、性能、画质模式与转场、导出 MP4 | 改导演、渲染、特效、引擎 |
+| 桌面 | `DISPLAY=:99 node tests/desktop.cjs [截图文件夹]` | 经典界面端到端：音乐库、播放、队列、正在播放页（含背景切换）、特效歌词与控制列、外观与风格页、工坊、设置、导出、小窗口、桌面歌词 | 改经典界面、播放 |
+| 空间 | `DISPLAY=:99 node tests/space.cjs [截图文件夹]`（约 5 分钟） | 各房间、空中歌词与字幕、进度拖动、交互距离、设置卡、播放列、收音机、准星菜单、30 秒堆积大小（差小于 1.5 MB）、页面无错误；跑完**打开截图看** | 改空间界面 |
 | Hi-Fi | `npm run test:hifi` | Rust 播放核心（模拟 DAC）与桌面整合 | 改 `native/`、`electron/audio.cjs`；需要 Rust 工具链 |
-| 神经网路 | `node scripts/models.mjs && node tests/neural.cjs` | 真实模型在 WebGPU（SwiftShader）上的端到端 | 改 `src/rhythm/neural` |
+| 神经网络 | `node scripts/models.mjs && node tests/neural.cjs` | 真实模型在 WebGPU（SwiftShader）上的端到端 | 改 `src/rhythm/neural` |
 | Folia 对照 | 见下 | Cadenza 的移植与 Folia 本身逐格比较 | 改 `src/folia`、跟上游更新 |
 
-`tests/serve.cjs` 是测试共用的静态伺服器；`tests/fixtures/` 是自己做的假资料（封面、长歌词、TTML、`gen/` 的合成歌曲）。**不放任何商业歌词或音乐。**
+`tests/serve.cjs` 是测试共用的静态服务器；`tests/fixtures/` 是自己做的假数据（封面、长歌词、TTML、`gen/` 的合成歌曲）。**不放任何商业歌词或音乐。**
 
-## 渲染测试的效能门槛（3.5.0 重新校准）
+## 渲染测试的性能门槛（3.5.0 重新校准）
 
-这个环境的浏览器以软体绘图，比显示卡慢数倍，而且快慢随机器而变：以毫秒为门槛时，同一份程式码在慢的机器上就会失败。所以 `perf` 先量一段**不含 Cadenza 程式码的固定画布工作**（渐层、带阴影的文字、缩放复制、读回一个像素）当这台机器的速度，再把每帧的时间换成它的倍数：
+这个环境的浏览器以软件绘图，比显卡慢数倍，而且快慢随机器而变：以毫秒为门槛时，同一份代码在慢的机器上就会失败。所以 `perf` 先量一段**不含 Cadenza 代码的固定画布工作**（渐层、带阴影的文字、缩放复制、读回一个像素）当这台机器的速度，再把每帧的时间换成它的倍数：
 
 - 3.5.0 量到的倍数（三次在 5% 内）：liquid 9.4、gothic 12.5、cover 11。
 - 超过基准 25% 才失败。基准要更新时，在 `tests/render.cjs` 的 `BASE` 改数字并写明版本与原因。
 
-效能结论只能来自实机；这里的数字只看「有没有变慢」。
+性能结论只能来自实机；这里的数字只看「有没有变慢」。
 
 ## Folia 对照
 
@@ -41,7 +41,7 @@ npm run build:app         # dist-app：端到端测试与桌面版都用它
 ```
 node tests/folia-stage-compare.cjs <checkout> <输出>                                # 舞台：文字、图形、模糊、滤镜、遮罩
 node tests/folia-compare.cjs <checkout> <输出> sonnet,tempera 0.5                    # 全曲逐格（静止）
-node tests/folia-compare.cjs <checkout> <输出> sonnet-beat,tempera-beat 2.1          # 播放中、拍点特效开启
+node tests/folia-compare.cjs <checkout> <输出> sonnet-beat,tempera-beat 2.1          # 播放中、拍点特效打开
 node tests/folia-bg-compare.cjs <checkout> <输出>                                   # 五种背景（静止）＋动态（几何图形、莫奈漂移）
 ```
 
@@ -50,7 +50,7 @@ node tests/folia-bg-compare.cjs <checkout> <输出>                             
 - 两边的 `Math.random` 换成同一个固定种子（Folia 有几处细节用真乱数）。每格在全新状态下画。
 - **拍点对照**：两边装同一份合成拍点清单，在虚拟时钟（`performance.now` 被换掉）上以每秒 60 步走过时间点前 1.5 秒，再画那一格。
 - **动态背景对照**：Folia 的几何图形与莫奈漂移是浏览器动画，暂停后设到同一时刻（`BG.seek`）；几何图形的版面由同一个种子产生（`BG.seed`）。参考页用 1920×1080：Cadenza 把 Folia 的 CSS 像素当成 1080p 页面的大小。
-- 软体 WebGL 偶尔掉格，脚本会重画；磁碟额度用完时浏览器会直接崩溃，先清空间。
+- 软件 WebGL 偶尔掉格，脚本会重画；磁盘配额用完时浏览器会直接崩溃，先清空间。
 
 3.5.0 的结果（平均色差，越小越像）：
 
@@ -62,6 +62,6 @@ node tests/folia-bg-compare.cjs <checkout> <输出>                             
 | 商籁，静止／播放中 | 粗略重合率 95%／95%；拍点反应两边逐格一致（开关拍点造成的变化两边完全相同） |
 | 凝彩，静止／播放中 | 粗略重合率 98%／99%；剩下的差异来自 Folia 在播放状态另以墙钟时间驱动的色块动画，不是拍点 |
 
-## 回报
+## 反馈
 
-回报时分清楚：「测过且通过」「只改了逻辑、没有验证」「这个环境无法验证（实体显示卡、声音、Windows 视窗行为）」。改既有测试的门槛或断言，在测试里注明版本与原因。
+汇报时分清楚：「测过且通过」「只改了逻辑、没有验证」「这个环境无法验证（实体显卡、声音、Windows 窗口行为）」。改既有测试的门槛或断言，在测试里注明版本与原因。
