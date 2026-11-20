@@ -16,6 +16,8 @@ Windows 桌面音乐播放器（Electron + React + TypeScript）。它不是「�
 
 **动手之前先读 `.claude/skills/cadenza/SKILL.md`**：分层规则、新增功能的固定流程、测试与发布流程都在那里。它是这个项目的开发范式，不是参考数据。
 
+设计语言在 `docs/DESIGN.md`：现行是方向 A「舞台」，专辑页用方向 C「节线」；用户说的「方案 B」指第 9 节的「书页」（浅色、目录式、较像普通播放器但最稳），留作参考。
+
 文档地图在 `docs/README.md`（接手时照它的顺序读）；目前的方向、接下来的工作与用户已决定的事在 `docs/DIRECTION.md`。
 
 最常用的指令：
