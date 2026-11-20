@@ -19,6 +19,10 @@ import { STATS as glyphStats } from '../render/glyphs';
 import * as rhythm from '../rhythm';
 import { neuralRhythm } from '../rhythm/neural';
 import { setGfx, gfx, setGpuLyrics } from '../render/gfx';
+import { SonnetEngine } from '../folia/engines/sonnet';
+import { TemperaEngine } from '../folia/engines/tempera';
+import { foliaLines, foliaTheme } from '../folia/adapt';
+import * as stage from '../folia/pixi';
 
 const canvas = document.createElement('canvas');
 const engine = new Engine(canvas, { audioContext: () => new AudioContext() });
@@ -80,6 +84,8 @@ async function open(spec: Partial<SessionSpec> & { theme?: string; cut?: string;
   neuralRhythm,
   setGfx,
   gfx,
+  // (the Folia styles' runtimes on their own: tests/folia-compare.cjs measures them against Folia's)
+  folia: { SonnetEngine, TemperaEngine, foliaLines, foliaTheme, pixi: stage },
 };
 // (the neural engine is off unless a test points it at its models: the other render tests stay on the built-in analysis)
 rhythm.setRhythmEngine('dsp');

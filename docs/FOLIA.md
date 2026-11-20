@@ -48,6 +48,21 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 | `utils/lyrics/graphemeTiming.ts`、`renderHints.ts`、`wordSegmentation.ts`、`utils/fontStacks.ts`、`colorMix.ts` | 原樣 |
 | `pixi.js` | `src/folia/pixi/` |
 
+## 與 Folia 本身對照
+
+兩支腳本把同一份歌詞、主題與時間點交給 Folia 自己的執行層（真正的 Pixi 8，`tests/folia-ref/` 在 Folia 的 checkout 裡建置）與 Cadenza 的移植，逐格截圖比較：
+
+```
+npx vite build --mode harness
+node tests/folia-stage-compare.cjs <folia checkout> <輸出資料夾>              # 舞台：文字、圖形、模糊、濾鏡、遮罩
+node tests/folia-compare.cjs <folia checkout> <輸出資料夾> sonnet,tempera 0.5  # 全曲逐格
+```
+
+- Folia 有幾處細節用真亂數（裝飾巨字的景深、引導線粒子、動畫線條的起點），自己跑兩次也不會一樣；比對時兩邊換成同一個固定種子的亂數。
+- 每格都在全新頁面上畫：場景的彈簧與已建好的場景會影響下一格，畫過不同的前幾格就不是同一格。
+- 軟體 WebGL 偶爾掉格，腳本會重畫。磁碟額度用完時瀏覽器會直接崩潰，先清空間。
+- 報告：字跡重合率（IoU）與平均色差，各有原尺寸與 1/8 尺寸（看構圖，不看鋸齒）。凝彩自己鋪滿底色，重合率對它意義不大，看色差與截圖。
+
 ## 授權與注意
 
 - 搬進來的每個檔案開頭標明來源與版本。上游檔案裡的 `@note Version Control` 等註解保留原樣。

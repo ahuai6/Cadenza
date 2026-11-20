@@ -179,10 +179,47 @@ export class BlurFilter extends Filter {
   }
   override get padding() {
     if (this.repeatEdgePixels) return 0;
+    // (Pixi's BlurFilter.updatePadding: twice the larger strength)
     return this.explicitPadding ?? Math.max(Math.abs(this.strengthX), Math.abs(this.strengthY)) * 2;
   }
   override set padding(v: number) {
     this.explicitPadding = v;
+  }
+  private passCache: { key: string; list: Filter[] } | null = null;
+  /**
+   * Pixi 8's own blur as GL passes (BlurFilterPass, its "optimized" mode): horizontal then vertical, `quality` passes
+   * each, the first at strength / sqrt(1 + 0.25 + …) and every next one at half the one before — the same programs
+   * and weights, so a low quality shows Pixi's stepped look rather than a smooth Gaussian.
+   */
+  glPasses(): Filter[] {
+    const q = Math.max(1, Math.round(this.quality));
+    const key = `${this.strengthX}|${this.strengthY}|${q}|${this.kernelSize}`;
+    if (this.passCache?.key === key) return this.passCache.list;
+    const list: Filter[] = [];
+    let sumsq = 1,
+      c = 0.5;
+    for (let i = 1; i < q; i += 1) {
+      sumsq += c * c;
+      c *= 0.5;
+    }
+    for (const [horizontal, strength] of [
+      [true, Math.abs(this.strengthX)],
+      [false, Math.abs(this.strengthY)],
+    ] as [boolean, number][]) {
+      if (!strength) continue;
+      let u = strength / Math.sqrt(sumsq);
+      for (let i = 0; i < q; i += 1) {
+        list.push(
+          new Filter({
+            glProgram: blurProgram(horizontal, this.kernelSize),
+            resources: { blurUniforms: new UniformGroup({ uStrength: { value: u, type: 'f32' } }) },
+          }),
+        );
+        u *= 0.5;
+      }
+    }
+    this.passCache = { key, list };
+    return list;
   }
   /**
    * The Gaussian sigma (CSS px) of Pixi's blur: each of `quality` passes samples five taps at
@@ -396,4 +433,66 @@ export class AlphaFilter extends Filter {
   set alpha(v: number) {
     this.group.uniforms.uAlpha = v;
   }
+}
+
+/* Pixi 8's blur programs (filters/defaults/blur/gl), generated the same way. */
+const GAUSSIAN_VALUES: Record<number, number[]> = {
+  5: [0.153388, 0.221461, 0.250301],
+  7: [0.071303, 0.131514, 0.189879, 0.214607],
+  9: [0.028532, 0.067234, 0.124009, 0.179044, 0.20236],
+  11: [0.0093, 0.028002, 0.065984, 0.121703, 0.175713, 0.198596],
+  13: [0.002406, 0.009255, 0.027867, 0.065666, 0.121117, 0.174868, 0.197641],
+  15: [0.000489, 0.002403, 0.009246, 0.02784, 0.065602, 0.120999, 0.174697, 0.197448],
+};
+const blurPrograms = new Map<string, GlProgram>();
+function blurProgram(horizontal: boolean, kernelSize: number): GlProgram {
+  const k = GAUSSIAN_VALUES[kernelSize] ? kernelSize : 5;
+  const id = `${horizontal}|${k}`;
+  const hit = blurPrograms.get(id);
+  if (hit) return hit;
+  const half = Math.ceil(k / 2);
+  let loop = '';
+  for (let i = 0; i < k; i += 1) {
+    const o = `${i - (half - 1)}.0`;
+    loop += horizontal
+      ? `vBlurTexCoords[${i}] =  textureCoord + vec2(${o} * pixelStrength, 0.0);\n`
+      : `vBlurTexCoords[${i}] =  textureCoord + vec2(0.0, ${o} * pixelStrength);\n`;
+  }
+  const vertex = `in vec2 aPosition;
+uniform float uStrength;
+out vec2 vBlurTexCoords[${k}];
+uniform vec4 uInputSize;
+uniform vec4 uOutputFrame;
+uniform vec4 uOutputTexture;
+vec4 filterVertexPosition(void) {
+    vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;
+    position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;
+    position.y = position.y * (2.0*uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;
+    return vec4(position, 0.0, 1.0);
+}
+vec2 filterTextureCoord(void) {
+    return aPosition * (uOutputFrame.zw * uInputSize.zw);
+}
+void main(void) {
+    gl_Position = filterVertexPosition();
+    float pixelStrength = uInputSize.${horizontal ? 'z' : 'w'} * uStrength;
+    vec2 textureCoord = filterTextureCoord();
+    ${loop}
+}`;
+  const kernel = GAUSSIAN_VALUES[k];
+  let sum = '';
+  for (let i = 0; i < k; i += 1) {
+    const v = i < kernel.length ? i : k - i - 1;
+    sum += `${i === 0 ? 'finalColor = ' : '    + '}texture(uTexture, clamp(vBlurTexCoords[${i}], uInputClamp.xy, uInputClamp.zw)) * ${kernel[v]}\n`;
+  }
+  const fragment = `in vec2 vBlurTexCoords[${k}];
+uniform sampler2D uTexture;
+uniform vec4 uInputClamp;
+out vec4 finalColor;
+void main(void) {
+    ${sum};
+}`;
+  const p = GlProgram.from({ vertex, fragment, name: `blur-pass-${horizontal ? 'x' : 'y'}-${k}` });
+  blurPrograms.set(id, p);
+  return p;
 }

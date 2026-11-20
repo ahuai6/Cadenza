@@ -466,6 +466,12 @@ export class StageRenderer {
     if (n.mask) this.masked(n, inner, world, 1, 'normal', t);
     else this.content(n, inner, world, 1, 'normal', t);
     inner.ctx.restore();
+    // (with a GPU, Pixi's blur runs as its own GL passes; without one, as the Canvas2D blur of the same spread)
+    const gpu = glRunner().ok;
+    const chain: Filter[] = gpu
+      ? filters.flatMap((x) => (x.kind === 'blur' ? (x as BlurFilter).glPasses() : [x]))
+      : filters;
+    filters = chain;
     let i = 0;
     while (i < filters.length) {
       const x = filters[i];
