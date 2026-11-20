@@ -1,136 +1,107 @@
-// The layers and the moves between them, run from one place (docs/DESIGN.md, 動態):
-//   none ⇄ np   the sheet (the library's paper) and the stage (the play page and its picture). One spring progress, p:
-//               0 the sheet is up and covers the stage; 1 the sheet is away below the window and the stage is whole.
-//               In between, both move as one: the sheet slides down as the stage comes forward (grows from 0.9, moves
-//               down 36 px into place, brightens) — and back the same way, so a reversal mid-way simply turns. Nothing
-//               flies between the two: the bar's small cover fades in as the stage's leaves, each in its own place.
-//   np ⇄ fx     a full-screen blur: everything softens, the view changes underneath (the page hides, the picture becomes
-//               the effect lyrics at 16:9 over the whole window), and it all comes back into focus. Nothing has to fly
-//               between two renderings of the same thing, so nothing can flicker, change colour or jump.
-import { Drive, part } from './motion';
+// The listening dock and the lyric spread share one reversible motion. Layout is measured at its endpoints;
+// the frame loop only moves the artwork and reveals the spread within the expanding surface.
+import { Drive, duration, part, rectOf, restRect, type Box } from './motion';
 import { engine } from './playback/stage';
 import { ui, settings } from './state';
 import { ASPECTS } from '../engine';
 import { fxAspect } from './playback/player';
 
 export const refs = {
-  sheet: null as HTMLElement | null,
+  titlebar: null as HTMLElement | null,
   stage: null as HTMLElement | null,
   np: null as HTMLElement | null,
-  npAmb: null as HTMLElement | null,
+  spread: null as HTMLElement | null,
   npCover: null as HTMLElement | null,
-  npParts: [] as (HTMLElement | null)[],
+  dock: null as HTMLElement | null,
+  dockCover: null as HTMLElement | null,
   card: null as HTMLElement | null,
-  mini: null as HTMLElement | null,
   fxUi: null as HTMLElement | null,
 };
 
-/* ---------- none ⇄ np ---------- */
-/** how far back the stage stands under the sheet: its size, its lift (px) and its light */
-const BACK_SCALE = 0.9,
-  BACK_LIFT = 36,
-  BACK_LIGHT = 0.18;
-/** (kept for the callers that measured the old flight: the sheet's move needs no measuring) */
-const measure = () => {};
-function applyNp(p: number) {
-  const { stage, np, sheet, mini, card } = refs;
-  if (!stage || !np) return;
-  const on = p > 0.0005,
-    rest = p >= 0.9995;
-  np.dataset.vis = String(on);
-  stage.dataset.vis = String(on || engine.view === 'effect');
-  // the stage: forward as the sheet leaves (one transform and one opacity on layers of their own: nothing is repainted)
-  const back = rest
-      ? ''
-      : `translate3d(0,${(-BACK_LIFT * (1 - p)).toFixed(2)}px,0) scale(${(BACK_SCALE + (1 - BACK_SCALE) * p).toFixed(4)})`,
-    light = rest ? '' : (BACK_LIGHT + (1 - BACK_LIGHT) * p).toFixed(3);
-  for (const el of [stage, np, refs.npAmb]) {
-    if (!el) continue;
-    el.style.transform = back;
-    el.style.opacity = light;
-  }
-  if (refs.npAmb) refs.npAmb.dataset.vis = String(on);
-  // the sheet: down by its own height (and a little more, for its shadow), gone once away
-  if (sheet) {
-    sheet.style.transform = on ? `translate3d(0,${(p * innerHeight).toFixed(1)}px,0)` : '';
-    sheet.style.visibility = rest ? 'hidden' : '';
-  }
-  // the bar: over the stage it is clear and says nothing of the song (the stage does); over the sheet it is the sheet's
-  // own colour and carries the small cover and the title
-  if (card) {
-    card.style.setProperty('--stage', p.toFixed(3));
-    // (its words and controls light on the stage once its ground has gone more than half clear, dark before: they turn
-    // with the ground, never at the start of the move against a ground still the sheet's)
-    const pict = String(p > 0.5);
-    if (card.dataset.onPicture !== pict) card.dataset.onPicture = pict;
-  }
-  if (mini) mini.style.visibility = '';
-  // the stage's own words arrive as it lands
-  const q = part(p, 0.45, 0.95);
-  for (const el of refs.npParts)
-    if (el) {
-      el.style.opacity = String(q);
-      el.style.transform = q >= 1 ? '' : `translateY(${((1 - q) * 14).toFixed(2)}px)`;
-    }
-  np.querySelectorAll<HTMLElement>('[data-q]').forEach((el) => el.style.setProperty('--q', q.toFixed(3)));
+let surface: Box | null = null;
+let artwork: { from: Box; to: Box } | null = null;
+let chromeBottom = 0;
+const centerY = (box: Box) => box.top + box.height / 2;
+function measure() {
+  chromeBottom = refs.titlebar?.getBoundingClientRect().bottom ?? 0;
+  surface = refs.dock ? rectOf(refs.dock) : null;
+  const from = refs.dockCover ? rectOf(refs.dockCover) : null;
+  const to = refs.npCover ? restRect(refs.npCover) : null;
+  // The desktop endpoints share an artwork centerline. A bottom dock or a stacked reading layout uses a fade.
+  artwork =
+    from && to && from.width > 0 && to.width > 0 && Math.abs(centerY(from) - centerY(to)) < 0.75 ? { from, to } : null;
 }
-const np = new Drive(0, (x) => applyNp(x), { stiffness: 150, damping: 23 });
+
+function applyNp(value: number) {
+  const p = Math.max(0, Math.min(1, value));
+  const { titlebar, stage, np, spread, npCover, dock, card } = refs;
+  const fx = engine.view === 'effect';
+  const on = p > 0;
+  const remaining = 1 - p;
+  const from = surface || { left: innerWidth, top: chromeBottom, width: 0, height: innerHeight - chromeBottom };
+  const top = chromeBottom + Math.max(0, from.top - chromeBottom) * remaining;
+  const edge = `inset(${top.toFixed(2)}px ${((innerWidth - from.left - from.width) * remaining).toFixed(2)}px ${((innerHeight - from.top - from.height) * remaining).toFixed(2)}px ${(from.left * remaining).toFixed(2)}px)`;
+  const sample = p.toFixed(4);
+  if (titlebar) {
+    const shade = part(p, 0.12, 0.93);
+    titlebar.style.setProperty('--header-shade', shade.toFixed(4));
+    titlebar.toggleAttribute('data-dark-stage', shade >= 0.55);
+  }
+  if (spread) {
+    spread.style.clipPath = edge;
+    spread.style.setProperty('--spread', sample);
+    spread.dataset.vis = String(on && !fx);
+  }
+  if (stage) {
+    stage.dataset.vis = String(on || fx);
+    stage.style.clipPath = on && !fx ? edge : '';
+    stage.style.setProperty('--picture-progress', part(p, 0.14, 0.92).toFixed(4));
+  }
+  if (np) {
+    np.dataset.vis = String(on && !fx);
+    np.style.setProperty('--spread', sample);
+    np.style.setProperty('--spread-info', part(p, 0.35, 0.92).toFixed(4));
+    np.style.setProperty('--spread-lyrics', part(p, 0.25, 0.92).toFixed(4));
+  }
+  if (dock) {
+    dock.dataset.expanding = String(on);
+    dock.style.setProperty('--dock-content', (1 - part(p, 0, 0.44)).toFixed(4));
+    dock.style.setProperty('--dock-cover', artwork ? (on ? '0' : '1') : (1 - part(p, 0.03, 0.26)).toFixed(4));
+  }
+  card?.style.setProperty('--stage', sample);
+  if (npCover) {
+    const a = artwork;
+    if (a && on && p < 1) {
+      const x = (a.from.left + a.from.width / 2 - a.to.left - a.to.width / 2) * remaining;
+      const scale = p + remaining * (a.from.width / a.to.width);
+      npCover.style.transform = `translateX(${x}px) scale(${scale})`;
+    } else npCover.style.transform = '';
+    npCover.style.setProperty('--spread-cover', a ? '1' : part(p, 0.24, 0.61).toFixed(4));
+  }
+}
+const np = new Drive(0, applyNp, { stiffness: 188, damping: 24 });
 export const npProgress = () => np.x;
-/** for the tests: the expand progress itself */
 export const npDrive = np;
-/* ---------- warming the page up ----------
-   The first time the page opens, everything in it is new to the browser: its styles and layout (the whole lyric list),
-   its large text, its blurs, the picture's canvas and the engine's first ambient frame. Each song, at an idle moment
-   while the page is closed, the page and its picture are shown for two frames at an opacity nobody can see (and never
-   under the pointer), so all of that is made before the page opens for real. */
-let warmed: unknown = null,
-  warming = false;
-const idleCb = (fn: () => void) =>
-  typeof requestIdleCallback !== 'undefined' ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200);
-function warmPage() {
-  const { np: el, stage } = refs,
-    s = engine.session;
-  if (!el || !stage || !s || warming || warmed === s) return;
-  warming = true;
-  idleCb(() => {
-    const closed = () => ui.get().layer === 'none' && np.x === 0 && np.target === 0 && engine.view === 'hidden';
-    if (!closed()) {
-      warming = false;
-      return;
-    }
-    if (!engine.warmPicture()) {
-      warming = false;
-      return;
-    } // (the song isn't ready yet: try again on a later frame)
-    warmed = s;
-    el.style.opacity = stage.style.opacity = '0.001';
-    el.style.pointerEvents = stage.style.pointerEvents = 'none';
-    el.dataset.vis = stage.dataset.vis = 'true';
-    // (put back after two frames — or, should the window be hidden meanwhile and draw no frames, a moment later anyway:
-    // a picture left shown at an unseen opacity would sit over the page and take its clicks)
-    let back = false;
-    const settle = () => {
-      if (back) return;
-      back = true;
-      el.style.opacity = el.style.pointerEvents = stage.style.pointerEvents = '';
-      warming = false;
-      if (closed()) {
-        applyNp(0);
-        stage.style.opacity = '';
-      } else stage.style.opacity = ''; // (opening meanwhile: the page's own progress has taken over)
-    };
-    requestAnimationFrame(() => requestAnimationFrame(settle));
-    setTimeout(settle, 250);
-  });
+export function refreshSpread() {
+  if (np.x <= 0) return;
+  measure();
+  applyNp(np.x);
 }
+addEventListener('resize', refreshSpread);
+
+/* The engine prewarms the ambient frame during idle time. It remains behind the closed dock. */
+let warmed: unknown = null;
+let warming = false;
 engine.on('frame', () => {
-  if (np.x === 0) warmPage();
-});
-addEventListener('resize', () => {
-  if (np.x > 0 && engine.view !== 'effect') {
-    measure();
-    applyNp(np.x);
-  }
+  if (!refs.stage || warming || np.x || ui.get().layer !== 'none' || !engine.session || warmed === engine.session)
+    return;
+  warming = true;
+  const run = () => {
+    warming = false;
+    if (!np.x && ui.get().layer === 'none' && engine.warmPicture()) warmed = engine.session;
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 800 });
+  else setTimeout(run, 200);
 });
 
 /* ---------- np ⇄ fx: a full-screen blur ---------- */
@@ -159,6 +130,10 @@ const frame = () => new Promise<number>((r) => requestAnimationFrame(r));
 // (one tween drives the veil at a time: a newer one, of this request or a later one, takes it over from where it is)
 let veilTok = 0;
 async function tween(to: number, ms: number, ease: (u: number) => number, my: number) {
+  if (!ms) {
+    setVeil(to);
+    return my === tok;
+  }
   const from = veilK,
     t0 = performance.now(),
     mine = ++veilTok;
@@ -174,7 +149,13 @@ const easeIn = (u: number) => u * u * (3 - 2 * u) * 0.4 + u * u * 0.6,
   easeOut = (u: number) => 1 - (1 - u) ** 3;
 /** Soften everything, change what is underneath, give it two frames to draw, and bring it back into focus. */
 async function blurSwap(swap: () => void, my: number) {
-  if (!(await tween(1, 300, easeIn, my))) return false;
+  if (!duration('--t-enter')) {
+    swap();
+    document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode;
+    setVeil(0);
+    return true;
+  }
+  if (!(await tween(1, duration('--t-med'), easeIn, my))) return false;
   swap();
   await frame();
   await frame();
@@ -182,7 +163,7 @@ async function blurSwap(swap: () => void, my: number) {
   // frames of the new view would otherwise let it fade in over a picture still fully blurred)
   document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode;
   if (my !== tok) return false;
-  return tween(0, 460, easeOut, my);
+  return tween(0, duration('--t-panel'), easeOut, my);
 }
 /** The effect lyrics' frame shape (Settings: 16:9, 16:10, 9:16, 1:1), as a ratio. */
 const fxRatio = () => ASPECTS[fxAspect()] || 16 / 9;
@@ -192,6 +173,7 @@ const toFx = () => {
   engine.setAspectBox(fxRatio(), hex(deepTone()));
   engine.setView('effect', {}, { instant: true });
   syncFx();
+  applyNp(np.x);
 };
 const toNp = () => {
   document.documentElement.dataset.fxmode = 'false';
@@ -232,7 +214,7 @@ async function go(target: 'none' | 'np' | 'fx') {
   const swapsNow = engine.view === 'effect' ? target !== 'fx' : target === 'fx' && np.x >= 0.999 && np.target === 1;
   if (!swapsNow && veilK > 0) {
     document.documentElement.dataset.fxbar = document.documentElement.dataset.fxmode;
-    void tween(0, 360, easeOut, my);
+    void tween(0, duration('--t-enter'), easeOut, my);
   }
   if (target === 'none') {
     if (engine.view === 'effect') {
@@ -250,8 +232,8 @@ async function go(target: 'none' | 'np' | 'fx') {
     if (engine.view === 'effect') {
       if (!(await blurSwap(toNp, my))) return;
     }
-    if (np.x < 0.0005) {
-      applyNp(0.0006);
+    if (np.x < 0.0005 && !refs.npCover) {
+      await frame();
       await frame();
       if (my !== tok) return;
     }

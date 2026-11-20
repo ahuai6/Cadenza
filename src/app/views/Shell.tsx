@@ -1,12 +1,10 @@
-// The desktop app, as a stage (docs/DESIGN.md): the playing song is the stage (the engine's picture and the play page);
-// the library, the poster wall, the workshop and the settings are pages on one sheet of paper that rises over it; the
-// player bar is the stage's apron, there in both; the title bar floats above everything with the places to go.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+// The library and the listening dock share a book. The dock opens into the full lyric spread without moving the page.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tx, lang as langStore } from '../../i18n';
 import { D } from '../bridge';
-import { ui, lib, settings, useStore, keep, type Page } from '../state';
+import { ui, lib, settings, useStore, trackOf, keep, type Page } from '../state';
 import { Icon } from '../ui/icons';
-import { ContextMenu, Toast, Turn } from '../ui/kit';
+import { ContextMenu, Cover, Toast, Turn } from '../ui/kit';
 import { player } from '../playback/player';
 import { RHYTHM_VERSION } from '../../engine';
 import mark from '../brand/mark.svg';
@@ -14,42 +12,19 @@ import { LibraryView } from './Library';
 import { PosterWall } from './Wall';
 import { SettingsView } from './Settings';
 import { boot, bindKeys, go } from '../actions/boot';
-import { PlayerCard, QueuePanel } from './Player';
+import { ListeningDock, PlayerCard, QueuePanel } from './Player';
 import { Stage, NowPlaying } from './NowPlaying';
 import { EffectView } from './Effect';
 import { ModalHost, askText, editMeta, exportTrack } from './Modals';
 import { WorkshopPage, sendToWorkshop } from './workshop/Workshop';
 import { setHost } from '../commands';
 import { Guard } from '../ui/Guard';
-import { refs, openNp } from '../layers';
+import { back, openNp, refs, refreshSpread } from '../layers';
 import { MiniLyrics } from '../ui/MiniLyrics';
 import s from './Shell.module.css';
 
 function resolveTheme(t: string) {
   return t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-/** The playing song's colour, for the whole interface (tokens.css: --song-h, --song-c): the hue of its cover's leading
- *  colour, and how colourful it is. With no song: a warm grey. */
-function useSongColour() {
-  const session = useStore(player, (x) => x.session);
-  const [h, c] = useMemo(() => {
-    const A = session?.ambient,
-      rgb = A ? A.cols[0] || A.base : null;
-    if (!rgb) return [30, 0.25];
-    const [r, g, b] = rgb.map((v: number) => v / 255),
-      max = Math.max(r, g, b),
-      min = Math.min(r, g, b),
-      d = max - min;
-    if (d < 0.02) return [30, 0.1];
-    const hue = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4,
-      sat = d / (1 - Math.abs(max + min - 1) || 1);
-    return [Math.round(hue * 60), +Math.max(0.15, Math.min(1, sat * 1.3)).toFixed(2)];
-  }, [session]);
-  useLayoutEffect(() => {
-    const r = document.documentElement.style;
-    r.setProperty('--song-h', String(h));
-    r.setProperty('--song-c', String(c));
-  }, [h, c]);
 }
 function useTheme() {
   const t = useStore(settings, (x) => x.theme),
@@ -76,15 +51,7 @@ export function Shell() {
     songId = useStore(player, (x) => x.shownId || x.id);
   const lng = useStore(langStore, (x) => x.lang);
   const [ready, setReady] = useState(false);
-  const sheet = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    refs.sheet = sheet.current;
-    return () => {
-      refs.sheet = null;
-    };
-  });
   useTheme();
-  useSongColour();
   // start (the settings, the library, the last song, the analysis) and the keys: actions/boot.ts
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(bindKeys, []);
@@ -137,16 +104,9 @@ export function Shell() {
       data-mini={mini || undefined}
       data-card={(page !== 'workshop' && hasTrack) || undefined}
     >
+      <ChapterWash />
       <TitleBar />
-      {/* the sheet: one page of it at a time. It rises over the stage and sinks away (layers.ts moves it) */}
-      <main
-        data-scroll
-        data-test="sheet"
-        className={s.page}
-        ref={sheet}
-        aria-hidden={layer !== 'none'}
-        inert={layer !== 'none'}
-      >
+      <main data-scroll data-test="sheet" className={s.page} aria-hidden={layer !== 'none'} inert={layer !== 'none'}>
         {/* a page turns: the old one fades out, the new one rises in */}
         <Turn k={page} className={s.pageInner} boxClassName={s.pageBox}>
           <Guard name="page" k={page}>
@@ -157,8 +117,9 @@ export function Shell() {
           </Guard>
         </Turn>
       </main>
+      {page !== 'workshop' && hasTrack && <ListeningDock />}
       {/* (each large part in a Guard: one failing shows nothing of itself until the next song — never a white window) */}
-      {page !== 'workshop' && hasTrack && (
+      {hasTrack && (
         <Guard name="player bar" k={songId}>
           <PlayerCard />
         </Guard>
@@ -185,6 +146,22 @@ export function Shell() {
   );
 }
 
+/** The cover's tint belongs to the window surface, so the title bar and scroller see the same light. */
+function ChapterWash() {
+  const album = useStore(ui, (x) => (x.page === 'library' && x.detail?.kind === 'album' ? x.detail.key : null));
+  const cover = useStore(
+    lib,
+    (x) => album !== null && x.tracks.find((t) => t.cover && (t.album || '').trim().toLowerCase() === album)?.cover,
+  );
+  return (
+    <div className={s.ambience} aria-hidden="true">
+      <Turn k={cover || ''} className={s.ambienceLayer} boxClassName={s.ambienceLayer}>
+        {cover && <Cover k={cover} className={s.wash} eager />}
+      </Turn>
+    </div>
+  );
+}
+
 /** The places to go, in the middle of the title bar: the song playing, and the pages of the sheet. */
 const NAV: [Page, string][] = [
   ['library', 's.library'],
@@ -193,14 +170,24 @@ const NAV: [Page, string][] = [
 ];
 let beforeSettings: Page = 'library';
 function TitleBar() {
+  const bar = useRef<HTMLElement>(null);
   const st = useStore(ui, (x) => x.win),
     page = useStore(ui, (x) => x.page),
     layer = useStore(ui, (x) => x.layer),
-    hasTrack = useStore(player, (x) => !!x.shownId);
+    song = useStore(player, (x) => x.shownId || x.id),
+    hasTrack = useStore(lib, () => !!trackOf(song));
   const onStage = layer !== 'none';
+  useLayoutEffect(() => {
+    refs.titlebar = bar.current;
+    refreshSpread();
+    return () => {
+      refs.titlebar = null;
+    };
+  }, []);
   return (
     <header
       data-test="titlebar"
+      ref={bar}
       className={s.tb}
       onDoubleClick={(e) => {
         if (!(e.target as HTMLElement).closest('button,input')) D?.win('max');
@@ -211,15 +198,12 @@ function TitleBar() {
         <span className="display">Cadenza</span>
       </div>
       <nav className={s.places} aria-label="Cadenza" data-test="places">
-        <button type="button" aria-current={onStage ? 'page' : undefined} disabled={!hasTrack} onClick={openNp}>
-          {tx('s.nowPlaying')}
-        </button>
         {NAV.map(([k, label]) => (
           <button
             key={k}
             type="button"
             data-page={k}
-            aria-current={!onStage && page === k ? 'page' : undefined}
+            aria-current={page === k ? 'page' : undefined}
             onClick={() => (ui.get().page === k ? ui.set({ layer: 'none', queue: false }) : go(k))}
           >
             {tx(label)}
@@ -230,9 +214,23 @@ function TitleBar() {
         <Activity />
         <button
           type="button"
+          className={s.spreadAction}
+          disabled={!hasTrack}
+          aria-label={tx(onStage ? 's.collapse' : 's.expand')}
+          onClick={onStage ? back : openNp}
+        >
+          <span aria-hidden="true" data-hidden={onStage || undefined}>
+            {tx('s.expand')}
+          </span>
+          <span aria-hidden="true" data-hidden={!onStage || undefined}>
+            {tx('s.collapse')}
+          </span>
+        </button>
+        <button
+          type="button"
           className={s.round}
           data-page="settings"
-          aria-current={!onStage && page === 'settings' ? 'page' : undefined}
+          aria-current={page === 'settings' ? 'page' : undefined}
           title={tx('s.settings')}
           aria-label={tx('s.settings')}
           onClick={() => {

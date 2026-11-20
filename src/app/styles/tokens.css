@@ -1,23 +1,52 @@
-/* Cadenza's design language, "the stage", as tokens (docs/DESIGN.md).
-   - The playing song is the stage; the library is one sheet of paper that rises over it; the player bar is its apron.
-   - Colour comes from the song: its hue (--song-h, --song-c: set by the shell from the engine's palette) tints the paper
-     and is the one accent. What is chosen is shown in reverse (--pick), never in colour.
-   - Corners: content 10px, rows and inputs 14px, floating 20px, the sheet 28px; every button is a pill.
-   - Motion: one curve, fast then slow; exits shorter than entrances so two layers never stack. */
+/* Shared book palette, rhythm and surface layers. See docs/DESIGN.md. */
 :root {
   --font-ui: 'Instrument Sans Variable', 'Instrument Sans', var(--font-cjk), system-ui, sans-serif;
   --font-cjk: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR';
   --font-cjk-serif: 'Noto Serif TC', 'Noto Serif SC', 'Noto Serif JP', 'Noto Serif KR', serif;
   --font-display: 'Fraunces Variable', 'Fraunces', var(--font-cjk-serif);
+  --font-book: 'Source Serif 4', 'Source Serif 4 Variable', Georgia, var(--font-cjk-serif);
+  --hit: 44px;
+  --gutter: clamp(20px, 3.65vw, 56px);
+  --chapter-top: clamp(22px, 4vh, 48px);
+  --chapter-width: 1440px;
+  --dock-w: clamp(320px, 29vw, 460px);
+  --dock-compact: 80px;
+  --dock-gutter: clamp(20px, 3vw, 46px);
+  --dock-block: clamp(16px, 3vh, 36px);
+  --dock-gap: clamp(9px, 1.7vh, 18px);
+  --dock-heading: var(--hit);
+  --spread-art-top: calc(var(--dock-block) + var(--dock-heading) + var(--dock-gap));
+  --spread-info-room: 224px; /* title, format and actions below the cover */
+  --spread-bg: #1d1b18;
+  --spread-fg: #f3f1ec;
+  --spread-muted: #c9c3b9;
+  --z-spread: 36;
+  --z-dock: 37;
+  --z-picture: 40;
+  --z-reading: 41;
+  --z-player: 60;
+  --z-panel: 70;
+  --z-chrome: 80;
+  --z-menu: 112;
+  --z-dialog: 100;
+  --type-chapter: clamp(40px, 5.1vw, 72px);
+  --type-head: 20px;
+  --type-body: 15px;
+  --type-note: 13px;
+  --shadow-art: 0 20px 44px -24px #18150f81;
+  --cover-paper-start: var(--surface-3);
+  --cover-paper-end: var(--surface-2);
+  --cover-paper-ink: var(--fg-3);
+  --reading-fade: linear-gradient(transparent, #000 10%, #000 88%, transparent);
   --font-mono: ui-monospace, 'Cascadia Mono', 'Noto Sans Mono', monospace;
 
   /* corners */
-  --r-1: 10px;
-  --r-2: 14px;
-  --r-3: 20px;
-  --r-4: 28px;
+  --r-1: 6px;
+  --r-2: 9px;
+  --r-3: 14px;
+  --r-4: 18px;
   --r-pill: 999px;
-  --corner: superellipse(1.4);
+  --corner: round;
   /* (the earlier names, onto the same four steps: a component not yet rewritten still lands on the scale) */
   --r-xs: var(--r-2);
   --r-sm: var(--r-2);
@@ -37,7 +66,7 @@
   --r-cover-np: var(--r-3);
 
   /* motion: fast in, slow settle */
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
   --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
   --t-fast: 120ms;
@@ -49,9 +78,9 @@
   --t-fill: 300ms; /* a progress fill moving */
   --t-show: 280ms; /* controls fading in */
   --t-stagger: 420ms; /* each item of a staggered list */
-  --t-enter: 320ms; /* a page or block easing in */
+  --t-enter: 300ms; /* a page or block easing in */
   --t-slow: 420ms; /* larger moves: lyric lines, panels, chrome coming back */
-  --t-panel: 460ms; /* a side panel sliding */
+  --t-panel: 420ms; /* a side panel sliding */
   --t-reveal: 560ms; /* the slowest reveals */
   --t-delay: 120ms; /* chrome waits this long before coming back */
   --t-stagger-step: 16ms;
@@ -59,50 +88,42 @@
   --t-breath: 1600ms; /* one breath of a mark that waits */
   --t-song: 1200ms; /* the colours turning to a new song's */
 
-  /* the song's colour (the shell sets these from the playing song's cover; with none, a warm grey) */
-  --song-h: 30;
-  --song-c: 0.25;
-
-  --tb-h: 64px;
-  --side-w: clamp(220px, 16.6667vw, 280px);
+  --tb-h: 76px;
   --card-h: 88px;
-  /* the play page's cover: its size, its left edge and its centre line — the player bar's cover sits on the same centre
-     line, so the page opens straight up, the cover rising and growing about its own centre */
-  --np-cover: min(42vh, 28vw, 440px);
-  --np-cx: 25vw;
-  --np-x: calc(var(--np-cx) - var(--np-cover) / 2);
-  /* (the layout's lines: the window halved and quartered. The play page's cover is centred on the ¼ line, its lyrics begin
-     on the ½ line and end as far from the right edge as the cover begins from the left; the player bar's cover sits on the
-     ¼ line and its transport on the ½ line — docs/DESIGN.md, 版面網格) */
+  --np-cover: min(
+    calc(var(--dock-w) - 2 * var(--dock-gutter)),
+    41vh,
+    max(136px, calc(100vh - var(--tb-h) - var(--card-h) - var(--spread-art-top) - var(--spread-info-room)))
+  );
   --kicker: 600 10.5px/1.2 var(--font-ui);
   --kicker-track: 0.14em;
 
-  /* dark: the song's hue, sunk nearly to black */
-  --bg: hsl(var(--song-h) calc(var(--song-c) * 26%) 11%);
-  --bg-side: var(--bg);
-  --surface: hsl(var(--song-h) calc(var(--song-c) * 22%) 14%);
-  --surface-2: hsl(var(--song-h) calc(var(--song-c) * 20%) 17%);
-  --surface-3: hsl(var(--song-h) calc(var(--song-c) * 18%) 22%);
-  --float: hsl(var(--song-h) calc(var(--song-c) * 22%) 15%);
-  --float-2: hsl(var(--song-h) calc(var(--song-c) * 20%) 19%);
-  --stage-ground: hsl(var(--song-h) calc(var(--song-c) * 34%) 7%);
-  /* (the sheet's own ground, resolved here: a part over the picture keeps it, though its --bg is the picture's) */
+  /* Dark paper */
+  --bg: #24211e;
+  --bg-side: #292622;
+  --surface: #2f2b26;
+  --surface-2: #38332d;
+  --surface-3: #494239;
+  --float: #322e28;
+  --float-2: #413a32;
+  --dock-ground: var(--bg);
   --sheet-bg: var(--bg);
-  --pick: #f4f1ea;
-  --on-pick: #1b1917;
-  --fg: #eeece6;
-  --fg-2: #aeaba3;
-  --fg-3: #77756f;
-  --line: rgba(238, 236, 230, 0.085);
-  --line-2: rgba(238, 236, 230, 0.16);
-  --hover: rgba(238, 236, 230, 0.045);
-  --press: rgba(238, 236, 230, 0.08);
-  --accent: hsl(var(--song-h) calc(30% + var(--song-c) * 42%) 76%);
+  --stage-ground: var(--spread-bg);
+  --pick: #f3f1ec;
+  --on-pick: #1d1b18;
+  --fg: #f3f1ec;
+  --fg-2: #c8c0b3;
+  --fg-3: #a59b8f;
+  --line: #f3f1ec1c;
+  --line-2: #f3f1ec38;
+  --hover: #f3f1ec0f;
+  --press: #f3f1ec1a;
+  --accent: #efa17f;
   --accent-2: var(--accent);
   --accent-3: #f2b766;
-  --on-accent: #17130f;
-  --accent-soft: hsl(var(--song-h) calc(30% + var(--song-c) * 42%) 76% / 0.16);
-  --accent-ink: hsl(var(--song-h) calc(30% + var(--song-c) * 42%) 80%);
+  --on-accent: #291d17;
+  --accent-soft: #efa17f28;
+  --accent-ink: #efa17f;
   --danger: #ff6670;
   --ok: #6fcf97;
   --warn: #f2b766;
@@ -120,28 +141,28 @@
   color-scheme: dark;
 }
 :root[data-theme='light'] {
-  --bg: hsl(var(--song-h) calc(var(--song-c) * 30%) 95%);
-  --bg-side: var(--bg);
-  --surface: hsl(var(--song-h) calc(var(--song-c) * 30%) 97.5%);
-  --surface-2: hsl(var(--song-h) calc(var(--song-c) * 24%) 91%);
-  --surface-3: hsl(var(--song-h) calc(var(--song-c) * 20%) 86%);
-  --float: hsl(var(--song-h) calc(var(--song-c) * 30%) 98.5%);
-  --float-2: hsl(var(--song-h) calc(var(--song-c) * 24%) 93%);
-  --pick: #1b1917;
-  --on-pick: #f4f1ea;
-  --fg: #1a1916;
-  --fg-2: #57544c;
-  --fg-3: #8d897f;
-  --line: rgba(26, 25, 22, 0.1);
-  --line-2: rgba(26, 25, 22, 0.2);
-  --hover: rgba(26, 25, 22, 0.04);
-  --press: rgba(26, 25, 22, 0.08);
-  --accent: hsl(var(--song-h) calc(30% + var(--song-c) * 40%) 34%);
-  --accent-2: var(--accent);
-  --accent-3: #b7791f;
+  --bg: #f3f1ec;
+  --bg-side: #ebe7df;
+  --surface: #faf8f3;
+  --surface-2: #eae5dc;
+  --surface-3: #ded8cc;
+  --float: var(--bg);
+  --float-2: #ede9e0;
+  --pick: #1d1b18;
+  --on-pick: #f3f1ec;
+  --fg: #1d1b18;
+  --fg-2: #5f5a52;
+  --fg-3: #716a60;
+  --line: #1d1b181a;
+  --line-2: #1d1b1833;
+  --hover: #1d1b180d;
+  --press: #1d1b1818;
+  --accent: #a03d18;
+  --accent-2: #7c2e10;
+  --accent-3: #a66c26;
   --on-accent: #ffffff;
-  --accent-soft: hsl(var(--song-h) calc(30% + var(--song-c) * 40%) 34% / 0.1);
-  --accent-ink: hsl(var(--song-h) calc(30% + var(--song-c) * 40%) 30%);
+  --accent-soft: #a03d181a;
+  --accent-ink: #973612;
   --danger: #c8323f;
   --ok: #2a8a5a;
   --warn: #a86a12;
@@ -154,54 +175,39 @@
   color-scheme: light;
 }
 :root[data-theme='light'][data-tone='white'] {
-  /* light, white: the earlier versions' cool white (pure white surfaces on a faint lilac-grey ground), the same accent */
-  --bg: #f6f5f9;
-  --bg-side: #efedf4;
-  --surface: #ffffff;
-  --surface-2: #f1eff6;
-  --surface-3: #e6e3ee;
-  --float: #ffffff;
-  --float-2: #f3f1f7;
-  --fg: #17151f;
-  --fg-2: #55516a;
-  --fg-3: #8b8799;
-  --line: rgba(20, 16, 40, 0.08);
-  --line-2: rgba(20, 16, 40, 0.14);
-  --hover: rgba(20, 16, 40, 0.05);
-  --press: rgba(20, 16, 40, 0.09);
-  --glass: rgba(255, 255, 255, 0.72);
-  --glass-strong: rgba(255, 255, 255, 0.92);
-  --glass-edge: rgba(20, 16, 40, 0.07);
-  --shadow-1: 0 1px 2px rgba(20, 16, 40, 0.08);
-  --shadow-2: 0 1px 1px rgba(20, 16, 40, 0.05), 0 12px 32px -8px rgba(20, 16, 40, 0.16),
-    0 28px 64px -20px rgba(20, 16, 40, 0.18);
+  --bg: #fff;
+  --bg-side: #f7f7f7;
+  --surface: #fff;
+  --surface-2: #f2f2f2;
+  --surface-3: #e8e8e8;
+  --float: #fff;
+  --float-2: #f7f7f7;
 }
-/* over the picture (now playing, effect lyrics) the interface is light on a dark, cover-tinted glass (a part that changes
-   over during a move takes it by the attribute, set as the move passes half way: layers.ts) */
+/* Overlay controls read on a stable ink surface in either appearance. */
 .on-picture,
 [data-on-picture='true'] {
-  --fg: #ffffff;
-  --fg-2: rgba(255, 255, 255, 0.72);
+  --fg: var(--spread-fg);
+  --fg-2: var(--spread-muted);
   --fg-3: rgba(255, 255, 255, 0.48);
   --line: rgba(255, 255, 255, 0.12);
   --line-2: rgba(255, 255, 255, 0.2);
   --hover: rgba(255, 255, 255, 0.1);
   --press: rgba(255, 255, 255, 0.16);
-  --glass: rgba(12, 11, 14, 0.42);
-  --glass-strong: rgba(14, 13, 16, 0.78);
+  --glass: #211e1adc;
+  --glass-strong: #25211e;
   --glass-edge: rgba(255, 255, 255, 0.12);
-  --float: rgba(18, 17, 20, 0.86);
+  --float: #2b2722;
   --float-2: rgba(255, 255, 255, 0.08);
   --surface: rgba(255, 255, 255, 0.08);
   --surface-2: rgba(255, 255, 255, 0.11);
   --surface-3: rgba(255, 255, 255, 0.17);
-  --accent: #ffffff;
+  --accent: #efa17f;
   --on-accent: #121114;
   --pick: #f4f1ea;
   --on-pick: #1b1917;
   --accent-soft: rgba(255, 255, 255, 0.16);
   --accent-ink: #ffffff;
-  --bg: #121114;
+  --bg: var(--spread-bg);
   --menu-bg: var(--float);
   --menu-fg: #fff;
   color-scheme: dark;

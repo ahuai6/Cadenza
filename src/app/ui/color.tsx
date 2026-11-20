@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom';
 import { tx } from '../../i18n';
 import { Icon } from './icons';
+import { usePresence } from './kit';
 import s from './color.module.css';
 
 type HSV = [number, number, number];
@@ -51,6 +52,7 @@ export function ColorField({
 }) {
   const [open, setOpen] = useState(false),
     btn = useRef<HTMLButtonElement>(null);
+  const presence = usePresence(open);
   return (
     <>
       <button
@@ -64,8 +66,9 @@ export function ColorField({
         <i style={{ background: value }} />
         <span>{label}</span>
       </button>
-      {open && (
+      {presence.shown && (
         <Picker
+          closing={presence.closing}
           anchor={btn}
           value={value}
           onChange={onChange}
@@ -80,6 +83,7 @@ export function ColorField({
 
 function Picker({
   anchor,
+  closing,
   value,
   onChange,
   cover,
@@ -87,6 +91,7 @@ function Picker({
   label,
 }: {
   anchor: React.RefObject<HTMLElement | null>;
+  closing: boolean;
   value: string;
   onChange: (hex: string) => void;
   cover?: string | null;
@@ -122,6 +127,7 @@ function Picker({
     });
   }, []);
   useEffect(() => {
+    if (closing) return;
     const away = (e: Event) => {
       if (pickingRef.current) return;
       const t = e.target as Node;
@@ -141,7 +147,7 @@ function Picker({
       removeEventListener('pointerdown', away, true);
       removeEventListener('keydown', key, true);
     };
-  }, []);
+  }, [closing]);
   const set = (v: HSV) => {
     setHsv(v);
     const h = hsvToHex(v);
@@ -185,8 +191,9 @@ function Picker({
         setPicking(false);
       }
       // (no screen eyedropper here: the cover stays up, and a click on it picks its colour)
-    } catch {
-      setPicking(false);
+    } catch (error) {
+      // A host can expose EyeDropper without being able to open its native window.
+      if (!cover || (error instanceof DOMException && error.name === 'AbortError')) setPicking(false);
     } finally {
       pickingRef.current = false;
     }
@@ -226,6 +233,8 @@ function Picker({
       role="dialog"
       aria-label={label}
       data-colorpop
+      data-closing={closing || undefined}
+      inert={closing}
       style={pos}
     >
       <div

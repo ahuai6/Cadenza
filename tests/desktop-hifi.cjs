@@ -18,7 +18,14 @@ const ok = (name, pass, detail) => {
 (async () => {
   if (!fs.existsSync(path.join(CACHE, 'lib')))
     execFileSync('sh', [path.join(__dirname, 'fixtures', 'gen', 'library.sh'), CACHE], { stdio: 'inherit' });
-  const BIN = path.join(ROOT, 'native', 'cadenza-audio', 'target', 'release', 'cadenza-audio');
+  const BIN = path.join(
+    ROOT,
+    'native',
+    'cadenza-audio',
+    'target',
+    'release',
+    process.platform === 'win32' ? 'cadenza-audio.exe' : 'cadenza-audio',
+  );
   if (!fs.existsSync(BIN))
     execFileSync('cargo', ['build', '--release'], {
       cwd: path.join(ROOT, 'native', 'cadenza-audio'),
@@ -64,7 +71,14 @@ const ok = (name, pass, detail) => {
   );
   fs.writeFileSync(
     path.join(prof, 'settings.json'),
-    JSON.stringify({ theme: 'dark', lang: 'zh-Hant', audioOut: 'hifi', audioMode: 'exclusive', fixedVolume: true }),
+    JSON.stringify({
+      theme: 'dark',
+      lang: 'zh-Hant',
+      rhythmEngine: 'dsp',
+      audioOut: 'hifi',
+      audioMode: 'exclusive',
+      fixedVolume: true,
+    }),
   );
   const app = await electron.launch({
     executablePath: require(path.join(ROOT, 'node_modules', 'electron')),
@@ -144,7 +158,9 @@ const ok = (name, pass, detail) => {
     Math.abs(sync.eng - sync.rep) < 0.04,
     `file ${sync.rep.toFixed(3)} s, picture ${sync.eng.toFixed(3)} s`,
   );
-  await win.locator('[data-test=card]').getByTitle('展開').first().click();
+  if (await C(() => window.__cadenza.ui.get().layer === 'none'))
+    await win.locator('[data-test=dock-cover]').locator('..').click();
+  await win.waitForFunction(() => window.__cadenza.layers.npProgress() === 1);
   await W(1500);
   await shot('nowplaying');
   const badge = await C(() => {
@@ -157,11 +173,7 @@ const ok = (name, pass, detail) => {
   ok('now playing shows the format badge', !!badge && /MP3/.test(badge) && /44\.1 kHz/.test(badge), badge);
   ok(
     'fixed volume: the volume slider gives way to the DAC',
-    await C(
-      () =>
-        !!document.querySelector('[data-test=np] [title]') &&
-        /DAC/.test(document.querySelector('[data-test=np]').innerText),
-    ),
+    /DAC/.test(await win.locator('[data-test=card]').innerText()),
   );
 
   // pause holds the clock; play resumes from there; seek waits at the new place, then runs on
@@ -253,6 +265,12 @@ const ok = (name, pass, detail) => {
   await W(900);
   await shot('settings');
   const tb = await C(() => window.__cadenza.engine.time);
+  await C(() => {
+    window.outputEvents = [];
+    window.cadenzaAudio.onEvent((e) => {
+      if (e.ev === 'stopped' || e.ev === 'down') window.outputEvents.push(e.ev);
+    });
+  });
   await win.locator('main[data-scroll]').getByRole('radio', { name: '標準' }).click();
   await win
     .waitForFunction(() => window.__cadenza.player.get().route === 'std' && window.__cadenza.engine.isPlaying, null, {
@@ -267,16 +285,18 @@ const ok = (name, pass, detail) => {
     !sw.ext && sw.t > tb && sw.t - tb < 3 && !run,
     JSON.stringify({ before: tb, after: sw.t, running: run }),
   );
+  const events = await C(() => window.outputEvents);
+  ok('standard output: the expected stop emits no playback-core error', events.join() === 'stopped', events.join());
 
-  // the quick switch at the bottom of the sidebar: back to Hi-Fi from anywhere, the same song carrying on
+  // The listening dock's quick switch restores Hi-Fi without reopening the settings.
   {
-    const side = win.locator('nav[aria-label=Cadenza]'),
+    const quick = win.locator('[data-test=listening-dock] [data-test=hifi-switch]'),
       t1 = await C(() => window.__cadenza.engine.time);
     ok(
-      'sidebar: the output switch shows, on the output in use',
-      (await side.getByRole('radio', { name: '標準' }).getAttribute('aria-checked')) === 'true',
+      'listening dock: the quick switch shows standard output',
+      (await quick.getAttribute('aria-pressed')) === 'false',
     );
-    await side.getByRole('radio', { name: 'Hi-Fi' }).click();
+    await quick.click();
     await win
       .waitForFunction(
         () => window.__cadenza.player.get().route === 'hifi' && window.__cadenza.engine.isPlaying,

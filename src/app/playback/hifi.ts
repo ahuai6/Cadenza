@@ -220,13 +220,18 @@ if (A) {
         }
         break;
       }
-      case 'down':
+      case 'stopped':
+      case 'down': {
+        const unexpected = e.ev === 'down';
         lastHw = null;
-        hifi.set({ running: false, device: null, hw: null });
-        for (const [, w] of waiting) w.rej(new Error('hifi-down'));
-        waiting.clear();
-        listeners.forEach((f) => f('down'));
+        hifi.set({ running: false, device: null, hw: null, track: null, caps: null, fallback: false });
+        if (unexpected || !hifiOn()) {
+          for (const [, w] of waiting) w.rej(new Error(unexpected ? 'hifi-down' : 'hifi-stopped'));
+          waiting.clear();
+        }
+        if (unexpected) listeners.forEach((f) => f('down'));
         break;
+      }
       default:
         break;
     }

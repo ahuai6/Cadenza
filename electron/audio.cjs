@@ -23,6 +23,7 @@ const supported = () => (process.platform === 'win32' || !!process.env.CADENZA_A
 
 function start(ipcMain, getWin, settings, library) {
   let proc = null,
+    shutdown = null,
     want = false,
     restarts = 0,
     lastStart = 0;
@@ -32,7 +33,9 @@ function start(ipcMain, getWin, settings, library) {
     if (w && !w.isDestroyed()) w.webContents.send('audio:ev', ev);
   };
   const write = (o) => {
-    if (proc && proc.stdin.writable) proc.stdin.write(JSON.stringify(o) + '\n');
+    if (!proc || shutdown || !proc.stdin.writable) return false;
+    proc.stdin.write(JSON.stringify(o) + '\n');
+    return true;
   };
   const config = () =>
     write({
@@ -45,10 +48,12 @@ function start(ipcMain, getWin, settings, library) {
   function launch() {
     if (proc || !want || !supported()) return;
     lastStart = Date.now();
-    proc = spawn(binPath(), [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+    const child = spawn(binPath(), [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+    proc = child;
     state.running = true;
     state.error = null;
-    readline.createInterface({ input: proc.stdout }).on('line', (line) => {
+    readline.createInterface({ input: child.stdout }).on('line', (line) => {
+      if (shutdown) return;
       let ev;
       try {
         ev = JSON.parse(line);
@@ -61,13 +66,25 @@ function start(ipcMain, getWin, settings, library) {
       else if (ev.ev === 'error' && ev.code === 'device') state.error = ev.msg;
       send(ev);
     });
-    proc.on('error', (e) => {
+    child.stdin.on('error', () => {
+      // If the child went away during a write, its close handler owns the shutdown.
+    });
+    child.on('error', (e) => {
       state.error = String(e.message || e);
     });
-    proc.on('exit', () => {
+    child.once('close', () => {
+      const expected = !!shutdown;
       proc = null;
+      shutdown = null;
       state.running = false;
       state.device = null;
+      if (expected) {
+        state.error = null;
+        send({ ev: 'stopped' });
+        // Hi-Fi may have been enabled again during the device's fade and release.
+        launch();
+        return;
+      }
       send({ ev: 'down' });
       // an unexpected exit: start again (a few times, then give up and let the page fall back to the standard output)
       if (want) {
@@ -80,9 +97,12 @@ function start(ipcMain, getWin, settings, library) {
   }
   function stop() {
     want = false;
-    if (proc) {
+    restarts = 0;
+    if (proc && !shutdown) {
+      const child = proc;
+      shutdown = new Promise((resolve) => child.once('close', resolve));
       try {
-        proc.stdin.end();
+        child.stdin.end();
       } catch (e) {
         /* already gone */
       }
@@ -97,8 +117,10 @@ function start(ipcMain, getWin, settings, library) {
   }
 
   ipcMain.handle('audio:state', () => ({ supported: supported(), ...state }));
-  ipcMain.handle('audio:cmd', (_e, o) => {
+  ipcMain.handle('audio:cmd', async (_e, o) => {
     if (!o || typeof o.cmd !== 'string') return false;
+    if (want && shutdown) await shutdown;
+    if (!want || shutdown) return false;
     if (!proc) {
       if (want) launch();
       if (!proc) return false;
@@ -106,12 +128,10 @@ function start(ipcMain, getWin, settings, library) {
     if (o.cmd === 'load') {
       const p = library.pathOf(o.id);
       if (!p) return false;
-      write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: o.seq | 0 });
-      return true;
+      return write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: o.seq | 0 });
     }
     if (['play', 'pause', 'stop', 'release', 'gain', 'hwgain', 'devices'].includes(o.cmd)) {
-      write(o);
-      return true;
+      return write(o);
     }
     return false;
   });

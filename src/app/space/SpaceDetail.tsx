@@ -17,7 +17,7 @@ import s from './SpacePanels.module.css';
  *  through that list, as a song picked in the classic library's list does */
 export type Detail = { kind: 'album' | 'playlist' | 'song'; key: string; from?: string[] } | null;
 
-export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () => void }) {
+export function SpaceDetail({ detail, closing, onClose }: { detail: Detail; closing: boolean; onClose: () => void }) {
   const idx = useIndex(),
     playlists = useStore(lib, (x) => x.playlists),
     favs = useStore(lib, (x) => x.favorites),
@@ -94,7 +94,16 @@ export function SpaceDetail({ detail, onClose }: { detail: Detail; onClose: () =
     (at >= 0 ? playIds(from!, at) : playIds(ids, i)).catch(() => {});
   };
   return (
-    <section className={`hud card ${s.panel} ${s.detail}`} aria-label={view.title} data-test="space-detail">
+    <section
+      className={`hud card ${s.panel} ${s.detail}`}
+      data-mosaic=""
+      aria-label={view.title}
+      data-test="space-detail"
+      data-ledger=""
+      data-presence=""
+      data-closing={closing || undefined}
+      inert={closing}
+    >
       <header className={s.dhead}>
         <span className={s.dcover}>
           <Cover k={view.cover} />

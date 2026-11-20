@@ -4,14 +4,16 @@
   inset: 0;
   z-index: 400;
   overflow: hidden;
-  color: #fff;
+  background: var(--spread-bg);
+  color: var(--spread-fg);
   user-select: none;
 }
 /* the window is dragged by its top strip (clear of the button) and by the song's name: never by anything a button sits in */
 .liquid {
   position: absolute;
   inset: -30%;
-  filter: blur(34px) saturate(1.15);
+  filter: blur(34px) saturate(0.85);
+  opacity: 0.26;
 }
 .liquid i {
   position: absolute;
@@ -162,7 +164,8 @@
   text-overflow: ellipsis;
 }
 .t b {
-  font-size: 13px;
+  font-family: var(--font-book);
+  font-size: 14px;
 }
 .t small {
   font-size: 11px;

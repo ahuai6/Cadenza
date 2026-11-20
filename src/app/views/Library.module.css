@@ -1,5 +1,4 @@
-/* The library, on the sheet (docs/DESIGN.md): a large title with its facts under it, lists without rules — a row is
-   only a row until the pointer is on it —, covers whole and clear. */
+/* Chapters, directory rows and artwork grids. */
 .libWrap {
   container-type: inline-size;
 }
@@ -25,7 +24,7 @@
 .head h1,
 .detailHead h1 {
   margin: 0;
-  font-size: 44px;
+  font-size: var(--type-chapter);
   line-height: 1.05;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -69,21 +68,20 @@
    shows its shape (a rounded ground) only under the pointer or the focus */
 .tracks {
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 .row {
   display: grid;
-  grid-template-columns: var(--grip, 0px) 56px minmax(0, 1.6fr) minmax(0, 1fr) 132px 30px 30px 52px 30px;
+  grid-template-columns: 24px 54px minmax(100px, 1.45fr) minmax(65px, 1fr) clamp(72px, 6vw, 100px) 36px 36px 44px 40px;
   align-items: center;
-  column-gap: 16px;
-  height: 72px;
-  padding: 0 12px;
+  column-gap: clamp(3px, 0.8vw, 13px);
+  min-height: 72px;
+  padding: 4px 0;
   border-radius: var(--r-2);
   position: relative;
   transition: background var(--t-fast) var(--ease);
 }
 .tracks[data-reorder='true'] .row {
-  --grip: 18px;
   cursor: grab;
 }
 .row:hover,
@@ -106,26 +104,19 @@
 }
 .lead {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 54px;
+  height: 54px;
   display: grid;
   place-items: center;
   color: var(--fg-3);
   font-variant-numeric: tabular-nums;
 }
 .lead > span:first-child {
-  width: 56px;
-  height: 56px;
+  width: 54px;
+  height: 54px;
   --cover-r: var(--r-1);
 }
 /* (an album's track number, in the cover's place) */
-.lead > .num {
-  display: grid;
-  place-items: center;
-  font-size: 15px;
-  font-weight: 550;
-  color: var(--fg-3);
-}
 .lead .playOver {
   position: absolute;
   inset: 0;
@@ -145,7 +136,7 @@
 .row[data-cur='true'] .lead .playOver {
   background: rgba(10, 10, 9, 0.55);
 }
-.row[data-cur='true'] .lead > .num {
+.row[data-cur='true'] .grip {
   color: var(--accent-ink);
 }
 .main {
@@ -190,30 +181,64 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.hide {
-  opacity: 0;
-  transition: opacity var(--t-fast) var(--ease);
+.grip {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
-.row:hover .hide,
-.row:focus-within .hide,
-.hide[data-on='true'] {
-  opacity: 1;
+.row > button,
+.row > .qadd {
+  justify-self: center;
+}
+.row > span.qadd {
+  width: 28px;
+}
+.hide {
+  color: var(--fg-2);
 }
 @container (max-width: 760px) {
   .row {
-    grid-template-columns: var(--grip, 0px) 56px minmax(0, 1fr) 28px 30px 52px 30px;
+    grid-template-columns: 21px 50px minmax(60px, 1fr) minmax(48px, 0.55fr) 18px 36px 43px 40px;
   }
   .album,
   .qadd,
   .badges > [data-q] {
     display: none;
   }
+  .row {
+    grid-template-columns: 21px 54px minmax(55px, 1fr) 18px 36px 43px 40px;
+  }
+}
+@container (max-width: 450px) {
+  .grip,
+  .badges {
+    display: none;
+  }
+  .row {
+    grid-template-columns: 46px minmax(48px, 1fr) 36px 34px 40px;
+  }
+  .lead,
+  .lead > span:first-child {
+    width: 44px;
+    height: 44px;
+  }
+  .main b {
+    font-size: 14px;
+  }
+  .main small,
+  .time {
+    font-size: 12px;
+  }
+}
+@media (hover: none) {
+  .lead .playOver {
+    opacity: 1;
+  }
 }
 
 /* cards: albums, artists, genres, playlists — the cover is the card */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 154px), 1fr));
   gap: 34px 26px;
 }
 .cardWrap {
@@ -258,22 +283,6 @@
 .cards[data-kind='artist'] .card {
   text-align: center;
 }
-.newCard > span:first-child {
-  display: grid;
-  place-items: center;
-  box-shadow: inset 0 0 0 1px var(--line-2);
-  color: var(--fg-3);
-  aspect-ratio: 1;
-  border-radius: var(--r-1);
-  transition:
-    color var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease);
-}
-.newCard:hover > span:first-child {
-  color: var(--fg);
-  box-shadow: inset 0 0 0 1px var(--fg-3);
-}
-/* a card's play button: round, in the corner of the cover, rising in on hover */
 .cardPlay {
   position: absolute;
   z-index: 1;
@@ -294,6 +303,7 @@
     transform var(--t-med) var(--ease);
 }
 .cardWrap:hover .cardPlay,
+.cardWrap:focus-within .cardPlay,
 .cardPlay:focus-visible {
   opacity: 1;
   transform: none;
@@ -312,28 +322,6 @@
   isolation: isolate;
   display: grid;
   gap: 28px;
-}
-.glow {
-  position: absolute;
-  z-index: -1;
-  left: -44px;
-  right: -44px;
-  top: -30px;
-  height: 520px;
-  overflow: hidden;
-  pointer-events: none;
-  opacity: 0.32;
-  -webkit-mask-image: radial-gradient(80% 100% at 20% 0%, #000 20%, transparent 75%);
-  mask-image: radial-gradient(80% 100% at 20% 0%, #000 20%, transparent 75%);
-}
-.glow > span {
-  width: 100% !important;
-  height: 100% !important;
-  filter: blur(80px) saturate(1.3);
-  transform: scale(1.2);
-}
-:global(html[data-theme='light']) .glow {
-  opacity: 0.22;
 }
 .by {
   font-size: 17px;
@@ -433,20 +421,24 @@
   position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 3px;
-  border-radius: var(--r-pill);
-  background: var(--hover);
+  align-items: stretch;
+  gap: 4px;
 }
 /* the chosen shelf's reverse: one pill under the buttons, sliding (and resizing) to the one chosen */
 .pick {
   position: absolute;
   left: 0;
   top: 0;
-  border-radius: var(--r-pill);
-  background: var(--pick);
+
   pointer-events: none;
   opacity: 0;
+}
+.pick::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: var(--fg);
 }
 .pick[data-ready] {
   opacity: 1;
@@ -458,8 +450,8 @@
 .pills button {
   position: relative;
   z-index: 1;
-  height: 34px;
-  padding: 0 18px;
+  height: var(--hit);
+  padding: 0 clamp(8px, 1.05vw, 16px);
   border-radius: var(--r-pill);
   color: var(--fg-2);
   font-weight: 560;
@@ -473,7 +465,8 @@
   color: var(--fg);
 }
 .pills button[aria-current='page'] {
-  color: var(--on-pick);
+  color: var(--fg);
+  font-weight: 720;
 }
 .pills button:focus-visible {
   outline: none;
@@ -497,6 +490,61 @@
   min-height: 40px;
   padding-left: 38px;
   border-radius: var(--r-pill);
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.playlists {
+  max-width: 640px;
+  display: grid;
+  gap: 4px;
+}
+.playlistRow {
+  display: flex;
+  align-items: center;
+  min-height: 62px;
+  border-radius: var(--r-2);
+}
+.playlistName {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  min-height: var(--hit);
+  min-width: 0;
+  padding: 0 10px;
+  text-align: start;
+}
+.playlistName b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+.playlistName small {
+  flex: none;
+  color: var(--fg-2);
+}
+.playlistRow:hover {
   background: var(--hover);
-  border-color: transparent;
+}
+.playlists > button {
+  margin-top: 18px;
+}
+@media (hover: none) {
+  .cardPlay {
+    opacity: 1;
+  }
+}
+@container (max-width: 600px) {
+  .detailBody {
+    grid-template-columns: 1fr;
+  }
+  .detailHead {
+    grid-template-columns: minmax(64px, 28%) 1fr;
+    gap: 16px;
+  }
+  .detailHead h1 {
+    font-size: clamp(25px, 6cqw, 42px);
+  }
 }

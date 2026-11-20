@@ -11,7 +11,7 @@ import { hudHtml } from './hud';
 import { SpaceSettings } from './SpaceSettings';
 import { PlayerExtras, SpacePanel, WinButtons, type Panel } from './SpacePanels';
 import { SpaceDetail, type Detail } from './SpaceDetail';
-import { ContextMenu, Toast } from '../ui/kit';
+import { ContextMenu, Toast, usePresence } from '../ui/kit';
 import { menuFor, setHost } from '../commands';
 import { ModalHost, askText, editMeta } from '../ui/dialogs';
 import { targetOf } from './targets';
@@ -45,6 +45,15 @@ export function SpaceShell() {
     [night, setNight] = useState(() => isNight(settings.get())),
     mini = useStore(ui, (x) => !!x.win.mini),
     away = useStore(ui, (x) => !!x.win.min);
+  const cfgPresence = usePresence(cfg.open);
+  const lastDetail = useRef(detail);
+  if (detail) lastDetail.current = detail;
+  const detailPresence = usePresence(!!detail);
+  const tone = useStore(settings, (x) => x.tone);
+  useEffect(() => {
+    document.documentElement.dataset.theme = night ? 'dark' : 'light';
+    document.documentElement.dataset.tone = tone === 'white' ? 'white' : 'paper';
+  }, [night, tone]);
   useEffect(() => boot(() => setReady(true)), []);
   useEffect(() => {
     const mq = matchMedia('(prefers-color-scheme: dark)'),
@@ -132,7 +141,9 @@ export function SpaceShell() {
           dangerouslySetInnerHTML={{ __html: hudHtml() }}
         />
       )}
-      {ready && cfg.open && <SpaceSettings section={cfg.section} onClose={close} />}
+      {ready && cfgPresence.shown && (
+        <SpaceSettings section={cfg.section} closing={cfgPresence.closing} onClose={close} />
+      )}
       {ready && (
         <PlayerExtras
           host={extra}
@@ -146,9 +157,10 @@ export function SpaceShell() {
           }}
         />
       )}
-      {ready && detail && (
+      {ready && detailPresence.shown && lastDetail.current && (
         <SpaceDetail
-          detail={detail}
+          detail={detail || lastDetail.current}
+          closing={detailPresence.closing}
           onClose={() => {
             setDetail(null);
             world.current?.closed();
@@ -160,9 +172,9 @@ export function SpaceShell() {
       {ready && <Toast />}
       {ready && <WinButtons host={winHost} />}
       {ready && mini && <MiniLyrics />}
-      {ready && !cfg.open && (
+      {ready && (
         <SpacePanel
-          panel={panel}
+          panel={cfg.open ? null : panel}
           onClose={() => {
             setPanel(null);
             world.current?.takePointer();

@@ -1,243 +1,236 @@
-/* the shell: the stage's ground (the song's deepest tone) under everything; the title bar floats over it, the sheet
-   and the player bar are layers of their own (docs/DESIGN.md, 版面) */
-.shell {
-  position: fixed;
-  inset: 0;
-  background: var(--stage-ground, var(--bg));
-  transition: background var(--t-song) var(--ease);
-}
+/* A continuous paper header and a scrollable chapter beside the listening dock. */
+.shell,
 .boot {
   position: fixed;
   inset: 0;
   background: var(--bg);
 }
-
-/* title bar: above everything. A drag region only where nothing is clickable (app-region ignores z-index: nothing
-   clickable may lie over a drag region — everything clickable in the bar is its own no-drag box) */
+.ambience {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: clip;
+  --wash-opacity: 0.32;
+}
+.ambienceLayer {
+  position: absolute;
+  inset: 0;
+}
+.ambience .wash {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: min(100%, 1120px);
+  height: min(78vh, 720px);
+  aspect-ratio: auto;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  opacity: var(--wash-opacity);
+  mask-image: radial-gradient(ellipse 90% 91% at 17% 24%, #000 3%, #0009 39%, transparent 81%);
+}
+.wash > img {
+  filter: blur(100px) saturate(0.8);
+  transform: scale(1.4);
+}
+.wash > span {
+  visibility: hidden;
+}
+:global(html[data-theme='light']) .ambience {
+  --wash-opacity: 0.19;
+}
 .tb {
   position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
+  inset: 0 0 auto;
+  z-index: var(--z-chrome);
   height: var(--tb-h);
-  z-index: 80;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  padding-inline: var(--gutter) 12px;
+  display: flex;
   align-items: center;
-  -webkit-app-region: drag;
+  gap: clamp(16px, 3vw, 52px);
+  color: var(--fg);
+  background-color: color-mix(in oklab, var(--spread-bg) calc(var(--header-shade, 0) * 100%), transparent);
   app-region: drag;
-  transition: opacity var(--t-med) var(--ease);
+  transition:
+    opacity var(--t-med) var(--ease),
+    color var(--t-med) var(--ease);
 }
-.tb button,
-.tb input,
-.tb label {
-  -webkit-app-region: no-drag;
+.tb :is(button, input, nav) {
   app-region: no-drag;
 }
-/* full screen, the pointer still: the bar fades away (any movement brings it back) */
-.shell[data-idle='true'] .tb {
+.shell:is([data-top='modal'], [data-top='menu'], [data-mini]) .tb {
+  app-region: no-drag;
+}
+.shell[data-idle] .tb {
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--t-exit) var(--ease);
+  visibility: hidden;
 }
-.shell[data-top='modal'] .tb,
-.shell[data-top='menu'] .tb,
-.shell[data-mini='true'] .tb {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-/* (the bar lies on the stage's ground or on the picture, both dark in either theme: its own light tones) */
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-left: 22px;
-  color: #f4f1ea;
+  gap: 9px;
+  flex: none;
 }
 .brand img {
-  width: 18px;
-  height: 18px;
-  display: block;
+  width: 20px;
+  height: 20px;
 }
 .brand span {
-  font-size: 18px;
-  font-weight: 620;
-  letter-spacing: -0.01em;
+  font: italic 650 clamp(21px, 2.1vw, 29px) / 1 var(--font-book);
 }
-/* the places: a pill of pills. The chosen one is shown in reverse */
 .places {
+  align-self: stretch;
   display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: var(--r-pill);
-  background: rgba(244, 241, 234, 0.1);
+  align-items: stretch;
+  gap: clamp(4px, 1vw, 18px);
+  min-width: 0;
 }
 .places button {
-  height: 38px;
-  padding: 0 18px;
-  border-radius: var(--r-pill);
-  font-weight: 560;
-  font-size: 14px;
-  color: rgba(244, 241, 234, 0.82);
+  position: relative;
+  color: var(--fg-2);
   white-space: nowrap;
-  transition:
-    background var(--t-med) var(--ease),
-    color var(--t-med) var(--ease);
+  padding-inline: 9px;
+  font-weight: 550;
+  transition: color var(--t-fast) var(--ease);
 }
-.places button:hover:not([aria-current], :disabled) {
-  background: rgba(244, 241, 234, 0.1);
-  color: #f4f1ea;
+.places button::after {
+  content: '';
+  position: absolute;
+  inset: auto 9px 0;
+  height: 2px;
+  background: currentColor;
+  scale: 0 1;
+  transition: scale var(--t-med) var(--ease);
 }
-.places button[aria-current='page'] {
-  background: #f4f1ea;
-  color: #1b1917;
+.places button:is(:hover, [aria-current]) {
+  color: var(--fg);
 }
-.places button:disabled {
-  opacity: 0.4;
-  cursor: default;
+.places button[aria-current] {
+  font-weight: 720;
 }
-.places button:focus-visible,
-.round:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(244, 241, 234, 0.8);
+.places button[aria-current]::after {
+  scale: 1;
 }
 .tbEnd {
+  margin-inline-start: auto;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 4px;
-  min-width: 0;
-  padding-right: 8px;
+  flex: none;
 }
-.round {
-  width: 38px;
-  height: 38px;
+.spreadAction {
+  display: grid;
+  place-items: center;
+  min-height: var(--hit);
+  padding-inline: 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  transition: background var(--t-fast) var(--ease);
+}
+.spreadAction span {
+  grid-area: 1 / 1;
+}
+.spreadAction [data-hidden] {
+  visibility: hidden;
+}
+.spreadAction:hover,
+.round:hover,
+.winbtns button:hover {
+  background: var(--hover);
+}
+.round,
+.busy,
+.winbtns button {
+  width: var(--hit);
+  height: var(--hit);
   border-radius: var(--r-pill);
   display: grid;
   place-items: center;
-  color: rgba(244, 241, 234, 0.82);
   transition:
     background var(--t-fast) var(--ease),
-    color var(--t-med) var(--ease);
+    color var(--t-fast) var(--ease);
 }
-.round:hover {
-  background: rgba(244, 241, 234, 0.12);
-  color: #f4f1ea;
+.round[aria-current] {
+  background: var(--pick);
+  color: var(--on-pick);
 }
-.round[aria-current='page'] {
-  background: #f4f1ea;
-  color: #1b1917;
-}
-/* background work: a small breathing mark; its words are its tooltip */
 .busy {
-  width: 30px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  width: 24px;
 }
 .busy i {
   width: 6px;
   height: 6px;
   border-radius: var(--r-dot);
-  background: rgba(244, 241, 234, 0.8);
-  animation: busy var(--t-breath) var(--ease-io) infinite;
-}
-@keyframes busy {
-  50% {
-    opacity: 0.25;
-    transform: scale(0.7);
-  }
-}
-/* over the effect lyrics the places leave the bar (the view has its own way back); they come back with the page */
-.brand,
-.places,
-.round,
-.busy {
-  transition:
-    opacity var(--t-slow) var(--ease) var(--t-delay),
-    background var(--t-fast) var(--ease),
-    color var(--t-med) var(--ease),
-    visibility 0s;
-}
-.shell[data-layer='fx'] :is(.brand, .places, .round, .busy),
-:global(html[data-fxbar='true']) .shell :is(.brand, .places, .round, .busy) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity var(--t-exit) var(--ease),
-    visibility 0s var(--t-exit);
+  background: var(--accent);
 }
 .winbtns {
   display: flex;
-  align-items: center;
-  gap: 2px;
-  padding-left: 6px;
+  gap: 1px;
+  margin-inline-start: 6px;
+  padding-inline-start: 4px;
 }
 .winbtns button {
-  width: 40px;
-  height: 30px;
+  width: 34px;
+  height: 36px;
   border-radius: var(--r-1);
-  display: grid;
-  place-items: center;
-  color: rgba(244, 241, 234, 0.82);
-  transition:
-    background var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease),
-    opacity var(--t-exit) var(--ease);
-}
-.winbtns button:hover {
-  background: rgba(244, 241, 234, 0.14);
-  color: #f4f1ea;
 }
 .winbtns button[data-close]:hover {
-  background: #e5484d;
-  color: #fff;
+  background: var(--danger);
+  color: white;
 }
-
-/* the sheet: the paper the library is on. From under the title bar to the player bar, its top corners round; it rises
-   over the stage and sinks away below the window (layers.ts moves it, on the one spring the stage steps back on) */
+.tb[data-dark-stage],
+:global(html[data-fxbar='true']) .tb,
+.shell[data-layer='fx'] .tb {
+  --fg: var(--spread-fg);
+  --fg-2: var(--spread-muted);
+  --hover: #ffffff14;
+  --line: #f3f1ec22;
+  --line-2: #f3f1ec4d;
+}
+:global(html[data-fxbar='true']) .tb,
+.shell[data-layer='fx'] .tb {
+  background: transparent;
+  pointer-events: none;
+  app-region: no-drag;
+}
+:global(html[data-fxbar='true']) .winbtns,
+.shell[data-layer='fx'] .winbtns {
+  pointer-events: auto;
+}
+.brand,
+.places,
+.round,
+.spreadAction,
+.busy {
+  transition:
+    opacity var(--t-out) var(--ease),
+    color var(--t-fast) var(--ease),
+    background-color var(--t-fast) var(--ease),
+    visibility 0s;
+}
+:global(html[data-fxbar='true']) .shell :is(.brand, .places, .round, .spreadAction, .busy),
+.shell[data-layer='fx'] :is(.brand, .places, .round, .spreadAction, .busy) {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--t-out) var(--ease),
+    visibility 0s var(--t-out);
+}
 .page {
   position: fixed;
-  left: 0;
-  right: 0;
-  top: calc(var(--tb-h) + 8px);
-  /* (its foot a little under the bar: at a fractional scale or a sub-pixel step the two edges never leave a seam of
-     the stage's ground between them) */
-  bottom: calc(var(--card-h) - 2px);
-  z-index: 50;
+  inset: var(--tb-h) 0 0;
   overflow: auto;
-  background: var(--bg);
-  border-radius: var(--r-4) var(--r-4) 0 0;
-  /* (and a skirt of its own colour as deep as the bar below its foot — a shadow, so it is outside the scrolling: as the
-     sheet sinks, the bar's ground clears over the sheet's paper, never over the sheet's edge sliding down through it) */
-  box-shadow:
-    0 -30px 80px -30px rgba(0, 0, 0, 0.55),
-    0 var(--card-h) 0 0 var(--bg);
   scrollbar-gutter: stable;
-  will-change: transform;
-  transition:
-    background var(--t-song) var(--ease),
-    box-shadow var(--t-song) var(--ease);
 }
-/* (no song yet: no bar under the sheet) */
-.shell:not([data-card='true']) .page {
-  bottom: 0;
-}
-.shell[data-layer='fx'] .page {
-  visibility: hidden;
+.shell[data-card='true'] .page {
+  inset-inline-end: var(--dock-w);
 }
 .pageInner {
-  padding: 36px 56px 56px;
-  max-width: 1440px;
+  max-width: var(--chapter-width);
   margin: 0 auto;
-}
-@media (max-width: 1100px) {
-  .pageInner {
-    padding: 28px 28px 40px;
-  }
+  padding: var(--chapter-top) var(--gutter) 52px;
 }
 .shell[data-page='workshop'] .page {
   overflow: hidden;
@@ -247,7 +240,55 @@
   grid-template-rows: 100%;
 }
 .shell[data-page='workshop'] .pageInner {
+  height: 100%;
   padding: 0;
   max-width: none;
-  height: 100%;
+}
+@media (max-width: 1000px), (max-height: 675px) {
+  .shell[data-card='true'] .page {
+    inset-inline-end: 0;
+    inset-block-end: var(--dock-compact);
+  }
+}
+@media (max-width: 860px) {
+  .tb {
+    padding-inline: 14px 8px;
+    gap: 12px;
+  }
+  .places {
+    flex: 1;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .places button {
+    min-height: var(--hit);
+  }
+  .spreadAction {
+    display: none;
+  }
+  :global(html[data-layer='np']) .spreadAction {
+    display: grid;
+  }
+}
+@media (max-width: 650px) {
+  .brand span {
+    display: none;
+  }
+  .tbEnd {
+    gap: 2px;
+  }
+  .winbtns button {
+    width: 29px;
+  }
+  .winbtns button:first-child {
+    display: none;
+  }
+  .shell[data-mini='true'] .winbtns button:first-child {
+    display: grid;
+  }
+  .tb .spreadAction {
+    max-width: 100px;
+    white-space: normal;
+    padding-inline: 8px;
+  }
 }

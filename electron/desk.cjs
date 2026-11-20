@@ -8,6 +8,8 @@ const path = require('path');
 let desk = null,
   ctx = null; // { get settings, save(patch), main() }
 let saveTm = 0;
+let hoverTimer = null;
+let hovered = false;
 function bounds() {
   try {
     const b = JSON.parse(ctx.settings().deskBounds || 'null');
@@ -24,15 +26,36 @@ function bounds() {
     height = 190;
   return { x: wa.x + Math.round((wa.width - width) / 2), y: wa.y + wa.height - height - 36, width, height };
 }
-function apply() {
-  if (!desk) return;
+function state() {
   const s = ctx.settings(),
     locked = !!s.deskLock;
+  return { locked, size: s.deskSize || 34, hovered: !locked && hovered };
+}
+function cursorOver() {
+  if (!desk?.isVisible() || desk.isMinimized()) return false;
+  const p = screen.getCursorScreenPoint(),
+    b = desk.getBounds();
+  return p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+}
+function apply() {
+  if (!desk) return;
+  const { locked } = state();
   // (locked: clicks go through; the window cannot take the focus or be moved)
   desk.setIgnoreMouseEvents(locked, { forward: true });
   desk.setFocusable(!locked);
   desk.setResizable(!locked);
-  desk.webContents.send('desk:state', { locked, size: s.deskSize || 34 });
+  clearInterval(hoverTimer);
+  hoverTimer = null;
+  hovered = !locked && cursorOver();
+  desk.webContents.send('desk:state', state());
+  // Windows consumes DOM pointer events inside a native drag region. Track the whole overlay in screen coordinates.
+  if (!locked)
+    hoverTimer = setInterval(() => {
+      const over = cursorOver();
+      if (over === hovered) return;
+      hovered = over;
+      desk.webContents.send('desk:state', state());
+    }, 50);
 }
 function open() {
   if (desk) return apply();
@@ -75,6 +98,9 @@ function open() {
   desk.on('move', keep);
   desk.on('resize', keep);
   desk.on('closed', () => {
+    clearInterval(hoverTimer);
+    hoverTimer = null;
+    hovered = false;
     desk = null;
   });
 }
@@ -106,7 +132,7 @@ function init(c) {
     return true;
   });
   // (the page of the window asks for its state once it is up)
-  ipcMain.handle('desk:state', () => ({ locked: !!ctx.settings().deskLock, size: ctx.settings().deskSize || 34 }));
+  ipcMain.handle('desk:state', () => state());
   sync();
 }
 module.exports = { init, sync, apply, close };

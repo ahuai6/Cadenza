@@ -5,10 +5,9 @@ import { tx } from '../../i18n';
 import { D, Lib } from '../bridge';
 import { ui, lib, settings, useStore, useIndex, fmtTime, trackOf } from '../state';
 import { Icon } from '../ui/icons';
-import { IconButton, Seg, Cover, Swap, kit } from '../ui/kit';
+import { Button, IconButton, Seg, Cover, Swap, kit, usePresence } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
 import { useReorder } from '../ui/reorder';
-import { Drive } from '../motion';
 import { engine } from '../playback/stage';
 import {
   player,
@@ -29,8 +28,8 @@ import {
 import { hifi, describe, refresh as hifiRefresh } from '../playback/hifi';
 import { setSettings } from '../actions/settings';
 import { refs, openNp, npProgress } from '../layers';
-import { splitBrackets } from '../../engine';
 import { Marquee } from '../ui/Marquee';
+import { NpLyrics } from '../ui/NpLyrics';
 import s from './Player.module.css';
 
 /* ---------- progress: written straight to the DOM on every tick ---------- */
@@ -284,74 +283,107 @@ export function QueueButton({ glass }: { glass?: boolean }) {
 }
 /** Open or close the queue, anchored at the control that asked for it. */
 export function toggleQueue(at: HTMLElement) {
-  queueAnchor = at.getBoundingClientRect();
+  queueAnchor = at;
   ui.set({ queue: !ui.get().queue });
 }
-let queueAnchor: DOMRect | null = null;
+let queueAnchor: HTMLElement | null = null;
 
-/* ---------- the card at the bottom ---------- */
+/** The dock and spread use the same transport and song model. Its artwork is the origin of the shared move. */
+export function ListeningDock() {
+  const shownId = useStore(player, (x) => x.shownId || x.id),
+    dir = useStore(player, (x) => x.dir),
+    expanded = useStore(ui, (x) => x.layer !== 'none');
+  useStore(lib, (x) => x.tracks);
+  const track = trackOf(shownId),
+    dock = useRef<HTMLElement>(null),
+    artwork = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    refs.dock = dock.current;
+    refs.dockCover = artwork.current;
+    return () => {
+      refs.dock = null;
+      refs.dockCover = null;
+    };
+  }, [track?.id]);
+  if (!track) return null;
+  return (
+    <aside className={s.dock} ref={dock} inert={expanded} aria-label={tx('s.nowPlaying')} data-test="listening-dock">
+      <div className={s.dockContent}>
+        <header className={s.dockHead}>
+          <b>{tx('s.nowPlaying')}</b>
+          <IconButton n="chevronLeft" label={tx('s.expand')} onClick={openNp} />
+        </header>
+        <button type="button" className={s.dockArtwork} aria-label={tx('s.expand')} onClick={openNp}>
+          <span ref={artwork} data-test="dock-cover">
+            <Swap k={track.cover || ''} dir={dir} fill>
+              <Cover k={track.cover} full eager />
+            </Swap>
+          </span>
+        </button>
+        <div className={s.dockBody}>
+          <div className={s.dockMeta}>
+            <div>
+              <Marquee className={s.dockTitle}>{track.title}</Marquee>
+              <Marquee className={s.dockByline}>
+                {[track.artist || tx('s.unknownArtist'), track.album].filter(Boolean).join(' · ')}
+              </Marquee>
+            </div>
+            <Heart id={track.id} />
+          </div>
+          <Progress />
+          <div className={s.dockTransport}>
+            <ModeButton />
+            <Transport big />
+            <QueueButton />
+          </div>
+          <div className={s.dockExtras}>
+            <Volume />
+            <DeskButton />
+            <HifiSwitch />
+          </div>
+          <DockLyrics live={!expanded} />
+        </div>
+        <Button className={s.compactExpand} kind="ghost" icon="lyrics" onClick={openNp}>
+          {tx('s.expand')}
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
+/* ---------- the spread's transport ---------- */
 export function PlayerCard() {
   const id = useStore(player, (x) => x.id),
-    dir = useStore(player, (x) => x.dir),
-    onStage = useStore(ui, (x) => x.layer !== 'none'),
+    onStage = useStore(ui, (x) => x.layer === 'np'),
     // (full screen on the play page, the pointer still: the bar rests out of sight with the page's own controls)
     idle = useStore(ui, (x) => x.idle && x.layer === 'np');
   useStore(lib, (x) => x.tracks);
   const t = trackOf(id),
-    card = useRef<HTMLDivElement>(null),
-    mini = useRef<HTMLSpanElement>(null);
+    card = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     refs.card = card.current;
-    refs.mini = mini.current;
     // (a bar made while the stage is up — a new song — starts in the stage's colours; layers.ts keeps it so)
     if (card.current) {
-      card.current.dataset.onPicture = String(npProgress() > 0.5);
       card.current.style.setProperty('--stage', npProgress().toFixed(3));
     }
     return () => {
       refs.card = null;
-      refs.mini = null;
     };
   });
   if (!t) return null;
   return (
-    // the stage's apron: the same bar under the stage and under the sheet. Over the stage it is clear and leaves the song
-    // to the stage (its cover, title and sung line fade: --stage, set by layers.ts); over the sheet it carries them
-    // (its colours turn to the stage's half way through the move, with its ground: layers.ts sets data-on-picture)
-    <div className={s.card} ref={card} data-test="card" data-stage={onStage} data-idle={idle || undefined}>
+    <div className={s.card + ' on-picture'} ref={card} data-test="card" data-idle={idle || undefined} inert={!onStage}>
       <Progress className={s.line} />
       <div className={s.row}>
-        <div className={s.id}>
-          <button
-            type="button"
-            className={s.miniBtn}
-            title={tx('s.expand')}
-            aria-label={tx('s.expand')}
-            tabIndex={onStage ? -1 : 0}
-            onClick={openNp}
-          >
-            <span ref={mini} className={s.mini}>
-              <Swap k={t.cover || ''} dir={dir} fill>
-                <Cover k={t.cover} className={s.mini} />
-              </Swap>
-            </span>
-          </button>
-          <Swap k={t.id} dir={dir}>
-            <span className={s.text} data-test="bar-text">
-              <Marquee className={s.tTitle}>{t.title}</Marquee>
-              <Marquee className={s.tArtist}>{t.artist || tx('s.unknownArtist')}</Marquee>
-            </span>
-          </Swap>
+        <div className={s.spreadLeft}>
+          <HifiSwitch />
         </div>
-        {/* (over the stage, where the song's own corner has faded: the quick way in and out of Hi-Fi) */}
-        <HifiSwitch className={s.hifiQuick} hidden={!onStage} />
         <div className={s.center}>
           <ModeButton />
           <Transport />
           <span className={s.even} aria-hidden="true" />
         </div>
         <div className={s.right}>
-          <BarLyric />
           <div className={s.end}>
             <Volume />
             <DeskButton />
@@ -364,58 +396,14 @@ export function PlayerCard() {
   );
 }
 
-/** The line being sung, in the bar: its own words only (no harmony, translation or reading). A new line comes in as the
- *  last goes (a short cross-fade, rising a little); one that fits stands centred in its room, one too long starts at the
- *  left and scrolls to its end and back in stages (Marquee). Nothing when the song has no words. */
-function BarLyric() {
+/** The reading page's lyrics, fitted to the listening dock's available width. */
+function DockLyrics({ live }: { live: boolean }) {
   const session = useStore(player, (x) => x.session),
-    has = useStore(player, (x) => x.hasLyrics),
-    [i, setI] = useState(-1);
-  const lines = has && session ? session.doc.lines : null;
-  useEffect(() => {
-    if (!lines?.length) {
-      setI(-1);
-      return;
-    }
-    const find = (t: number) => {
-      let lo = 0,
-        hi = lines.length - 1,
-        r = -1;
-      while (lo <= hi) {
-        const m = (lo + hi) >> 1;
-        if (lines[m].t - 0.15 <= t) {
-          r = m;
-          lo = m + 1;
-        } else hi = m - 1;
-      }
-      return r;
-    };
-    // (a line is shown from its start until the next begins — or, after a long rest, until it has been sung)
-    const at = (t: number) => {
-      const k = find(t),
-        L = lines[k];
-      return k >= 0 && L && t <= Math.max(L.end, L.sung ?? L.end) + 4 ? k : -1;
-    };
-    setI(at(engine.time));
-    let cur = at(engine.time);
-    return engine.on('tick', (p) => {
-      const k = at(p.t);
-      if (k !== cur) {
-        cur = k;
-        setI(k);
-      }
-    });
-  }, [lines]);
-  // (the line index held is the last song's until the effect above has run for the new one: read it only if it is there)
-  const L = i >= 0 && lines ? lines[i] : undefined,
-    text = L ? splitBrackets(L.text || '').main.trim() : '';
+    has = useStore(player, (x) => x.hasLyrics);
+  if (!has || !session?.doc.lines.length) return null;
   return (
-    <div className={s.barLyr} aria-live="off" data-test="bar-lyric">
-      {text && (
-        <span key={i} className={s.barLine}>
-          <Marquee className={s.barMq}>{text}</Marquee>
-        </span>
-      )}
+    <div className={s.dockLyrics} aria-live="off" data-test="bar-lyric">
+      <NpLyrics lines={session.doc.lines} live={live} layout="dock" />
     </div>
   );
 }
@@ -424,32 +412,8 @@ function BarLyric() {
 export function QueuePanel() {
   const open = useStore(ui, (x) => x.queue),
     hasSong = useStore(player, (x) => !!x.id);
-  const [live, setLive] = useState(false),
-    box = useRef<HTMLElement | null>(null);
-  const drive = useMemo(
-    () =>
-      new Drive(
-        0,
-        (x) => {
-          const el = box.current;
-          if (!el) return;
-          el.style.opacity = String(Math.min(1, x * 1.4));
-          el.style.transform =
-            x >= 1 ? '' : `translateY(${((1 - x) * 10).toFixed(2)}px) scale(${(0.97 + 0.03 * x).toFixed(4)})`;
-        },
-        { stiffness: 320, damping: 30 },
-      ),
-    [],
-  );
-  useEffect(() => {
-    if (open && hasSong) {
-      setLive(true);
-      requestAnimationFrame(() => drive.to(1));
-    } else if (live)
-      drive.to(0).then((done) => {
-        if (done) setLive(false);
-      });
-  }, [open, hasSong]);
+  const presence = usePresence(open && hasSong);
+  const box = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!open) return;
     const away = (e: PointerEvent) => {
@@ -460,10 +424,10 @@ export function QueuePanel() {
     addEventListener('pointerdown', away, true);
     return () => removeEventListener('pointerdown', away, true);
   }, [open]);
-  if (!live) return null;
-  return <QueueBody box={box} />;
+  if (!presence.shown) return null;
+  return <QueueBody box={box} closing={presence.closing} />;
 }
-function QueueBody({ box }: { box: React.MutableRefObject<HTMLElement | null> }) {
+function QueueBody({ box, closing }: { box: React.MutableRefObject<HTMLElement | null>; closing: boolean }) {
   const p = useStore(player),
     idx = useIndex(),
     [pos, setPos] = useState<React.CSSProperties | null>(null);
@@ -473,25 +437,37 @@ function QueueBody({ box }: { box: React.MutableRefObject<HTMLElement | null> })
     scroller: '[data-qlist]',
     ignore: '[data-x]',
   });
-  // above the button that opened it, aligned to its right edge (below it when there is no room above)
+  // Anchor to the current trigger and size the scrollable panel to the space on that side.
   useLayoutEffect(() => {
     const place = () => {
-      const a = queueAnchor || (refs.card ? refs.card.getBoundingClientRect() : null);
+      const a = queueAnchor?.isConnected ? queueAnchor.getBoundingClientRect() : null;
+      const top = Math.max(12, (refs.titlebar?.getBoundingClientRect().bottom ?? 0) + 12);
       if (!a) {
-        setPos({ right: 16, bottom: 110 });
+        setPos({ right: 12, top, maxHeight: innerHeight - top - 12 });
         return;
       }
-      const right = Math.max(12, innerWidth - a.right),
-        above = a.top > innerHeight * 0.45;
+      const right = `clamp(12px, ${innerWidth - a.right}px, calc(100vw - var(--queue-width) - 12px))`,
+        triggerTop = Math.min(a.top, innerHeight - 12),
+        triggerBottom = Math.max(a.bottom, top - 10),
+        above = triggerTop - top - 10,
+        below = innerHeight - triggerBottom - 22,
+        openAbove = above >= below;
       setPos(
-        above
-          ? { right, bottom: innerHeight - a.top + 10, ['--oy' as string]: '100%' }
-          : { right, top: a.bottom + 10, ['--oy' as string]: '0%' },
+        openAbove
+          ? { right, bottom: innerHeight - triggerTop + 10, maxHeight: Math.min(620, above) }
+          : { right, top: triggerBottom + 10, maxHeight: Math.min(620, below) },
       );
+    };
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Element && queueAnchor && e.target.contains(queueAnchor)) place();
     };
     place();
     addEventListener('resize', place);
-    return () => removeEventListener('resize', place);
+    addEventListener('scroll', onScroll, true);
+    return () => {
+      removeEventListener('resize', place);
+      removeEventListener('scroll', onScroll, true);
+    };
   }, []);
   useEffect(() => {
     const el = box.current?.querySelector('[data-cur="true"]');
@@ -503,6 +479,9 @@ function QueueBody({ box }: { box: React.MutableRefObject<HTMLElement | null> })
     <section
       data-test="queue"
       className={s.queue + ' glass' + (pict ? ' on-picture' : '')}
+      data-presence=""
+      data-closing={closing || undefined}
+      inert={closing}
       ref={(el) => {
         box.current = el;
       }}

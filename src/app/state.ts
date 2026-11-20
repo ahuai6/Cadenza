@@ -38,7 +38,7 @@ export interface MenuItem {
 /** Where the user is. `layer` is what they asked to see on top of the page; the stage animates toward it. */
 export const ui = createStore({
   page: 'library' as Page,
-  section: remember<string | null>('section', null),
+  section: 'songs',
   detail: null as Detail,
   search: '',
   layer: 'none' as 'none' | 'np' | 'fx',

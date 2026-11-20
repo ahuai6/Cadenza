@@ -7,7 +7,7 @@ import { useOutsideClose } from '../ui/outside';
 import { tx } from '../../i18n';
 import { D, Lib } from '../bridge';
 import { ui, settings, useStore, trackOf, toast, openMenu } from '../state';
-import { Button, IconButton, Row, Slider, Note, Badge, Section, Dropdown, Cover } from '../ui/kit';
+import { Button, IconButton, Row, Slider, Note, Badge, Section, Dropdown, Cover, usePresence } from '../ui/kit';
 import { CueBar, cueKeyDown } from '../ui/cues';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
@@ -54,6 +54,7 @@ export function EffectView() {
     [panel, setPanel] = useState(false),
     [near, setNear] = useState(false);
   const on = layer === 'fx';
+  const listPresence = usePresence(list && on);
   useLayoutEffect(() => {
     refs.fxUi = root.current;
   });
@@ -125,9 +126,17 @@ export function EffectView() {
       onPointerMove={(e) => setNear(e.clientY > innerHeight - 130)}
     >
       {hud && on && <PerfHud />}
-      <div className={s.edge} onPointerEnter={() => setPanel(true)} />
-      {list && hasLyrics && session && (
-        <div className={s.list + ' glass'} role="dialog" data-test="fx-list" aria-label={tx('s.lyricList')}>
+      <div className={s.edge} onPointerEnter={(e) => e.pointerType === 'mouse' && setPanel(true)} />
+      {listPresence.shown && hasLyrics && session && (
+        <div
+          className={s.list + ' glass'}
+          role="dialog"
+          data-test="fx-list"
+          aria-label={tx('s.lyricList')}
+          data-presence=""
+          data-closing={listPresence.closing || undefined}
+          inert={listPresence.closing}
+        >
           <NpLyrics lines={session.doc.lines} live compact />
         </div>
       )}

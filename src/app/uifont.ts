@@ -48,12 +48,7 @@ export async function applyUiFont(lang: string, font = cur.font, words?: string)
   const U = UI_FONTS[font] || UI_FONTS.default,
     cjk = CJK[lang] || CJK['zh-Hant'];
   const serifCjk = cjk.map((f) => f.replace('Sans', 'Serif'));
-  const fams = [
-    ...(U.latin ? [U.latin] : []),
-    ...(U.cjk ? [U.cjk] : []),
-    ...cjk,
-    ...(U.serif && !U.cjk ? serifCjk : []),
-  ];
+  const fams = [...(U.latin ? [U.latin] : []), ...(U.cjk ? [U.cjk] : []), ...cjk, serifCjk[0], 'Source Serif 4'];
   await Promise.all([...new Set(fams)].map(link));
   if (words) sample = [...new Set(words)].join('').slice(0, 900);
   // (the glyphs the interface will draw, at the weights it draws them in)
@@ -69,11 +64,12 @@ export async function applyUiFont(lang: string, font = cur.font, words?: string)
   const cjkStack = [...(U.cjk ? [U.cjk] : []), ...(U.serif ? serifCjk : cjk)].map((f) => `"${f}"`).join(',');
   const root = document.documentElement.style;
   root.setProperty('--font-cjk', `${cjk.map((f) => `"${f}"`).join(',')},${SYS}`);
+  root.setProperty('--font-cjk-serif', `${serifCjk.map((f) => `"${f}"`).join(',')},serif`);
   root.setProperty(
     '--font-ui',
     `${U.latin ? `"${U.latin}",` : '"Instrument Sans Variable","Instrument Sans",'}${cjkStack},${SYS},${U.serif ? 'serif' : 'system-ui,sans-serif'}`,
   );
-  // the titles: in the interface's own face, set heavier and a little tighter — or, editorial, in Fraunces as they were
+  // Chapter typography has its own serif scale. The editorial selection retains its distinct Latin face.
   if (U.titles === 'fraunces') {
     root.setProperty(
       '--font-display',
@@ -83,10 +79,10 @@ export async function applyUiFont(lang: string, font = cur.font, words?: string)
     root.setProperty('--display-wm', 'initial');
     root.setProperty('--display-ls', '-0.02em');
   } else {
-    root.setProperty('--font-display', 'var(--font-ui)');
-    root.setProperty('--display-w', U.serif ? '600' : '650');
-    root.setProperty('--display-wm', U.serif ? '600' : '620');
-    root.setProperty('--display-ls', '-0.025em');
+    root.setProperty('--font-display', 'var(--font-book)');
+    root.setProperty('--display-w', '760');
+    root.setProperty('--display-wm', '680');
+    root.setProperty('--display-ls', '-0.018em');
   }
   document.documentElement.lang = lang;
   cur = { lang, font };

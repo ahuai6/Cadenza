@@ -296,12 +296,15 @@ export class DreamPass extends Pass {
   }
 }
 
-/** The glass behind the HUD's cards (every `.card` on the page): a mosaic of what is behind each, laid from the card's
- *  own corner in whole blocks, and the card's white frame drawn from the very same rounded shape. */
+/** The glass behind the marked gallery surfaces. The scene's draw advances each panel's animation before measuring
+ *  it, so the HTML panel and the mosaic are painted from the same position and opacity. */
 export class GlassPass extends Pass {
   readonly mat: THREE.ShaderMaterial;
   private rects = Array.from({ length: 12 }, () => new THREE.Vector4());
   private radii: number[] = new Array(12).fill(0);
+  private weights: number[] = new Array(12).fill(0);
+  private starts = new WeakMap<Animation, number>();
+  private time = 0;
   private q: FullScreenQuad;
   constructor(private pixelRatio: () => number) {
     super();
@@ -315,24 +318,21 @@ export class GlassPass extends Pass {
         res: { value: new THREE.Vector2(1, 1) },
         rects: { value: this.rects },
         radii: { value: this.radii },
+        weights: { value: this.weights },
         n: { value: 0 },
         block: { value: 14 },
-        lw: { value: 1.5 },
-        tint: { value: new THREE.Color(0.98, 0.96, 0.92) },
+        taps: { value: 4 },
       },
-      fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec4 rects[12]; uniform float radii[12]; uniform int n; uniform float block, lw; uniform vec3 tint; varying vec2 vUv;
-        void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 p = vUv*res; float inside = 0., ring = 0.; vec4 own = vec4(0.);
+      fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 res; uniform vec4 rects[12]; uniform float radii[12], weights[12]; uniform int n, taps; uniform float block; varying vec2 vUv;
+        void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 p = vUv*res; float inside = 0.; vec4 own = vec4(0.);
           for (int i = 0; i < 12; i++) { if (i >= n) break; vec4 r = rects[i]; vec2 hs = r.zw*.5; float rad = min(radii[i], min(hs.x, hs.y)); vec2 q = abs(p-(r.xy+hs))-hs+rad;
-            float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - rad, k = 1.-smoothstep(-1., 1., d); if (k > inside) { inside = k; own = r; }
-            // the card's white frame, from the very same shape as its glass: it sits over the glass's edge like a mask
-            ring = max(ring, 1. - smoothstep(lw*.5 - .7, lw*.5 + .7, abs(d - lw*.25))); }
+            float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.) - rad, k = (1.-smoothstep(-1., 1., d)) * weights[i]; if (k > inside) { inside = k; own = r; } }
           // the mosaic glass: each block shows the average of what is behind it
           // (the blocks are laid from the card's own corner and sized so whole blocks fill it exactly: no cut-off row at
           // its top or bottom, no column cut at its sides)
           if (inside > 0.) { vec2 bs = own.zw / max(vec2(1.), floor(own.zw/block + .5)), b = own.xy + (floor((p - own.xy)/bs) + .5)*bs; vec3 m = vec3(0.);
-            for (int k = 0; k < 16; k++) { vec2 o = (vec2(float(k - (k/4)*4), float(k/4)) - 1.5)/4.*bs*1.6; m += texture2D(tDiffuse, (b+o)/res).rgb; }
-            m = m/16.; m = mix(m, vec3(dot(m, vec3(.3,.55,.15))), .25); c.rgb = mix(c.rgb, m, inside); }
-          c.rgb = mix(c.rgb, vec3(1.), ring * .82);
+            for (int k = 0; k < 16; k++) { if (k >= taps*taps) break; vec2 o = ((vec2(float(k - (k/taps)*taps), float(k/taps)) + .5)/float(taps) - .5)*bs*1.6; m += texture2D(tDiffuse, (b+o)/res).rgb; }
+            m = m/float(taps*taps); m = mix(m, vec3(dot(m, vec3(.3,.55,.15))), .25); c.rgb = mix(c.rgb, m, inside); }
           gl_FragColor = c; }`,
     });
     this.q = new FullScreenQuad(this.mat);
@@ -340,31 +340,55 @@ export class GlassPass extends Pass {
   override setSize(w: number, h: number) {
     this.mat.uniforms.res.value.set(w, h);
   }
+  setLite(lite: boolean) {
+    this.mat.uniforms.taps.value = lite ? 2 : 4;
+  }
+  setFrameTime(now: number) {
+    this.time = now;
+  }
   private collect() {
     const pr = this.pixelRatio();
-    let n = 0;
-    for (const el of document.querySelectorAll<HTMLElement>('.card')) {
-      if (n >= 12 || el.hidden || (!el.offsetParent && getComputedStyle(el).position !== 'fixed')) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width < 2 || r.height < 2 || el.closest('[hidden]')) continue;
-      // (its corner read again whenever its size changes: a radius in % or a pill depends on the size, and one read before
-      // the styles had loaded stayed wrong)
-      const sz = (r.width | 0) + 'x' + (r.height | 0);
-      if (el.dataset.sz !== sz) {
-        el.dataset.sz = sz;
-        const cs = getComputedStyle(el),
-          v = cs.borderTopLeftRadius;
-        el.dataset.rad = String(
-          v.endsWith('%') ? (parseFloat(v) / 100) * Math.min(r.width, r.height) : parseFloat(v) || 0,
-        );
+    const elements = [...document.querySelectorAll<HTMLElement>('[data-mosaic]')].filter(
+      (el) => !el.closest('[hidden]'),
+    );
+    // CSS keeps these animations paused on their own timeline. Render the texture and its panel from this frame's time.
+    for (const el of elements) {
+      for (const anim of el.getAnimations()) {
+        if (!(anim instanceof CSSAnimation) || !anim.effect) continue;
+        const end = anim.effect.getComputedTiming().endTime;
+        if (typeof end !== 'number' || !Number.isFinite(end) || anim.currentTime === end) continue;
+        let start = this.starts.get(anim);
+        if (start === undefined && !el.hasAttribute('data-closing')) {
+          // Give a new surface one frame to prepare its contents before its entrance clock starts.
+          this.starts.set(anim, -1);
+          continue;
+        }
+        if (start === undefined || start < 0) {
+          start = this.time;
+          this.starts.set(anim, start);
+        }
+        const t = Math.max(0, Math.min(end, this.time - start));
+        if (anim.currentTime !== t) anim.currentTime = t;
       }
+    }
+    let n = 0;
+    for (const el of elements) {
+      if (n >= this.rects.length) break;
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      const alpha = Number(cs.opacity);
+      if (r.width < 2 || r.height < 2 || cs.visibility !== 'visible' || alpha < 0.01) continue;
+      const radius = cs.borderTopLeftRadius;
       this.rects[n].set(r.left * pr, (innerHeight - r.bottom) * pr, r.width * pr, r.height * pr);
-      this.radii[n] = +(el.dataset.rad || 0) * pr;
+      this.radii[n] =
+        (radius.endsWith('%')
+          ? (parseFloat(radius) / 100) * Math.min(r.width, r.height)
+          : ((parseFloat(radius) || 0) * r.width) / Math.max(1, el.offsetWidth)) * pr;
+      this.weights[n] = alpha;
       n++;
     }
     this.mat.uniforms.n.value = n;
     this.mat.uniforms.block.value = 22 * pr;
-    this.mat.uniforms.lw.value = 1.6 * pr;
   }
   override render(r: THREE.WebGLRenderer, write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget) {
     this.collect();

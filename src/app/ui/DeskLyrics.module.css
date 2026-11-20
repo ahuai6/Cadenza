@@ -9,13 +9,14 @@
   inset: 0;
   display: grid;
   place-items: center;
+  container-type: size;
   border-radius: var(--r-3);
   user-select: none;
   -webkit-app-region: drag;
   app-region: drag;
   transition: background var(--t-fast) var(--ease);
 }
-.desk:not([data-locked]):hover {
+.desk:not([data-locked]):is([data-hovered], :focus-within) {
   background: rgba(10, 10, 14, 0.32);
 }
 .desk[data-locked] {
@@ -23,30 +24,37 @@
   app-region: no-drag;
 }
 .lines {
+  --scale: min(var(--fs), calc((100cqh - 28px) / 3.05));
   display: grid;
-  gap: calc(var(--fs) * 0.18);
+  gap: calc(var(--scale) * 0.18);
   justify-items: center;
   width: 100%;
-  padding: 0 calc(var(--fs) * 0.6);
+  min-width: 0;
+  padding: 0 max(17px, calc(var(--scale) * 0.45));
   text-align: center;
 }
 .line {
   margin: 0;
   max-width: 100%;
+  min-width: 0;
+  font-family: var(--font-book);
+  font-weight: 700;
+  font-size: calc(var(--scale) * 0.62);
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.62);
+  -webkit-text-stroke: calc(var(--scale) * 0.03) rgba(0, 0, 0, 0.55);
+  paint-order: stroke fill;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.42));
+}
+.ink {
+  display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-family: var(--font-ui);
-  font-weight: 800;
-  font-size: calc(var(--fs) * 0.62);
-  line-height: 1.2;
-  color: rgba(255, 255, 255, 0.62);
-  -webkit-text-stroke: calc(var(--fs) * 0.03) rgba(0, 0, 0, 0.55);
-  paint-order: stroke fill;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  padding-inline: 2px;
 }
 .line[data-now] {
-  font-size: var(--fs);
+  font-size: var(--scale);
   color: rgba(255, 255, 255, 0.55);
 }
 /* (the line being sung: each character lights as it is sung; a line timed only as a whole is lit together) */
@@ -66,12 +74,14 @@
   display: flex;
   gap: 4px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--t-fast) var(--ease);
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
-.desk:hover .tools {
+.desk:is([data-hovered], :focus-within) .tools {
   opacity: 1;
+  pointer-events: auto;
 }
 .tools button {
   min-width: 30px;
@@ -86,4 +96,11 @@
 }
 .tools button:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+@media (hover: none) {
+  .desk:not([data-locked]) .tools {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

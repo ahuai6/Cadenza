@@ -10,7 +10,14 @@ const fs = require('fs'),
 
 const ROOT = path.join(__dirname, '..'),
   C = path.join(__dirname, '.cache', 'hifi');
-const BIN = path.join(ROOT, 'native', 'cadenza-audio', 'target', 'release', 'cadenza-audio');
+const BIN = path.join(
+  ROOT,
+  'native',
+  'cadenza-audio',
+  'target',
+  'release',
+  process.platform === 'win32' ? 'cadenza-audio.exe' : 'cadenza-audio',
+);
 fs.mkdirSync(C, { recursive: true });
 if (!fs.existsSync(BIN))
   execFileSync('cargo', ['build', '--release'], { cwd: path.join(ROOT, 'native', 'cadenza-audio'), stdio: 'inherit' });

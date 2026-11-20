@@ -1,7 +1,7 @@
 .space {
   position: fixed;
   inset: 0;
-  background: #e8dcc4;
+  background: var(--bg);
   overflow: hidden;
 }
 .hud {

@@ -1,9 +1,7 @@
-# Builds the Windows apps from a preview branch (the space mode while it is tried out) on a Windows runner and keeps them
-# as the run's downloadable artifacts (Actions → preview → the run → Artifacts): nothing is published as a release.
+# Manually builds a locally verified branch on a Windows runner. The run keeps the installer and portable app as
+# downloadable artifacts without publishing a release.
 name: preview
 on:
-  push:
-    branches: [space-mode]
   workflow_dispatch:
 permissions:
   contents: read
@@ -27,11 +25,11 @@ jobs:
           npx electron-builder --win --x64 --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: Cadenza-space-preview-portable
+          name: Cadenza-preview-portable
           path: release/*-portable.exe
           retention-days: 30
       - uses: actions/upload-artifact@v4
         with:
-          name: Cadenza-space-preview-setup
+          name: Cadenza-preview-setup
           path: release/Cadenza-Setup-*.exe
           retention-days: 30

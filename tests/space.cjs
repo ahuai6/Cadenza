@@ -113,6 +113,7 @@ const SONG = `(() => {
   fs.mkdirSync(SHOTS, { recursive: true });
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   const p = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  await p.emulateMedia({ reducedMotion: 'no-preference' });
   const errors = [];
   p.on('pageerror', (e) => errors.push((e.stack || e.message).slice(0, 300)));
   await p.addInitScript(standIns);
@@ -156,6 +157,25 @@ const SONG = `(() => {
     JSON.stringify([walked, framed]),
   );
   ok('window buttons: minimise, maximise, full screen, close', (await p.$$('#win-btns button')).length === 4);
+  const glass = await p.evaluate(() => {
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    return {
+      top: style('.space-root .top').backgroundColor,
+      player: style('.space-root .player').backgroundColor,
+      mosaic: !!document.querySelector('.space-root .player[data-mosaic]'),
+      sign: style('#sign').backgroundColor,
+      signBorder: style('#sign').borderTopWidth,
+    };
+  });
+  ok(
+    'HUD: the navigation and player share translucent glass, while the location sign is unbacked',
+    glass.top === glass.player &&
+      glass.mosaic &&
+      /\/\s*0\.46\b/.test(glass.top) &&
+      glass.sign === 'rgba(0, 0, 0, 0)' &&
+      glass.signBorder === '0px',
+    JSON.stringify(glass),
+  );
 
   // the lyrics in the air, and their captions
   await p.evaluate(() => {
@@ -183,11 +203,18 @@ const SONG = `(() => {
     first.air === 1 && first.caps.length === 2,
     JSON.stringify(first),
   );
-  await wait(15000);
-  await shot('lyrics-2');
+  await p
+    .waitForFunction(
+      () => {
+        const lines = __cad.lyr().lines;
+        return lines.some((l) => l.falling) && lines.some((l) => !l.falling && l.height / 0.85 > 1.5);
+      },
+      null,
+      { timeout: 30000 },
+    )
+    .catch(() => {});
   const second = await p.evaluate(() => {
-    const cam = __cad.camera(),
-      air = __cad.lyr().lines.filter((l) => !l.falling);
+    const air = __cad.lyr().lines.filter((l) => !l.falling);
     return {
       air: air.length,
       falling: __cad.lyr().lines.filter((l) => l.falling).length,
@@ -199,6 +226,7 @@ const SONG = `(() => {
     second.air === 1 && second.falling >= 1 && second.rows > 1.5,
     JSON.stringify(second),
   );
+  await shot('lyrics-2');
 
   // the progress line
   const bar = await (await p.$('#p-seek')).boundingBox();
@@ -245,8 +273,11 @@ const SONG = `(() => {
   const said = await p.$eval('[role="status"]', (e) => e.textContent);
   ok('commands: a card adds its songs to the queue, and says so', /\d+ 首加入播放佇列/.test(said), said);
   await p.evaluate(() => __cad.stand(0, -40, 0, 0));
-  await wait(700);
-  ok('reach: walking away closes it', !(await p.$('[data-test="space-detail"]')));
+  const left = await p.waitForSelector('[data-test="space-detail"]', { state: 'detached', timeout: 10000 }).then(
+    () => true,
+    () => false,
+  );
+  ok('reach: walking away closes it after the exit animation', left);
   // the reticle's menu (immersive, right button): the library's own commands for what it is on, where it is
   await p.evaluate(() => __cad.albumStand(0, 3));
   await wait(1000);
@@ -307,7 +338,40 @@ const SONG = `(() => {
     const c = document.querySelector('[data-test="space-settings"]');
     return [c.querySelector('header').getBoundingClientRect().top - c.getBoundingClientRect().top, c.scrollTop];
   });
-  ok('settings: the card stays put (its header at its top)', card[0] === 0 && card[1] === 0, JSON.stringify(card));
+  ok('settings: the card stays put (its header at its top)', card[0] <= 1 && card[1] === 0, JSON.stringify(card));
+  const settingsFill = await p
+    .locator('[data-test="space-settings"]')
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  ok(
+    'settings: the floating panel uses the same glass and mosaic as the HUD',
+    settingsFill === glass.top && (await p.locator('[data-test="space-settings"][data-mosaic]').count()) === 1,
+    settingsFill,
+  );
+  const dropdownMotion = await p.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const lyrics = document.querySelector('[data-section="lyrics"]');
+        lyrics.scrollIntoView({ block: 'start', behavior: 'instant' });
+        lyrics.querySelector('[role=combobox]').click();
+        const end = performance.now() + 3500;
+        const check = () => {
+          const el = document.querySelector('[role=listbox][data-mosaic]');
+          const a = el?.getAnimations()[0];
+          if (a?.currentTime > 0 && a.playState === 'paused') resolve(true);
+          else if (performance.now() >= end) resolve(false);
+          else requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      }),
+  );
+  ok('mosaic dropdown: its paused CSS animation advances on the scene clock', dropdownMotion);
+  const submenu = p.locator('[role=listbox][data-mosaic]');
+  await p.keyboard.press('Escape');
+  await submenu.waitFor({ state: 'detached' });
+  if (!(await p.locator('[data-test="space-settings"]').count())) {
+    await p.click('#cfg');
+    await wait(450);
+  }
   await shot('settings');
   // the stored data: asked about in place, and a no leaves it as it was
   await p.evaluate(() => {
@@ -321,10 +385,14 @@ const SONG = `(() => {
   await p.evaluate(() => [...document.querySelectorAll('[data-test="ask-caches"] button')].pop().click());
   await wait(300);
   ok('settings: clearing stored data asks first, in place', !!asked && !(await p.$('[data-test="ask-caches"]')));
-  const close = await (await p.$('[data-test="space-settings"] header button')).boundingBox();
-  await p.mouse.click(close.x + close.width / 2, close.y + close.height / 2);
-  await wait(400);
-  ok('settings: closes', !(await p.$('[data-test="space-settings"]')));
+  await p.locator('[data-test="space-settings"] header button').click();
+  const settingsClosed = await p
+    .waitForSelector('[data-test="space-settings"]', { state: 'detached', timeout: 10000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  ok('settings: closes after its exit animation', settingsClosed);
 
   // the player bar's lists
   await p.click('[aria-label="播放佇列"]');

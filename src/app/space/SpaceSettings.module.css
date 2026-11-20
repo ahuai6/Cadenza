@@ -1,7 +1,7 @@
 .panel {
   right: max(16px, env(safe-area-inset-right, 0px));
-  top: calc(84px + env(safe-area-inset-top, 0px));
-  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  top: calc(var(--space-top) + 76px);
+  bottom: calc(var(--space-bottom) + 82px);
   width: min(420px, calc(100% - 32px));
   display: flex;
   flex-direction: column;
@@ -22,12 +22,12 @@
   letter-spacing: 0.08em;
 }
 .close {
-  width: 36px;
-  height: 36px;
+  width: var(--hit);
+  height: var(--hit);
   border: 0;
   border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  background: var(--hover);
+  color: var(--fg);
   cursor: pointer;
   font: inherit;
 }
@@ -118,24 +118,6 @@
   color: inherit;
   cursor: pointer;
 }
-/* the kit's segmented choices on the glass: a clear track, the chosen one a solid clay chip (no grey on grey) */
-.panel :global([role='radiogroup']),
-.panel :global([role='tablist']) {
-  background: rgba(255, 255, 255, 0.14) !important;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
-}
-.panel :global([role='radiogroup']) > i,
-.panel :global([role='tablist']) > i {
-  background: #c4603f !important;
-  box-shadow: 0 1px 4px rgba(38, 28, 18, 0.35) !important;
-}
-.panel :global([role='radiogroup']) button:not([aria-checked='true']) span {
-  opacity: 0.78;
-}
-.panel :global([role='radiogroup']) button[aria-checked='true'] span {
-  opacity: 1;
-  text-shadow: none !important;
-}
 /* a stored-data action, asked about in place */
 .note {
   margin: 0;
@@ -148,10 +130,29 @@
   gap: 8px;
   padding: 10px 12px;
   border-radius: var(--r-1);
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover);
 }
 .ask p {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.head h2,
+.group h3 {
+  font-family: var(--font-book);
+  letter-spacing: normal;
+}
+@media (max-width: 1080px) {
+  .panel {
+    top: calc(var(--space-top) + 120px);
+  }
+}
+@media (max-width: 620px) {
+  .panel {
+    bottom: calc(var(--space-bottom) + 120px);
+  }
+  .field {
+    flex-wrap: wrap;
+  }
 }

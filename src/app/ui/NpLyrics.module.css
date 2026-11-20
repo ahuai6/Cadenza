@@ -25,6 +25,7 @@
   inset: 0;
   overflow: hidden;
   padding: 0 8px;
+  --lyrics-ink: var(--lyric-color, var(--spread-fg));
 }
 .line {
   position: relative;
@@ -34,16 +35,16 @@
   margin: 0 0 6px;
   border-radius: var(--r-lg);
   text-align: left;
-  color: #fff;
-  font-size: calc(clamp(24px, 2.55vw, 38px) * var(--np-fs, 1));
-  font-weight: 760;
+  color: var(--lyrics-ink);
+  font-size: calc(clamp(21px, 2.85vw, 42px) * var(--np-fs, 1));
+  font-weight: 650;
   line-height: 1.28;
   letter-spacing: -0.01em;
-  --o: calc(0.36 - min(var(--d, 1), 4) * 0.05);
-  --bu: calc(0.36 - min(var(--d, 1), 4) * 0.05);
+  --o: calc(0.52 - min(var(--d, 1), 4) * 0.055);
+  --bu: calc(0.52 - min(var(--d, 1), 4) * 0.055);
   --onk: 0;
   opacity: var(--o);
-  filter: blur(calc(min(var(--d, 1), 5) * 0.55px));
+  filter: blur(calc(min(var(--d, 1), 5) * 0.26px));
   transition:
     filter var(--t-slow) var(--ease),
     --o var(--t-slow) var(--ease),
@@ -86,8 +87,10 @@
 .lyr[data-subs='false'] .line small {
   display: none;
 }
-.line:hover {
-  background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) {
+  .line:hover {
+    background: var(--hover);
+  }
 }
 .w {
   display: inline-block;
@@ -102,13 +105,13 @@
   --un: min(1, calc(var(--bu) / max(0.01, var(--o))));
   background: linear-gradient(
     90deg,
-    #fff calc(var(--p, 0) * (100% + 0.6em) - 0.6em),
-    rgba(255, 255, 255, var(--un)) calc(var(--p, 0) * (100% + 0.6em))
+    var(--lyrics-ink) calc(var(--p, 0) * (100% + 0.6em) - 0.6em),
+    color-mix(in srgb, var(--lyrics-ink) calc(var(--un) * 100%), transparent) calc(var(--p, 0) * (100% + 0.6em))
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  text-shadow: 0 0 14px rgba(255, 255, 255, calc(var(--gl, 0) * 0.3 * var(--onk)));
+  text-shadow: 0 0 14px color-mix(in srgb, var(--lyrics-ink) calc(var(--gl, 0) * 30% * var(--onk)), transparent);
 }
 /* a line timed only as a whole: no sweep — the whole line brightens together, every word and character alike, by the
    one fill the line holds */
@@ -116,7 +119,7 @@
   background: none;
   -webkit-background-clip: border-box;
   background-clip: border-box;
-  color: rgba(255, 255, 255, calc(var(--un) + (1 - var(--un)) * var(--p, 0)));
+  color: color-mix(in srgb, var(--lyrics-ink) calc((var(--un) + (1 - var(--un)) * var(--p, 0)) * 100%), transparent);
 }
 /* a line that was sung keeps its words where they lifted to, and lets them settle back softly */
 .line .w {
@@ -153,6 +156,21 @@
   font-size: calc(17px * var(--np-fs, 1));
   padding: 7px 10px;
 }
+.dock {
+  --lyrics-ink: var(--fg);
+  inset-inline: -6px;
+  padding-inline: 0;
+  mask-image: var(--reading-fade);
+}
+.dock .line {
+  font-size: clamp(16px, calc(1.5vw * var(--np-fs, 1)), 26px);
+  padding: 8px 6px;
+  margin-block-end: 3px;
+}
+.dock .line .w {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
 
 /* a wait (the intro, a long break): three dots come in as a line of their own — in the room the line to come and those
    after it make for them (--gap, set with the places; NpLyrics moves the row with that line) — each dot lighting in its
@@ -176,6 +194,10 @@
   left: 18px;
   font-size: calc(17px * var(--np-fs, 1));
 }
+.dock .dots {
+  left: 6px;
+  font-size: 16px;
+}
 .dots[data-on='true'],
 .dots[data-on='leaving'] {
   display: flex;
@@ -196,7 +218,7 @@
   width: 0.27em;
   height: 0.27em;
   border-radius: var(--r-dot);
-  background: #fff;
+  background: var(--lyrics-ink);
   --lit: clamp(0, var(--wait, 0) * 3 - var(--k), 1);
   opacity: calc(0.24 + 0.76 * var(--lit));
   /* (and each breathes with the beat, more once lit: the effect lyrics' dots, the same pulse) */

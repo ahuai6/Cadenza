@@ -17,6 +17,7 @@ import { Icon } from './icons';
 import { coverUrl } from '../bridge';
 import { tx } from '../../i18n';
 import { ui, useStore, type MenuItem } from '../state';
+import { duration } from '../motion';
 import s from './kit.module.css';
 export { s as kit };
 
@@ -29,26 +30,19 @@ export function splitNote(label: string): [string, string] {
   // (long: seven characters or more, spaces not counted)
   return m && m[2].replace(/\s/g, '').length >= 7 ? [m[1], m[2]] : [label, ''];
 }
-export const OUT_MS = 130;
-/** Keep a thing mounted while it leaves: `shown` stays true for OUT_MS after `open` goes false, `closing` meanwhile. */
-export function usePresence(open: boolean, ms = OUT_MS) {
-  const [shown, setShown] = useState(open),
-    [closing, setClosing] = useState(false);
+/** Keep the visual surface mounted for its shared exit time. */
+export function usePresence(open: boolean, ms?: number) {
+  const [shown, setShown] = useState(open);
   useEffect(() => {
     if (open) {
       setShown(true);
-      setClosing(false);
       return;
     }
     if (!shown) return;
-    setClosing(true);
-    const tm = window.setTimeout(() => {
-      setShown(false);
-      setClosing(false);
-    }, ms);
+    const tm = window.setTimeout(() => setShown(false), ms ?? duration('--t-out'));
     return () => clearTimeout(tm);
-  }, [open]);
-  return { shown: shown || open, closing: closing && !open };
+  }, [open, shown, ms]);
+  return { shown: shown || open, closing: shown && !open };
 }
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -61,6 +55,7 @@ export function Button({ kind, size, glass, icon, children, className, ...rest }
   return (
     <button
       type="button"
+      data-feedback=""
       className={s.btn + (className ? ' ' + className : '')}
       data-kind={kind}
       data-size={size}
@@ -103,6 +98,7 @@ export function IconButton({
   return (
     <button
       type="button"
+      data-feedback=""
       className={s.ib + (className ? ' ' + className : '')}
       data-size={size}
       data-glass={glass || undefined}
@@ -394,15 +390,19 @@ function DropList({
     if (!open || !anchor.current) return;
     const a = anchor.current.getBoundingClientRect(),
       H = Math.min(360, options.length * 34 + 10);
-    const below = innerHeight - a.bottom - 12 >= H || a.top < H + 12,
-      w = Math.max(a.width, wide ? 260 : 0);
+    const chrome = anchor.current.closest('.space-root')?.querySelector('.hud.top');
+    const top = (chrome?.getBoundingClientRect().bottom || 0) + 8;
+    const roomAbove = a.top - top - 6,
+      roomBelow = innerHeight - a.bottom - 14,
+      below = roomBelow >= H || roomBelow >= roomAbove,
+      w = Math.min(innerWidth - 16, Math.max(a.width, wide ? 260 : 0));
     setPos({
       left: Math.max(8, Math.min(a.left, innerWidth - w - 8)),
       width: w,
       ...(below
         ? { top: a.bottom + 6, transformOrigin: 'top' }
         : { bottom: innerHeight - a.top + 6, transformOrigin: 'bottom' }),
-      maxHeight: H,
+      maxHeight: Math.min(H, Math.max(0, below ? roomBelow : roomAbove)),
     });
     setHi(
       Math.max(
@@ -458,6 +458,8 @@ function DropList({
     <div
       ref={box}
       className={s.drop + ' glass' + (pict ? ' on-picture' : '')}
+      data-mosaic=""
+      data-pop=""
       role="listbox"
       data-closing={closing || undefined}
       style={pos}
@@ -710,6 +712,7 @@ function MenuList({
   root,
   side,
   onEnter,
+  focusOnOpen,
 }: {
   items: (MenuItem | '-')[];
   at: { x: number; y: number; w?: number };
@@ -717,30 +720,36 @@ function MenuList({
   root?: boolean;
   side?: number;
   onEnter?: () => void;
+  focusOnOpen?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null),
     [pos, setPos] = useState<CSSProperties | null>(null),
     [sub, setSub] = useState<{ i: number; x: number; y: number; w: number } | null>(null),
     subTm = useRef(0);
+  const lastSub = useRef(sub);
+  if (sub) lastSub.current = sub;
+  const subPresence = usePresence(!!sub && !closing);
+  const shownSub = sub || lastSub.current;
+  const focusChild = useRef(false);
   const pict = ui.get().layer !== 'none';
   useLayoutEffect(() => {
     if (!ref.current) return;
-    const r = ref.current.getBoundingClientRect();
+    const { offsetWidth: width, offsetHeight: height } = ref.current;
     // (a submenu opens to the right of its item, or to the left where there is no room)
     let left = at.x,
       top = at.y,
       ox = 'left';
-    if (side != null && left + r.width > innerWidth - 8) {
-      left = side - r.width;
+    if (side != null && left + width > innerWidth - 8) {
+      left = side - width;
       ox = 'right';
     }
-    left = Math.max(8, Math.min(left, innerWidth - r.width - 8));
-    const oy = top + r.height > innerHeight - 8 ? 'bottom' : 'top';
-    top = Math.max(8, Math.min(top, innerHeight - r.height - 8));
+    left = Math.max(8, Math.min(left, innerWidth - width - 8));
+    const oy = top + height > innerHeight - 8 ? 'bottom' : 'top';
+    top = Math.max(8, Math.min(top, innerHeight - height - 8));
     setPos({ left, top, transformOrigin: `${ox} ${oy}` });
   }, [at.x, at.y]);
   useEffect(() => {
-    if (!root) return;
+    if (!root || closing) return;
     const close = (e: Event) => {
       if (!(e.target as HTMLElement).closest?.('[data-menu]')) ui.set({ menu: null });
     };
@@ -758,7 +767,11 @@ function MenuList({
       removeEventListener('blur', close);
       removeEventListener('keydown', key, true);
     };
-  }, []);
+  }, [root, closing]);
+  useEffect(() => () => clearTimeout(subTm.current), []);
+  useEffect(() => {
+    if (pos && focusOnOpen && !closing) ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [pos, focusOnOpen, closing]);
   const openSub = (i: number, el: HTMLElement) => {
     clearTimeout(subTm.current);
     const r = el.getBoundingClientRect();
@@ -767,14 +780,27 @@ function MenuList({
   const node = (
     <div
       className={s.menu + ' glass' + (pict ? ' on-picture' : '')}
+      data-mosaic=""
+      data-pop=""
       ref={ref}
       role="menu"
       data-menu
       data-closing={closing || undefined}
+      inert={closing}
       style={pos || { left: at.x, top: at.y, visibility: 'hidden' }}
       onPointerEnter={onEnter}
-      onPointerLeave={() => {
+      onPointerLeave={(e) => {
+        if (e.pointerType !== 'mouse' || ref.current?.contains(document.activeElement)) return;
+        clearTimeout(subTm.current);
         subTm.current = window.setTimeout(() => setSub(null), 260);
+      }}
+      onKeyDown={(e) => {
+        const buttons = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || []);
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          buttons[(index + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+        }
       }}
     >
       {items.map((it, i) =>
@@ -787,9 +813,12 @@ function MenuList({
             role="menuitem"
             data-danger={it.danger || undefined}
             disabled={it.disabled}
+            data-feedback=""
             aria-haspopup={it.sub ? 'menu' : undefined}
             aria-expanded={it.sub ? sub?.i === i : undefined}
             onPointerEnter={(e) => {
+              if (e.pointerType !== 'mouse') return;
+              focusChild.current = false;
               if (it.sub) openSub(i, e.currentTarget);
               else {
                 clearTimeout(subTm.current);
@@ -798,7 +827,9 @@ function MenuList({
             }}
             onClick={(e) => {
               if (it.sub) {
-                openSub(i, e.currentTarget);
+                focusChild.current = e.detail === 0;
+                if (!focusChild.current && sub?.i === i && !matchMedia('(hover: hover)').matches) setSub(null);
+                else openSub(i, e.currentTarget);
                 return;
               }
               ui.set({ menu: null });
@@ -817,12 +848,14 @@ function MenuList({
   const both = (
     <>
       {node}
-      {sub && (items[sub.i] as MenuItem)?.sub && (
+      {subPresence.shown && shownSub && (items[shownSub.i] as MenuItem)?.sub && (
         <MenuList
-          items={(items[sub.i] as MenuItem).sub!}
-          at={{ x: sub.x, y: sub.y }}
-          side={sub.w}
-          closing={closing}
+          key={shownSub.i}
+          items={(items[shownSub.i] as MenuItem).sub!}
+          at={{ x: shownSub.x, y: shownSub.y }}
+          side={shownSub.w}
+          closing={closing || subPresence.closing}
+          focusOnOpen={focusChild.current}
           onEnter={() => clearTimeout(subTm.current)}
         />
       )}
@@ -842,12 +875,7 @@ export function Toast() {
 }
 export const unknownArtist = () => tx('s.unknownArtist');
 
-/** A turn between views (pages, a library section, a detail): the new one is put in place at once, under the old one,
- *  and once it has been drawn the two cross — the old one fading out, the new one rising in — together with whatever
- *  else answers the same press (the shelves' sliding pill starts on that same frame). Keyed by `k`. Both stand in one
- *  cell while they cross, so the page under them never jumps. (It once waited for the old one to leave before even
- *  building the new one, and started the new one's entrance before it could be drawn: the pill arrived first and the
- *  view came in late, at once — and a cover drawn on its own layer showed before the rest.) */
+/** Fade out the current page before replacing it. Navigation can change the pending destination during that fade. */
 export function Turn({
   k,
   children,
@@ -859,47 +887,38 @@ export function Turn({
   className?: string;
   boxClassName?: string;
 }) {
-  const [cur, setCur] = useState(k),
-    [gone, setGone] = useState<{ k: string; node: ReactNode } | null>(null),
-    last = useRef<ReactNode>(children),
-    box = useRef<HTMLDivElement>(null);
-  // (a new key: the view shown so far becomes the one leaving, as it last was — in the same render, no wait)
-  if (k !== cur) {
-    setGone({ k: cur, node: last.current });
-    setCur(k);
-  }
-  if (k === cur) last.current = children;
+  const [current, setCurrent] = useState({ key: k, entered: false });
+  const last = useRef(children);
+  const destination = useRef(k);
+  const leaving = k !== current.key;
   useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    // (the crossing starts once the new view is on screen: two frames, the first to lay it out and draw it)
-    let r2 = 0,
-      tm = 0;
-    const r1 = requestAnimationFrame(() => {
-      r2 = requestAnimationFrame(() => {
-        el.querySelectorAll<HTMLElement>(':scope > [data-turn]').forEach((c) => {
-          if (c.dataset.turn === 'in') c.removeAttribute('data-pre');
-          else c.dataset.out = '';
-        });
-        tm = window.setTimeout(() => setGone(null), OUT_MS + 140);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(r1);
-      cancelAnimationFrame(r2);
-      clearTimeout(tm);
-    };
-  }, [cur]);
+    destination.current = k;
+    if (!leaving) last.current = children;
+  });
+  useLayoutEffect(() => {
+    if (!leaving) return;
+    const swap = () => setCurrent({ key: destination.current, entered: true });
+    const ms = duration('--t-out');
+    if (!ms) return swap();
+    const timer = window.setTimeout(swap, ms + 48);
+    return () => clearTimeout(timer);
+  }, [leaving]);
   const cls = s.turn + (className ? ' ' + className : '');
   return (
-    <div ref={box} className={s.turnBox + (boxClassName ? ' ' + boxClassName : '')}>
-      {gone && gone.k !== cur && (
-        <div key={gone.k} className={cls} data-turn="out" aria-hidden inert>
-          {gone.node}
-        </div>
-      )}
-      <div key={cur} className={cls} data-turn="in" data-pre="">
-        {children}
+    <div className={s.turnBox + (boxClassName ? ' ' + boxClassName : '')}>
+      <div
+        key={current.key}
+        className={cls}
+        data-turn={leaving ? 'out' : 'in'}
+        data-enter={current.entered || undefined}
+        aria-hidden={leaving || undefined}
+        inert={leaving}
+        onTransitionEnd={(e) => {
+          if (leaving && e.target === e.currentTarget && e.propertyName === 'opacity')
+            setCurrent({ key: destination.current, entered: true });
+        }}
+      >
+        {leaving ? last.current : children}
       </div>
     </div>
   );

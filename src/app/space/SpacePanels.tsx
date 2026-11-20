@@ -2,14 +2,14 @@
 // the play mode, as the classic player card has them. The buttons live in the HUD's player card (a portal into it); the
 // lists open as glass cards above it.
 import { createPortal } from 'react-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import { useStore, trackOf, lib, toast, ui, settings } from '../state';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { setSettings } from '../actions/settings';
 import { Lib, D } from '../bridge';
 import { Icon } from '../ui/icons';
-import { Seg, Cover } from '../ui/kit';
+import { Seg, Cover, usePresence } from '../ui/kit';
 import { NpLyrics } from '../ui/NpLyrics';
 import {
   player,
@@ -128,6 +128,9 @@ export function SpacePanel({ panel, onClose }: { panel: Panel; onClose: () => vo
   const session = useStore(player, (x) => x.session),
     hasLyrics = useStore(player, (x) => x.hasLyrics),
     shownId = useStore(player, (x) => x.shownId || x.id);
+  const last = useRef(panel);
+  if (panel) last.current = panel;
+  const presence = usePresence(!!panel);
   useEffect(() => {
     if (!panel) return;
     const k = (e: KeyboardEvent) => {
@@ -138,20 +141,33 @@ export function SpacePanel({ panel, onClose }: { panel: Panel; onClose: () => vo
   }, [panel, onClose]);
   // (a press anywhere else closes it; the player's buttons open and close it themselves)
   useOutsideClose(!!panel, onClose, '[data-test="space-lyrics"]', '[data-test="space-queue"]', '#p-extra');
-  if (panel === 'lyrics')
-    return <Lyrics key={shownId || ''} onClose={onClose} hasLyrics={hasLyrics} session={session} shownId={shownId} />;
-  if (panel === 'queue') return <Queue onClose={onClose} />;
+  if (!presence.shown) return null;
+  const current = panel || last.current;
+  if (current === 'lyrics')
+    return (
+      <Lyrics
+        key={shownId || ''}
+        onClose={onClose}
+        closing={presence.closing}
+        hasLyrics={hasLyrics}
+        session={session}
+        shownId={shownId}
+      />
+    );
+  if (current === 'queue') return <Queue onClose={onClose} closing={presence.closing} />;
   return null;
 }
 
 // the lyric list, and its editor: the song's lyrics as text (LRC, TTML or plain), saved where the settings say
 function Lyrics({
   onClose,
+  closing,
   hasLyrics,
   session,
   shownId,
 }: {
   onClose: () => void;
+  closing: boolean;
   hasLyrics: boolean;
   session: ReturnType<typeof player.get>['session'];
   shownId: string | null;
@@ -173,7 +189,16 @@ function Lyrics({
     }
   };
   return (
-    <section className={`hud card ${s.panel} ${s.lyr}`} aria-label={tx('s.lyricList')} data-test="space-lyrics">
+    <section
+      className={`hud card ${s.panel} ${s.lyr}`}
+      data-mosaic=""
+      aria-label={tx('s.lyricList')}
+      data-test="space-lyrics"
+      data-ledger=""
+      data-presence=""
+      data-closing={closing || undefined}
+      inert={closing}
+    >
       <header className={s.head}>
         <b>{edit != null ? ts('lyr.edit') : tx('s.lyricList')}</b>
         {edit == null && (
@@ -214,7 +239,7 @@ function Lyrics({
   );
 }
 
-function Queue({ onClose }: { onClose: () => void }) {
+function Queue({ onClose, closing }: { onClose: () => void; closing: boolean }) {
   const p = useStore(player);
   useStore(lib, (x) => x.tracks);
   const [, bump] = useState(0);
@@ -226,7 +251,16 @@ function Queue({ onClose }: { onClose: () => void }) {
   const items = p.queue.map((id, i) => ({ id, i, t: trackOf(id) })).filter((x) => x.t),
     cur = items.findIndex((x) => x.id === p.id);
   return (
-    <section className={`hud card ${s.panel}`} aria-label={tx('s.queue')} data-test="space-queue">
+    <section
+      className={`hud card ${s.panel}`}
+      data-mosaic=""
+      aria-label={tx('s.queue')}
+      data-test="space-queue"
+      data-ledger=""
+      data-presence=""
+      data-closing={closing || undefined}
+      inert={closing}
+    >
       <header className={s.head}>
         <div>
           <b>{tx('s.queue')}</b>

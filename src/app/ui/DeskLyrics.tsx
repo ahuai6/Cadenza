@@ -10,7 +10,7 @@ import s from './DeskLyrics.module.css';
 
 export function DeskLyrics() {
   const [feed, setFeed] = useState<DeskFeed | null>(null),
-    [st, setSt] = useState<DeskState>({ locked: false, size: 34 }),
+    [st, setSt] = useState<DeskState>({ locked: false, size: 34, hovered: false }),
     got = useRef(0),
     box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -48,19 +48,22 @@ export function DeskLyrics() {
     <div
       className={s.desk}
       data-locked={st.locked || undefined}
+      data-hovered={st.hovered || undefined}
       style={{ '--fs': st.size + 'px' } as React.CSSProperties}
     >
       <div className={s.lines} ref={box}>
         {lines.map((L, i) => (
           <p key={L.t + ':' + i} className={s.line} data-now={i === feed!.cur || undefined}>
-            {L.units.some((u) => u.t != null)
-              ? L.units.map((u, k) => (
-                  <span key={k} data-t={u.t ?? undefined}>
-                    {u.c}
-                    {u.sp ? ' ' : ''}
-                  </span>
-                ))
-              : L.text}
+            <span className={s.ink}>
+              {L.units.some((u) => u.t != null)
+                ? L.units.map((u, k) => (
+                    <span key={k} data-t={u.t ?? undefined}>
+                      {u.c}
+                      {u.sp ? ' ' : ''}
+                    </span>
+                  ))
+                : L.text}
+            </span>
           </p>
         ))}
       </div>
@@ -68,6 +71,7 @@ export function DeskLyrics() {
         <nav className={s.tools}>
           <button
             type="button"
+            data-feedback=""
             title={tx('s.desk.lock')}
             aria-label={tx('s.desk.lock')}
             onClick={() => D?.deskOp?.('lock')}
@@ -76,6 +80,7 @@ export function DeskLyrics() {
           </button>
           <button
             type="button"
+            data-feedback=""
             title={tx('s.desk.smaller')}
             aria-label={tx('s.desk.smaller')}
             onClick={() => D?.deskOp?.('smaller')}
@@ -84,6 +89,7 @@ export function DeskLyrics() {
           </button>
           <button
             type="button"
+            data-feedback=""
             title={tx('s.desk.bigger')}
             aria-label={tx('s.desk.bigger')}
             onClick={() => D?.deskOp?.('bigger')}
@@ -92,6 +98,7 @@ export function DeskLyrics() {
           </button>
           <button
             type="button"
+            data-feedback=""
             title={tx('s.desk.close')}
             aria-label={tx('s.desk.close')}
             onClick={() => D?.deskOp?.('close')}

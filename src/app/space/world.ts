@@ -3339,14 +3339,14 @@ export function createWorld(
   }
   let shadowSize = 0;
   // Cadenza's picture-quality modes: as designed; optimised (no second ink scale, half the motes, softer bloom);
-  // lite (no beams' volumes, no bloom, no glass behind the HUD, a quarter of the motes, at most 75 % resolution)
+  // lite (no beams' volumes or bloom, four samples per mosaic block, a quarter of the motes, at most 75 % resolution)
   function quality() {
     const q = S.gfx,
       lite = q === 'lite',
       opt = q === 'optimized';
     shafts.enabled = !lite;
     glow.enabled = !lite && S.dream !== false;
-    uiGlass.enabled = !lite;
+    uiGlass.setLite(lite);
     ink.mat.uniforms.two && (ink.mat.uniforms.two.value = lite || opt ? 0 : 1);
     glow.resolution?.set(innerWidth * (opt ? 0.5 : 1), innerHeight * (opt ? 0.5 : 1));
     if (motes) motes.material.uniforms.keep.value = lite ? 0.25 : opt ? 0.5 : 1;
@@ -4444,6 +4444,7 @@ export function createWorld(
     try {
       renderer.info.reset();
       cullRooms();
+      uiGlass.setFrameTime(now);
       composer.render();
       renderErrors = 0;
     } catch (e) {

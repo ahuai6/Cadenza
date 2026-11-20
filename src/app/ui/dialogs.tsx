@@ -42,7 +42,8 @@ export function addDialogs(more: Record<string, Body>, busy?: () => boolean) {
 
 export function ModalHost() {
   const m = useStore(ui, (x) => x.modal),
-    last = useRef(m);
+    last = useRef(m),
+    dialog = useRef<HTMLDivElement>(null);
   if (m) last.current = m;
   const { shown, closing } = usePresence(!!m),
     cur = m || last.current;
@@ -53,6 +54,19 @@ export function ModalHost() {
       r(null);
     }
   }, [m]);
+  useEffect(() => {
+    const el = dialog.current;
+    if (!m || !el) return;
+    const origin = document.activeElement;
+    const focus = requestAnimationFrame(() => {
+      if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    });
+    return () => {
+      cancelAnimationFrame(focus);
+      if (origin instanceof HTMLElement && origin.isConnected && !origin.closest('[inert]'))
+        origin.focus({ preventScroll: true });
+    };
+  }, [m]);
   if (!shown || !cur) return null;
   const Body = BODIES[cur.kind];
   if (!Body) return null;
@@ -61,11 +75,35 @@ export function ModalHost() {
     <div
       className={s.scrim + ' ' + (ui.get().layer !== 'none' ? 'on-picture' : '')}
       data-closing={closing || undefined}
+      inert={closing}
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !busyCheck()) close(null);
       }}
     >
-      <div data-test="modal" className={s.modal} role="dialog" aria-modal="true" data-kind={cur.kind}>
+      <div
+        data-test="modal"
+        className={s.modal}
+        role="dialog"
+        aria-modal="true"
+        data-kind={cur.kind}
+        ref={dialog}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            if (!busyCheck()) close(null);
+          }
+          if (e.key !== 'Tab') return;
+          const items = [
+            ...e.currentTarget.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex="0"]'),
+          ].filter((item) => !item.matches(':disabled') && item.tabIndex >= 0 && item.getClientRects().length);
+          const index = items.indexOf(document.activeElement as HTMLElement);
+          if (index < 0 || (e.shiftKey ? index === 0 : index === items.length - 1)) {
+            e.preventDefault();
+            items[e.shiftKey ? items.length - 1 : 0]?.focus();
+          }
+        }}
+      >
         <Body m={cur} />
       </div>
     </div>

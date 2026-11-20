@@ -5,7 +5,7 @@ import { UI_FONTS, applyUiFont } from '../uifont';
 import { D, Lib, Infer, type Settings } from '../bridge';
 import { settings, lib, useStore, remember, keep } from '../state';
 import { Icon } from '../ui/icons';
-import { Button, Seg, Toggle, Note, Slider, Dropdown, splitNote } from '../ui/kit';
+import { Button, Seg, Toggle, Note, Slider, Dropdown, splitNote, usePresence } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { neuralStatus, neuralRecheck, DEBUG } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
@@ -61,6 +61,7 @@ export function SettingsView() {
   }, []);
   const set = setSettings;
   const [adv, setAdv] = useState(() => remember('setAdv', false));
+  const advanced = usePresence(adv);
   return (
     <div className={s.settings}>
       <SettingsIndex />
@@ -160,8 +161,13 @@ export function SettingsView() {
           </span>
           <Icon n="chevronDown" size={18} />
         </button>
-        {adv && (
-          <>
+        {advanced.shown && (
+          <div
+            className={s.advancedBody}
+            data-presence=""
+            data-closing={advanced.closing || undefined}
+            inert={advanced.closing}
+          >
             <RhythmGroup st={st} />
             <Group title={tx('s.set.perf')} help={tx('s.set.scaleHelp')}>
               <SettingField k="gfx" />
@@ -183,7 +189,7 @@ export function SettingsView() {
               )}
             </Group>
             <DataGroup />
-          </>
+          </div>
         )}
         <Group title={tx('s.set.about')}>
           <Note>{tx('s.set.aboutText', { v: st.version || '' })}</Note>

@@ -141,219 +141,245 @@
   font-size: 10.5px;
 }
 
-/* the player: the stage's apron, a bar along the whole foot of the window, there under the stage and under the sheet.
-   --stage (layers.ts): 0 the sheet is up, 1 the stage is whole */
+/* The source of the spread is independently scrollable when text or the available height grows. */
+.dock {
+  position: fixed;
+  z-index: var(--z-dock);
+  inset: var(--tb-h) 0 0 auto;
+  width: var(--dock-w);
+  background: var(--dock-ground);
+  overflow: hidden;
+}
+.dock[data-expanding='true'] {
+  background: transparent;
+  pointer-events: none;
+}
+.dockContent {
+  display: grid;
+  height: 100%;
+  grid-template: var(--dock-heading) auto minmax(0, 1fr) / minmax(0, 1fr);
+  padding: var(--dock-block) var(--dock-gutter) 0;
+  gap: var(--dock-gap);
+  opacity: var(--dock-content, 1);
+}
+.dockBody {
+  display: grid;
+  align-content: start;
+  gap: var(--dock-gap);
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+  margin-inline: calc(-1 * var(--dock-gutter));
+  padding: 0 var(--dock-gutter) var(--dock-block);
+}
+.dockHead,
+.dockMeta,
+.dockExtras,
+.dockTransport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.dockHead {
+  font-size: var(--type-note);
+  color: var(--fg-2);
+}
+.dockArtwork {
+  display: block;
+  min-width: 0;
+  width: min(100%, var(--np-cover));
+  margin-inline: auto;
+  border-radius: var(--r-cover-np);
+}
+.dockArtwork > span {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  position: relative;
+  border-radius: var(--r-cover-np);
+  box-shadow: var(--shadow-art);
+  overflow: clip;
+}
+.dockArtwork > span {
+  opacity: var(--dock-cover, 1);
+}
+.dockMeta > div {
+  min-width: 0;
+  flex: 1;
+}
+.dockTitle {
+  font: 750 clamp(23px, 2vw, 31px) / 1.15 var(--font-book);
+  color: var(--fg);
+}
+.dockByline {
+  color: var(--fg-2);
+  font-size: var(--type-note);
+  margin-top: 4px;
+}
+.dockTransport {
+  justify-content: center;
+  gap: clamp(4px, 1vw, 12px);
+}
+.dockExtras {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.dockExtras .vol input {
+  width: clamp(42px, 8vw, 116px);
+}
+.compactExpand {
+  display: none;
+}
+.dockLyrics {
+  position: relative;
+  min-height: clamp(112px, 14vh, 148px);
+  min-width: 0;
+}
+
 .card {
   --stage: 0;
   position: fixed;
-  z-index: 60;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--card-h);
+  z-index: var(--z-player);
+  inset: auto var(--gutter) 0;
+  min-height: var(--card-h);
   display: grid;
-  grid-template-rows: 18px 1fr;
-  padding: 0 22px 6px;
-  box-sizing: border-box;
+  grid-template-rows: 24px 1fr;
+  padding-block-end: max(4px, env(safe-area-inset-bottom));
   color: var(--fg);
+  opacity: clamp(0, (var(--stage) - 0.44) * 2, 1);
+  transform: translateY(calc((1 - var(--stage)) * 8px));
 }
-/* the bar's paper: the sheet's own colour, changing with the song on the sheet's own timing (a bar that changed at
-   once would show a seam against the sheet for as long as the sheet's colour takes), and fading as the stage comes up */
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: var(--sheet-bg);
-  /* (gone by the time the stage is a third of the way up, its top edge softening as it goes: in motion the paper is
-     never a band with a hard edge over the stage) */
-  opacity: clamp(0, 1 - var(--stage) * 3, 1);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--stage) * 120px));
-  mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--stage) * 120px));
-  transition: background var(--t-song) var(--ease);
-}
-/* (full screen on the play page, the pointer still: away with the page's controls, back on any movement) */
-.card {
-  transition: opacity var(--t-reveal) var(--ease);
+.card[inert],
+.card[data-idle] {
+  pointer-events: none;
 }
 .card[data-idle] {
   opacity: 0;
-  pointer-events: none;
-  cursor: none;
 }
-:global(html[data-layer='fx']) .card,
 :global(html[data-fxmode='true']) .card {
   visibility: hidden;
 }
-/* the progress: one line along the bar's top edge, the times at its ends */
 .line {
   align-self: start;
-  margin-top: -9px;
 }
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  min-height: 0;
 }
-/* the song, small: only while the sheet is up (the stage says it otherwise) */
-.id {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-  opacity: calc(1 - var(--stage) * 1.6);
-}
-.card[data-stage='true'] .id,
-.card[data-stage='true'] .barLyr {
-  pointer-events: none;
-}
-.miniBtn {
-  flex: none;
-  display: grid;
-  padding: 0;
-  line-height: 0;
-  border-radius: var(--r-1);
-  cursor: pointer;
-}
-.miniBtn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus);
-}
-.mini {
-  width: 52px;
-  height: 52px;
-  border-radius: var(--r-1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  flex: none;
-  display: block;
-  transition:
-    transform var(--t-med) var(--ease),
-    box-shadow var(--t-med) var(--ease);
-}
-.mini .mini {
-  transition: none;
-  box-shadow: none;
-}
-.miniBtn:hover > .mini {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-}
-.miniBtn:active > .mini {
-  transform: scale(0.97);
-}
-.text {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-  width: min(280px, 22vw);
-}
-/* (the song's title and artist never end in an ellipsis: too long, they scroll — Marquee) */
-.tTitle {
-  font-weight: 620;
-  font-size: 14.5px;
-}
-.tArtist {
-  color: var(--fg-3);
-  font-size: 12.5px;
-}
-/* the transport, on the window's centre line: the mode before it, as much room after it */
-.center {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-}
-.even {
-  width: 36px;
-}
-.center .playb {
-  width: 48px;
-  height: 48px;
-}
-/* the right side: the line being sung, then the queue and the favourite */
-.right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 0;
-}
-.barLyr {
-  opacity: calc(1 - var(--stage) * 1.6);
-  flex: 1;
-  min-width: 0;
-  position: relative;
-  height: 40px;
-  margin: 0 8px 0 28px;
-  overflow: hidden;
-}
-.barLine {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  animation: barIn var(--t-slow) var(--ease) both;
-}
-@keyframes barIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-}
-/* (one that fits stands centred in its room; one too long starts at the left and scrolls — Marquee — the same box, so the
-   change from one to the other is only where it begins) */
-.barMq {
-  width: 100%;
-  text-align: center;
-  font-size: 13.5px;
-  font-weight: 560;
-  color: var(--fg-2);
-}
-.barMq[data-run] {
-  text-align: left;
-}
+.center,
 .end {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px;
-  flex: none;
-  /* (the last icon's glyph — not its round hit area — on the bar's right edge, under the progress's end time, as the
-     cover's edge is under its start time) */
-  margin-right: -10px;
+}
+.center {
+  justify-content: center;
+}
+.even {
+  width: var(--hit);
+}
+.right {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.end {
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 .end > .vol input {
-  width: 96px;
+  width: clamp(45px, 7vw, 110px);
 }
-@media (max-width: 1100px) {
+.spreadLeft {
+  min-width: 0;
+}
+@media (max-width: 1000px), (max-height: 675px) {
+  .dock {
+    inset: auto 0 0;
+    width: 100%;
+    height: var(--dock-compact);
+    overflow: clip;
+  }
+  .dockContent {
+    grid-template-rows: 1fr;
+    grid-template-columns: 52px minmax(0, 1fr) auto auto;
+    align-items: center;
+    padding: 6px var(--gutter);
+  }
+  .dockBody {
+    display: contents;
+  }
+  .dockHead,
+  .dockExtras,
+  .dockBody > .prog,
+  .dockBody > .dockLyrics {
+    display: none;
+  }
+  .dockArtwork {
+    width: 52px;
+  }
+  .dockTitle {
+    font-size: 19px;
+  }
+  .compactExpand {
+    display: inline-flex;
+  }
+}
+@media (max-width: 620px) {
+  .compactExpand,
+  .dockMeta > button {
+    display: none;
+  }
+  .dockContent {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+  .dockArtwork {
+    width: 48px;
+  }
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px;
+  }
+  .center > .even,
   .end > .vol input {
     display: none;
+  }
+}
+@media (max-width: 450px) {
+  .card {
+    inset-inline: 8px;
+  }
+  .card .end {
+    gap: 0;
+  }
+  .spreadLeft {
+    display: none;
+  }
+  .row {
+    grid-template-columns: 1fr auto;
   }
 }
 
 /* the queue: rows on one grid with the header, so every edge lines up */
 .queue {
   position: fixed;
-  z-index: 70;
-  width: 392px;
+  z-index: var(--z-panel);
+  --queue-width: min(392px, calc(100vw - 24px));
+  width: var(--queue-width);
   max-height: min(620px, calc(100vh - 140px));
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-radius: var(--r-xl);
   overflow: hidden;
-  transform-origin: var(--ox, 100%) var(--oy, 100%);
-  opacity: 0;
-}
-.qhead {
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 10px;
 }
 .qhead {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 14px 10px;
+  padding: 16px 14px 14px;
 }
 .qhead > div {
   display: grid;
@@ -370,9 +396,10 @@
   font-size: 12px;
 }
 .qmodes {
-  padding: 0 14px 10px;
-}
-.qmodes {
+  margin: 0 8px 10px;
+  padding: 7px 6px 9px;
+  border-radius: var(--r-2);
+  background: var(--hover);
   display: grid;
   gap: 7px;
 }
@@ -482,20 +509,6 @@
 }
 
 /* the Hi-Fi switch: in the bar's left corner over the stage (the song's own corner there has faded), coming with it */
-.row {
-  position: relative;
-}
-.hifiQuick {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  opacity: clamp(0, var(--stage) * 2 - 1, 1);
-  pointer-events: none;
-}
-.card[data-stage='true'] .hifiQuick {
-  pointer-events: auto;
-}
 .hifiSw {
   display: inline-flex;
   align-items: center;

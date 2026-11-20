@@ -5,7 +5,7 @@ import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match } from '../state';
 import { player, playIds, enqueue, setMode, shufflePick } from '../playback/player';
 import { Icon } from '../ui/icons';
-import { Button, IconButton, Cover, Mosaic, Empty, Dropdown, Turn } from '../ui/kit';
+import { Button, IconButton, Cover, Mosaic, Empty, Dropdown, Turn, Seg } from '../ui/kit';
 import { LiveEq } from '../ui/LiveEq';
 import { quality, QualityTag } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
@@ -29,7 +29,7 @@ export function LibraryView() {
     tracks = useStore(lib, (x) => x.tracks),
     favorites = useStore(lib, (x) => x.favorites),
     idx = useIndex();
-  const section = useStore(ui, (x) => x.section) || (favorites.length ? 'favorites' : 'songs');
+  const section = useStore(ui, (x) => x.section);
   const detail = useStore(ui, (x) => x.detail),
     search = useStore(ui, (x) => x.search)
       .trim()
@@ -60,7 +60,7 @@ export function LibraryView() {
                   kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}
                 />
               )}
-              {section === 'playlists' && <Playlists idx={idx} search={search} />}
+              {section === 'playlists' && <Playlists search={search} />}
               {section === 'songs' && (
                 <Songs
                   tracks={tracks}
@@ -68,7 +68,7 @@ export function LibraryView() {
                   kicker={[tx('s.library'), ...shelfFacts(section, idx, tracks, favorites, pls.length)].join(' · ')}
                 />
               )}
-              {section === 'albums' && <AlbumLine items={idx.albums.filter((a) => match(search, a.name, a.artist))} />}
+              {section === 'albums' && <Albums items={idx.albums.filter((a) => match(search, a.name, a.artist))} />}
               {section === 'artists' && (
                 <CardGrid items={idx.artists.filter((a) => match(search, a.name))} kind="artist" />
               )}
@@ -116,10 +116,7 @@ function Shelves({ section }: { section: string }) {
             type="button"
             data-section={k}
             aria-current={section === k ? 'page' : undefined}
-            onClick={() => {
-              ui.set({ section: k, detail: null });
-              keep('section', k);
-            }}
+            onClick={() => ui.set({ section: k, detail: null })}
           >
             {tx(label)}
           </button>
@@ -321,15 +318,23 @@ export const TrackList = memo(function TrackList({
             onPointerDown={(e) => down(e, i)}
             onDoubleClick={() => play(t)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') play(t);
+              if (e.key === 'Enter' && e.currentTarget === e.target) play(t);
             }}
             onContextMenu={(e) => trackMenu(e, t, shown, playlist)}
           >
             <span className={s.grip} aria-hidden="true">
-              {onReorder && <Icon n="grip" size={15} />}
+              {onReorder ? (
+                <Icon n="grip" size={15} />
+              ) : isCur ? (
+                <Icon n="play" size={13} />
+              ) : numbered ? (
+                t.track || i + 1
+              ) : (
+                i + 1
+              )}
             </span>
             <span className={s.lead}>
-              {numbered ? <span className={s.num}>{t.track || i + 1}</span> : <Cover k={t.cover} />}
+              <Cover k={t.cover} />
               {isCur && playing ? (
                 <span className={s.playOver} style={{ opacity: 1 }}>
                   <LiveEq />
@@ -364,7 +369,7 @@ export const TrackList = memo(function TrackList({
               )}
             </span>
             {t.protected ? (
-              <span />
+              <span className={s.qadd} />
             ) : (
               <IconButton
                 n="plus"
@@ -423,35 +428,35 @@ function Favorites({ idx, search, kicker }: { idx: Idx; search: string; kicker: 
     </>
   );
 }
-function Playlists({ idx, search }: { idx: Idx; search: string }) {
+function Playlists({ search }: { search: string }) {
   const pls = useStore(lib, (x) => x.playlists).filter((p) => match(search, p.name));
   const create = async () => {
     const name = await askText(tx('s.newPlaylist'), tx('s.plName'), tx('s.untitledPl'));
     if (name != null) Lib!.playlist('create', name || tx('s.untitledPl'), []);
   };
   return (
-    <div className={s.cards + ' stagger'}>
-      <button type="button" className={s.card + ' ' + s.newCard} onClick={create}>
-        <span>
-          <Icon n="plus" size={30} />
-        </span>
-        <b>{tx('s.newPlaylist')}</b>
-      </button>
+    <div className={s.playlists}>
       {pls.map((p, pi) => (
-        <div key={p.id} className={s.cardWrap} style={{ '--i': pi } as React.CSSProperties}>
-          <CardPlay ids={p.tracks} />
+        <div key={p.id} className={s.playlistRow} style={{ '--i': pi } as React.CSSProperties}>
           <button
             type="button"
-            className={s.card}
+            className={s.playlistName}
             onClick={() => ui.set({ detail: { kind: 'playlist', key: p.id } })}
             onContextMenu={(e) => openMenu(e, menuFor({ kind: 'playlist', id: p.id, name: p.name, ids: p.tracks }))}
           >
-            <Mosaic keys={p.tracks.map((id) => idx.byId.get(id)?.cover || null)} />
             <b>{p.name}</b>
             <small>{tx('s.tracks', { n: p.tracks.length })}</small>
           </button>
+          <IconButton
+            n="more"
+            label={tx('s.more')}
+            onClick={(e) => openMenu(e, menuFor({ kind: 'playlist', id: p.id, name: p.name, ids: p.tracks }))}
+          />
         </div>
       ))}
+      <Button icon="plus" onClick={create}>
+        {tx('s.newPlaylist')}
+      </Button>
     </div>
   );
 }
@@ -472,6 +477,33 @@ function CardPlay({ ids }: { ids: string[] }) {
   );
 }
 /* ---------- albums, artists, genres ---------- */
+function Albums({ items }: { items: Idx['albums'] }) {
+  const [view, setView] = useState<'grid' | 'line'>(() => remember('albumView', 'grid'));
+  return (
+    <>
+      <ShelfHead
+        title={tx('s.albums')}
+        kicker={tx('s.tracks', { n: items.reduce((count, album) => count + album.tracks.length, 0) })}
+        actions={
+          <Seg
+            label={tx('s.wall.layout')}
+            value={view}
+            options={[
+              ['grid', tx('s.wall.grid')],
+              ['line', tx('s.album.timeline')],
+            ]}
+            onChange={(next) => {
+              setView(next);
+              keep('albumView', next);
+            }}
+          />
+        }
+      />
+      <Turn k={view}>{view === 'line' ? <AlbumLine items={items} /> : <CardGrid items={items} kind="album" />}</Turn>
+    </>
+  );
+}
+
 function CardGrid({ items, kind }: { items: Idx['albums']; kind: 'album' | 'artist' | 'genre' }) {
   if (!items.length) return <Empty title={tx('s.empty.results')} icon="search" />;
   return (
@@ -585,12 +617,6 @@ function Detail({
     dur = tracks.reduce((a, t) => a + (t.duration || 0), 0);
   return (
     <div className={s.detail}>
-      {/* (the cover's own colours, softly, behind the head of the page) */}
-      {cover && !round && (
-        <div className={s.glow} aria-hidden="true">
-          <Cover k={cover} full />
-        </div>
-      )}
       <div className={s.back}>
         <Button kind="ghost" size="sm" icon="chevronLeft" onClick={() => ui.set({ detail: null })}>
           {tx('s.back')}

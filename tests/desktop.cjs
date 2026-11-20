@@ -15,6 +15,23 @@ let failed = 0;
 // the song panel's 外觀與風格 page, with its Advanced open (the knobs, one's own styles and the effects are under it)
 // the look & style page, on one of its four tabs (3.5.0: 外觀 / 風格 / 進階 / 特效)
 async function openStyle(sp, page = '外觀') {
+  // The effect panel can retract while a screenshot or style transition is in progress.
+  const win = sp.page(),
+    { width, height } = win.viewportSize();
+  if ((await sp.getAttribute('data-open')) !== 'true') {
+    await win.mouse.move(width / 2, height - 60);
+    await win.locator('[data-test=fx-bar]').getByRole('button', { name: '這首歌的特效歌詞' }).click();
+  }
+  await win.mouse.move(width - 32, height / 2);
+  await win.waitForFunction(
+    () => {
+      const el = document.querySelector('[data-test=song-panel]');
+      return el?.dataset.open === 'true' && getComputedStyle(el).transform === 'none';
+    },
+    null,
+    { timeout: 2500 },
+  );
+  await win.mouse.move(width - 170, height / 2);
   await sp.getByRole('tab', { name: '外觀與風格', exact: true }).click();
   await new Promise((r) => setTimeout(r, 300));
   await sp.getByRole('tab', { name: page, exact: true }).click();
@@ -43,7 +60,7 @@ const ok = (name, pass, detail) => {
   );
   fs.writeFileSync(
     path.join(prof, 'settings.json'),
-    JSON.stringify({ theme: process.argv[3] || 'dark', lang: 'zh-Hant' }),
+    JSON.stringify({ theme: process.argv[3] || 'dark', lang: 'zh-Hant', rhythmEngine: 'dsp' }),
   );
   const app = await electron.launch({
     executablePath: require(path.join(ROOT, 'node_modules', 'electron')),
@@ -63,11 +80,13 @@ const ok = (name, pass, detail) => {
   let probing = false; // (probing: the 404 the model route's own check asks for)
   win.on('pageerror', (e) => errs.push(e.message));
   win.on('console', (m) => {
-    if (m.type() === 'error' && !/Autofill/.test(m.text()) && !(probing && /404/.test(m.text()))) errs.push(m.text());
+    if (m.type() === 'error' && !/Autofill/.test(m.text()) && !(probing && /404/.test(m.text())))
+      errs.push(m.text() + (m.location().url ? ' ' + m.location().url : ''));
   });
   await win.setViewportSize({ width: 1440, height: 900 }).catch(() => {});
   const shot = (n) => win.screenshot({ path: path.join(SHOTS, `cz-${n}.png`) });
   const W = (ms) => win.waitForTimeout(ms);
+  const expand = () => win.locator('[data-test=dock-cover]').locator('..').click();
   const C = (f, a) => win.evaluate(f, a);
   const layerIs = (l, ms = 8000) =>
     win
@@ -189,18 +208,37 @@ const ok = (name, pass, detail) => {
       cached.spec === 6,
     JSON.stringify(cached),
   );
-  // (3.1: with a song to show, the app opens on it — the stage is home; the library is one press away, in the title bar)
-  if (await C(() => window.__cadenza.ui.get().layer !== 'none')) {
-    await shot('opens-on-stage');
-    await win.locator('[data-test=places]').getByRole('button', { name: '音樂庫', exact: true }).click();
-    ok('places: from the stage, the library rises', await layerIs('none'));
-  }
+  await win.waitForFunction(() => !!window.__cadenza.player.get().shownId);
+  ok(
+    'startup: restores a paused track in the dock with the library in front',
+    (await layerIs('none')) &&
+      (await C(() => !window.__cadenza.player.get().playing)) &&
+      (await win.locator('[data-test=dock-cover]').isVisible()),
+  );
+  ok(
+    'startup: Songs is selected by default',
+    (await win.locator('[data-test=shelves] [aria-current="page"]').getAttribute('data-section')) === 'songs',
+  );
+  await win.emulateMedia({ reducedMotion: 'reduce' });
+  const dockQueue = win.locator('[data-test=listening-dock] [data-queue-button]');
+  await dockQueue.click();
+  const reducedQueue = await C(() => {
+    const el = document.querySelector('[data-test=queue]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      opacity: getComputedStyle(el).opacity,
+      onScreen: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth,
+    };
+  });
+  ok('queue: opens visibly from the dock with reduced motion', reducedQueue?.opacity === '1' && reducedQueue.onScreen);
+  await dockQueue.click();
+  await win.emulateMedia({ reducedMotion: 'no-preference' });
   await win.locator('[data-test=shelves]').getByRole('button', { name: '歌曲', exact: true }).click();
   await W(500);
   await shot('songs');
   ok(
-    // (3.1: the sections are a row of pills at the head of the sheet, the sidebar is gone)
-    "shelves: the library's sections as a row of pills, the chosen one marked",
+    "shelves: the library's sections as chapters, the chosen one marked",
     (await win
       .locator('[data-test=shelves]')
       .getByRole('button', { name: '歌曲', exact: true })
@@ -220,6 +258,28 @@ const ok = (name, pass, detail) => {
   await win.locator('[data-test=shelves]').getByRole('button', { name: '專輯', exact: true }).click();
   await W(400);
   await shot('albums');
+  const pages = await C(() => {
+    const tab = (label) =>
+      [...document.querySelectorAll('[data-test=shelves] button')].find((b) => b.textContent.trim() === label);
+    return new Promise((resolve) => {
+      const frames = [];
+      tab('歌曲').click();
+      setTimeout(() => tab('演出者').click(), 45);
+      setTimeout(() => tab('類型').click(), 80);
+      const start = performance.now();
+      const check = () => {
+        frames.push([...document.querySelectorAll('[data-test=sheet] h1')].map((e) => e.textContent.trim()));
+        if (performance.now() - start < 420) requestAnimationFrame(check);
+        else resolve(frames);
+      };
+      requestAnimationFrame(check);
+    });
+  });
+  ok(
+    'shelves: headings never stack and rapid switching lands on the latest tab',
+    pages.every((frame) => frame.length <= 1) && pages.at(-1)?.[0] === '類型',
+    JSON.stringify([...new Set(pages.flat())]),
+  );
   await win.locator('[data-test=shelves]').getByRole('button', { name: '歌曲', exact: true }).click();
   await W(300);
 
@@ -244,7 +304,7 @@ const ok = (name, pass, detail) => {
     JSON.stringify(p1),
   );
   await shot('playing');
-  // the bar's own line: the line being sung, its words alone; a line that fits stands centred in its room
+  // the dock uses the same timed words and line layout as the full reading page, aligned with its song information
   {
     await win
       .waitForFunction(
@@ -261,19 +321,25 @@ const ok = (name, pass, detail) => {
         t = window.__cadenza.engine.time,
         L = [...s.doc.lines].reverse().find((l) => l.t - 0.15 <= t),
         box = document.querySelector('[data-test=bar-lyric]'),
-        tx = box && box.textContent.trim();
+        line = box?.querySelector('[data-test=line][data-on="true"]'),
+        tx = line?.textContent.trim();
       const b = box && box.getBoundingClientRect(),
-        inner = box && box.querySelector('span span span'),
+        inner = line?.querySelector('[data-w]'),
         ir = inner && inner.getBoundingClientRect();
       return {
         shown: tx,
         want: L && L.text,
-        centred: ir && b ? Math.abs(ir.left + ir.width / 2 - (b.left + b.width / 2)) : null,
+        rows: box?.querySelectorAll('[data-test=line]').length,
+        inside: ir && b ? ir.left >= b.left - 1 && ir.left < b.right : false,
       };
     });
     ok(
-      'player bar: the line being sung, centred in its room',
-      !!r.shown && !!r.want && r.want.startsWith(r.shown) && (r.centred ?? 99) <= 3,
+      'listening dock: timed lyrics with multiple lines stay in their column',
+      !!r.shown &&
+        !!r.want &&
+        r.shown.replace(/\s/g, '').startsWith(r.want.replace(/\s/g, '')) &&
+        r.inside &&
+        r.rows > 1,
       JSON.stringify(r),
     );
   }
@@ -288,10 +354,35 @@ const ok = (name, pass, detail) => {
     }
     let lines = [],
       locked = false,
+      tools = false,
+      shadow = false,
       gone = false;
     if (desk) {
       await desk.waitForSelector('p', { timeout: 8000 }).catch(() => {});
       lines = await desk.$$eval('p', (ps) => ps.map((p) => p.textContent));
+      await app.evaluate(({ BrowserWindow, screen }) => {
+        const overlay = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().endsWith('#desk'));
+        const b = overlay.getBounds();
+        const original = screen.getCursorScreenPoint;
+        screen.getCursorScreenPoint = () => ({ x: b.x + 30, y: b.y + Math.round(b.height / 2) });
+        setTimeout(() => {
+          screen.getCursorScreenPoint = original;
+        }, 2200);
+      });
+      tools = await desk
+        .waitForFunction(() => getComputedStyle(document.querySelector('nav')).opacity === '1')
+        .then(
+          () => true,
+          () => false,
+        );
+      shadow = await desk
+        .locator('p')
+        .first()
+        .evaluate((p) => {
+          const s = getComputedStyle(p);
+          return s.overflow === 'visible' && s.filter.startsWith('drop-shadow');
+        });
+      await desk.screenshot({ path: path.join(SHOTS, 'cz-desktop-lyrics.png') });
       await desk.evaluate(() => window.cadenzaDesktop.deskOp('lock'));
       await W(500);
       locked = await C(() => window.__cadenza.settings.get().deskLock === true);
@@ -302,9 +393,9 @@ const ok = (name, pass, detail) => {
       }
     }
     ok(
-      'desktop lyrics: their own window shows the lines, locks from its button, and closes',
-      !!desk && lines.length >= 1 && lines.length <= 3 && lines[0].length > 0 && locked && gone,
-      JSON.stringify({ desk: !!desk, lines, locked, gone }),
+      'desktop lyrics: show unclipped shadows and controls from the drag area, lock, and close',
+      !!desk && lines.length >= 1 && lines.length <= 3 && lines[0].length > 0 && tools && shadow && locked && gone,
+      JSON.stringify({ desk: !!desk, lines, tools, shadow, locked, gone }),
     );
   }
   // a song change while the bar shows a late line of the last song, into one with fewer lines (here none): the bar must
@@ -365,7 +456,7 @@ const ok = (name, pass, detail) => {
     window.__cadenza.engine.seek(0);
   });
   await W(300);
-  const pb = await win.locator('[data-test=card] [data-test=progress]').boundingBox();
+  const pb = await win.locator('[data-test=listening-dock] [data-test=progress]').boundingBox();
   const speck = await win.screenshot({ clip: { x: pb.x, y: pb.y + pb.height / 2 - 4, width: 12, height: 8 } });
   const bright = await C(async (b64) => {
     const im = new Image();
@@ -381,67 +472,83 @@ const ok = (name, pass, detail) => {
     for (let i = 0; i < d.length; i += 4) m = Math.max(m, (d[i] + d[i + 1] + d[i + 2]) / 3);
     return m;
   }, speck.toString('base64'));
-  ok('progress: no white specks at the start of the bar', bright < 150, `brightest ${bright.toFixed(0)}`);
+  ok(
+    'progress: the unfilled ink track has no bright artefacts',
+    bright < (process.argv[3] === 'light' ? 253 : 150),
+    `brightest ${bright.toFixed(0)}`,
+  );
   await C(() => window.__cadenza.engine.play());
 
   /* ---------- the card opens into now playing: one progress, reversible at any moment ---------- */
-  await win.locator('[data-test=card]').getByTitle('展開').first().click();
-  await W(140);
-  // (3.1: the cover no longer flies. The sheet — the library's paper — slides away below the window while the stage comes
-  // forward from behind it, both on the one progress; each is moved by a transform alone)
+  await expand();
+  await win.waitForFunction(() => {
+    const progress = window.__cadenza.layers.npProgress();
+    return progress > 0.16 && progress < 0.9;
+  });
   const mid = await C(() => {
-    const st = document.querySelector('[data-test=stage]'),
-      np = document.querySelector('[data-test=np]'),
-      sheet = document.querySelector('[data-test=sheet]'),
-      m = (el) => new DOMMatrix(getComputedStyle(el).transform);
+    const c = window.__cadenza,
+      find = (name) => document.querySelector('[data-test="' + name + '"]'),
+      dock = find('listening-dock').getBoundingClientRect(),
+      origin = find('dock-cover').getBoundingClientRect(),
+      cover = find('np-cover').getBoundingClientRect(),
+      sheet = find('sheet').getBoundingClientRect(),
+      spread = find('spread-surface'),
+      edge = spread.style.clipPath.slice(6, -1).split(' ').map(parseFloat);
     return {
-      p: window.__cadenza.layers.npProgress(),
-      sheetY: Math.round(m(sheet).m42),
-      stageScale: +m(st).a.toFixed(3),
-      npScale: +m(np).a.toFixed(3),
-      stageLight: +(+getComputedStyle(st).opacity).toFixed(2),
-      clips: [st.style.clipPath, np.style.clipPath, sheet.style.clipPath].filter(Boolean).length,
+      p: c.layers.npProgress(),
+      left: edge[3],
+      top: edge[0],
+      chrome: find('titlebar').getBoundingClientRect().bottom,
+      headerShade: +find('titlebar').style.getPropertyValue('--header-shade'),
+      dock: dock.left,
+      cover: cover.left,
+      from: origin.left,
+      deltaY: cover.top + cover.height / 2 - origin.top - origin.height / 2,
+      sheet: sheet.left,
+      paperStill: getComputedStyle(find('sheet')).transform === 'none',
+      sourceHidden: getComputedStyle(find('dock-cover')).opacity === '0',
+      opening: spread.dataset.vis,
     };
   });
-  await shot('np-opening');
+  await win.keyboard.press('Escape');
+  await W(140);
+  const rev = await C(() => window.__cadenza.layers.npProgress());
   ok(
-    'opening: the sheet slides away as the stage comes forward, on one progress, by transforms alone (no clip-path)',
-    mid.p > 0.05 &&
-      mid.p < 0.98 &&
-      Math.abs(mid.sheetY - mid.p * 900) <= 60 &&
-      mid.stageScale >= 0.9 &&
-      mid.stageScale < 1 &&
-      mid.npScale === mid.stageScale &&
-      mid.stageLight > 0.18 &&
-      mid.stageLight < 1 &&
-      mid.clips === 0,
+    'opening: the dock grows left, the artwork moves horizontally, the library holds still',
+    mid.p > 0 &&
+      mid.p < 1 &&
+      Math.abs(mid.left - mid.dock * (1 - mid.p)) < 2 &&
+      Math.abs(mid.top - mid.chrome) < 0.1 &&
+      mid.headerShade > 0 &&
+      mid.headerShade < 1 &&
+      mid.cover < mid.from &&
+      Math.abs(mid.deltaY) < 0.75 &&
+      mid.paperStill &&
+      mid.sheet === 0 &&
+      mid.sourceHidden &&
+      mid.opening === 'true',
     JSON.stringify(mid),
   );
-  // (where it is the moment it is turned round: the screenshot above takes a while, and the opening goes on meanwhile)
-  const at = await C(() => window.__cadenza.layers.npProgress());
-  await win.keyboard.press('Escape');
-  await W(120);
-  const rev = await C(() => window.__cadenza.layers.npProgress());
   const closed = await layerIs('none');
   const after = await C(() => ({
     np: document.querySelector('[data-test=np]').dataset.vis,
     stage: document.querySelector('[data-test=stage]').dataset.vis,
     view: window.__cadenza.engine.view,
-    mini: document.querySelector('[data-test=card] span span').style.visibility,
+    source: getComputedStyle(document.querySelector('[data-test=dock-cover]')).opacity,
   }));
   ok(
-    'reversed half-way: it turns round from where it is and closes completely (nothing left stuck)',
-    rev < at + 0.12 &&
+    'reversed half-way: the spread contracts and hands the artwork back to the dock',
+    rev < 0.99 &&
       closed &&
       after.np === 'false' &&
       after.stage === 'false' &&
       after.view === 'hidden' &&
-      after.mini === '',
-    JSON.stringify({ mid: mid.p, at, rev, ...after }),
+      after.source === '1',
+    JSON.stringify({ mid: mid.p, rev, ...after }),
   );
-  await win.locator('[data-test=card]').getByTitle('展開').first().click();
+  await expand();
   ok('now playing: open', await layerIs('np'));
-  await W(400);
+  await win.waitForSelector('[data-test=np] [data-test=line][data-on="true"]', { timeout: 12000 });
   await shot('nowplaying');
   const np = await C(() => ({
     lines: document.querySelectorAll('[data-test=np] [data-test=line]').length,
@@ -721,11 +828,28 @@ const ok = (name, pass, detail) => {
     await hex.press('Enter');
     await W(400);
     const bg = await C(() => window.__cadenza.player.get().session.style.bg);
+    // Keep the colour-picking session open while asserting its cover. Native EyeDropper can cancel when an OS window
+    // takes focus, even after a successful click; the assertion here is about Cadenza's overlay during the session.
+    await C(() => {
+      const original = window.EyeDropper;
+      window.EyeDropper = class {
+        open() {
+          return new Promise((_, reject) => {
+            window.finishEyeDropperCheck = () => {
+              window.EyeDropper = original;
+              delete window.finishEyeDropperCheck;
+              reject(new DOMException('Test picker closed', 'AbortError'));
+            };
+          });
+        }
+      };
+    });
     await pop.getByRole('button', { name: /螢幕吸色/ }).click();
     await W(400);
     await shot('fx-colorpick');
     const coverUp = await pop.locator('img').count();
-    await C(() => document.querySelector('[data-test=song-panel] button[aria-haspopup="dialog"]').click());
+    await C(() => window.finishEyeDropperCheck?.());
+    await fieldBtn.click();
     await W(300); // (closed from its own swatch: the panel stays)
     const closed = (await pop.count()) === 0;
     await C((v) => window.__cadenza.api.editSong((s) => s.setStyle('bg', v)), bg0); // (the song's colour as it was, for what follows)
@@ -1234,15 +1358,11 @@ const ok = (name, pass, detail) => {
       close: !!(hit && b.contains(hit)),
     };
   });
-  // (3.1: the layout's lines — docs/DESIGN.md, 版面: the stage's cover on the ¼ line and its lyrics from the ½ line, as
-  // before; the bar's transport on the ½ line; the bar's small cover now at the bar's left end, not on the ¼ line)
   {
-    const L = npEdge.lines,
-      q = L.W / 4,
-      h = L.W / 2;
+    const L = npEdge.lines;
     ok(
-      "layout lines: the stage's cover on the ¼ line, its lyrics from the ½ line; the bar's transport on the ½ line",
-      Math.abs(npEdge.coverCx - q) <= 2 && Math.abs(L.lyricsX - h) <= 2 && Math.abs(L.barMid - h) <= 2,
+      'spread layout: the artwork is left of the reading column and transport is centred',
+      npEdge.coverCx < L.W * 0.45 && L.lyricsX > L.W * 0.46 && Math.abs(L.barMid - L.W / 2) <= 10,
       JSON.stringify({ ...L, coverCx: npEdge.coverCx }),
     );
   }
@@ -1505,7 +1625,7 @@ const ok = (name, pass, detail) => {
   {
     const sts = [];
     sts.push(['library', await dragHits()]);
-    await win.locator('[data-test=card]').getByTitle('展開').first().click();
+    await expand();
     await layerIs('np');
     sts.push(['now playing', await dragHits()]);
     await win.getByRole('button', { name: '特效歌詞' }).click();
@@ -1679,6 +1799,9 @@ const ok = (name, pass, detail) => {
   // the native runtime for the rhythm engine's networks (ONNX Runtime in a utility process): its settings shown; with
   // CADENZA_NATIVE_MODELS (the models already there) one Beat This! window really runs through it, on the CPU here
   {
+    // Keep the fixture's beat grid stable during playback, then enable the settings being exercised here.
+    await C(() => window.__cadenza.setSettings({ rhythmEngine: 'auto' }));
+    await win.getByRole('radio', { name: '本機加速（自動）' }).first().waitFor({ state: 'visible' });
     const st = await C(() => window.cadenzaInfer.status()),
       have = !!process.env.CADENZA_NATIVE_MODELS;
     const rows = {
@@ -1775,27 +1898,34 @@ const ok = (name, pass, detail) => {
     const white = await C(() => ({
       tone: document.documentElement.dataset.tone,
       bg: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim(),
+      dock: getComputedStyle(document.querySelector('[data-test=listening-dock]')).backgroundColor,
     }));
     await win.getByRole('radio', { name: '紙色' }).click();
     await W(400);
     const paper = await C(() => ({
       tone: document.documentElement.dataset.tone,
       bg: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim(),
+      dock: getComputedStyle(document.querySelector('[data-test=listening-dock]')).backgroundColor,
     }));
+    await win.locator('[data-test=listening-dock] [data-queue-button]').click();
+    const queueFill = await win.locator('[data-test=queue]').evaluate((el) => getComputedStyle(el).backgroundColor);
+    await win.keyboard.press('Escape');
     ok(
       'settings: the light theme in white (as before) or paper',
       white.tone === 'white' &&
         ['#fff', '#ffffff'].includes(white.bg) &&
+        white.dock === 'rgb(255, 255, 255)' &&
         paper.tone === 'paper' &&
-        // (3.1: the paper takes the playing song's hue — a tint, no longer one fixed colour)
-        /^hsl\(/.test(paper.bg),
-      JSON.stringify({ white, paper }),
+        paper.bg === '#faf8f3' &&
+        paper.dock === 'rgb(243, 241, 236)' &&
+        queueFill === paper.dock,
+      JSON.stringify({ white, paper, queueFill }),
     );
   }
   await win.getByRole('button', { name: '音樂庫' }).click();
   await W(600);
   await shot('library-light');
-  await win.locator('[data-test=card]').getByTitle('展開').first().click();
+  await expand();
   await layerIs('np');
   await W(300);
   await shot('np-light');

@@ -424,6 +424,8 @@ export async function resumeLast() {
 }
 /** The output was switched in the settings: the same song, from the same moment, through the other one. */
 export async function switchOutput() {
+  const switching = gen;
+  const play = player.get().playing;
   // (leaving the Hi-Fi output: its player lets go of the device at once — held exclusively, it would otherwise keep the
   // standard output silent until it gave the device up on its own, some twenty seconds later)
   if (!hifiOn() && engine.clock.external) {
@@ -434,11 +436,12 @@ export async function switchOutput() {
   }
   await hifiRefresh();
   const p = player.get();
-  if (!p.id) return;
-  await loadAt(p.index, p.playing, engine.time);
+  if (!p.id || switching !== gen) return;
+  // The transport may pause to release the current device. Keep the listener's intent across that pause.
+  await loadAt(p.index, play, engine.time);
 }
 onTrouble((kind) => {
-  if (!engine.clock.external) return;
+  if (!engine.clock.external || !hifiOn()) return;
   if (kind === 'fallback') {
     toast(tx('s.hifi.fallback'));
     return;

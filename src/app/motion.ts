@@ -105,3 +105,10 @@ export const part = (p: number, a: number, b: number) => {
 };
 export const reduced = () =>
   typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** Read a shared timing at the start of a motion, never inside its frame loop. */
+export function duration(token: string) {
+  if (reduced()) return 0;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return (parseFloat(value) || 0) * (value.endsWith('ms') ? 1 : 1000);
+}

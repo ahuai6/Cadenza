@@ -82,7 +82,15 @@ function Ask({ k, act, danger, icon }: { k: string; act: () => unknown; danger?:
   );
 }
 
-export function SpaceSettings({ section, onClose }: { section?: string; onClose: () => void }) {
+export function SpaceSettings({
+  section,
+  closing,
+  onClose,
+}: {
+  section?: string;
+  closing: boolean;
+  onClose: () => void;
+}) {
   const st = useStore(settings),
     folders = useStore(lib, (x) => x.folders),
     body = useRef<HTMLDivElement>(null);
@@ -103,7 +111,16 @@ export function SpaceSettings({ section, onClose }: { section?: string; onClose:
     return () => removeEventListener('keydown', k);
   }, [onClose]);
   return (
-    <section className={`hud card ${s.panel}`} aria-label={ts('s.title')} data-test="space-settings">
+    <section
+      className={`hud card ${s.panel}`}
+      data-mosaic=""
+      aria-label={ts('s.title')}
+      data-test="space-settings"
+      data-ledger=""
+      data-presence=""
+      data-closing={closing || undefined}
+      inert={closing}
+    >
       <header className={s.head}>
         <h2>{ts('s.title')}</h2>
         <button type="button" className={s.close} onClick={onClose} aria-label={ts('close')}>

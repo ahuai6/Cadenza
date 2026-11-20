@@ -141,6 +141,7 @@ export interface DeskFeed {
 export interface DeskState {
   locked: boolean;
   size: number;
+  hovered: boolean;
 }
 export interface LibApi {
   get(): Promise<LibView>;

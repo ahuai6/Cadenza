@@ -29,7 +29,7 @@
 | `playback/` | 播放器、队列、Hi-Fi、背景分析、引擎实例（`stage.ts`） |
 | `actions/` | 启动（`boot`）、快捷键（`bindKeys`）、换页（`go`）、改设置（`setSettings`、`setLang`） |
 | `engineConfig.ts` | 用户设置 → `EngineConfig` |
-| `layers.ts`、`motion.ts` | 页面 ⇄ 正在播放 ⇄ 特效歌词 的图层与转场进度（与样式无关） |
+| `layers.ts`、`motion.ts` | 书页播放栏展开与反向收起，艺术图像的坐标插值，正在播放与特效歌词的画面切换 |
 | `workshop/project.ts` | 工坊的项目模型 |
 
 | 换掉的（外观） | 内容 |

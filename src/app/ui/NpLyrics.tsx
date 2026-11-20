@@ -57,7 +57,18 @@ let gens = 0;
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
 const easeIn = (x: number) => x ** 3;
 const easeInOut = (x: number) => (x < 0.5 ? 4 * x ** 3 : 1 - (-2 * x + 2) ** 3 / 2);
-export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live: boolean; compact?: boolean }) {
+export function NpLyrics({
+  lines,
+  live,
+  compact = false,
+  layout,
+}: {
+  lines: Line[];
+  live: boolean;
+  compact?: boolean;
+  layout?: 'dock';
+}) {
+  const dock = layout === 'dock';
   const box = useRef<HTMLDivElement>(null),
     dotsEl = useRef<HTMLElement>(null),
     lineEls = useRef<(HTMLElement | null)[]>([]),
@@ -67,7 +78,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
     gen = useMemo(() => ++gens, [lines]);
   // the lyric face chosen for this page (or the interface's own)
   const faceStyle = useMemo(() => {
-    if (!view.font || view.font === 'ui') return {};
+    if (!view.font || view.font === 'ui') return { fontFamily: 'var(--font-book)' };
     const f = fontStack(
       view.font,
       lines
@@ -175,7 +186,7 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   const aim = (idx: number, wave: boolean, jump: boolean) => {
     const S = st.current,
       H = box.current ? box.current.clientHeight : 600,
-      anchor = H * (compact ? 0.38 : 0.34),
+      anchor = H * (dock ? 0.23 : compact ? 0.38 : 0.34),
       a = S.tops[Math.max(0, idx)] || 0,
       now = performance.now();
     S.ls.forEach((w, i) => {
@@ -429,9 +440,9 @@ export function NpLyrics({ lines, live, compact = false }: { lines: Line[]; live
   return (
     <div
       data-np-lyr
-      className={s.lyr + (compact ? ' ' + s.compact : '')}
+      className={s.lyr + (dock ? ' ' + s.dock : compact ? ' ' + s.compact : '')}
       ref={box}
-      onWheel={wheel}
+      onWheel={dock ? undefined : wheel}
       data-blur={view.blur}
       data-subs={view.subs}
       style={{ ['--np-fs' as string]: view.size, ...faceStyle } as React.CSSProperties}

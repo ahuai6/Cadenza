@@ -1,29 +1,32 @@
-/* The space interface's HUD (moved from the prototype; step 6 redoes it on the kit). */
-
-/* The cathedral fills the window; a quiet HUD sits on its edges like museum signage. */
-:root {
-  --stone: #e9e2d6;
-  --ink: #29241f;
-  --ink-2: #6a6157;
-  --rule: rgba(47, 43, 38, 0.16);
-  --card: #fbf6ec;
-  --clay: #c4603f;
-  --sage: #7f8f7c;
-  --on-clay: #fbf8f2;
-  --serif: 'Source Serif 4', 'Noto Serif TC', Georgia, serif;
-  --zh: 'Noto Serif TC', 'Source Serif 4', serif;
-  --sans: var(--font-ui, 'Noto Sans TC', system-ui, sans-serif);
-  color-scheme: light;
-}
-
-[hidden] {
-  display: none !important;
+/* The gallery keeps its live scene and mosaic. Its navigation and reading surfaces use the book palette. */
+:root:has(.space-root) {
+  --space-opacity: 46%;
+  --space-fill: color-mix(in oklab, var(--float) var(--space-opacity), transparent);
+  --space-inset: color-mix(in oklab, var(--float) 17%, transparent);
+  --space-blur: blur(18px);
 }
 .space-root {
-  background: #e8dcc4;
+  --surface: var(--space-fill);
+  --surface-2: var(--space-inset);
+  --stone: var(--bg);
+  --ink: var(--fg);
+  --ink-2: var(--fg-2);
+  --clay: var(--accent);
+  --on-clay: var(--on-accent);
+  --card: var(--space-fill);
+  --rule: var(--line);
+  --serif: var(--font-book);
+  --zh: var(--font-book);
+  --sans: var(--font-ui);
+  --space-margin: max(16px, env(safe-area-inset-left));
+  --space-bottom: max(16px, env(safe-area-inset-bottom));
+  --space-top: max(16px, env(safe-area-inset-top));
   color: var(--ink);
-  font-family: var(--sans);
+  background: var(--bg);
   overflow: hidden;
+}
+.space-root [hidden] {
+  display: none !important;
 }
 #world {
   position: fixed;
@@ -36,972 +39,426 @@
 #world.hot {
   cursor: pointer;
 }
-.hud {
+.space-root .hud {
   position: fixed;
   z-index: 3;
 }
-/* clear mosaic glass: white, heavier sans type with a soft dark edge so it reads on any part of the room */
-.card {
-  color: #fff;
+.space-root .hud[data-ledger] {
+  z-index: 7;
 }
-.card,
-.card * {
-  font-family: var(--font-ui, 'Noto Sans TC', system-ui, sans-serif) !important;
-  font-style: normal !important;
-} /* Cadenza's interface face */
-.card b,
-.card h2,
-.card span,
-.card button,
-.card input,
-.card li,
-.card div,
-.card label,
-.card i,
-.card small {
-  color: #fff;
-  font-weight: 700;
-  text-shadow:
-    0 0 2px rgba(38, 28, 18, 0.55),
-    0 1px 6px rgba(38, 28, 18, 0.32);
+.space-root .card,
+:root:has(.space-root) :is(.glass, [role='dialog']) {
+  background: var(--space-fill);
+  backdrop-filter: var(--space-blur);
 }
-.card small {
-  opacity: 0.85;
-  font-weight: 500;
+.space-root .card {
+  color: var(--fg);
+  box-shadow: var(--shadow-2);
 }
-.card input::placeholder {
-  color: rgba(255, 255, 255, 0.8);
+/* The renderer already pixelates the scene directly under these surfaces. */
+:root:has(.space-root) [data-mosaic] {
+  backdrop-filter: none;
+  animation-play-state: paused;
 }
-.card kbd {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.7);
+.space-root [data-ledger] > * {
+  transition: opacity var(--t-fast) var(--ease);
 }
-.places button[aria-pressed='true'] {
-  background: rgba(255, 255, 255, 0.22);
-  box-shadow: inset 0 0 0 1.5px #fff;
+:root:has([role='listbox'][data-mosaic]) .space-root [data-ledger] > * {
+  opacity: 0.28;
 }
-.seg {
-  background: rgba(255, 255, 255, 0.12);
-}
-.seg button[aria-pressed='true'] {
-  background: rgba(255, 255, 255, 0.28);
-  color: #fff;
-  box-shadow: inset 0 0 0 1.5px #fff;
-}
-.results button:hover,
-.results button:focus-visible {
-  background: rgba(255, 255, 255, 0.16);
-}
-.bar {
-  background: rgba(255, 255, 255, 0.4);
-}
-.player .hp {
-  box-shadow: inset 0 0 0 1.5px #fff;
-}
-.player .hp[aria-pressed='false'] {
-  background: rgba(255, 255, 255, 0.25);
-  color: #fff;
-}
-.card {
-  background: transparent;
-  box-shadow: 0 8px 24px -12px rgba(38, 28, 18, 0.45);
-} /* the glass and its white frame are both drawn by the renderer, from one shape */ /* the glass itself is drawn by the renderer: a frosted mosaic of what is behind */
-.top {
-  top: calc(16px + env(safe-area-inset-top, 0px));
-  left: max(16px, env(safe-area-inset-left, 0px));
-  right: max(16px, env(safe-area-inset-right, 0px));
-  /* (three columns: the name, the rooms in the window's middle — as the classic interface's places are — the tools) */
+.space-root .top {
+  inset: var(--space-top) var(--space-margin) auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) minmax(280px, auto);
+  gap: clamp(8px, 1.6vw, 24px);
   align-items: center;
-  gap: 12px;
-  pointer-events: none;
+  padding: 4px 9px 4px 18px;
+  border-radius: var(--r-3);
+  app-region: drag;
 }
-.top > .mark {
-  justify-self: start;
+.space-root .top > :not(.mark) {
+  app-region: no-drag;
 }
-.top > .tools {
-  /* (the whole column, so the search can give way inside it instead of spilling over the rooms) */
-  justify-self: stretch;
+.space-root .mark {
+  font: italic 650 clamp(19px, 2vw, 26px) / 1 var(--serif);
+}
+.space-root .mark small {
+  display: none;
+}
+.space-root .places {
   min-width: 0;
-}
-.top > * {
-  pointer-events: auto;
-}
-.mark {
-  font: italic 400 20px/1 var(--serif);
-  letter-spacing: 0.02em;
-  color: var(--ink);
-}
-.mark small {
-  font: 500 11px var(--sans);
-  letter-spacing: 0.3em;
-  color: var(--ink-2);
-  margin-left: 10px;
-  font-style: normal;
-}
-.places {
   display: flex;
-  gap: 2px;
-  padding: 4px;
-  border-radius: var(--r-pill);
-  flex-wrap: wrap;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: safe center;
+  gap: clamp(2px, 1vw, 14px);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.places button {
-  min-height: 40px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--ink-2);
-  font: 500 13px var(--zh);
-  cursor: pointer;
-}
-.places button[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--stone);
-}
-.places button small {
-  display: block;
-  font: 400 10px var(--sans);
-  letter-spacing: 0.12em;
-  opacity: 0.7;
-}
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 14px;
-  border-radius: var(--r-pill);
-  /* (it gives way first when the window is narrow) */
-  flex: 0 1 280px;
-  min-width: 140px;
+.space-root .places button {
   position: relative;
+  min-height: var(--hit);
+  padding: 5px clamp(8px, 1.2vw, 18px);
+  color: var(--fg-2);
+  font-weight: 620;
+  flex: none;
 }
-.search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  outline: none;
-  font: 400 14px var(--sans);
-  color: var(--ink);
+.space-root .places button small {
+  display: block;
+  font-size: 10px;
+  font-weight: 450;
+  margin-top: 1px;
 }
-.search kbd {
-  font: 500 11px var(--sans);
-  color: var(--ink-2);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-2);
-  padding: 2px 6px;
+.space-root .places button[aria-pressed='true'] {
+  color: var(--fg);
 }
-.results {
+.space-root .places button::after {
+  content: '';
   position: absolute;
-  top: 60px;
-  right: 0;
-  width: 100%;
-  border-radius: var(--r-3);
-  padding: 6px;
-  list-style: none;
-  margin: 0;
-  max-height: 50vh;
-  overflow: auto;
+  inset: auto 8px 0;
+  height: 2px;
+  background: var(--accent);
+  scale: 0 1;
+  transition: scale var(--t-med) var(--ease);
 }
-.results button {
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 10px 12px;
-  border-radius: var(--r-3);
-  cursor: pointer;
+.space-root .places button[aria-pressed='true']::after {
+  scale: 1;
+}
+.space-root .tools,
+.space-root .winbtns {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font: 500 14px var(--zh);
-  color: var(--ink);
+  align-items: center;
+  gap: 3px;
 }
-.results button:hover,
-.results button:focus-visible {
-  background: rgba(47, 43, 38, 0.07);
-  outline: none;
+.space-root .winbtns:empty {
+  display: none;
 }
-.results small {
-  font: 400 12px var(--sans);
-  color: var(--ink-2);
-}
-.guide {
-  left: max(16px, env(safe-area-inset-left, 0px));
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-  padding: 12px 16px;
-  border-radius: var(--r-3);
-  font-size: 12px;
-  color: var(--ink-2);
+.space-root .search {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 300px;
-}
-.guide b {
-  font: 500 11px var(--sans);
-  letter-spacing: 0.2em;
-  color: var(--ink);
-}
-.guide label {
-  display: flex;
+  position: relative;
   align-items: center;
   gap: 8px;
-  color: var(--ink);
-  font-size: 13px;
-  cursor: pointer;
-  min-height: 32px;
+  min-width: 0;
+  padding-inline: 10px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
 }
-.player {
-  right: max(16px, env(safe-area-inset-right, 0px));
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-  width: min(380px, calc(100% - 32px));
-  padding: 12px 12px 12px 18px;
+.space-root .search input {
+  width: clamp(76px, 13vw, 170px);
+  min-height: 36px;
+  background: none;
+  border: 0;
+  padding: 6px 2px;
+  outline-offset: -1px;
+}
+.space-root .search kbd {
+  font: 11px var(--font-mono);
+  color: var(--fg-3);
+  padding-inline: 5px;
+}
+.space-root .results {
+  position: absolute;
+  z-index: 6;
+  inset: calc(100% + 8px) 0 auto auto;
+  width: min(340px, calc(100vw - 40px));
+  max-height: min(55dvh, 390px);
+  padding: 6px;
+  margin: 0;
+  list-style: none;
+  overflow: auto;
   border-radius: var(--r-3);
+}
+.space-root .results button {
+  display: grid;
+  text-align: start;
+  width: 100%;
+  min-height: var(--hit);
+  padding: 6px 8px;
+}
+.space-root .results :is(small, span) {
+  color: var(--fg-2);
+}
+.space-root .cfg {
+  display: grid;
+  place-items: center;
+  width: var(--hit);
+  height: var(--hit);
+  border-radius: var(--r-pill);
+}
+.space-root .cfg:hover {
+  background: var(--hover);
+}
+.space-root .player {
+  inset: auto auto var(--space-bottom) 50%;
+  translate: -50%;
+  width: min(720px, calc(100% - var(--space-margin) * 2));
   display: flex;
   align-items: center;
-  gap: 14px;
-}
-.player .t {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--r-3);
 }
-.player b {
-  font: 500 15px var(--zh);
-  white-space: nowrap;
+.space-root .player .t {
+  flex: 1 1 180px;
+  min-width: 68px;
+  display: grid;
+  gap: 1px;
+  padding: 0 8px;
+}
+.space-root .player .t b {
+  font: 700 var(--type-body) / 1.2 var(--font-book);
+}
+.space-root .player .t :is(b, span) {
+  translate: 0 3px;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
-.player span {
+.space-root .player .t span {
+  color: var(--fg-2);
   font-size: 12px;
-  color: var(--ink-2);
 }
-.player .hp {
-  min-height: 34px;
-  padding: 0 12px;
-  font: 500 12px var(--zh);
-  box-shadow: inset 0 0 0 1.5px var(--ink);
-  white-space: nowrap;
+.space-root .player .extras {
+  display: flex;
+  flex: none;
+  align-items: center;
 }
-.player .hp[aria-pressed='false'] {
-  background: var(--ink);
-  color: var(--card);
+.space-root .player .btn {
+  flex: none;
+  padding-inline: 10px;
 }
-.player {
-  width: min(460px, calc(100% - 32px));
-  gap: 10px;
+.space-root .player .mini {
+  display: grid;
+  place-items: center;
+  padding: 0;
 }
-.bar {
-  height: 2px;
-  background: var(--rule);
-}
-.bar i {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--clay);
-}
-.btn {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--ink);
-  font: 500 14px var(--zh);
+.space-root .player .bar {
+  position: relative;
+  min-height: 18px;
+  touch-action: none;
   cursor: pointer;
 }
-.btn.solid {
-  background: var(--clay);
-  color: var(--on-clay);
+.space-root .player .bar::before,
+.space-root .player .bar i {
+  content: '';
+  position: absolute;
+  inset: 8px auto auto 0;
+  height: 2px;
+  border-radius: var(--r-pill);
 }
-.btn:focus-visible,
-.places button:focus-visible,
-.seg button:focus-visible {
-  outline: 2px solid var(--clay);
-  outline-offset: 2px;
+.space-root .player .bar::before {
+  width: 100%;
+  background: var(--line-2);
 }
-.focus {
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
-  padding: 18px 24px;
-  border-radius: var(--r-3);
+.space-root .player .bar i {
+  background: var(--accent);
+}
+.space-root .btn {
+  min-width: var(--hit);
+  min-height: var(--hit);
+  border-radius: var(--r-pill);
+  padding: 0 14px;
+}
+.space-root :is(.btn.solid, .hp[aria-pressed='false']) {
+  background: var(--pick);
+  color: var(--on-pick);
+}
+.space-root .hp[aria-pressed='true'] {
+  border: 1px solid var(--line-2);
+}
+.space-root :is(.btn:not(.solid):not([aria-pressed='false']), .results button):hover {
+  background: var(--hover);
+}
+.space-root .sign {
+  inset: calc(var(--space-top) + 76px) auto auto 50%;
+  translate: -50%;
+  padding: 9px 18px;
+  max-width: calc(100% - 28px);
   text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 260px;
-  max-width: calc(100% - 32px);
+  color: var(--spread-fg);
+  text-shadow:
+    0 1px 2px #1d1b18,
+    0 0 10px #1d1b18c0;
+  pointer-events: none;
+  transition: opacity var(--t-enter) var(--ease);
 }
-.focus .eyebrow {
-  font: 500 11px var(--sans);
-  letter-spacing: 0.26em;
-  color: var(--clay);
+.space-root .sign i {
+  display: block;
+  font: italic 480 12px var(--serif);
+  color: var(--spread-fg);
 }
-.focus h2 {
-  margin: 0;
-  font: 500 28px/1.2 var(--zh);
-  text-wrap: balance;
+.space-root .sign b {
+  font: 720 clamp(17px, 2.5vw, 26px) / 1.3 var(--serif);
 }
-.focus p {
+.space-root .sign u {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: var(--accent);
+  margin: 6px auto 0;
+}
+.space-cfg .sign {
+  opacity: 0 !important;
+}
+.space-root .focus {
+  inset: auto auto calc(var(--space-bottom) + 80px) 50%;
+  translate: -50%;
+  width: min(460px, calc(100% - 32px));
+  padding: 18px 20px;
+  text-align: center;
+  border-radius: var(--r-3);
+}
+.space-root .focus h2 {
+  margin: 4px 0;
+  font: 700 30px/1.2 var(--serif);
+}
+.space-root .focus p {
   margin: 0 0 10px;
-  font: italic 400 15px var(--serif);
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
-.focus ol {
-  margin: 0 0 12px;
-  padding: 0;
+.space-root .focus ol {
   list-style: none;
-  font: 400 13px var(--zh);
-  color: var(--ink-2);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px 18px;
-  text-align: left;
+  margin: 0;
+  padding: 0;
 }
-.focus .row {
+.space-root .focus .row {
   display: flex;
-  gap: 8px;
   justify-content: center;
-  flex-wrap: wrap;
+  gap: 8px;
 }
-.tip {
+.space-root .eyebrow {
+  color: var(--accent-ink);
+}
+.space-root .tip {
+  transform: translate(14px, 14px);
   pointer-events: none;
   padding: 8px 12px;
-  border-radius: var(--r-3);
-  font: 500 13px var(--zh);
+  border-radius: var(--r-2);
   white-space: nowrap;
-  transform: translate(14px, 14px);
 }
-.reticle {
-  transition:
-    transform 0.15s,
-    box-shadow 0.15s;
-}
-.reticle.hot {
-  transform: scale(1.35);
-  box-shadow:
-    0 0 0 2px var(--clay),
-    0 0 0 4px rgba(255, 252, 246, 0.8);
-}
-.tip small {
+.space-root .tip small {
   display: block;
-  font: 400 11px var(--sans);
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
-.reticle {
-  left: 50%;
-  top: 50%;
-  width: 22px;
-  height: 22px;
-  margin: -11px 0 0 -11px;
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 1.5px rgba(255, 252, 246, 0.9),
-    0 0 0 3px rgba(47, 43, 38, 0.25);
+.space-root .tip.far small {
+  color: var(--accent-ink);
+}
+.space-root .reticle {
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+  width: 18px;
+  height: 18px;
   pointer-events: none;
+  border-radius: var(--r-dot);
+  box-shadow:
+    0 0 0 1px white,
+    0 0 0 3px #1d1b1855;
+  transition: transform var(--t-fast) var(--ease);
 }
-.sign {
-  left: 50%;
-  top: calc(84px + env(safe-area-inset-top, 0px));
-  transform: translateX(-50%);
-  text-align: center;
-  pointer-events: none;
-  transition: opacity 0.6s;
-  color: var(--ink);
+.space-root .reticle.hot {
+  transform: scale(1.25);
 }
-.sign i {
-  display: block;
-  font: italic 400 15px var(--serif);
-  opacity: 0.85;
+.space-root .reticle.far {
+  opacity: 0.5;
 }
-.sign b {
-  font: 500 22px var(--zh);
-  letter-spacing: 0.3em;
+.space-root .mark.corner {
+  display: none;
 }
-.sign u {
-  display: block;
-  width: 36px;
-  height: 6px;
-  margin: 8px auto 0;
-  border-radius: var(--r-3);
-  background: var(--clay);
-  text-decoration: none;
-}
-.veil {
+.space-root .veil,
+.space-root .loading {
   position: fixed;
   inset: 0;
+  background: var(--bg);
+}
+.space-root .veil {
   z-index: 2;
-  background: #e8dcc4;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.35s;
+  transition: opacity var(--t-enter) var(--ease);
 }
-.loading {
-  position: fixed;
-  inset: 0;
+.space-root .loading {
   z-index: 4;
   display: grid;
   place-items: center;
-  background: #e8dcc4;
-  font: italic 400 18px var(--serif);
-  color: var(--ink-2);
-  transition: opacity 0.8s;
+  font: italic 500 20px var(--serif);
+  transition: opacity var(--t-panel) var(--ease);
 }
-/* the settings ledger: opens beside the lectern you chose */
-.ledger {
-  right: max(16px, env(safe-area-inset-right, 0px));
-  top: calc(84px + env(safe-area-inset-top, 0px));
-  width: min(380px, calc(100% - 32px));
-  max-height: calc(100% - 210px);
-  overflow: auto;
-  border-radius: var(--r-3);
-  padding: 20px 22px;
-}
-.ledger header {
-  display: flex;
-  justify-content: space-between;
-  align-items: start;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.ledger h2 {
-  margin: 0;
-  font: 500 24px var(--zh);
-}
-.ledger header i {
-  display: block;
-  font: italic 400 14px var(--serif);
-  color: var(--ink-2);
-}
-.ledger .r {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 0;
-  border-top: 1px solid var(--rule);
-}
-.ledger .r > div:first-child {
-  min-width: 0;
-}
-.ledger .r span {
-  font: 500 14px var(--zh);
-}
-.ledger .r small {
-  display: block;
-  font-size: 12px;
-  color: var(--ink-2);
-  margin-top: 3px;
-}
-.seg {
-  display: flex;
-  padding: 3px;
-  border-radius: var(--r-3);
-  background: rgba(47, 43, 38, 0.06);
-  flex-shrink: 0;
-}
-.seg button {
-  min-height: 34px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--r-2);
-  background: transparent;
-  color: var(--ink-2);
-  font: 500 13px var(--zh);
-  cursor: pointer;
-}
-.seg button[aria-pressed='true'] {
-  background: #fffdf8;
-  color: var(--ink);
-  box-shadow: 0 1px 3px rgba(47, 43, 38, 0.18);
-}
-.ledger input[type='range'] {
-  width: 130px;
-  accent-color: var(--clay);
-}
-.ledger input[type='checkbox'] {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--clay);
-}
-.ledger .note {
-  font-size: 12px;
-  color: var(--clay);
-  margin: 4px 0 0;
-}
-/* (a narrow window: the rooms on a row of their own under the name and the tools, still centred) */
-@media (max-width: 1080px) {
-  .top {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .top > .places {
-    grid-row: 2;
-    grid-column: 1 / -1;
-    justify-self: center;
-  }
-}
-@media (max-width: 720px) {
-  .guide {
-    display: none;
-  }
-  .places button {
-    padding: 0 9px;
-  }
-  .player {
-    right: 50%;
-    transform: translateX(50%);
-  }
-  .focus {
-    bottom: calc(100px + env(safe-area-inset-bottom, 0px));
-  }
-  .ledger {
-    top: auto;
-    bottom: calc(100px + env(safe-area-inset-bottom, 0px));
-    max-height: 50%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .sign,
-  .veil,
-  .loading {
-    transition: none;
-  }
-}
-/* last word on HUD type: white, bold sans, soft dark edge (beats per-component ink rules above) */
-.card :is(b, h2, span, button, input, li, div, label, i, small, p, a, em) {
-  color: #fff !important;
-}
-.mark,
-.mark small,
-.sign,
-.sign i,
-.sign b {
-  color: #fff !important;
-  text-shadow:
-    0 0 3px rgba(38, 28, 18, 0.6),
-    0 1px 12px rgba(38, 28, 18, 0.45);
-}
-.sign b {
-  font-family: var(--font-ui, 'Noto Sans TC', system-ui, sans-serif) !important;
-  font-weight: 700 !important;
-}
-
-/* the search and the settings button sit together at the top right */
-.tools {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: flex-end;
-}
-.cfg {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
-}
-.cfg:hover {
-  background: rgba(255, 255, 255, 0.14);
-}
-.space-lite .card {
-  background: rgba(60, 48, 36, 0.38);
-  box-shadow:
-    0 0 0 1.5px rgba(255, 255, 255, 0.8),
-    0 8px 24px -12px rgba(38, 28, 18, 0.45);
-} /* the lite mode draws no glass: a quiet shade behind the words instead */
-.space-cfg .sign {
-  opacity: 0;
-} /* the settings page takes the room's sign's place */
-/* the line's captions under the room, as the effect lyrics draw theirs: a translation, its bracketed part smaller and
-   softer, a reading softer still; Latin text spaced wide and lower-cased; each line's block rises in and fades out */
-.subs {
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
-  width: min(820px, calc(100% - 32px));
-  height: 0;
+.space-root .subs {
+  inset: auto auto calc(var(--space-bottom) + 82px) 50%;
+  translate: -50%;
+  width: min(800px, calc(100% - 32px));
   pointer-events: none;
 }
-.subs .cb {
+.space-root .subs .cb {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.55em;
+  inset: auto 0 0;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  line-height: 1.25;
   text-align: center;
-  --cap: max(12px, min(2.1vh, 2.52vw));
-  font-size: var(--cap);
   transition:
-    opacity 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s,
-    transform 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s;
+    opacity var(--t-enter) var(--ease),
+    transform var(--t-enter) var(--ease);
 }
-.subs .cb.in {
+.space-root .subs .cb.in {
   opacity: 0;
   transform: translateY(8px);
 }
-.subs .cb.out {
+.space-root .subs .cb.out {
   opacity: 0;
-  transition: opacity 0.25s ease-out;
+  transition-duration: var(--t-out);
 }
-.subs .cap {
-  color: #fff;
-  font-weight: 500;
-  letter-spacing: 0.24em;
-  line-height: 1.25;
-  opacity: 0.9;
-  text-shadow:
-    0 0 8px rgba(38, 28, 18, 0.55),
-    0 0 2px rgba(38, 28, 18, 0.45);
+.space-root .subs .cap {
+  padding: 3px 10px;
+  font: 650 clamp(13px, 1.8vw, 21px) var(--font-book);
+  color: var(--spread-fg);
+  background: color-mix(in oklab, var(--spread-bg) var(--space-opacity), transparent);
+  border-radius: var(--r-1);
 }
-.subs .cap.lat {
-  font-weight: 600;
-  letter-spacing: 0.28em;
-  font-size: 0.9em;
-  opacity: 0.75;
-}
-.subs .cap.read {
-  font-size: 0.92em;
-  opacity: 0.55;
-}
-.subs .cap.read.lat {
-  font-size: 0.83em;
-  opacity: 0.45;
-}
-.subs .cap.harm {
+.space-root .subs .cap:is(.read, .harm) {
   font-size: 0.84em;
-  opacity: 0.62;
+  font-weight: 450;
 }
-.subs .cap.harm.lat {
-  font-size: 0.76em;
-  opacity: 0.5;
-}
-@media (prefers-reduced-motion: reduce) {
-  .subs .cb {
-    transition: opacity 0.2s;
-  }
-  .subs .cb.in {
-    transform: none;
-  }
-}
-/* the small window shows its own view (ui/MiniLyrics): the room's HUD steps aside */
-.space-mini .hud {
+.space-root.space-mini .hud {
   display: none !important;
 }
-.player .mini {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  min-width: 44px;
-  width: 44px;
-}
-.player .mini svg {
-  display: block;
-}
-.player .mini[aria-pressed='true'] {
-  background: rgba(255, 255, 255, 0.25);
-}
-.player .extras {
-  display: flex;
-  gap: 2px;
-}
-/* the player's words on one line each, never squeezed into a column */
-.player {
-  width: min(560px, calc(100% - 32px));
-}
-.player .t span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.player .hp {
-  padding: 0 10px;
-}
-/* too far to reach: the reticle and the tip say so, quietly */
-.reticle.far {
-  box-shadow:
-    0 0 0 1.5px rgba(255, 252, 246, 0.55),
-    0 0 0 3px rgba(47, 43, 38, 0.15);
-}
-.tip.far small {
-  color: #f2c9a8 !important;
-}
-/* the window has no frame: its top bar is where it is dragged from, and carries its buttons */
-.top {
-  -webkit-app-region: drag;
-}
-.top > * {
-  -webkit-app-region: no-drag;
-}
-.winbtns {
-  display: flex;
-  gap: 2px;
-  padding: 4px;
-  border-radius: var(--r-pill);
-}
-.winbtns:empty {
-  display: none;
-}
-/* the progress line: a taller place to press, the line itself as fine as before; dragging moves through the song */
-.player .bar {
-  position: relative;
-  height: 14px;
-  background: none;
-  cursor: pointer;
-  touch-action: none;
-  outline: none;
-}
-.player .bar::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 6px;
-  height: 2px;
-  border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.4);
-  transition:
-    height var(--t-fast),
-    top var(--t-fast);
-}
-.player .bar i {
-  position: absolute;
-  left: 0;
-  top: 6px;
-  height: 2px;
-  border-radius: var(--r-pill);
-  transition:
-    height var(--t-fast),
-    top var(--t-fast);
-}
-.player .bar:hover::before,
-.player .bar:hover i,
-.player .bar.drag::before,
-.player .bar.drag i,
-.player .bar:focus-visible::before,
-.player .bar:focus-visible i {
-  top: 4px;
-  height: 6px;
-}
-
-/* ---- the top bar: one height for everything in it (3.2.11) ----
-   Every glass piece in the bar — the player, the rooms, the search, the window's buttons, the settings — is the same
-   height, 4 px of glass round a row of 44 px controls, so their top and bottom edges run on the same two lines. */
-.top {
-  --bar-h: 52px;
-  --bar-in: 44px;
-}
-.top > .player,
-.top > .places,
-.top .search,
-.top .winbtns,
-.top .cfg {
-  height: var(--bar-h);
-  min-height: var(--bar-h);
-  box-sizing: border-box;
-}
-.top > .places {
-  padding: 4px;
-  align-items: center;
-}
-.top > .places button {
-  min-height: var(--bar-in);
-  height: var(--bar-in);
-}
-.top .winbtns {
-  padding: 4px;
-  align-items: center;
-}
-.top .winbtns button {
-  width: var(--bar-in);
-  height: var(--bar-in);
-}
-.top .cfg {
-  width: var(--bar-h);
-}
-/* the player, in the bar's left corner (the name moved to the bottom right) */
-.top > .player {
-  position: static;
-  transform: none;
-  justify-self: start;
-  width: auto;
-  max-width: 100%;
-  min-width: 0;
-  padding: 4px 6px 4px 4px;
-  gap: 4px;
-  border-radius: var(--r-pill);
-}
-.top > .player #pp {
-  min-width: var(--bar-in);
-  width: var(--bar-in);
-  min-height: var(--bar-in);
-  height: var(--bar-in);
-  padding: 0;
-  border-radius: 50%;
-  flex: none;
-}
-.top > .player .t {
-  flex: 0 1 200px;
-  min-width: 64px;
-  gap: 1px;
-  margin: 0 6px 0 8px;
-}
-.top > .player b {
-  font-size: 14px;
-  line-height: 17px;
-}
-.top > .player .t span {
-  font-size: 11.5px;
-  line-height: 14px;
-}
-.top > .player .bar {
-  height: 10px;
-  margin-top: 1px;
-}
-.top > .player .bar::before,
-.top > .player .bar i {
-  top: 4px;
-}
-.top > .player .bar:hover::before,
-.top > .player .bar:hover i,
-.top > .player .bar.drag::before,
-.top > .player .bar.drag i,
-.top > .player .bar:focus-visible::before,
-.top > .player .bar:focus-visible i {
-  top: 3px;
-}
-.top > .player .hp {
-  min-height: 36px;
-  height: 36px;
-  padding: 0 12px;
-  flex: none;
-}
-.top > .player .btn.mini,
-.top > .player .extras .btn:not([data-test='space-hifi']) {
-  min-width: 40px;
-  width: 40px;
-  min-height: 40px;
-  height: 40px;
-  padding: 0;
-  flex: none;
-}
-.top > .player .extras [data-test='space-hifi'] {
-  min-height: 36px;
-  height: 36px;
-}
-.top > .player .extras {
-  flex: none;
-  align-items: center;
-}
-/* (the room switcher keeps the middle of the window until the bar no longer fits beside it, then takes a row of its own) */
-@media (max-width: 1240px) {
-  .top {
-    grid-template-columns: minmax(0, 1fr) auto;
+@media (max-width: 1080px) {
+  .space-root .top {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 5px 9px;
   }
-  .top > .places {
-    grid-row: 2;
+  .space-root .top .tools {
+    justify-self: end;
+  }
+  .space-root .top .places {
     grid-column: 1 / -1;
-    justify-self: center;
+    grid-row: 2;
+  }
+  .space-root .sign {
+    top: calc(var(--space-top) + 124px);
   }
 }
-@media (max-width: 720px) {
-  .top > .player {
-    right: auto;
-    transform: none;
+@media (max-width: 600px) {
+  .space-root .player {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px;
   }
-}
-/* the name, in the bottom right corner on the same margins */
-.mark.corner {
-  right: max(16px, env(safe-area-inset-right, 0px));
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-  pointer-events: none;
-}
-/* the captions and the cards that rose over the player sit lower now the bottom is free */
-.subs {
-  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-}
-.focus {
-  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-}
-
-/* ---- pressing a button on the glass: it answers at once ----
-   A light wash under the pointer, and on the press a quick dip (a little smaller, the wash deeper) that springs back
-   as the button is let go; a solid button brightens instead. Rows in the lists answer the same way. */
-.card button,
-.card [role='button'],
-.card li[tabindex] {
-  transition:
-    transform var(--t-fast) cubic-bezier(0.2, 0.9, 0.3, 1.3),
-    background-color var(--t-fast) ease,
-    filter var(--t-fast) ease,
-    box-shadow var(--t-fast) ease;
-}
-.card button:not(:disabled):not(.solid):not([aria-pressed='true']):hover,
-.card [role='button']:hover {
-  background-color: rgba(255, 255, 255, 0.14);
-}
-.card button:not(:disabled):active,
-.card [role='button']:active,
-.card li[tabindex]:active {
-  transform: scale(0.93);
-  transition-duration: calc(var(--t-fast) / 2);
-}
-.card button:not(:disabled):not(.solid):active {
-  background-color: rgba(255, 255, 255, 0.28) !important;
-}
-.card button.solid:not(:disabled):hover {
-  filter: brightness(1.08);
-}
-.card button.solid:not(:disabled):active {
-  filter: brightness(0.92);
-}
-@media (prefers-reduced-motion: reduce) {
-  .card button:not(:disabled):active,
-  .card [role='button']:active,
-  .card li[tabindex]:active {
-    transform: none;
+  .space-root .player .t {
+    flex-basis: 62%;
   }
-}
-/* (a wide row dips only a little: the same press, in proportion) */
-.card button[class*='_row']:not(:disabled):active,
-.results button:not(:disabled):active {
-  transform: scale(0.985);
-}
-
-/* (every icon on the glass sits at the middle of its button, never on the text's baseline) */
-.card button > svg {
-  display: block;
-  flex: none;
-}
-.btn.mini,
-.cfg {
-  line-height: 0;
-}
-/* the room's name sits under the bar, clear of it at every width (the rooms on a row of their own when narrow) */
-.sign,
-.ledger {
-  top: calc(16px + 52px + 20px + env(safe-area-inset-top, 0px));
-}
-@media (max-width: 1240px) {
-  .sign,
-  .ledger {
-    top: calc(16px + 52px + 12px + 52px + 20px + env(safe-area-inset-top, 0px));
+  .space-root .player .extras {
+    display: contents;
+  }
+  .space-root .subs,
+  .space-root .focus {
+    bottom: calc(var(--space-bottom) + 128px);
+  }
+  .space-root .search kbd {
+    display: none;
+  }
+  .space-root .top .mark {
+    overflow: hidden;
+    max-width: 26vw;
   }
 }

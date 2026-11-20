@@ -7,7 +7,7 @@ import type { Session } from '../../../engine';
 import { desktop, offerFile, pickSavePath, D, type Track } from '../../bridge';
 import { ui, useStore, toast } from '../../state';
 import { Icon } from '../../ui/icons';
-import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropdown } from '../../ui/kit';
+import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropdown, usePresence } from '../../ui/kit';
 import { CueBar, cueKeyDown } from '../../ui/cues';
 import { yieldAudio, songForWorkshop } from '../../playback/player';
 import { storedStyle } from '../../../theme/style';
@@ -155,6 +155,7 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
     else document.documentElement.requestFullscreen?.().catch(() => {});
   };
   const props = session ? { s: session, edit, ctx: 'workshop' as const } : null;
+  const exportPresence = usePresence(exp);
   return (
     <div className={s.app + (web ? ' ' + s.web : '')} data-panel={panel} data-idle={idle && engine.isPlaying && !exp}>
       <main className={s.stage} ref={host}>
@@ -165,8 +166,13 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
           </p>
         )}
         {session && <Hud s={session} />}
-        {exp && session && (
-          <div className={s.pop + ' glass'}>
+        {exportPresence.shown && session && (
+          <div
+            className={s.pop + ' glass'}
+            data-presence=""
+            data-closing={exportPresence.closing || undefined}
+            inert={exportPresence.closing}
+          >
             <h2>{tx('x.open')}</h2>
             <ExportPanel engine={engine} s={session} before={() => engine.pause()} />
           </div>
