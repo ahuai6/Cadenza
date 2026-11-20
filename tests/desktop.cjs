@@ -13,11 +13,11 @@ const ROOT = path.resolve(__dirname, '..'),
   SHOTS = process.argv[2] || os.tmpdir();
 let failed = 0;
 // the song panel's 外觀與風格 page, with its Advanced open (the knobs, one's own styles and the effects are under it)
-async function openStyle(sp) {
-  await sp.getByRole('tab', { name: '外觀與風格' }).click();
+// the look & style page, on one of its four tabs (3.5.0: 外觀 / 風格 / 進階 / 特效)
+async function openStyle(sp, page = '外觀') {
+  await sp.getByRole('tab', { name: '外觀與風格', exact: true }).click();
   await new Promise((r) => setTimeout(r, 300));
-  const adv = sp.locator('button[aria-expanded=false]', { hasText: '展開' }).first();
-  if (await adv.count()) await adv.click();
+  await sp.getByRole('tab', { name: page, exact: true }).click();
   await new Promise((r) => setTimeout(r, 300));
 }
 const ok = (name, pass, detail) => {
@@ -739,13 +739,16 @@ const ok = (name, pass, detail) => {
   // the style's Advanced and its finishing with the effects; back to 敘事 the director has the words again
   {
     const sp = win.locator('[data-test=song-panel]');
+    await openStyle(sp, '風格');
     await sp.getByRole('radio', { name: /商籟/ }).click();
     await W(1200);
     const eng = await C(() => window.__cadenza.player.get().session.style.engine);
+    await openStyle(sp, '進階');
     const own = await sp.getByText('商籟的設定').count();
     await shot('fx-sonnet-panel');
     await W(2500);
     await shot('fx-sonnet');
+    await openStyle(sp, '風格');
     await sp.getByRole('radio', { name: /凝彩/ }).click();
     await W(1500);
     const eng2 = await C(() => window.__cadenza.player.get().session.style.engine);
@@ -763,6 +766,7 @@ const ok = (name, pass, detail) => {
   {
     const sp = win.locator('[data-test=song-panel]'),
       links = () => C(() => document.querySelectorAll('link[rel=stylesheet][href*="fonts/"]').length);
+    await openStyle(sp, '外觀');
     const before = await links(),
       t0 = Date.now();
     await sp.getByRole('combobox', { name: '字體' }).click();
@@ -788,7 +792,7 @@ const ok = (name, pass, detail) => {
   // a knob the plan reads: dragging it does not replan at every step — only once it is let go
   {
     const sp = win.locator('[data-test=song-panel]');
-    await openStyle(sp);
+    await openStyle(sp, '進階');
     const r = await C(async () => {
       const s = window.__cadenza.player.get().session,
         inp = [...document.querySelectorAll('[data-test=song-panel] input[type=range]')].find(
@@ -989,7 +993,7 @@ const ok = (name, pass, detail) => {
     await win.keyboard.press('Backspace');
     await C(() => document.activeElement.blur());
   }
-  await openStyle(win.locator('[data-test=song-panel]'));
+  await openStyle(win.locator('[data-test=song-panel]'), '風格');
   await C(() => window.__cadenza.api.editSong((s) => s.setKnob('energy', 1.6)));
   await W(1000);
   const saved = await C(
