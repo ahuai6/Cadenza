@@ -1,59 +1,59 @@
-# 維護
+# 维护
 
-發佈、跟上游、依賴、資料與快取、開發環境的坑。寫給接手維護的人（或 Agent）。
+发布、跟上游、依赖、资料与快取、开发环境的坑。写给接手维护的人（或 Agent）。
 
-## 發佈
+## 发布
 
-1. 版本號改 `package.json` 與 `package-lock.json`（兩處的 `version`）。
-2. `docs/RELEASE.md` 最上面加一段 `## Cadenza x.y.z`：寫給使用者看，改了什麼、為什麼，不寫實作細節。發佈頁的說明就是這一段（工作流程只取這個版本自己的那一段）。
-3. 跑完 `docs/TESTING.md` 的必過項目，以及改到的部分對應的測試。
-4. 提交，推到 `space-mode`（觸發 `preview` 工作流程：在 Windows 上建置，產物留在那次執行的 Artifacts，不發佈）。
-5. 快轉推到 `main`：`git push origin space-mode:main`。`release` 工作流程在 Windows 上跑型別、單元測試、建置、下載模型、編譯 Rust 播放核心、打包，然後建立 `vX.Y.Z` 發佈（安裝檔、blockmap、免安裝版）。同一個版本已經有發佈時會略過，所以**沒改版本號的推送不會重新發佈**。
-6. 等工作流程完成，把發佈頁連結回報給使用者。
+1. 版本号改 `package.json` 与 `package-lock.json`（两处的 `version`）。
+2. `docs/RELEASE.md` 最上面加一段 `## Cadenza x.y.z`：写给使用者看，改了什么、为什么，不写实作细节。发布页的说明就是这一段（工作流程只取这个版本自己的那一段）。
+3. 跑完 `docs/TESTING.md` 的必过项目，以及改到的部分对应的测试。
+4. 提交，推到 `space-mode`（触发 `preview` 工作流程：在 Windows 上建置，产物留在那次执行的 Artifacts，不发布）。
+5. 快转推到 `main`：`git push origin space-mode:main`。`release` 工作流程在 Windows 上跑型别、单元测试、建置、下载模型、编译 Rust 播放核心、打包，然后建立 `vX.Y.Z` 发布（安装档、blockmap、免安装版）。同一个版本已经有发布时会略过，所以**没改版本号的推送不会重新发布**。
+6. 等工作流程完成，把发布页连结回报给使用者。
 
-查狀態（這個環境的 GitHub GraphQL 被擋，一律用 REST）：
+查状态（这个环境的 GitHub GraphQL 被挡，一律用 REST）：
 
 ```
 gh api repos/ahuai6/Cadenza/actions/runs --jq '.workflow_runs[] | select(.name=="release") | [.id,.status,.conclusion] | @tsv' | head -3
 gh api repos/ahuai6/Cadenza/releases/latest --jq '.tag_name+" "+(.assets|map(.name)|join(","))'
 ```
 
-推送失敗（網路）時以指數退避重試，最多四次。提交訊息結尾帶這個專案要求的署名行；**提交訊息與程式碼裡不寫模型名稱**。`release-notes` 工作流程只在要重寫舊版本的說明時手動執行。
+推送失败（网路）时以指数退避重试，最多四次。提交讯息结尾带这个专案要求的署名行；**提交讯息与程式码里不写模型名称**。`release-notes` 工作流程只在要重写旧版本的说明时手动执行。
 
 ## 跟上 Folia 上游
 
-全部步驟在 `docs/FOLIA.md`。要點：
+全部步骤在 `docs/FOLIA.md`。要点：
 
-- 只改 `src/folia/upstream.json`（commit、要搬的檔案、要抽出的宣告、shim、修補），跑 `node scripts/folia-sync.mjs <checkout>`；`src/folia/vendor/` 是產生的，**不手改**。
-- 同步腳本遇到未對應的 import、找不到的宣告、不再吻合的修補會失敗並列出來。
-- 更新後跑 `FOLIA_UPSTREAM=<checkout> npx vitest run tests/unit/folia.test.ts`，再跑 `docs/TESTING.md` 的 Folia 對照，把數字更新到該文件的表。
+- 只改 `src/folia/upstream.json`（commit、要搬的档案、要抽出的宣告、shim、修补），跑 `node scripts/folia-sync.mjs <checkout>`；`src/folia/vendor/` 是产生的，**不手改**。
+- 同步脚本遇到未对应的 import、找不到的宣告、不再吻合的修补会失败并列出来。
+- 更新后跑 `FOLIA_UPSTREAM=<checkout> npx vitest run tests/unit/folia.test.ts`，再跑 `docs/TESTING.md` 的 Folia 对照，把数字更新到该文件的表。
 
-## 依賴
+## 依赖
 
-- 一律跟最新穩定版，精確鎖定（`package.json` 不用 `^`，`Cargo.toml` 用 `=`）；升級是一次明確的提交並跑完全部測試。上游改 API 就遷移，不留相容墊片。例外：`@types/node` 跟 Electron 內建的 Node 主版本。
-- 神經網路模型不進 git：`scripts/models.mjs` 依 `src/rhythm/neural/models.json` 的 SHA-256 下載並校驗；桌面版的 ONNX 模型由使用者在設定裡下載。
-- 字體全部 SIL OFL 1.1，`npm run build:app` 時由 `scripts/fonts.mjs` 複製進 `dist-app/fonts`；收錄表用 `npm run fonts:coverage` 重烤，選單預覽圖用 `npm run fonts:previews`。
-- 設定綱要改了要跑 `npm run gen:settings`（單元測試會檢查預設值檔是否過期）。
+- 一律跟最新稳定版，精确锁定（`package.json` 不用 `^`，`Cargo.toml` 用 `=`）；升级是一次明确的提交并跑完全部测试。上游改 API 就迁移，不留相容垫片。例外：`@types/node` 跟 Electron 内建的 Node 主版本。
+- 神经网路模型不进 git：`scripts/models.mjs` 依 `src/rhythm/neural/models.json` 的 SHA-256 下载并校验；桌面版的 ONNX 模型由使用者在设定里下载。
+- 字体全部 SIL OFL 1.1，`npm run build:app` 时由 `scripts/fonts.mjs` 复制进 `dist-app/fonts`；收录表用 `npm run fonts:coverage` 重烤，选单预览图用 `npm run fonts:previews`。
+- 设定纲要改了要跑 `npm run gen:settings`（单元测试会检查预设值档是否过期）。
 
-## 資料、快取與相容
+## 资料、快取与相容
 
-- 節奏分析與響度以**音訊本體的雜湊**為鍵（`electron/library.cjs` 的 `audioKey`），改標籤、改名、搬移都不會重新分析。分析的格式有版本（`RHYTHM_VERSION`）；改了分析的輸出就提高版本，舊快取會被當成過期重新分析。
-- 每首歌的風格與外觀存在使用者資料裡；`theme/style.ts` 的正規化會把舊格式轉成新格式（例如 3.5.0 起鏡頭 id 是字串、新增 `transFx`）。**新增欄位一律可省略、有預設值**，不要讓舊資料讀不進來。
-- 「我的風格」（`app/motions.ts`）存的是 `motionPart` 的欄位；新增屬於動態的欄位時，也要加進 `motionPart` 與 `withSavedMotion`。
-- 使用者可在設定裡「清除暫存資料」與「清除所有資料」；兩者的說明不寫「快取」（見 `COPY.md`）。
+- 节奏分析与响度以**音讯本体的杂凑**为键（`electron/library.cjs` 的 `audioKey`），改标签、改名、搬移都不会重新分析。分析的格式有版本（`RHYTHM_VERSION`）；改了分析的输出就提高版本，旧快取会被当成过期重新分析。
+- 每首歌的风格与外观存在使用者资料里；`theme/style.ts` 的正规化会把旧格式转成新格式（例如 3.5.0 起镜头 id 是字串、新增 `transFx`）。**新增栏位一律可省略、有预设值**，不要让旧资料读不进来。
+- 「我的风格」（`app/motions.ts`）存的是 `motionPart` 的栏位；新增属于动态的栏位时，也要加进 `motionPart` 与 `withSavedMotion`。
+- 使用者可在设定里「清除暂存资料」与「清除所有资料」；两者的说明不写「快取」（见 `COPY.md`）。
 
-## 開發環境（雲端容器）的坑
+## 开发环境（云端容器）的坑
 
-- **沒有顯示卡**：瀏覽器用 SwiftShader 軟體繪圖。效能只能比相對變化；顯示卡情境偶爾遺失（對照腳本會重畫）。
-- **端到端測試要 X**：`Xvfb :99 -screen 0 1920x1080x24 &`，再以 `DISPLAY=:99` 執行。
-- **磁碟額度**：寫滿時瀏覽器會直接崩潰、建置失敗；`df` 的數字不可信。刪掉不需要的大檔（舊的 `release/`、對照截圖、npm 快取）就能恢復。
-- **Folia checkout** 的 `node_modules` 不能在裡面 `npm install`（git 依賴會失敗並清空既有的套件）；照它的 lockfile 版本另外裝好再放進去。
-- 長時間的測試放背景跑並把輸出寫到檔案；工作程序重啟會中斷它們，重跑即可。
-- 只能在 Windows 實機確認的：Hi-Fi 獨佔輸出、DirectML 推理、視窗與托盤行為、聲音。回報時明說沒有驗證。
+- **没有显示卡**：浏览器用 SwiftShader 软体绘图。效能只能比相对变化；显示卡情境偶尔遗失（对照脚本会重画）。
+- **端到端测试要 X**：`Xvfb :99 -screen 0 1920x1080x24 &`，再以 `DISPLAY=:99` 执行。
+- **磁碟额度**：写满时浏览器会直接崩溃、建置失败；`df` 的数字不可信。删掉不需要的大档（旧的 `release/`、对照截图、npm 快取）就能恢复。
+- **Folia checkout** 的 `node_modules` 不能在里面 `npm install`（git 依赖会失败并清空既有的套件）；照它的 lockfile 版本另外装好再放进去。
+- 长时间的测试放背景跑并把输出写到档案；工作程序重启会中断它们，重跑即可。
+- 只能在 Windows 实机确认的：Hi-Fi 独占输出、DirectML 推理、视窗与托盘行为、声音。回报时明说没有验证。
 
-## 已知的債
+## 已知的债
 
-- `src/app/space/world.ts` 仍然很大、沒有完整型別；改它之前先看 `SKILL.md` 第 3 節的結構，照將來的邊界寫。
-- 主程序能力要改三處（`ipcMain.handle`、`preload.cjs`、`bridge.ts`），還沒有由一份契約產生。
-- 播放控制（上一首、循環方式）與快捷鍵還沒進指令登記表。
-- 舊的審查與核對（`docs/history/`）只作紀錄，不代表現況。
+- `src/app/space/world.ts` 仍然很大、没有完整型别；改它之前先看 `SKILL.md` 第 3 节的结构，照将来的边界写。
+- 主程序能力要改三处（`ipcMain.handle`、`preload.cjs`、`bridge.ts`），还没有由一份契约产生。
+- 播放控制（上一首、循环方式）与快捷键还没进指令登记表。
+- 旧的审查与核对（`docs/history/`）只作纪录，不代表现况。

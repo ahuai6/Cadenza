@@ -1,21 +1,21 @@
-# Folia 的特效歌詞在 Cadenza 裡
+# Folia 的特效歌词在 Cadenza 里
 
-Folia（https://github.com/chthollyphile/folia-major，AGPL-3.0，與 Cadenza 相同）的歌詞視覺化以「風格」的身分接進經典介面的特效歌詞。原則：**上游的構圖程式碼原封不動地搬進來，只重寫擁有畫布與時鐘的那一層**，所以能隨時跟上游更新。
+Folia（https://github.com/chthollyphile/folia-major，AGPL-3.0，与 Cadenza 相同）的歌词视觉化以「风格」的身分接进经典介面的特效歌词。原则：**上游的构图程式码原封不动地搬进来，只重写拥有画布与时钟的那一层**，所以能随时跟上游更新。
 
-## 結構
+## 结构
 
-| 位置 | 內容 | 誰維護 |
+| 位置 | 内容 | 谁维护 |
 | --- | --- | --- |
-| `src/folia/upstream.json` | 釘住的上游版本、要搬的檔案、要抽出的宣告、轉接（shim）、少數必要的修補 | Cadenza |
-| `src/folia/vendor/` | 上游檔案，路徑與上游相同（去掉開頭的 `src/`）；**不手改** | `scripts/folia-sync.mjs` 產生 |
-| `src/folia/pixi/` | 與 Pixi v8 相容的舞台（Container、Graphics、Text、Sprite、濾鏡、遮罩、混合模式），以 Canvas2D 畫圖形與文字、WebGL2 跑 GLSL 濾鏡；上游 `import 'pixi.js'` 改指向這裡 | Cadenza |
-| `src/folia/shim/` | 上游依賴、Cadenza 另有來源的模組：動態訊號、節拍來源、圖示、framer-motion 的型別 | Cadenza |
-| `src/folia/adapt.ts` | Cadenza 的歌詞模型 → Folia 的 `Line`（用 Cadenza 的分詞，含使用者自訂）；外觀 → Folia 的 `Theme` | Cadenza |
-| `src/folia/live.ts` | 節拍時鐘（上游 `beatFxLive`）與頻段，全部由 Cadenza 的節奏分析供給 | Cadenza |
-| `src/folia/engines/` | 各風格的執行層（取代上游的 `create…PixiRuntime.ts`） | Cadenza |
-| `src/render/engines.ts` | 依風格的 `engine` 欄位選歌詞引擎；導演是預設，Folia 風格畫在同一個背景上 | Cadenza |
+| `src/folia/upstream.json` | 钉住的上游版本、要搬的档案、要抽出的宣告、转接（shim）、少数必要的修补 | Cadenza |
+| `src/folia/vendor/` | 上游档案，路径与上游相同（去掉开头的 `src/`）；**不手改** | `scripts/folia-sync.mjs` 产生 |
+| `src/folia/pixi/` | 与 Pixi v8 相容的舞台（Container、Graphics、Text、Sprite、滤镜、遮罩、混合模式），以 Canvas2D 画图形与文字、WebGL2 跑 GLSL 滤镜；上游 `import 'pixi.js'` 改指向这里 | Cadenza |
+| `src/folia/shim/` | 上游依赖、Cadenza 另有来源的模组：动态讯号、节拍来源、图示、framer-motion 的型别 | Cadenza |
+| `src/folia/adapt.ts` | Cadenza 的歌词模型 → Folia 的 `Line`（用 Cadenza 的分词，含使用者自订）；外观 → Folia 的 `Theme` | Cadenza |
+| `src/folia/live.ts` | 节拍时钟（上游 `beatFxLive`）与频段，全部由 Cadenza 的节奏分析供给 | Cadenza |
+| `src/folia/engines/` | 各风格的执行层（取代上游的 `create…PixiRuntime.ts`） | Cadenza |
+| `src/render/engines.ts` | 依风格的 `engine` 栏位选歌词引擎；导演是预设，Folia 风格画在同一个背景上 | Cadenza |
 
-分層：`folia` 在 `director` 旁、`render` 之下（`tests/unit/arch.test.ts`）。
+分层：`folia` 在 `director` 旁、`render` 之下（`tests/unit/arch.test.ts`）。
 
 ## 跟上游更新
 
@@ -26,61 +26,61 @@ node scripts/folia-sync.mjs /tmp/folia
 npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/folia.test.ts
 ```
 
-同步腳本遇到未對應的 import、找不到的宣告、或某條修補不再吻合時會失敗並列出來，不會默默搬進壞掉的檔案。新增一個上游模組：加進 `copy`，若它依賴 Cadenza 另有來源的東西就加 shim。
+同步脚本遇到未对应的 import、找不到的宣告、或某条修补不再吻合时会失败并列出来，不会默默搬进坏掉的档案。新增一个上游模组：加进 `copy`，若它依赖 Cadenza 另有来源的东西就加 shim。
 
-## 上游檔案 → Cadenza
+## 上游档案 → Cadenza
 
 | 上游 | Cadenza |
 | --- | --- |
-| `components/visualizer/sonnet/*.ts`（構圖、排版、MG、轉場、後製濾鏡、片尾） | `src/folia/vendor/components/visualizer/sonnet/`（原樣） |
-| `sonnet/createSonnetPixiRuntime.ts` | `src/folia/engines/sonnet.ts`（重寫：場景快取、逐幀更新、片尾模糊照搬，畫布與時鐘交給 Cadenza） |
-| `sonnet/sonnetIcons.ts`（React 渲染 Lucide） | `src/folia/shim/sonnetIcons.ts`（內建數個 Lucide 圖示的 SVG，其餘函式照搬） |
-| `sonnet/VisualizerSonnet.tsx`、`SonnetSettingsPanel.tsx`、`tuning.ts` | Cadenza 的風格頁與設定（不搬） |
-| `components/visualizer/tempera/*.ts`、`compositions/*.ts`（構圖、色塊、排線、反相濾鏡、景深、墨跡、轉場、片尾） | `src/folia/vendor/components/visualizer/tempera/`（原樣） |
-| `tempera/createTemperaPixiRuntime.ts` | `src/folia/engines/tempera.ts`（重寫：場景快取、預捲、色塊掃過、墨跡與景深開關照搬；換歌與使用者圖層交給 Cadenza） |
-| `tempera/tuning.ts`、`Tempera*Panel/Controls/Dialog*.tsx`、`useTemperaLayerImageThumbnails.ts` | Cadenza 的風格頁（不搬） |
-| `services/analysis/drumHits.ts`（瀏覽器內分離鼓軌） | `src/folia/shim/drumHits.ts`（鼓點來自 Cadenza 節奏分析的 htdemucs 鼓軌） |
-| `pixi.js` 的 `Mesh` + 自訂著色器（墨跡閃光） | `src/folia/pixi/mesh.ts` + `gl.ts` 的網格繪製 |
-| `services/beatFx/beatFxLive.ts`、`clock.ts` | 原樣；由 `src/folia/live.ts` 餵 Cadenza 的拍點 |
-| `services/beatFx/beatFxSource.ts`（Beat This! 推理、分軌） | `src/folia/shim/beatFxSource.ts`（只留型別；拍點來自 Cadenza 的節奏） |
+| `components/visualizer/sonnet/*.ts`（构图、排版、MG、转场、后制滤镜、片尾） | `src/folia/vendor/components/visualizer/sonnet/`（原样） |
+| `sonnet/createSonnetPixiRuntime.ts` | `src/folia/engines/sonnet.ts`（重写：场景快取、逐帧更新、片尾模糊照搬，画布与时钟交给 Cadenza） |
+| `sonnet/sonnetIcons.ts`（React 渲染 Lucide） | `src/folia/shim/sonnetIcons.ts`（内建数个 Lucide 图示的 SVG，其余函式照搬） |
+| `sonnet/VisualizerSonnet.tsx`、`SonnetSettingsPanel.tsx`、`tuning.ts` | Cadenza 的风格页与设定（不搬） |
+| `components/visualizer/tempera/*.ts`、`compositions/*.ts`（构图、色块、排线、反相滤镜、景深、墨迹、转场、片尾） | `src/folia/vendor/components/visualizer/tempera/`（原样） |
+| `tempera/createTemperaPixiRuntime.ts` | `src/folia/engines/tempera.ts`（重写：场景快取、预卷、色块扫过、墨迹与景深开关照搬；换歌与使用者图层交给 Cadenza） |
+| `tempera/tuning.ts`、`Tempera*Panel/Controls/Dialog*.tsx`、`useTemperaLayerImageThumbnails.ts` | Cadenza 的风格页（不搬） |
+| `services/analysis/drumHits.ts`（浏览器内分离鼓轨） | `src/folia/shim/drumHits.ts`（鼓点来自 Cadenza 节奏分析的 htdemucs 鼓轨） |
+| `pixi.js` 的 `Mesh` + 自订着色器（墨迹闪光） | `src/folia/pixi/mesh.ts` + `gl.ts` 的网格绘制 |
+| `services/beatFx/beatFxLive.ts`、`clock.ts` | 原样；由 `src/folia/live.ts` 喂 Cadenza 的拍点 |
+| `services/beatFx/beatFxSource.ts`（Beat This! 推理、分轨） | `src/folia/shim/beatFxSource.ts`（只留型别；拍点来自 Cadenza 的节奏） |
 | `stores/motionSignals.ts` | `src/folia/shim/motionSignals.ts` |
-| `types.ts` | 由同步腳本抽出需要的宣告到 `src/folia/vendor/types.ts` |
-| `utils/lyrics/graphemeTiming.ts`、`renderHints.ts`、`wordSegmentation.ts`、`utils/fontStacks.ts`、`colorMix.ts` | 原樣 |
+| `types.ts` | 由同步脚本抽出需要的宣告到 `src/folia/vendor/types.ts` |
+| `utils/lyrics/graphemeTiming.ts`、`renderHints.ts`、`wordSegmentation.ts`、`utils/fontStacks.ts`、`colorMix.ts` | 原样 |
 | `pixi.js` | `src/folia/pixi/` |
-| `components/visualizer/backgrounds/*`（通用、隱現、空、莫奈、漫遊；React 圖層） | `src/folia/backgrounds.ts` 逐格畫在 Cadenza 的畫布上（`src/render/effects/foliaBackdrops.ts` 登記成背景）；純計算的部分（隱現的速度與配色、空的著色器、莫奈的上色與漂移、漫遊的放大量、通用的封面柔焦）由同步腳本抽出原樣使用 |
-| `@paper-design/shaders-react` | `src/folia/paper.ts`：用同一個套件的 `ShaderMount` 與片段著色器，依歌曲時間畫一格 |
-| 背景配色 | 只用 Cadenza 外觀的顏色（背景、文字、強調、閃光色）與封面取色；不接 Folia 的主題色生成 |
+| `components/visualizer/backgrounds/*`（通用、隐现、空、莫奈、漫游；React 图层） | `src/folia/backgrounds.ts` 逐格画在 Cadenza 的画布上（`src/render/effects/foliaBackdrops.ts` 登记成背景）；纯计算的部分（隐现的速度与配色、空的着色器、莫奈的上色与漂移、漫游的放大量、通用的封面柔焦）由同步脚本抽出原样使用 |
+| `@paper-design/shaders-react` | `src/folia/paper.ts`：用同一个套件的 `ShaderMount` 与片段着色器，依歌曲时间画一格 |
+| 背景配色 | 只用 Cadenza 外观的颜色（背景、文字、强调、闪光色）与封面取色；不接 Folia 的主题色生成 |
 
-## 與 Folia 本身對照
+## 与 Folia 本身对照
 
-四支腳本把同一份歌詞、主題、拍點與時間點交給 Folia 自己的執行層（真正的 Pixi 8 與它的 React 背景，`tests/folia-ref/` 在 Folia 的 checkout 裡建置）與 Cadenza 的移植，逐格截圖比較：舞台、全曲（靜止與播放中）、背景（靜止與動態）。指令、做法與最近一次的數字在 `docs/TESTING.md` 的「Folia 對照」。
+四支脚本把同一份歌词、主题、拍点与时间点交给 Folia 自己的执行层（真正的 Pixi 8 与它的 React 背景，`tests/folia-ref/` 在 Folia 的 checkout 里建置）与 Cadenza 的移植，逐格截图比较：舞台、全曲（静止与播放中）、背景（静止与动态）。指令、做法与最近一次的数字在 `docs/TESTING.md` 的「Folia 对照」。
 
-## 交給 Folia 的輸入
+## 交给 Folia 的输入
 
-- **時間**：逐字計時的行用各字的時間；只有整行時間的行照 Folia 自己的 LRC 讀法（`estimatedLineTiming.ts`）：持續到下一行，間隔很長時不超過讀完的時間加兩秒，字平均分在九成的時間裡。每行都帶 Folia 的 render hints（`renderHints.ts`）。
-- **分詞**：預設用 Cadenza 的分詞（含使用者自訂）；風格設定「用 Folia 自己的分詞」打開時改給 Folia 的自動分詞（同一個 icu-folia 分詞器）。
-- **頻段**：Folia 的五個頻段（20–150、150–400、400–1200、1000–3500、3500–12000 Hz）與它的放大曲線，從 Cadenza 節奏分析的頻譜讀出；power 照 Folia 由低音與中低音算。
-- **拍點**：每拍的力道與音色照 Folia 的 beatAccents：拍上低、中、高音的上升（對前 40–120 毫秒）與周圍的響度，各自在整首裡正規化後混合；沒有鼓的小節不觸發拍點特效（以分離出的鼓軌判斷）。
+- **时间**：逐字计时的行用各字的时间；只有整行时间的行照 Folia 自己的 LRC 读法（`estimatedLineTiming.ts`）：持续到下一行，间隔很长时不超过读完的时间加两秒，字平均分在九成的时间里。每行都带 Folia 的 render hints（`renderHints.ts`）。
+- **分词**：预设用 Cadenza 的分词（含使用者自订）；风格设定「用 Folia 自己的分词」打开时改给 Folia 的自动分词（同一个 icu-folia 分词器）。
+- **频段**：Folia 的五个频段（20–150、150–400、400–1200、1000–3500、3500–12000 Hz）与它的放大曲线，从 Cadenza 节奏分析的频谱读出；power 照 Folia 由低音与中低音算。
+- **拍点**：每拍的力道与音色照 Folia 的 beatAccents：拍上低、中、高音的上升（对前 40–120 毫秒）与周围的响度，各自在整首里正规化后混合；没有鼓的小节不触发拍点特效（以分离出的鼓轨判断）。
 
-## 拆開與交叉搭配
+## 拆开与交叉搭配
 
-能從 Folia 的風格拆出來、給任何風格用的部分，各自登記成 Cadenza 的東西：
+能从 Folia 的风格拆出来、给任何风格用的部分，各自登记成 Cadenza 的东西：
 
-| 拆出的 | 登記成 | 位置 |
+| 拆出的 | 登记成 | 位置 |
 | --- | --- | --- |
-| 畫面處理（顆粒、網點、色偏、暗角、鏡頭弧度） | 特效「畫面處理」 | `render/effects/folia.ts` |
-| 版面標記（商籟的線框與標記） | 特效「版面標記」 | 同上 |
-| 五種背景 | 背景 `f-*` | `render/effects/foliaBackdrops.ts` |
-| 商籟的段落轉場（模糊、撕裂、淡出） | 轉場的樣子 `blur`、`glitch`、`fade` | `render/transitions.ts` |
+| 画面处理（颗粒、网点、色偏、暗角、镜头弧度） | 特效「画面处理」 | `render/effects/folia.ts` |
+| 版面标记（商籁的线框与标记） | 特效「版面标记」 | 同上 |
+| 五种背景 | 背景 `f-*` | `render/effects/foliaBackdrops.ts` |
+| 商籁的段落转场（模糊、撕裂、淡出） | 转场的样子 `blur`、`glitch`、`fade` | `render/transitions.ts` |
 
-商籟、凝彩本身仍由自己的執行層運鏡（Folia 的鏡頭與分段機制原樣保留）。
+商籁、凝彩本身仍由自己的执行层运镜（Folia 的镜头与分段机制原样保留）。
 
-## 還沒搬的
+## 还没搬的
 
-上游 `components/visualizer/` 下其餘的風格（cappella、claddagh、classic、diorama、fume、hanabi、lumiere、machi、metaphor、nebbia、partita、pendolo、still、tilt…）是下一輪的工作，見 `docs/DIRECTION.md`。
+上游 `components/visualizer/` 下其余的风格（cappella、claddagh、classic、diorama、fume、hanabi、lumiere、machi、metaphor、nebbia、partita、pendolo、still、tilt…）是下一轮的工作，见 `docs/DIRECTION.md`。
 
-## 授權與注意
+## 授权与注意
 
-- 搬進來的每個檔案開頭標明來源與版本。上游檔案裡的 `@note Version Control` 等註解保留原樣。
-- 只有 `upstream.json` 的 `patches` 改動上游文字，每條註明原因（目前都是 Cadenza 編譯器較嚴格而未使用的名稱）。
-- Lucide 圖示為 ISC 授權；Paper 著色器（`@paper-design/shaders`）為 Apache-2.0 授權。
+- 搬进来的每个档案开头标明来源与版本。上游档案里的 `@note Version Control` 等注解保留原样。
+- 只有 `upstream.json` 的 `patches` 改动上游文字，每条注明原因（目前都是 Cadenza 编译器较严格而未使用的名称）。
+- Lucide 图示为 ISC 授权；Paper 着色器（`@paper-design/shaders`）为 Apache-2.0 授权。

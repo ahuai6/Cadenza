@@ -1,138 +1,138 @@
 ---
 name: cadenza
-description: Cadenza 專案的開發範式：分層與依賴規則、新增功能／設定／特效／空間物件的固定流程、測試與發佈流程、介面文案與設計語言的規則。在這個專案裡寫任何程式碼、文案或設計之前載入。
+description: Cadenza 专案的开发范式：分层与依赖规则、新增功能／设定／特效／空间物件的固定流程、测试与发布流程、介面文案与设计语言的规则。在这个专案里写任何程式码、文案或设计之前载入。
 ---
 
-# Cadenza 開發範式
+# Cadenza 开发范式
 
-> 狀態：3.5.0。標「現況」的是今天程式碼裡成立的事；標「目標」的是還沒做到、之後必須遵守的事。做到一項就把它改成「現況」。
+> 状态：3.5.0。标「现况」的是今天程式码里成立的事；标「目标」的是还没做到、之后必须遵守的事。做到一项就把它改成「现况」。
 >
-> 文件地圖在 `docs/README.md`；方向與使用者已決定的事在 `docs/DIRECTION.md`；架構在 `docs/ARCHITECTURE.md`（細節在 `docs/parts/`）；測試在 `docs/TESTING.md`；發佈與維護在 `docs/MAINTENANCE.md`。
+> 文件地图在 `docs/README.md`；方向与使用者已决定的事在 `docs/DIRECTION.md`；架构在 `docs/ARCHITECTURE.md`（细节在 `docs/parts/`）；测试在 `docs/TESTING.md`；发布与维护在 `docs/MAINTENANCE.md`。
 
-## 1. 這個專案是什麼
+## 1. 这个专案是什么
 
-一個本機音樂庫播放器，由幾個同樣重要的部分組成（各部分與位置見 `CLAUDE.md` 的表）：音樂庫與播放（含高保真輸出）、節奏分析、歌詞（解析、分詞、取得）、特效歌詞（導演與渲染）、正在播放頁、歌詞工坊，以及共用同一套邏輯的兩種介面（經典與空間）。
+一个本机音乐库播放器，由几个同样重要的部分组成（各部分与位置见 `CLAUDE.md` 的表）：音乐库与播放（含高保真输出）、节奏分析、歌词（解析、分词、取得）、特效歌词（导演与渲染）、正在播放页、歌词工坊，以及共用同一套逻辑的两种介面（经典与空间）。
 
-它們不是各自獨立的功能，而是同一件事的不同出口：**一首歌被聽見、被看見、被感覺到節奏**。節奏是唯一的時間來源，歌詞模型是唯一的文字來源，播放器狀態是唯一的「現在在放什麼」——任何畫面或聲音都從這三者讀，不自己另起一套（例如用平均速度自己打拍子、自己計時閒置）。改一處之前，先查它還被誰用。
+它们不是各自独立的功能，而是同一件事的不同出口：**一首歌被听见、被看见、被感觉到节奏**。节奏是唯一的时间来源，歌词模型是唯一的文字来源，播放器状态是唯一的「现在在放什么」——任何画面或声音都从这三者读，不自己另起一套（例如用平均速度自己打拍子、自己计时闲置）。改一处之前，先查它还被谁用。
 
-做任何決定時的優先順序：
+做任何决定时的优先顺序：
 
-1. 播放不中斷、不走音、不洩漏記憶體。
-2. 畫面跟音樂是同一件事（任何動態都應該能回答「它跟著音樂的什麼在動」）。
-3. 介面安靜、成熟：技術細節不出現在主要畫面上。
-4. 程式碼讓下一個人看得懂、接得上。
+1. 播放不中断、不走音、不泄漏记忆体。
+2. 画面跟音乐是同一件事（任何动态都应该能回答「它跟着音乐的什么在动」）。
+3. 介面安静、成熟：技术细节不出现在主要画面上。
+4. 程式码让下一个人看得懂、接得上。
 
-## 2. 分層（現況，由 `tests/unit/arch.test.ts` 強制）
+## 2. 分层（现况，由 `tests/unit/arch.test.ts` 强制）
 
 ```
-core      數學、顏色、亂數、事件。不依賴任何東西。
-rhythm    節奏分析與 RhythmMap。             ← core
-lyrics    歌詞解析與模型。                    ← core, text
-text      字體、文字量測、分詞。
-theme     風格資料（外觀、動態、旋鈕）。純資料。
-director  排版、運鏡、轉場的規劃（純函式，可在 worker 跑）；鏡頭程式登記表。
-folia     Folia 的風格與背景（上游原樣搬入＋Cadenza 的執行層）。在 director 旁、render 之下。
-render    把規劃畫出來；特效、背景、轉場的樣子都是登記表裡的外掛。
-engine    Session（一首歌的一切）＋ Engine（時鐘、畫布、輸出）。對外只有 engine/index.ts。
+core      数学、颜色、乱数、事件。不依赖任何东西。
+rhythm    节奏分析与 RhythmMap。             ← core
+lyrics    歌词解析与模型。                    ← core, text
+text      字体、文字量测、分词。
+theme     风格资料（外观、动态、旋钮）。纯资料。
+director  排版、运镜、转场的规划（纯函式，可在 worker 跑）；镜头程式登记表。
+folia     Folia 的风格与背景（上游原样搬入＋Cadenza 的执行层）。在 director 旁、render 之下。
+render    把规划画出来；特效、背景、转场的样子都是登记表里的外挂。
+engine    Session（一首歌的一切）＋ Engine（时钟、画布、输出）。对外只有 engine/index.ts。
 app       介面。只能引用 engine/index.ts、core、theme、i18n。
-  ├ state.ts / bridge.ts / playback / actions   邏輯（兩種介面共用）
-  ├ ui/        兩種介面共用的元件
-  ├ views/     經典介面
-  └ space/     空間介面
-electron  主程序：音樂庫、設定、視窗、Hi-Fi 輸出、原生推理。
+  ├ state.ts / bridge.ts / playback / actions   逻辑（两种介面共用）
+  ├ ui/        两种介面共用的元件
+  ├ views/     经典介面
+  └ space/     空间介面
+electron  主程序：音乐库、设定、视窗、Hi-Fi 输出、原生推理。
 native    Rust 的 Hi-Fi 播放核心。
 ```
 
-規則：
+规则：
 
-- `views/` 與 `space/` 互不引用。兩邊都要用的東西放 `ui/`（元件）或邏輯層。
-- 邏輯層不引用任何介面。
-- 介面不直接碰 `electron`：只經過 `bridge.ts`。
-- 空間介面的場景只經過 `space/bind.ts` 讀寫 Cadenza（它是唯一的門）。
+- `views/` 与 `space/` 互不引用。两边都要用的东西放 `ui/`（元件）或逻辑层。
+- 逻辑层不引用任何介面。
+- 介面不直接碰 `electron`：只经过 `bridge.ts`。
+- 空间介面的场景只经过 `space/bind.ts` 读写 Cadenza（它是唯一的门）。
 
-## 3. 功能只定義一次（目標）
+## 3. 功能只定义一次（目标）
 
-現況的問題：同一個功能在經典與空間各寫一份（佇列、歌詞列表、專輯展開、設定頁）。之後一律照下面做。
+现况的问题：同一个功能在经典与空间各写一份（伫列、歌词列表、专辑展开、设定页）。之后一律照下面做。
 
-**指令登記表 `src/app/commands/`**：每個使用者動作定義一次（名稱、圖示、何時適用、做什麼）。
+**指令登记表 `src/app/commands/`**：每个使用者动作定义一次（名称、图示、何时适用、做什么）。
 
 ```ts
 // commands/library.ts
 define({
   id: 'track.favorite',
-  on: 'track',                 // 作用對象：track（一首歌）、tracks（一組歌）、playlist
-  section: 'collect',          // play / collect / make / remove；選單在不同段之間畫線
+  on: 'track',                 // 作用对象：track（一首歌）、tracks（一组歌）、playlist
+  section: 'collect',          // play / collect / make / remove；选单在不同段之间画线
   icon: 'heart',
   label: (t) => tx(isFav(t.track.id) ? 's.unfav' : 's.fav'),
-  when: (t, host) => true,     // 不適用就不出現
+  when: (t, host) => true,     // 不适用就不出现
   run: (t, host) => Lib?.favorite(t.track.id, !isFav(t.track.id)),
 });
 ```
 
-畫面元件只做兩件事：`menuFor(target)` 取得選單，`run('track.favorite', target)` 執行。不在 `onClick` 裡重寫邏輯、名稱或提示。需要介面配合的動作（問一個名字、開標籤編輯器）透過 `host`：每個介面啟動時用 `setHost` 說自己能做什麼，做不到的指令在那個介面自動不出現。
+画面元件只做两件事：`menuFor(target)` 取得选单，`run('track.favorite', target)` 执行。不在 `onClick` 里重写逻辑、名称或提示。需要介面配合的动作（问一个名字、开标签编辑器）透过 `host`：每个介面启动时用 `setHost` 说自己能做什么，做不到的指令在那个介面自动不出现。
 
-現況：歌曲、一組歌、歌單的指令已登記；經典介面的右鍵選單與空間介面的卡片按鈕都從登記表取。空間的準星右鍵選單也從登記表取（3.1.4）。還沒接上的：播放控制（上一首、循環方式）、快捷鍵。**新增一個歌曲庫動作：在 `commands/library.ts` 加一個 `define`，兩種介面的選單就都有了。**
+现况：歌曲、一组歌、歌单的指令已登记；经典介面的右键选单与空间介面的卡片按钮都从登记表取。空间的准星右键选单也从登记表取（3.1.4）。还没接上的：播放控制（上一首、循环方式）、快捷键。**新增一个歌曲库动作：在 `commands/library.ts` 加一个 `define`，两种介面的选单就都有了。**
 
-**設定綱要 `src/app/settings/schema.ts`**：每個設定宣告一次（鍵、預設值、型別、分組、是否進階、作用範圍）。主程序的預設值、`Settings` 型別、兩種介面的設定頁都由它產生。`advanced: true` 的設定只在「進階」裡出現。
+**设定纲要 `src/app/settings/schema.ts`**：每个设定宣告一次（键、预设值、型别、分组、是否进阶、作用范围）。主程序的预设值、`Settings` 型别、两种介面的设定页都由它产生。`advanced: true` 的设定只在「进阶」里出现。
 
-現況：`Settings` 型別、介面的預設值、主程序的預設值（`electron/settings.defaults.json`，由 `npm run gen:settings` 產生，單元測試會檢查是否過期）已由綱要產生。經典介面的設定頁裡，開關、選項列由 `<SettingField k="…" />` 依綱要畫出：綱要寫了 `label`（字典鍵）、`help`、選項名稱（預設是 `label + '.' + 選項`，或 `optionLabel`）的設定，放一個 `SettingField` 就出現；單元測試會檢查六種語言的名稱都在。**新增設定：在綱要加一項（含 label），跑 `npm run gen:settings`，在設定頁合適的分組放 `<SettingField k="新鍵" />`。** 需要特別畫法的（資料夾、輸出裝置、字體、語言、讀取節奏的狀態）仍手寫。空間介面的設定卡也用同一個元件（`ui/SettingField.tsx`，各頁傳入自己的列樣式），空間的字串在主字典的 `sp.` 底下（3.1.4）。
+现况：`Settings` 型别、介面的预设值、主程序的预设值（`electron/settings.defaults.json`，由 `npm run gen:settings` 产生，单元测试会检查是否过期）已由纲要产生。经典介面的设定页里，开关、选项列由 `<SettingField k="…" />` 依纲要画出：纲要写了 `label`（字典键）、`help`、选项名称（预设是 `label + '.' + 选项`，或 `optionLabel`）的设定，放一个 `SettingField` 就出现；单元测试会检查六种语言的名称都在。**新增设定：在纲要加一项（含 label），跑 `npm run gen:settings`，在设定页合适的分组放 `<SettingField k="新键" />`。** 需要特别画法的（资料夹、输出装置、字体、语言、读取节奏的状态）仍手写。空间介面的设定卡也用同一个元件（`ui/SettingField.tsx`，各页传入自己的列样式），空间的字串在主字典的 `sp.` 底下（3.1.4）。
 
-**空間的場景是資料 `src/app/space/`**（格局在 `plan.ts`，純數字、有單元測試；牆的形狀在 `shapes.ts`；新增房間或改格局先改這兩個；聲音的來源——喇叭、收音機、聲場——都是 `systems/audio.ts` 的 `SoundSource`，加一個就是在 `SPEAKERS` 放一筆）：
+**空间的场景是资料 `src/app/space/`**（格局在 `plan.ts`，纯数字、有单元测试；墙的形状在 `shapes.ts`；新增房间或改格局先改这两个；声音的来源——喇叭、收音机、声场——都是 `systems/audio.ts` 的 `SoundSource`，加一个就是在 `SPEAKERS` 放一笔）：
 
 ```
-scene/      場景描述：房間、物件、光源、可站立區域（純資料＋建造函式）
-render/     後製：墨線、光束、曝光與霧、介面玻璃（現況：已拆出，`render/passes.ts`）
-systems/    input、audio、camera、lyrics、interact —— 各自一個檔，有型別（現況：`systems/audio.ts`、`systems/lyrics.ts` 已拆出；鏡頭在 `rigs/`：`walk.ts` 自由行走、`shots.ts` 定點鏡位，場景只讀取目前控制器的姿態）
-entities/   可互動物件：統一介面 { hover, use, hold?, sound? }
-rigs/       鏡頭控制器：walk（自由行走）、director（固定視角／自動運鏡）
+scene/      场景描述：房间、物件、光源、可站立区域（纯资料＋建造函式）
+render/     后制：墨线、光束、曝光与雾、介面玻璃（现况：已拆出，`render/passes.ts`）
+systems/    input、audio、camera、lyrics、interact —— 各自一个档，有型别（现况：`systems/audio.ts`、`systems/lyrics.ts` 已拆出；镜头在 `rigs/`：`walk.ts` 自由行走、`shots.ts` 定点镜位，场景只读取目前控制器的姿态）
+entities/   可互动物件：统一介面 { hover, use, hold?, sound? }
+rigs/       镜头控制器：walk（自由行走）、director（固定视角／自动运镜）
 ```
 
-拆出的模組不認識建築：需要的東西（場景、鏡頭、聲源、聲音怎麼穿過門）在建立時交給它。這是之後換場景、加收音機與多聲道的前提。
+拆出的模组不认识建筑：需要的东西（场景、镜头、声源、声音怎么穿过门）在建立时交给它。这是之后换场景、加收音机与多声道的前提。
 
-新增一個場景＝新增一份場景描述；新增一個可拿起的物件＝實作 entity 介面並登記。不允許再往單一閉包裡加東西。
+新增一个场景＝新增一份场景描述；新增一个可拿起的物件＝实作 entity 介面并登记。不允许再往单一闭包里加东西。
 
-## 4. 新增東西的固定流程
+## 4. 新增东西的固定流程
 
-**新增一個功能**
+**新增一个功能**
 
-1. 它是不是一個「動作」？是 → 寫成指令。它需要記住使用者的選擇嗎？是 → 加進設定綱要。
-2. 邏輯寫在邏輯層（`playback/`、`actions/`、或主程序），有單元測試。
-3. 經典與空間各自接上（多半只是把指令放到合適的位置）。兩邊都要能用到，除非這個功能本質上只屬於一邊。
-4. 文案：先查 `docs/COPY.md` 的詞彙表；沒有的詞先加進詞彙表再用。六種語言一起補。
-5. 測試（見第 6 節），然後更新 `docs/RELEASE.md`。
+1. 它是不是一个「动作」？是 → 写成指令。它需要记住使用者的选择吗？是 → 加进设定纲要。
+2. 逻辑写在逻辑层（`playback/`、`actions/`、或主程序），有单元测试。
+3. 经典与空间各自接上（多半只是把指令放到合适的位置）。两边都要能用到，除非这个功能本质上只属于一边。
+4. 文案：先查 `docs/COPY.md` 的词汇表；没有的词先加进词汇表再用。六种语言一起补。
+5. 测试（见第 6 节），然后更新 `docs/RELEASE.md`。
 
-**新增一個特效或背景**（現況）：在 `src/render/effects/` 新增檔案並 `register({ id, label, layer, kind, z, params, draw })`（背景是 `kind: 'backdrop'`）；參數由 `params` 宣告（可帶 `showIf`），介面自動生成控制項。不改渲染器本身。背景要出現在外觀的背景清單，加進 `views/panes.tsx` 的 `BG_STYLES`。
+**新增一个特效或背景**（现况）：在 `src/render/effects/` 新增档案并 `register({ id, label, layer, kind, z, params, draw })`（背景是 `kind: 'backdrop'`）；参数由 `params` 宣告（可带 `showIf`），介面自动生成控制项。不改渲染器本身。背景要出现在外观的背景清单，加进 `views/panes.tsx` 的 `BG_STYLES`。
 
-**新增一種鏡頭**（現況，3.5.0）：`director/cameras.ts` 的 `registerCamera()`，只寫和 `base` 不同的特徵；導演只讀特徵，**不准在導演或渲染裡寫 `if (style === '某鏡頭')`**。字典加 `cut.<id>`。
+**新增一种镜头**（现况，3.5.0）：`director/cameras.ts` 的 `registerCamera()`，只写和 `base` 不同的特征；导演只读特征，**不准在导演或渲染里写 `if (style === '某镜头')`**。字典加 `cut.<id>`。
 
-**新增一種轉場的樣子**（現況，3.5.0）：`render/transitions.ts` 的 `registerTransition()`；字典加 `trf.<id>`。轉場「何時」由導演的段落決定，不在這裡改。
+**新增一种转场的样子**（现况，3.5.0）：`render/transitions.ts` 的 `registerTransition()`；字典加 `trf.<id>`。转场「何时」由导演的段落决定，不在这里改。
 
-**新增一種風格（動態）**（現況）：在 `theme/style.ts` 的 `MOTIONS` 加一筆；需要的話在 `director/recommend.ts` 加推薦條件。新增屬於風格的欄位時，也要加進 `motionPart` 與 `withSavedMotion`（我的風格），並給預設值讓舊資料讀得進來。
+**新增一种风格（动态）**（现况）：在 `theme/style.ts` 的 `MOTIONS` 加一笔；需要的话在 `director/recommend.ts` 加推荐条件。新增属于风格的栏位时，也要加进 `motionPart` 与 `withSavedMotion`（我的风格），并给预设值让旧资料读得进来。
 
-**新增一個 Folia 風格**（現況，3.3.0）：先讀 `docs/FOLIA.md`。在 `src/folia/upstream.json` 加上上游檔案（缺的依賴寫 shim，不改上游檔案），跑 `node scripts/folia-sync.mjs <checkout>`；在 `src/folia/engines/` 寫它的執行層（照上游的 runtime，畫布與時鐘交給 Cadenza），在 `render/engines.ts` 登記，在 `theme/style.ts` 的 `MOTIONS` 加一筆 `engine`。它能拆出來的部分（濾鏡、標記）註冊成一般特效。
+**新增一个 Folia 风格**（现况，3.3.0）：先读 `docs/FOLIA.md`。在 `src/folia/upstream.json` 加上上游档案（缺的依赖写 shim，不改上游档案），跑 `node scripts/folia-sync.mjs <checkout>`；在 `src/folia/engines/` 写它的执行层（照上游的 runtime，画布与时钟交给 Cadenza），在 `render/engines.ts` 登记，在 `theme/style.ts` 的 `MOTIONS` 加一笔 `engine`。它能拆出来的部分（滤镜、标记）注册成一般特效。
 
-**新增一種外觀**（現況）：在 `PRESETS` 加一筆。顏色預設取自封面（`render/palette.ts`）。
+**新增一种外观**（现况）：在 `PRESETS` 加一笔。颜色预设取自封面（`render/palette.ts`）。
 
-**新增主程序能力**：`electron/*.cjs` 加 `ipcMain.handle` → `preload.cjs` 暴露 → `bridge.ts` 加型別。三處缺一不可（目標：由一份契約產生）。
+**新增主程序能力**：`electron/*.cjs` 加 `ipcMain.handle` → `preload.cjs` 暴露 → `bridge.ts` 加型别。三处缺一不可（目标：由一份契约产生）。
 
-## 5. 程式碼規範
+## 5. 程式码规范
 
-現況的債：`space/world.ts` 沒有型別檢查、仍是單一閉包；許多函式過長、區域變數名過短（全專案在 3.0.3 之後做過一次純格式化，但只改了排版，沒有改結構）。這不是風格，是債，不要模仿。
+现况的债：`space/world.ts` 没有型别检查、仍是单一闭包；许多函式过长、区域变数名过短（全专案在 3.0.3 之后做过一次纯格式化，但只改了排版，没有改结构）。这不是风格，是债，不要模仿。
 
-新寫與改到的程式碼：
+新写与改到的程式码：
 
-- 格式由 Prettier 決定（行寬 120，設定在 `.prettierrc.json`）：提交前跑 `npm run format`，`npm run format:check` 必須通過。不手動排版、不為了省行數把敘述擠在一行。
-- 不使用 `@ts-nocheck`、`any`（確實需要時用 `unknown` 加收窄）。
-- 註解寫「為什麼」和「不變量」，英文，放在它說明的那一行的上一行。**不要把註解接在程式碼同一行後面再接程式碼**——曾有一行快取檢查被行內註解吃掉，造成每幀洩漏。
-- 每幀執行的路徑不配置物件（重用暫存向量）、不查 DOM 版面、不做射線檢測（需要時節流到每秒幾次）。
-- 任何「建立」都要有對應的「釋放」：貼圖、材質、幾何、事件監聽、計時器、音訊節點。長時間執行的東西加上限（LRU）。
-- 數值有單位與來源：魔術數字抽成具名常數並註明意義（秒、公尺、NDC…）。
-- 動態用彈簧或有明確曲線的補間，不用線性、不用寫死的 `setTimeout` 串。
-- 時間一律以歌曲時間或節拍為準，不以幀數為準。
+- 格式由 Prettier 决定（行宽 120，设定在 `.prettierrc.json`）：提交前跑 `npm run format`，`npm run format:check` 必须通过。不手动排版、不为了省行数把叙述挤在一行。
+- 不使用 `@ts-nocheck`、`any`（确实需要时用 `unknown` 加收窄）。
+- 注解写「为什么」和「不变量」，英文，放在它说明的那一行的上一行。**不要把注解接在程式码同一行后面再接程式码**——曾有一行快取检查被行内注解吃掉，造成每帧泄漏。
+- 每帧执行的路径不配置物件（重用暂存向量）、不查 DOM 版面、不做射线检测（需要时节流到每秒几次）。
+- 任何「建立」都要有对应的「释放」：贴图、材质、几何、事件监听、计时器、音讯节点。长时间执行的东西加上限（LRU）。
+- 数值有单位与来源：魔术数字抽成具名常数并注明意义（秒、公尺、NDC…）。
+- 动态用弹簧或有明确曲线的补间，不用线性、不用写死的 `setTimeout` 串。
+- 时间一律以歌曲时间或节拍为准，不以帧数为准。
 
-## 6. 測試流程
+## 6. 测试流程
 
-每次改動至少：
+每次改动至少：
 
 ```
 npm run format
@@ -145,60 +145,60 @@ npm run build:app
 
 | 改到 | 加做 |
 |---|---|
-| 導演、渲染 | `npm run test:render`（對照畫面） |
-| 經典介面 | `npm run test:desktop` |
-| 空間介面 | `npm run test:space <截圖資料夾>`（約 5 分鐘），跑完**打開截圖看** |
-| Folia | `docs/TESTING.md` 的 Folia 對照，數字更新到該文件 |
-| 主程序、Hi-Fi | 只能在 Windows 實機確認，回報時明說 |
+| 导演、渲染 | `npm run test:render`（对照画面） |
+| 经典介面 | `npm run test:desktop` |
+| 空间介面 | `npm run test:space <截图资料夹>`（约 5 分钟），跑完**打开截图看** |
+| Folia | `docs/TESTING.md` 的 Folia 对照，数字更新到该文件 |
+| 主程序、Hi-Fi | 只能在 Windows 实机确认，回报时明说 |
 
-各套測試的內容、門檻與做法在 `docs/TESTING.md`。
+各套测试的内容、门槛与做法在 `docs/TESTING.md`。
 
-空間測試（`tests/space.cjs`）的做法：用 Playwright＋SwiftShader 開 `dist-app/index.html`，注入假的 `window.cadenzaDesktop` 與 `cadenzaLib`，用 `window.__cad` 的鉤子（`go`、`stand`、`look`、`fakeNow`、`fakeBeats`、`hits`）擺位置與假歌曲。它檢查：各房間、空中歌詞與字幕、進度條拖曳、互動距離、設定卡、播放列、小窗的可點區域、30 秒堆積大小、頁面無錯誤。新增空間功能時在這裡加一段檢查。
+空间测试（`tests/space.cjs`）的做法：用 Playwright＋SwiftShader 开 `dist-app/index.html`，注入假的 `window.cadenzaDesktop` 与 `cadenzaLib`，用 `window.__cad` 的钩子（`go`、`stand`、`look`、`fakeNow`、`fakeBeats`、`hits`）摆位置与假歌曲。它检查：各房间、空中歌词与字幕、进度条拖曳、互动距离、设定卡、播放列、小窗的可点区域、30 秒堆积大小、页面无错误。新增空间功能时在这里加一段检查。
 
-記憶體：`test:space` 會量 30 秒的堆積大小（差距須小於 1.5 MB）；經典介面的每幀邏輯改動後也要另外量一次。
+记忆体：`test:space` 会量 30 秒的堆积大小（差距须小于 1.5 MB）；经典介面的每帧逻辑改动后也要另外量一次。
 
-**回報時必須區分**：「測過且通過」「只改了邏輯、沒有驗證」「這個環境無法驗證（實體顯示卡、聲音、Windows 視窗行為）」。不把沒驗證的寫成已完成。
+**回报时必须区分**：「测过且通过」「只改了逻辑、没有验证」「这个环境无法验证（实体显示卡、声音、Windows 视窗行为）」。不把没验证的写成已完成。
 
-修改既有測試的門檻或斷言時，在測試裡註明哪個版本、為什麼改。
+修改既有测试的门槛或断言时，在测试里注明哪个版本、为什么改。
 
-## 7. 發佈流程
+## 7. 发布流程
 
-1. 版本號：`package.json` 與 `package-lock.json`。
-2. `docs/RELEASE.md` 最上面加一段，寫給使用者看：改了什麼、為什麼，不寫實作細節。
-3. 提交、推到 `space-mode`（預覽建置），再快轉推到 `main`（`git push origin space-mode:main`）。`main` 上的 `release` 工作流程會建置 Windows 安裝檔與免安裝版並發佈；版本號沒變不會發佈。
-4. 等工作流程完成（GitHub 一律用 REST：`gh api`），把發佈頁連結回報給使用者。細節與指令在 `docs/MAINTENANCE.md`。
-5. 回報用繁體中文：做了什麼、測了什麼（分清通過／沒驗證／無法驗證）、還剩什麼。
+1. 版本号：`package.json` 与 `package-lock.json`。
+2. `docs/RELEASE.md` 最上面加一段，写给使用者看：改了什么、为什么，不写实作细节。
+3. 提交、推到 `space-mode`（预览建置），再快转推到 `main`（`git push origin space-mode:main`）。`main` 上的 `release` 工作流程会建置 Windows 安装档与免安装版并发布；版本号没变不会发布。
+4. 等工作流程完成（GitHub 一律用 REST：`gh api`），把发布页连结回报给使用者。细节与指令在 `docs/MAINTENANCE.md`。
+5. 回报用繁体中文：做了什么、测了什么（分清通过／没验证／无法验证）、还剩什么。
 
-## 8. 介面文案（現況：詞彙表在 `docs/COPY.md`）
+## 8. 介面文案（现况：词汇表在 `docs/COPY.md`）
 
-- 主要畫面不出現技術詞：掃描、分析、解碼、推理、快取、取樣率、位元深度、引擎名稱、API 名稱。這些只在「進階」與「資訊」彈層出現。
-- 一個概念只有一個名字，六種語言各一個。先查詞彙表。
-- 需求描述裡的臨時稱呼（例如「小窗置頂」「節能模式」「空間模式」「聖堂」）不能直接當產品名稱使用，要經過命名。
-- 按鈕是動詞；說明一句話、不超過 30 個中文字；不解釋實作，只說對使用者的結果。
-- 進行中的背景工作不顯示計數與進度條，除非使用者主動開啟查看。
+- 主要画面不出现技术词：扫描、分析、解码、推理、快取、取样率、位元深度、引擎名称、API 名称。这些只在「进阶」与「资讯」弹层出现。
+- 一个概念只有一个名字，六种语言各一个。先查词汇表。
+- 需求描述里的临时称呼（例如「小窗置顶」「节能模式」「空间模式」「圣堂」）不能直接当产品名称使用，要经过命名。
+- 按钮是动词；说明一句话、不超过 30 个中文字；不解释实作，只说对使用者的结果。
+- 进行中的背景工作不显示计数与进度条，除非使用者主动开启查看。
 
-## 9. 設計語言（現況：`docs/DESIGN.md` 第二版「舞台」，3.1.0 起）
+## 9. 设计语言（现况：`docs/DESIGN.md` 第二版「舞台」，3.1.0 起）
 
-寫任何畫面之前先讀 `docs/DESIGN.md`。它回答四個問題（東西屬於歌還是屬於音樂庫、顏色從哪來、跟著什麼動、一般人需不需要看到），並列出所有 token 與積木。
+写任何画面之前先读 `docs/DESIGN.md`。它回答四个问题（东西属于歌还是属于音乐库、颜色从哪来、跟着什么动、一般人需不需要看到），并列出所有 token 与积木。
 
-硬規則（`tests/unit/arch.test.ts` 強制一部分）：
+硬规则（`tests/unit/arch.test.ts` 强制一部分）：
 
-- 正在播放的歌是舞台（`views/NowPlaying.tsx`＋引擎的畫面）；音樂庫等頁面在同一張紙上（`Shell.tsx` 的 `<main>`）；播放列在兩者之下都是同一條。不新增第三種地方。
-- 紙與舞台的進退是一個彈簧進度（`layers.ts` 的 `applyNp`）：只用 transform 與 opacity，不用 clip-path，不在每幀讀版面。
-- 顏色來自正在播放的歌：外殼把封面的色相寫成 `--song-h`／`--song-c`，token 由它算出紙、強調色。元件不寫死顏色（頂列例外：它永遠在深色的舞台底上）。
-- 選中用反白（`--pick`／`--on-pick`），不用彩色；`--accent` 只表示「這是正在播放的歌」。
-- 元件樣式不寫字面的圓角與時長，只用 `src/app/styles/tokens.css` 的 token。按鈕都是膠囊。
-- 離場比進場短；可被打斷的動態用彈簧。
+- 正在播放的歌是舞台（`views/NowPlaying.tsx`＋引擎的画面）；音乐库等页面在同一张纸上（`Shell.tsx` 的 `<main>`）；播放列在两者之下都是同一条。不新增第三种地方。
+- 纸与舞台的进退是一个弹簧进度（`layers.ts` 的 `applyNp`）：只用 transform 与 opacity，不用 clip-path，不在每帧读版面。
+- 颜色来自正在播放的歌：外壳把封面的色相写成 `--song-h`／`--song-c`，token 由它算出纸、强调色。元件不写死颜色（顶列例外：它永远在深色的舞台底上）。
+- 选中用反白（`--pick`／`--on-pick`），不用彩色；`--accent` 只表示「这是正在播放的歌」。
+- 元件样式不写字面的圆角与时长，只用 `src/app/styles/tokens.css` 的 token。按钮都是胶囊。
+- 离场比进场短；可被打断的动态用弹簧。
 
-還是舊版面的部分（歌曲列表、詳細頁、海報牆、設定頁、彈窗）改到時照 `docs/DESIGN.md` 重做，不照舊樣子修補。
+还是旧版面的部分（歌曲列表、详细页、海报墙、设定页、弹窗）改到时照 `docs/DESIGN.md` 重做，不照旧样子修补。
 
-## 10. 已知的債與不要重蹈的坑
+## 10. 已知的债与不要重蹈的坑
 
-- `space/world.ts`：仍然很大、沒有完整型別（聲音、歌詞、鏡頭、後製已拆出）。要改它，先在這份文件第 3 節的結構裡找到它將來的位置，照那個邊界寫。
-- `src/folia/vendor/` 是同步腳本產生的，不手改；要改上游的行為寫 shim 或在 `upstream.json` 加註明原因的修補。
-- 對照 Folia 時，兩邊都要固定亂數；只比一邊的截圖不算數。
-- 雲端容器沒有顯示卡、磁碟有額度：效能只看相對變化；瀏覽器莫名崩潰先查磁碟（`docs/MAINTENANCE.md`）。
-- Electron 的拖曳區（`app-region: drag`）不看 z-index：蓋在上面的按鈕仍會被下面的拖曳區吃掉點擊。拖曳區只放在沒有任何按鈕重疊的矩形上。
-- Hi-Fi 播放核心獨佔裝置：切回標準輸出時要明確 `release`，否則標準輸出會靜音到它自己放手為止。
-- 畫到 WebGL 的 canvas 來源圖片必須 `crossOrigin='anonymous'`，否則每幀丟 SecurityError。
-- 軟體繪圖（測試環境）下看不出效能問題；效能結論只能來自實機。
+- `space/world.ts`：仍然很大、没有完整型别（声音、歌词、镜头、后制已拆出）。要改它，先在这份文件第 3 节的结构里找到它将来的位置，照那个边界写。
+- `src/folia/vendor/` 是同步脚本产生的，不手改；要改上游的行为写 shim 或在 `upstream.json` 加注明原因的修补。
+- 对照 Folia 时，两边都要固定乱数；只比一边的截图不算数。
+- 云端容器没有显示卡、磁碟有额度：效能只看相对变化；浏览器莫名崩溃先查磁碟（`docs/MAINTENANCE.md`）。
+- Electron 的拖曳区（`app-region: drag`）不看 z-index：盖在上面的按钮仍会被下面的拖曳区吃掉点击。拖曳区只放在没有任何按钮重叠的矩形上。
+- Hi-Fi 播放核心独占装置：切回标准输出时要明确 `release`，否则标准输出会静音到它自己放手为止。
+- 画到 WebGL 的 canvas 来源图片必须 `crossOrigin='anonymous'`，否则每帧丢 SecurityError。
+- 软体绘图（测试环境）下看不出效能问题；效能结论只能来自实机。

@@ -1,69 +1,69 @@
 # 介面（`src/app`）
 
-經典介面（`views/`）與空間介面（`space/`）共用同一套邏輯、指令登記表與設定綱要。總覽在 `docs/ARCHITECTURE.md`，視覺規則在 `docs/DESIGN.md`，空間的設計在 `docs/SPACE.md`。
+经典介面（`views/`）与空间介面（`space/`）共用同一套逻辑、指令登记表与设定纲要。总览在 `docs/ARCHITECTURE.md`，视觉规则在 `docs/DESIGN.md`，空间的设计在 `docs/SPACE.md`。
 
-## 合約與分層
+## 合约与分层
 
-字體選單的名稱預覽是預先烘焙的圖（`src/app/ui/font-previews/`，每種語言一張 WebP 加位置表，`npm run fonts:previews` 重新生成），以遮罩顯示、跟隨文字顏色；打開選單不載入任何字體。
+字体选单的名称预览是预先烘焙的图（`src/app/ui/font-previews/`，每种语言一张 WebP 加位置表，`npm run fonts:previews` 重新生成），以遮罩显示、跟随文字颜色；打开选单不载入任何字体。
 
-視覺語言見 `docs/DESIGN.md`。所有元件只讀 `styles/tokens.css` 的變數（四級圓角、表面、動態曲線），架構測試會擋下寫死的圓角與時長。共用的互動元件都在 `ui/kit.tsx`：
-- `Dropdown`：自繪下拉，取代所有原生 `<select>`；
-- `ContextMenu`：右鍵選單，支援二級選單；
-- `Turn`：換頁與換區塊時，先淡出舊的、再淡入新的；
-- `usePresence`：讓會開關的東西都有離場動畫。
+视觉语言见 `docs/DESIGN.md`。所有元件只读 `styles/tokens.css` 的变数（四级圆角、表面、动态曲线），架构测试会挡下写死的圆角与时长。共用的互动元件都在 `ui/kit.tsx`：
+- `Dropdown`：自绘下拉，取代所有原生 `<select>`；
+- `ContextMenu`：右键选单，支援二级选单；
+- `Turn`：换页与换区块时，先淡出旧的、再淡入新的；
+- `usePresence`：让会开关的东西都有离场动画。
 
-離場中的畫面仍會重繪，因此元件要用傳入的資料，不要假設全域狀態仍在。字體選單在 `ui/fonts.tsx`，介面字體在 `uifont.ts`。特效歌詞的畫面比例（`settings.fxAspect`）由 `playback/player.ts` 的 `setFxAspect` 統一套用到場景、畫面框與匯出。
+离场中的画面仍会重绘，因此元件要用传入的资料，不要假设全域状态仍在。字体选单在 `ui/fonts.tsx`，介面字体在 `uifont.ts`。特效歌词的画面比例（`settings.fxAspect`）由 `playback/player.ts` 的 `setFxAspect` 统一套用到场景、画面框与汇出。
 
-介面是可以整個替換的一層。它和引擎之間的合約是：
-- **只引用** `src/engine/index.ts`、`core`、`theme`、`i18n`（由架構測試把關）。
-- **設定**：經由 `app/engineConfig.ts` → `configure()`。
-- **視覺參數**：一律用 `src/app/styles/tokens.css` 的設計變數（顏色、圓角、時長、緩動、陰影），元件裡不寫死數值。
-- **測試鉤子**：`data-test` 屬性和 `window.__cadenza`（由 `actions/boot.ts` 掛上）。新介面要保留同名的鉤子，桌面端到端測試才能沿用。
+介面是可以整个替换的一层。它和引擎之间的合约是：
+- **只引用** `src/engine/index.ts`、`core`、`theme`、`i18n`（由架构测试把关）。
+- **设定**：经由 `app/engineConfig.ts` → `configure()`。
+- **视觉参数**：一律用 `src/app/styles/tokens.css` 的设计变数（颜色、圆角、时长、缓动、阴影），元件里不写死数值。
+- **测试钩子**：`data-test` 属性和 `window.__cadenza`（由 `actions/boot.ts` 挂上）。新介面要保留同名的钩子，桌面端到端测试才能沿用。
 
-介面內部分成兩半，重做時只換第二半：
+介面内部分成两半，重做时只换第二半：
 
-| 留下的（邏輯） | 內容 |
+| 留下的（逻辑） | 内容 |
 |---|---|
-| `bridge.ts` | 與桌面主行程的型別化介面（音樂庫、設定、視窗、Hi-Fi） |
-| `state.ts` | 介面狀態（頁面、圖層、彈窗、音樂庫、設定）的 store |
-| `playback/` | 播放器、佇列、Hi-Fi、背景分析、引擎實例（`stage.ts`） |
-| `actions/` | 啟動（`boot`）、快捷鍵（`bindKeys`）、換頁（`go`）、改設定（`setSettings`、`setLang`） |
-| `engineConfig.ts` | 使用者設定 → `EngineConfig` |
-| `layers.ts`、`motion.ts` | 頁面 ⇄ 正在播放 ⇄ 特效歌詞 的圖層與轉場進度（與樣式無關） |
-| `workshop/project.ts` | 工坊的專案模型 |
+| `bridge.ts` | 与桌面主行程的型别化介面（音乐库、设定、视窗、Hi-Fi） |
+| `state.ts` | 介面状态（页面、图层、弹窗、音乐库、设定）的 store |
+| `playback/` | 播放器、伫列、Hi-Fi、背景分析、引擎实例（`stage.ts`） |
+| `actions/` | 启动（`boot`）、快捷键（`bindKeys`）、换页（`go`）、改设定（`setSettings`、`setLang`） |
+| `engineConfig.ts` | 使用者设定 → `EngineConfig` |
+| `layers.ts`、`motion.ts` | 页面 ⇄ 正在播放 ⇄ 特效歌词 的图层与转场进度（与样式无关） |
+| `workshop/project.ts` | 工坊的专案模型 |
 
-| 換掉的（外觀） | 內容 |
+| 换掉的（外观） | 内容 |
 |---|---|
-| `views/` | 各頁面元件與其 CSS Modules |
-| `ui/` | 元件庫（按鈕、滑桿、選單、圖示…） |
-| `styles/` | 設計變數（`tokens.css`）與基底樣式 |
+| `views/` | 各页面元件与其 CSS Modules |
+| `ui/` | 元件库（按钮、滑杆、选单、图示…） |
+| `styles/` | 设计变数（`tokens.css`）与基底样式 |
 
-邏輯這一半不得引用 `views/` 或 `ui/`，只有入口 `main.tsx` 例外（架構測試把關）。所以新介面只要呼叫 `actions/`、讀 `state.ts`、掛上 `playback/stage.ts` 的畫布，就能接上整個播放器。
+逻辑这一半不得引用 `views/` 或 `ui/`，只有入口 `main.tsx` 例外（架构测试把关）。所以新介面只要呼叫 `actions/`、读 `state.ts`、挂上 `playback/stage.ts` 的画布，就能接上整个播放器。
 
-- 設計語言（顏色、字、圓角、動態、積木）見 `docs/DESIGN.md`，數值只在 `styles/tokens.css`。
-- 元件樣式用 CSS Modules，類名不會互相覆蓋。
-- 介面轉場：每個轉場只有一個進度值，由可反向的彈簧驅動，所有部件都從它派生（不可能卡在半途）。
-- 圖示集在 `ui/icons`（24 格、圓頭線條）。
+- 设计语言（颜色、字、圆角、动态、积木）见 `docs/DESIGN.md`，数值只在 `styles/tokens.css`。
+- 元件样式用 CSS Modules，类名不会互相覆盖。
+- 介面转场：每个转场只有一个进度值，由可反向的弹簧驱动，所有部件都从它派生（不可能卡在半途）。
+- 图示集在 `ui/icons`（24 格、圆头线条）。
 
-## 功能只定義一次
+## 功能只定义一次
 
-- **指令登記表**（`app/commands/`）：每個使用者動作（播放、加入佇列、收藏、加入歌單、編輯資訊…）定義一次；經典介面的右鍵選單、空間介面的卡片按鈕與準星選單都從這裡取。
-- **設定綱要**（`app/settings/schema.ts`）：每個設定宣告一次；型別、兩邊的預設值、主程序的預設值檔（`npm run gen:settings`）、設定頁的欄位（`<SettingField k=… />`）都由它產生。
-- **字典**（`src/i18n/dict.json`）：六種語言，一行 JSON（`{ langs, dict: { 語言: { 鍵: 字 } } }`）。用詞先過 `docs/COPY.md`。
+- **指令登记表**（`app/commands/`）：每个使用者动作（播放、加入伫列、收藏、加入歌单、编辑资讯…）定义一次；经典介面的右键选单、空间介面的卡片按钮与准星选单都从这里取。
+- **设定纲要**（`app/settings/schema.ts`）：每个设定宣告一次；型别、两边的预设值、主程序的预设值档（`npm run gen:settings`）、设定页的栏位（`<SettingField k=… />`）都由它产生。
+- **字典**（`src/i18n/dict.json`）：六种语言，一行 JSON（`{ langs, dict: { 语言: { 键: 字 } } }`）。用词先过 `docs/COPY.md`。
 
-## 外觀與風格頁（`views/panes.tsx` 的 `StylePage`，3.5.0）
+## 外观与风格页（`views/panes.tsx` 的 `StylePage`，3.5.0）
 
-特效歌詞的「外觀與風格」與歌詞工坊的「外觀」用同一頁，四個分頁（記得上次開的）：
+特效歌词的「外观与风格」与歌词工坊的「外观」用同一页，四个分页（记得上次开的）：
 
-| 分頁 | 內容 |
+| 分页 | 内容 |
 | --- | --- |
-| 外觀 | 外觀與自己的主題（`ThemePane`）、背景與它的參數（`LookPane`，含 MV）、顏色、字體（`TextPane`） |
-| 風格 | 內建風格與我的風格（`MotionPane part="tiles"`） |
-| 進階 | 〈風格名〉的設定（Folia 風格）、微調、鏡頭與細項（鏡頭、轉場與轉場的樣子、閃光、歌詞類型、未唱的字、入場與退場、每一個細項旋鈕） |
-| 特效 | 特效分組；Folia 風格的畫面處理 |
+| 外观 | 外观与自己的主题（`ThemePane`）、背景与它的参数（`LookPane`，含 MV）、颜色、字体（`TextPane`） |
+| 风格 | 内建风格与我的风格（`MotionPane part="tiles"`） |
+| 进阶 | 〈风格名〉的设定（Folia 风格）、微调、镜头与细项（镜头、转场与转场的样子、闪光、歌词类型、未唱的字、入场与退场、每一个细项旋钮） |
+| 特效 | 特效分组；Folia 风格的画面处理 |
 
-鏡頭與轉場的選單由登記表列出（`cameraPrograms()`、`transitions()`），新增一種不必改這頁。
+镜头与转场的选单由登记表列出（`cameraPrograms()`、`transitions()`），新增一种不必改这页。
 
-## 正在播放頁
+## 正在播放页
 
-`views/NowPlaying.tsx` 與 `ui/NpLyrics.tsx`：封面、逐字上浮的歌詞清單、等待時的三個點（從中心淡入撐開、期間隨拍點亮與收縮、離場提前半拍放大再縮小）。背景由引擎畫（見 `docs/parts/render.md`），設定在正在播放頁的設定選單（`Modals.tsx`）。
+`views/NowPlaying.tsx` 与 `ui/NpLyrics.tsx`：封面、逐字上浮的歌词清单、等待时的三个点（从中心淡入撑开、期间随拍点亮与收缩、离场提前半拍放大再缩小）。背景由引擎画（见 `docs/parts/render.md`），设定在正在播放页的设定选单（`Modals.tsx`）。
