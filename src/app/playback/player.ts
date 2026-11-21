@@ -35,7 +35,8 @@ import {
   hifi,
 } from './hifi';
 import { PlaybackCoordinator, weightedPick, type PlaybackRequest, type Phase, type Mode } from './coordinator';
-import { prepareOutput, preload, clearPreload, decodeFile, type PreparedOutput } from './outputs';
+import { prepareOutput, preload, keepPreload, clearPreload, type PreparedOutput } from './outputs';
+import { decodeFile } from './pcm';
 export type { Mode } from './coordinator';
 export const MODES: Mode[] = ['loop', 'shuffle', 'one', 'stop'];
 export const MODE_ICON: Record<Mode, string> = { loop: 'repeat', shuffle: 'shuffle', one: 'repeat1', stop: 'once' };
@@ -147,11 +148,7 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
         if (route === 'std') await waitReleased();
         request.signal.throwIfAborted();
         applyBalance();
-        output = await prepareOutput(
-          { ...request, route },
-          trackOf(request.entry.id)?.duration || 0,
-          transport.get().album,
-        );
+        output = await prepareOutput({ ...request, route }, trackOf(request.entry.id), transport.get().album);
       } catch (error) {
         if (route === 'std' || request.signal.aborted) throw error;
         await hifiRelease();
@@ -160,7 +157,7 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
           warnedFormat = true;
           toast(tx('s.hifi.notThis'));
         }
-        output = await prepareOutput({ ...request, route: 'std' }, 0, transport.get().album);
+        output = await prepareOutput({ ...request, route: 'std' }, trackOf(request.entry.id), transport.get().album);
       }
       if (tr) tracePhase(tr, 'audioPrepared', performance.now() - tr.t0);
       return output;
@@ -244,7 +241,12 @@ transport.subscribe((s, previous) => {
     playing: s.phase === 'playing',
     error: s.error,
   });
-  if (s.generation === previous.generation && s.candidate !== previous.candidate && prepared) schedulePreload();
+  if (
+    s.generation === previous.generation &&
+    (s.candidate !== previous.candidate || (s.route === 'std' && s.phase !== previous.phase)) &&
+    prepared
+  )
+    schedulePreload();
   if (s.phase === 'playing' && s.target && lastPlayedGeneration !== s.generation) {
     lastPlayedGeneration = s.generation;
     void Lib?.played(s.target.id).catch(() => {});
@@ -259,13 +261,21 @@ let lastPlayedGeneration = 0;
 
 function schedulePreload() {
   clearTimeout(preloadTimer);
-  const { candidate, target, route, generation } = transport.get();
-  if (!target || settings.get().prerender === false) return clearPreload();
+  const { candidate, target, route, generation, phase, album } = transport.get();
+  if (!target || settings.get().prerender === false || phase === 'error') return clearPreload();
+  const track = candidate ? trackOf(candidate.id) : null;
+  keepPreload(track, album);
+  if (route === 'std' && phase !== 'playing') return;
   preloadTimer = setTimeout(() => {
     const s = transport.get();
-    if (generation === s.generation && s.candidate === candidate) preload(candidate, route, target.id);
+    if (generation === s.generation && s.candidate === candidate && (route === 'hifi' || s.phase === 'playing')) {
+      preload(candidate ? trackOf(candidate.id) : null, route, target.id, album);
+    }
   }, 1500);
 }
+settings.subscribe((next, previous) => {
+  if (transport.get().route === 'std' && next.prerender !== previous.prerender) schedulePreload();
+});
 
 // At most one scene build is active and one replacement queued. Native image/font
 // work already submitted may finish, but an aborted scene cannot submit a full new build.
@@ -285,13 +295,19 @@ function waitForAnalysis(work: Promise<RhythmAnalysis | null>, signal: AbortSign
     });
   });
 }
-async function analyzeVisual(id: string, pcm: AudioBuffer | null, urgent: boolean, signal: AbortSignal) {
+async function analyzeVisual(
+  id: string,
+  pcm: AudioBuffer | null,
+  urgent: boolean,
+  signal: AbortSignal,
+  duration?: number,
+) {
   while (focusedAnalysis) {
     await waitForAnalysis(focusedAnalysis, signal);
     signal.throwIfAborted();
   }
   signal.throwIfAborted();
-  const analysis = (focusedAnalysis = analyzeNow(id, pcm, urgent).catch(() => null));
+  const analysis = (focusedAnalysis = analyzeNow(id, pcm, urgent, duration).catch(() => null));
   void analysis.then(() => {
     if (focusedAnalysis === analysis) focusedAnalysis = null;
   });
@@ -347,17 +363,19 @@ async function openVisual({ request, output, abort }: VisualJob) {
   let analysis = cached;
   let later: Promise<RhythmAnalysis | null> | undefined;
   if (!analysis) {
-    const pcm = output.pcm || (await decodeForAnalysis(id).catch(() => null));
-    signal.throwIfAborted();
-    if (settings.get().rhythmStream !== 'full' && pcm) {
-      later = analyzeVisual(id, pcm, false, signal).catch(() => null);
-      analysis = await analyzeHead(pcm).catch(() => null);
-      if (!analysis) {
-        analysis = await later;
-        later = undefined;
+    if (settings.get().rhythmStream !== 'full') {
+      const pcm = await decodeForAnalysis(id, false, signal, output.duration).catch(() => null);
+      signal.throwIfAborted();
+      if (pcm) {
+        later = analyzeVisual(id, pcm, false, signal).catch(() => null);
+        analysis = await analyzeHead(pcm).catch(() => null);
+        if (!analysis) {
+          analysis = await later;
+          later = undefined;
+        }
       }
     } else {
-      analysis = await analyzeVisual(id, pcm, true, signal).catch(() => null);
+      analysis = await analyzeVisual(id, null, true, signal, output.duration).catch(() => null);
     }
   }
   signal.throwIfAborted();
@@ -764,7 +782,8 @@ async function writeIntoFile(id: string, text: string) {
   const seq = current ? prepared?.nativeSeq : undefined;
   const previous = tagEdits.get(id);
   const edit = (async () => {
-    if (previous) await previous.catch(() => {});
+    // Publish the lane and release this song's output before asking the main process to replace the file.
+    await previous?.catch(() => {});
     if (seq !== undefined) {
       try {
         await closeFile(seq);
@@ -778,13 +797,20 @@ async function writeIntoFile(id: string, text: string) {
       await Lib!.writeLyrics(id, text, 'lrc');
       toast(tx('s.lyr.tagUnsupported'));
     } else if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
-    else toast(tx('s.lyr.tagSaved'));
+    else {
+      const fresh = await Lib!.get().catch(() => null);
+      if (fresh) lib.set(fresh);
+      toast(tx('s.lyr.tagSaved'));
+    }
   })().finally(() => {
     if (tagEdits.get(id) === edit) tagEdits.delete(id);
   });
   tagEdits.set(id, edit);
+  clearPreload(id);
   const resume =
-    seq !== undefined || (current && route === 'hifi' && phase === 'preparing') ? transport.restart() : null;
+    seq !== undefined || (current && (phase === 'preparing' || (route === 'std' && prepared)))
+      ? transport.restart()
+      : null;
   await edit;
   await resume;
 }

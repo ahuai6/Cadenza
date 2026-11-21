@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const fsp = fs.promises;
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
-const { Readable } = require('node:stream');
+const { serveFile } = require('./file-response.cjs');
 const { promisify } = require('node:util');
 const gzip = promisify(zlib.gzip),
   gunzip = promisify(zlib.gunzip);
@@ -106,6 +106,8 @@ function trackView(t) {
     codec: t.codec || '',
     bitrate: t.bitrate || 0,
     sampleRate: t.sampleRate || 0,
+    channels: t.channels || 0,
+    mediaRevision: mediaRevision(t),
     bits: t.bits || 0,
     lossless: !!t.lossless,
     ext: path.extname(t.path).slice(1).toLowerCase(),
@@ -312,7 +314,7 @@ async function walk(dir, out, depth = 0) {
     }
   }
 }
-const TAGS_V = 3; // what readTags reads; files read by an older version are read again once
+const TAGS_V = 4; // what readTags reads; files read by an older version are read again once
 /** TTML lyrics in a file's tags: a field named TTML in whatever form the tag format writes it (a Vorbis comment TTML,
  *  an ID3 TXXX:TTML, an MP4 ----:com.apple.iTunes:TTML), its text when it looks like TTML. */
 function ttmlOf(native) {
@@ -350,6 +352,7 @@ async function readTags(p) {
     ttml: !!ttmlOf(r.native),
     // the sound itself (for the quality label) and the credits (for the ending card)
     sampleRate: f.sampleRate || 0,
+    channels: f.numberOfChannels || 0,
     bits: f.bitsPerSample || 0,
     lossless: !!f.lossless,
     composer: (c.composer || []).join(', '),
@@ -1070,36 +1073,8 @@ function resetMeta(id, part) {
   return true;
 }
 
-/* ---------- cadenza:// — covers, thumbnails, audio and a song's MV, streamed with byte ranges so video can seek ---------- */
-async function serveFile(p, req, type) {
-  const st = await fsp.stat(p),
-    size = st.size,
-    range = req.headers.get('range'),
-    h = {
-      'Accept-Ranges': 'bytes',
-      'Content-Type': type,
-      'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*',
-    }; /* the canvas stays exportable */
-  const m = range && /bytes=(\d*)-(\d*)/.exec(range);
-  if (m) {
-    let a = m[1] ? +m[1] : 0,
-      b = m[2] ? +m[2] : size - 1;
-    if (!m[1] && m[2]) {
-      a = Math.max(0, size - +m[2]);
-      b = size - 1;
-    }
-    b = Math.min(b, size - 1);
-    return new Response(Readable.toWeb(fs.createReadStream(p, { start: a, end: b })), {
-      status: 206,
-      headers: { ...h, 'Content-Range': `bytes ${a}-${b}/${size}`, 'Content-Length': String(b - a + 1) },
-    });
-  }
-  return new Response(Readable.toWeb(fs.createReadStream(p)), {
-    status: 200,
-    headers: { ...h, 'Content-Length': String(size) },
-  });
-}
+/* ---------- cadenza:// — covers, thumbnails, audio and a song's MV ---------- */
+const mediaRevision = (t) => (Number.isFinite(t.mtime) && Number.isFinite(t.size) ? `${t.size}:${t.mtime}` : '');
 const MIME = {
   '.mp3': 'audio/mpeg',
   '.m4a': 'audio/mp4',
@@ -1131,9 +1106,18 @@ function registerProtocol() {
         return serveFile(p, req, kind === 'thumb' ? 'image/jpeg' : 'image/*');
       }
       if (kind === 'media') {
-        const t = db.tracks[key];
-        if (!t || t.protected) return new Response('', { status: 404 });
-        return serveFile(t.path, req, MIME[path.extname(t.path).toLowerCase()] || 'application/octet-stream');
+        const t = key && raw === key && db.tracks[key];
+        if (!t || t.protected) return new Response(null, { status: 404 });
+        const revision = u.searchParams.get('rev');
+        if (revision && revision !== mediaRevision(t)) {
+          return new Response(null, { status: 409, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
+        return await serveFile(
+          t.path,
+          req,
+          MIME[path.extname(t.path).toLowerCase()] || 'application/octet-stream',
+          revision ? t : null,
+        );
       }
       // the neural rhythm engine's weights (shipped as resources/models; in a checkout, models/ from scripts/models.mjs):
       // only the files the engine names, nothing else on disk
@@ -1142,11 +1126,6 @@ function registerProtocol() {
         if (!MODEL_FILES.has(f)) return new Response('', { status: 404 });
         const p = path.join(modelDir(), f);
         if (!fs.existsSync(p)) return new Response('', { status: 404 });
-        if (req.method === 'HEAD')
-          return new Response(null, {
-            status: 200,
-            headers: { 'Content-Length': String(fs.statSync(p).size), 'Access-Control-Allow-Origin': '*' },
-          });
         return serveFile(p, req, 'application/octet-stream');
       }
       if (kind === 'mv') {

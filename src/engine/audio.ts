@@ -1,13 +1,9 @@
-/* Playback and the clock. One clock is authoritative at a time: Web Audio (the page plays the decoded buffer), an
-   external player (the desktop's Hi-Fi output: its clock is the sample leaving the DAC), or a free clock (no audio).
-   Song time t maps to file time as  file = audioStart + t. */
+/* Shared Web Audio graph and the workshop clock. Desktop playback supplies its own file time via the coordinator.
+   Song time t maps to file time as file = audioStart + t. */
 
-/** Decoded audio, or a stand-in for audio another player decodes (it knows its length and can decode on demand). */
+/** Decoded workshop audio, or duration plus explicit on-demand PCM access for offline use. */
 export interface AudioLike {
   duration: number;
-  sampleRate: number;
-  numberOfChannels: number;
-  length: number;
   getChannelData?(i: number): Float32Array;
   load?(): Promise<AudioBuffer>;
 }
@@ -59,6 +55,17 @@ export class AudioClock {
   /** Make the audio context now (at launch, in idle time): the first play does not wait for it. */
   warm() {
     this.ac();
+  }
+  /** The desktop streaming source feeds the same gain and routing as the buffer source. */
+  mediaInput(element: HTMLMediaElement) {
+    const context = this.ac();
+    const source = context.createMediaElementSource(element);
+    return { context, source, input: this.gainNode! };
+  }
+  /** Estimated delay after the graph's render position, in seconds. */
+  outputDelay() {
+    const c = this.ctx;
+    return c?.state === 'running' ? Math.max(0, c.currentTime - this.heard(c)) : 0;
   }
   get external() {
     return this.ext;

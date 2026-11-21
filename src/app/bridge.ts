@@ -19,6 +19,8 @@ export interface Track {
   bitrate: number;
   /** the sound: sample rate (Hz), bit depth, lossless, the file's extension */ sampleRate: number;
   bits: number;
+  channels?: number;
+  mediaRevision?: string;
   lossless: boolean;
   ext: string;
   composer: string;
@@ -218,7 +220,8 @@ export const desktop = !!D;
 
 export const coverUrl = (key: string | null | undefined, full = false) =>
   key ? `cadenza://${full ? 'cover' : 'thumb'}/${key}` : '';
-export const mediaUrl = (id: string) => `cadenza://media/${id}`;
+export const mediaUrl = (id: string, revision?: string) =>
+  `cadenza://media/${id}${revision ? `?rev=${encodeURIComponent(revision)}` : ''}`;
 
 /* ---------- files ---------- */
 /** In a browser a finished file is offered as a download. */

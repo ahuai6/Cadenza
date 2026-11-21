@@ -14,33 +14,59 @@ import {
 } from '../../engine';
 
 import { Lib, mediaUrl } from '../bridge';
-import { lib } from '../state';
+import { lib, trackOf } from '../state';
 
 let busy = false,
   paused = false,
   wake: (() => void) | null = null;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** Decode a song's file for analysis only: 22 kHz mono for the built-in analysis (a quarter of the memory of a full
- *  decode); 44.1 kHz stereo when the neural engine will run (HTDemucs separates the drums at that rate, on both channels). */
-export async function decodeForAnalysis(id: string, loudnessOnly = false) {
-  const r = await fetch(mediaUrl(id));
-  if (!r.ok) throw new Error('read');
+const fileBudget = 64 * 1024 * 1024;
+const pcmBudget = 128 * 1024 * 1024;
+
+/** Automatic full-file PCM is an optional analysis resource. Workshop and export use their explicit offline decode. */
+export async function decodeForAnalysis(
+  id: string,
+  loudnessOnly = false,
+  signal?: AbortSignal,
+  actualDuration?: number,
+) {
+  const track = trackOf(id);
   const neural = !loudnessOnly && rhythmEngine() !== 'dsp' && (await neuralStatus()).ok;
-  return new OfflineAudioContext(neural ? 2 : 1, 1, neural ? 44100 : 22050).decodeAudioData(await r.arrayBuffer());
+  const rate = neural ? 44100 : 22050;
+  const duration = actualDuration || track?.duration || 0;
+  // decodeAudioData retains the input's channel count, independent of the context's output layout.
+  const estimated = duration * Math.max(rate, track?.sampleRate || 48000) * (track?.channels || 8) * 4;
+  if (!(duration > 0) || estimated > pcmBudget) throw new Error('analysis PCM budget');
+  signal?.throwIfAborted();
+  const r = await fetch(mediaUrl(id, track?.mediaRevision), { signal });
+  if (!r.ok) throw new Error('read');
+  const size = Number(r.headers.get('content-length'));
+  if (!(size > 0) || size > fileBudget) {
+    await r.body?.cancel();
+    throw new Error('analysis file budget');
+  }
+  const data = await r.arrayBuffer();
+  signal?.throwIfAborted();
+  return new OfflineAudioContext(neural ? 2 : 1, 1, rate).decodeAudioData(data);
 }
 /** Songs analysed in a hurry (the player was waiting: the neural engine's beats only, no drum stem), to be analysed
  *  whole once the library's queue is through; the next play of each reads the full analysis. */
 const upgrade = new Set<string>();
 /** Analyse one song now (the player calls this for a song it needs and the cache does not have). */
 const inflight = new Map<string, Promise<RhythmAnalysis>>();
-export function analyzeNow(id: string, decoded?: AudioBuffer | null, urgent = false): Promise<RhythmAnalysis> {
+export function analyzeNow(
+  id: string,
+  decoded?: AudioBuffer | null,
+  urgent = false,
+  duration?: number,
+): Promise<RhythmAnalysis> {
   let p = inflight.get(id);
   if (!p) {
     // (needed at once: the beats on the GPU have 20 s, else the built-in analysis answers; the drums come later)
     // (in the background the GPU has a time in proportion to the song — a minute and a little over half the song's own
     // length — then the built-in analysis answers: a slow or stalled GPU never holds the whole library's queue)
     p = (async () => {
-      const buf = decoded || (await decodeForAnalysis(id)),
+      const buf = decoded || (await decodeForAnalysis(id, false, undefined, duration)),
         dur = buf.length / buf.sampleRate;
       const opts = urgent ? { drums: false, timeoutMs: 20_000, urgent: true } : { timeoutMs: 60_000 + dur * 600 };
       // (the neural engine only, and it did not answer while the player waited: the song plays on a tempo grid, and is
