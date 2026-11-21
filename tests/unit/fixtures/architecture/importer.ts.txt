@@ -2,3 +2,4 @@ import "@stage";
 import "@engine";
 import "electron";
 import "node:fs";
+import "react";

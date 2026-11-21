@@ -111,13 +111,18 @@ describe('architecture checker', () => {
       'src/engine/index.ts',
       'electron',
       'node:fs',
+      'react',
     ]);
     expect(imports.map((edge) => boundaryViolation({ ...edge, from: 'src/app/playback/player.ts' }, ALLOWED))).toEqual([
       'engine public entry',
       null,
       'source must use the platform bridge',
       'source must use the platform bridge',
+      null,
     ]);
+    const react = imports.at(-1)!;
+    expect(react.external).toBe(true);
+    expect(boundaryViolation({ ...react, from: 'src/app/playback/coordinator.ts' }, ALLOWED)).toBeTruthy();
   });
 
   it('keeps platform access and view dependencies behind their boundaries', () => {

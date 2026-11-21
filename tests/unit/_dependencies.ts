@@ -67,6 +67,7 @@ export interface Edge {
   to: string;
   line: number;
   typeOnly: boolean;
+  external?: boolean;
 }
 
 export async function buildDependencies(files: string[], root: string, alias?: AliasOptions) {
@@ -93,14 +94,18 @@ export async function buildDependencies(files: string[], root: string, alias?: A
         continue;
       }
       const to = normalize(relative(root, filename));
-      if (filename.includes('/node_modules/') || to.startsWith('node_modules/')) continue;
+      if (normalize(filename).includes('/node_modules/') || to.startsWith('node_modules/')) {
+        edges.push({ from, to: specifier, line, typeOnly, external: true });
+        continue;
+      }
       edges.push({ from, to, line, typeOnly });
     }
   }
   return { edges, unresolved };
 }
 
-export function boundaryViolation({ from, to }: Edge, allowed: Record<string, string[]>) {
+export function boundaryViolation({ from, to, external }: Edge, allowed: Record<string, string[]>) {
+  if (external) return from === 'src/app/playback/coordinator.ts' ? 'playback coordinator depends only on core' : null;
   if (!to.startsWith('src/')) return 'source must use the platform bridge';
   const [, origin, originGroup] = from.split('/');
   const [, target, targetGroup] = to.split('/');

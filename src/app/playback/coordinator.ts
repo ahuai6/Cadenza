@@ -193,11 +193,13 @@ export class PlaybackCoordinator<T extends Output> {
       position: Math.max(0, at),
       error: null,
     });
+    if (this.current !== current) return;
     try {
       this.options.selected(request);
     } catch (error) {
       console.warn('playback selection observer', error);
     }
+    if (this.current !== current) return;
     let output: T;
     try {
       output = await this.options.prepare(request);
@@ -216,7 +218,7 @@ export class PlaybackCoordinator<T extends Output> {
       position: Math.min(this.get().position, output.duration || Infinity),
       phase: 'paused',
     });
-    if (this.get().intent && !this.scrubbing) this.start();
+    if (this.current === current && this.get().intent) this.start();
     if (this.current === current && current.output) {
       try {
         this.options.ready(request, output);
@@ -236,27 +238,29 @@ export class PlaybackCoordinator<T extends Output> {
     const current = this.current,
       output = current?.output;
     const s = this.get();
-    if (!output || this.scrubbing || s.phase === 'playing' || s.phase === 'buffering') return;
+    if (!output || !s.intent || this.scrubbing || s.phase === 'playing' || s.phase === 'buffering') return;
     const position = output.duration > 0 && s.position >= output.duration ? 0 : s.position;
     const run = ++this.run;
     this.state.set({ phase: 'buffering', position, output: null });
+    if (this.current !== current || this.run !== run) return;
     try {
       output.start(position, (event) => {
         if (this.current !== current || run !== this.run) return;
         if (typeof event !== 'string') {
           this.fail(event.error);
         } else if (event === 'ended') {
-          this.run++;
+          const endedRun = ++this.run;
           this.state.set({ phase: 'ended', position: output.duration, output: null });
-          void this.next(true);
+          if (this.current === current && this.run === endedRun && this.get().phase === 'ended' && this.get().intent)
+            void this.next(true);
         } else if (event === 'running' && this.get().phase !== 'playing') {
           this.state.set({ phase: 'playing', output: current.request.entry });
         } else if (event === 'buffering' && this.get().phase === 'playing') {
-          this.state.set({ phase: 'buffering', position: Math.min(output.duration, output.time()), output: null });
+          this.state.set({ phase: 'buffering', position: this.time, output: null });
         }
       });
     } catch (error) {
-      this.fail(String((error as Error)?.message || error));
+      if (this.current === current && this.run === run) this.fail(String((error as Error)?.message || error));
     }
   }
   play() {
@@ -281,6 +285,7 @@ export class PlaybackCoordinator<T extends Output> {
   }
   seek(at: number, scrubbing = false) {
     const s = this.get();
+    const current = this.current;
     if (!s.target || !Number.isFinite(at)) return;
     this.scrubbing = scrubbing;
     const position = Math.max(0, Math.min(s.duration || Infinity, at));
@@ -289,8 +294,8 @@ export class PlaybackCoordinator<T extends Output> {
       // A committed seek can be one backend command. Beginning a drag pauses until it is committed.
       if (scrubbing) this.current?.output?.pause();
     }
-    this.state.set({ position, phase: this.current?.output ? 'paused' : s.phase });
-    if (s.intent && !scrubbing) this.start();
+    this.state.set({ position, phase: current?.output ? 'paused' : s.phase, output: null });
+    if (this.current === current && !scrubbing) this.start();
   }
   /** Close the current resource without throwing away the selected entry or its position. */
   stop() {
@@ -323,7 +328,8 @@ export class PlaybackCoordinator<T extends Output> {
       let candidates = s.queue.filter((e) => !this.round.has(e.key));
       if (!candidates.length) {
         this.round.clear();
-        if (s.target) this.round.add(s.target.key);
+        // Avoid an immediate repeat, but the previous round's last entry has
+        // not been played in the new round yet.
         candidates = s.queue.filter((e) => e !== s.target);
       }
       const e = weightedPick(candidates, (e) => this.options.plays(e.id), this.options.random || Math.random);

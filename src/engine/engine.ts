@@ -404,7 +404,6 @@ export class Engine extends Emitter<EngineEvents> {
     if (this.transport?.ended()) this.outroAt ??= performance.now();
     else this.outroAt = null;
     this.dirty = true;
-    this.emit('change', undefined);
   }
   private fileTime() {
     return this.transport ? this.transport.time() - (this.session?.audioStart ?? 0) : this.t;

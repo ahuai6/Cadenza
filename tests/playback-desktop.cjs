@@ -239,6 +239,17 @@ async function run(route) {
       });
     await mediaToggle();
     await wait(() => window.__cadenza.api.playback.get().phase === 'paused');
+    const drag = await run(() => {
+      const { api, player } = window.__cadenza;
+      let notifications = 0;
+      const off = player.subscribe(() => notifications++);
+      const rev = player.get().rev;
+      for (let i = 0; i < 240; i++) api.seekFile(0.25 + i / 40, true);
+      api.seekFile(6.25);
+      off();
+      return { notifications, visualRevisions: player.get().rev - rev, position: api.playback.time() };
+    });
+    assert.deepEqual(drag, { notifications: 0, visualRevisions: 0, position: 6.25 });
     await mediaToggle();
     await target(4);
     // Exercise the renderer and the native command pipe under repeated revocation.
@@ -267,7 +278,60 @@ async function run(route) {
       assert.equal(await run(() => window.__cadenza.engine.clock.src), null);
     } else {
       await wait(() => window.g2.events.filter((e) => e.ev === 'pos').at(-1)?.id === null);
+      await run((id) => window.__cadenza.api.playIds([id], 0), q[4]);
+      await target(4);
+      await wait((id) => window.__cadenza.player.get().session?.spec.key === id, q[4]);
+      await app.evaluate(({ ipcMain }) => {
+        ipcMain.removeHandler('lib:writeLyrics');
+        ipcMain.handle(
+          'lib:writeLyrics',
+          () =>
+            new Promise((resolve) => {
+              globalThis.completeReviewLyrics = () => resolve({ ok: true });
+            }),
+        );
+      });
+      await run(() => {
+        const { api, settings } = window.__cadenza;
+        settings.set({ lyricsTarget: 'tag' });
+        window.g2.tagEdit = api.useLyrics('[00:01.00]Review lyrics');
+      });
+      // Alert the user controls while the tagged file is unavailable. The later edit completion cannot restore old intent.
+      await wait(() => window.__cadenza.api.playback.get().phase === 'preparing');
+      await run(() => {
+        const a = window.__cadenza.api;
+        a.seekFile(6.5);
+        a.toggle();
+      });
+      let pending = false;
+      for (let i = 0; i < 100 && !pending; i++) {
+        pending = await app.evaluate(() => typeof globalThis.completeReviewLyrics === 'function');
+        if (!pending) await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.ok(pending, 'the tag write reached the main process after native close acknowledgement');
+      await app.evaluate(() => globalThis.completeReviewLyrics());
+      await run(() => window.g2.tagEdit);
+      assert.deepEqual(
+        await run(() => {
+          const a = window.__cadenza.api;
+          const { intent, phase } = a.playback.get();
+          return { intent, phase, position: a.playback.time() };
+        }),
+        { intent: false, phase: 'paused', position: 6.5 },
+      );
     }
+    await run((id) => {
+      window.g2.plansId = id;
+      return window.__cadenza.api.playIds([id], 0, { play: false });
+    }, q[1]);
+    await wait(() => window.g2.plans.length > 0);
+    const cancelled = await run(async (id) => {
+      const a = window.__cadenza.api;
+      const waiter = a.waitForVisual(id);
+      a.stopPlayback();
+      return Promise.race([waiter, new Promise((resolve) => setTimeout(() => resolve('pending'), 500))]);
+    }, q[1]);
+    assert.equal(cancelled, null);
     assert.deepEqual(errors, []);
     console.log(
       'pass',

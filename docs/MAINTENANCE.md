@@ -4,6 +4,32 @@
 
 ## 本机开发与验收
 
+### 按需调用的开发工具
+
+工具只装在开发机用户目录，Cadenza 构建、运行和测试仍使用仓库自己的入口。安装前检查 Codex 的技能清单和 `codex mcp list`。复审用新启动的 Codex 服务扫描用户级技能、发现 MCP 并实际调用。已有会话若保留旧工具清单，重新载入会话。浏览器只打开隔离测试页和合成资料。本次复审的桌面运行时为 Electron 45.1.0、Chromium 156.0.8078.49、Node 24.22.1。
+
+| 任务 | 已接入与验证 | 用法与边界 |
+| --- | --- | --- |
+| React 状态与开销 | `vercel-react-best-practices` 1.0.0 | 查阅订阅粒度、派生状态、热路径规则。Electron 不采用 Next.js 服务端策略。[上游](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices) |
+| React UI 组合 | `vercel-composition-patterns` 1.0.0 | 检查组件职责与可替换性。GPU 视觉组合沿用项目自己的配置、能力与渲染协议。[上游](https://github.com/vercel-labs/agent-skills/tree/main/skills/composition-patterns) |
+| 焦点、键盘与无障碍 | `web-design-guidelines` 1.1.0 | 按页面抽查交互。方向 B「书页」继续作为设计基准。[上游](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) |
+| Web API 与兼容性 | Modern Web Guidance CLI 1.0.1 与 `modern-web-guidance` | 已验证 `search "CSS animations and transitions"` 和 `retrieve motion`。按主题检索，新 API 先查项目锁定的 Electron/Chromium 行为。未来 Android WebView 单独核对。[官方入门](https://developer.chrome.com/docs/modern-web-guidance/get-started?hl=zh-cn) |
+| 浏览器性能、网络与内存 | `chrome-devtools` Skill 和 Chrome DevTools MCP 1.13.0 | 已通过 Codex 打开隔离页、读结构、执行页面查询并采集 trace。使用 `--isolated --headless --no-usage-statistics --no-performance-crux --memory-debugging` 启动，按需使用内存工具。[官方仓库](https://github.com/ChromeDevTools/chrome-devtools-mcp) |
+| 浏览器交互探索 | Playwright CLI 0.1.25 与 `playwright-cli` | 用户级 CLI 与 `install --skills=agents --global`。已验证隔离浏览器的快照、Tab 焦点和 Enter 激活。Electron 回归仍用项目的 Playwright 脚本。[上游](https://github.com/microsoft/playwright-cli) |
+| G7 WebGL2 绘制诊断 | Spector.js MCP，工具版本 1.1.0，Spector.js 0.9.33，上游提交 `755e6a7` | 已在隔离 WebGL2 页面捕获绘制命令并读取 draw call。后续优先用它检查合成、绘制、纹理与 GL 状态。真实 GPU 执行时间、驱动、显存及 Folia 保真另验。[构建与工具文档](https://github.com/BabylonJS/Spector.js/blob/master/mcp/README.md) |
+
+Vercel 的实际标识用 `npx skills add vercel-labs/agent-skills --list` 查询，再以 `--agent codex --global --skill` 安装指定项。Chrome DevTools Skill 来自同名官方仓库的 `skills/chrome-devtools`。Windows 的 MCP 可经 `cmd.exe /d /s /c npx.cmd --yes` 启动固定版本的包。Spector.js 在独立检出下安装并构建 `mcp/`，用上游锁定的 Playwright 安装 Chromium，使用根目录构建的 Spector bundle 或 MCP 文档所述 npm 回退，再用 `codex mcp add spector -- node <mcp/dist/index.js>` 注册。浏览器与调试器的安装留在用户目录。
+
+### 官方技术资料索引
+
+| 阶段 | 资料与用途 |
+| --- | --- |
+| G2–G3 播放与时钟 | [getOutputTimestamp](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/getOutputTimestamp) 与 [Web Audio 规范](https://www.w3.org/TR/webaudio/#dom-audiocontext-getoutputtimestamp) 解释输出时间采样与外推。[MediaElementAudioSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/MediaElementAudioSourceNode) 用于比较普通输出后端。[Electron protocol](https://www.electronjs.org/docs/latest/api/protocol) 用于核对自定义协议、流和范围请求。[Mediabunny](https://mediabunny.dev/guide/introduction) 用于评估解复用与流式媒体。 |
+| G4 Windows 音频设备 | [WASAPI](https://learn.microsoft.com/en-us/windows/win32/coreaudio/wasapi)、[独占流](https://learn.microsoft.com/en-us/windows/win32/coreaudio/exclusive-mode-streams)、[无效设备恢复](https://learn.microsoft.com/en-us/windows/win32/coreaudio/recovering-from-an-invalid-device-error)。结合实际设备核对缓冲、时间、模式切换与恢复。 |
+| G5–G6 文件、身份和缓存 | [Symphonia](https://github.com/pdeljanov/Symphonia) 用于核对容器和音频载荷。[Node crypto](https://nodejs.org/api/crypto.html) 用于增量 SHA-256。[Electron app](https://www.electronjs.org/docs/latest/api/app) 用于资料路径、单实例和启动生命周期。[Windows 重解析点](https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-points) 用于路径安全检查。 |
+| G7 WebGL2、PixiJS 与 Folia | PixiJS 8 [渲染器](https://pixijs.com/8.x/guides/components/renderers)、[滤镜](https://pixijs.com/8.x/guides/components/filters)、[性能](https://pixijs.com/8.x/guides/concepts/performance-tips) 和 [WebGL 工程实践](https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices)。先核对 Folia 锁定 API 与 Chromium 实测能力，再评估迁移。 |
+| G8–G9 工坊、导出和界面 | [Mediabunny 写入媒体](https://mediabunny.dev/guide/writing-media-files)、[Playwright ElectronApplication](https://playwright.dev/docs/api/class-electronapplication)、[React 状态结构](https://react.dev/learn/choosing-the-state-structure) 与 [Electron 性能](https://www.electronjs.org/docs/latest/tutorial/performance)。用于帧输出、状态所有权、桌面端到端与性能诊断。 |
+
 ### 4.0.0 重构期间
 
 - 从保留完整历史的 G0 提交开始，G1–G9 在 `refactor/4.0.0` 上按独立授权开发。每个 Goal 在 Windows 本机构建、启动并完成对应测试后提交，只推送 `origin/refactor/4.0.0`。报告提交 SHA、GitHub 链接、实际验证和剩余问题，随后停在该阶段验收。
@@ -58,6 +84,7 @@ gh api repos/ahuai6/Cadenza/releases/latest --jq '.tag_name+" "+(.assets|map(.na
 ### 4.0.0 启动与数据断代
 
 - `electron/profile-build.json` 记录发行阶段、数据代次和持久化结构版本。4.0.0 开发版在程序版本或数据代次变化时清空已知受管数据。同版本、同代次重复启动保留资料。正式版将阶段从 `development` 改为 `stable`，即使显示版本号与候选版相同，也会执行一次正式断代。
+- 中断事务恢复也检查外部模型目录的配置路径与实际路径。若与待清理的原位置或事务隔离目录重叠，保留事务和文件，报告冲突并等待修正配置。
 - 安装、便携及本地构建都使用同一个 Cadenza 应用数据根和旧版使用的单实例锁。先取得锁，再处理 `.cadenza-data/pending.json`。重置把已知受管项移入同卷的暂存目录，清理完成后才发布当前代次并打开应用服务。占用、链接、Windows 重解析点或中断时显示错误并停止，解决问题后重新启动会继续未完成的事务。
 - 清理范围为已知的设置、曲库、应用内曲目资料、模型缓存和 Chromium 存储等。启动不会访问曲库索引指向的音乐目录来执行清理。根目录中未认领的项目、外部音乐、歌词、MV、导出和独立前代应用目录保留。发现冲突的外部模型目录或受管目录内的媒体文件时先停止。旧 Lyric Motion 自动导入已关闭。
 - 4.0.1 起，从已完成正式断代的资料继续升级。程序版本变化保留设置、库和有效缓存。变更数据结构时登记明确且可重试的逐级迁移。存在旧资料且从未完成正式断代的用户必须先运行 4.0.0 正式版。全新安装可直接初始化。已初始化的正式资料拒绝被旧 4.0.0 开发版覆盖。

@@ -60,7 +60,10 @@ const media =
 const mediaName = new RegExp(media, 'i');
 
 const key = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
-const inDir = (base, p) => key(base) === key(p) || key(p).startsWith(key(base + path.sep));
+const inDir = (base, p) => {
+  const relative = path.relative(key(base), key(p));
+  return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+};
 
 function stat(p) {
   try {
@@ -238,10 +241,12 @@ function validateJournal(pending) {
   );
 }
 
-function protectExternal(root, entries, external) {
+function protectExternal(root, retired, entries, external) {
   if (!external) return;
-  const real = stat(external) ? fs.realpathSync.native(external) : path.resolve(external);
-  if (entries.some((name) => inDir(path.join(root, name), real)))
+  const configured = path.resolve(external);
+  const candidates = stat(configured) ? [configured, fs.realpathSync.native(configured)] : [configured];
+  const scheduled = [retired, ...entries.map((name) => path.join(root, name))];
+  if (scheduled.some((item) => candidates.some((dir) => inDir(item, dir) || inDir(dir, item))))
     throw new Error('An external model directory overlaps data scheduled for clearing');
 }
 
@@ -261,7 +266,7 @@ function initializeProfile(root, next, { reset = false, externalModels, migratio
 
   function recover(pending) {
     if (!validateJournal(pending)) throw new Error('Invalid pending profile transaction');
-    protectExternal(root, pending.entries, externalModels);
+    protectExternal(root, retired, pending.entries, externalModels);
     if (pending.phase === 'retire') {
       directory(retired);
       const moving = [];
@@ -316,7 +321,7 @@ function initializeProfile(root, next, { reset = false, externalModels, migratio
   const operation = action(previous, next, reset && !pending);
   if (operation === 'reset') {
     const entries = managed(root);
-    protectExternal(root, entries, externalModels);
+    protectExternal(root, retired, entries, externalModels);
     if (entries.length)
       visit(
         root,

@@ -111,6 +111,7 @@ let trace: ReturnType<typeof traceBegin> | null = null;
 let preloadTimer: ReturnType<typeof setTimeout> | undefined;
 let audioConfig: Promise<unknown> | null = null;
 let warnedFormat = false;
+const tagEdits = new Map<string, Promise<void>>();
 
 const transport = new PlaybackCoordinator<PreparedOutput>(
   {
@@ -134,6 +135,10 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
     async prepare(request) {
       const tr = trace;
       if (audioConfig) await audioConfig;
+      for (let edit; (edit = tagEdits.get(request.entry.id)); ) {
+        request.signal.throwIfAborted();
+        await edit.catch(() => {});
+      }
       request.signal.throwIfAborted();
       // Settings can change while requests wait for the device transaction.
       const route = hifiOn() ? 'hifi' : 'std';
@@ -182,16 +187,22 @@ export function stopPlayback() {
 }
 /** Consumers that need a real scene (such as export) can wait without holding playback. */
 export async function waitForVisual(id: string) {
-  const generation = transport.get().generation;
+  const request = visualRequest;
+  if (!request || request.entry.id !== id || request.signal.aborted) return null;
   return new Promise<Session | null>((resolve) => {
+    const finish = (session: Session | null) => {
+      off();
+      request.signal.removeEventListener('abort', abort);
+      resolve(session);
+    };
+    const abort = () => finish(null);
     const check = () => {
       const p = player.get();
-      if (transport.get().generation !== generation || p.shownId !== id || p.error || p.visualError || p.session) {
-        off();
-        resolve(transport.get().generation === generation && p.shownId === id ? p.session : null);
-      }
+      if (request.signal.aborted || p.shownId !== id || p.error || p.visualError) finish(null);
+      else if (p.session) finish(p.session);
     };
     const off = player.subscribe(check);
+    request.signal.addEventListener('abort', abort, { once: true });
     check();
   });
 }
@@ -746,31 +757,36 @@ export async function useLyrics(text: string, o: { edit?: boolean } = {}) {
   else await writeIntoFile(p.shownId, text);
   return s.hasLyrics;
 }
-/** The lyrics written into the song's own tags. The file must not be held while it is rewritten: the Hi-Fi player is
- *  stopped (its decoder closed) first, and the song is loaded again afterwards at the same moment, playing if it was. A
- *  format without a lyrics tag gets the .lrc beside it instead; a file another program holds is said so. */
+/** Serialize writes and keep any new prepare for this file behind the edit. Playback controls retain their latest intent. */
 async function writeIntoFile(id: string, text: string) {
-  const { generation, intent, target } = transport.get();
-  const seq = target?.id === id ? prepared?.nativeSeq : undefined;
-  const at = transport.time;
-  if (seq !== undefined) {
-    transport.pause();
-    try {
-      await closeFile(seq);
-    } catch (error) {
-      toast(tx('s.lyr.tagBusy'));
-      if (transport.get().generation === generation) void transport.restart(intent, at);
-      return;
+  const { target, route, phase } = transport.get();
+  const current = target?.id === id;
+  const seq = current ? prepared?.nativeSeq : undefined;
+  const previous = tagEdits.get(id);
+  const edit = (async () => {
+    if (previous) await previous.catch(() => {});
+    if (seq !== undefined) {
+      try {
+        await closeFile(seq);
+      } catch {
+        toast(tx('s.lyr.tagBusy'));
+        return;
+      }
     }
-  }
-  const r = await Lib!.writeLyrics(id, text, 'tag').catch((e) => ({ ok: false, why: String(e) }));
-  if (!r.ok && r.why === 'unsupported') {
-    await Lib!.writeLyrics(id, text, 'lrc');
-    toast(tx('s.lyr.tagUnsupported'));
-  } else if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
-  else toast(tx('s.lyr.tagSaved'));
-  // (back to where it was: the song opened again from the rewritten file)
-  if (seq !== undefined && transport.get().generation === generation) await transport.restart(intent, at);
+    const r = await Lib!.writeLyrics(id, text, 'tag').catch((e) => ({ ok: false, why: String(e) }));
+    if (!r.ok && r.why === 'unsupported') {
+      await Lib!.writeLyrics(id, text, 'lrc');
+      toast(tx('s.lyr.tagUnsupported'));
+    } else if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
+    else toast(tx('s.lyr.tagSaved'));
+  })().finally(() => {
+    if (tagEdits.get(id) === edit) tagEdits.delete(id);
+  });
+  tagEdits.set(id, edit);
+  const resume =
+    seq !== undefined || (current && route === 'hifi' && phase === 'preparing') ? transport.restart() : null;
+  await edit;
+  await resume;
 }
 /** The shown song's lines as its words are spaced now (one per line). */
 export const spacedLines = () =>

@@ -9,6 +9,8 @@ description: Cadenza 项目的开发范式：分层与依赖规则、新增功�
 >
 > 文档地图在 `docs/README.md`；方向与用户已决定的事在 `docs/DIRECTION.md`；架构在 `docs/ARCHITECTURE.md`（细节在 `docs/parts/`）；测试在 `docs/TESTING.md`；发布与维护在 `docs/MAINTENANCE.md`。
 
+按 [开发工具与官方资料索引](../../../docs/MAINTENANCE.md#按需调用的开发工具) 只调当前任务需要的技能和工具。建议有冲突时，以产品要求、锁定的平台能力、源码和可复现结果决定。React 组件规则用于 UI，浏览器诊断是补充证据，正式行为通过 Electron、Windows 和对应硬件验收。
+
 ## 1. 这个项目是什么
 
 一个本机音乐库播放器，由几个同样重要的部分组成（各部分与位置见 `CLAUDE.md` 的表）：音乐库与播放（含高保真输出）、节奏分析、歌词（解析、分词、取得）、特效歌词（导演与渲染）、正在播放页、歌词工坊，以及共用同一套逻辑的两种界面（经典与空间）。

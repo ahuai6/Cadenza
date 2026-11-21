@@ -149,6 +149,8 @@ describe('PlaybackCoordinator', () => {
     expect(c.get().phase).toBe('buffering');
     a.event('running');
     expect(c.get().phase).toBe('playing');
+    c.seek(5, true);
+    expect(c.get()).toMatchObject({ phase: 'paused', output: null, position: 5 });
     c.pause();
     void c.replace(['A', 'B'], 1, false, true);
     const b = await open();
@@ -156,6 +158,33 @@ describe('PlaybackCoordinator', () => {
     c.seek(5);
     c.play();
     expect(b.position).toBe(5);
+  });
+
+  it('does not submit an audio start revoked by a synchronous buffering observer', async () => {
+    const { c, open } = setup();
+    const off = c.subscribe((s) => {
+      if (s.phase === 'buffering') c.pause();
+    });
+    void c.replace(['A'], 0, true, false);
+    const a = await open();
+    expect(a.start).not.toHaveBeenCalled();
+    expect(c.get()).toMatchObject({ phase: 'paused', intent: false, output: null });
+    off();
+    c.play();
+    expect(a.start).toHaveBeenCalledOnce();
+  });
+
+  it('does not let an EOF observer start two replacements or override the listener', async () => {
+    const { c, open, jobs } = setup();
+    void c.replace(['A', 'B', 'C'], 0, true, false);
+    const a = await open();
+    const off = c.subscribe((s) => {
+      if (s.phase === 'ended') void c.playAt(2);
+    });
+    a.event('ended');
+    off();
+    expect(jobs.map((j) => j.request.entry.id)).toEqual(['A', 'C']);
+    expect(c.get().target?.id).toBe('C');
   });
 
   it('uses backend EOF for albums, one, stop and occurrence-aware shuffle', async () => {
@@ -215,6 +244,20 @@ describe('PlaybackCoordinator', () => {
     expect(c.get()).toMatchObject({ phase: 'paused', output: null, target: current });
     c.play();
     expect((await open()).start).toHaveBeenCalledOnce();
+  });
+
+  it('plays every occurrence once per shuffle round, including after the first wrap', async () => {
+    const { c, open } = setup('shuffle');
+    void c.replace(['A', 'A', 'B'], 0, true, false);
+    await open();
+    const played = [c.get().target!.key];
+    for (let i = 1; i < 9; i++) {
+      void c.next();
+      await open();
+      played.push(c.get().target!.key);
+    }
+    for (let i = 0; i < played.length; i += 3) expect(new Set(played.slice(i, i + 3)).size).toBe(3);
+    expect(played.every((key, i) => i === 0 || key !== played[i - 1])).toBe(true);
   });
 
   it('releases every superseded resource and never grants a stale load permission over 100 selections', async () => {

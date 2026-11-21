@@ -4,7 +4,8 @@ const path = require('node:path');
 const { _electron: electron } = require('playwright');
 
 const [snapshot, out] = process.argv.slice(2);
-const scratch = fs.realpathSync(process.env.CADENZA_BASELINE_ROOT || '');
+if (!process.env.CADENZA_BASELINE_ROOT) throw new Error('Use the isolated baseline runner');
+const scratch = fs.realpathSync(process.env.CADENZA_BASELINE_ROOT);
 if (!out || path.dirname(out) !== scratch || fs.existsSync(out)) throw new Error('Use the isolated baseline runner');
 const count = 30;
 const sampleRate = 48_000;
@@ -119,6 +120,7 @@ async function measure(mode) {
     }),
   );
   const env = { ...process.env, CADENZA_USER_DATA: prof };
+  delete env.CADENZA_AUDIO_FAKE;
   const dump = path.join(prof, 'fake-dac');
   if (mode === 'fake-hifi') {
     fs.mkdirSync(dump);
@@ -252,6 +254,13 @@ async function measure(mode) {
           }
           if (row.newSignalMs == null) row.error ??= 'No new tone was found in simulated PCM';
         }
+        if (!timedOut && !row.error) {
+          const required = ['newSignalMs', 'initialVisualMs', 'fullPlanMs'];
+          if (previous !== undefined) required.push('oldSignalEndedMs');
+          if (tap) required.push('firstRunningPositionMs');
+          const missing = required.filter((metric) => !Number.isFinite(row[metric]));
+          if (missing.length) row.missing = missing;
+        }
         rows.push(row);
         if (timedOut || rows.at(-1).error) break;
         previous = index;
@@ -266,7 +275,7 @@ async function measure(mode) {
       const matches = rows.filter((row) => row.scenario === scenario);
       summary[scenario] = {
         attempted: matches.length,
-        failures: matches.filter((row) => row.timedOut || row.error).length,
+        failures: matches.filter((row) => row.timedOut || row.error || row.missing).length,
         ...Object.fromEntries(
           ['oldSignalEndedMs', 'newSignalMs', 'initialVisualMs', 'fullPlanMs', 'firstRunningPositionMs'].map(
             (metric) => [metric, percentiles(matches.map((row) => row[metric]))],
@@ -277,7 +286,7 @@ async function measure(mode) {
     fs.writeFileSync(path.join(out, mode + '.json'), JSON.stringify({ mode, summary, rows }, null, 2) + '\n');
     console.log(mode, JSON.stringify(summary));
   }
-  return rows.length === 3 + count * 2 && rows.every((row) => !row.timedOut && !row.error);
+  return rows.length === 3 + count * 2 && rows.every((row) => !row.timedOut && !row.error && !row.missing);
 }
 
 (async () => {

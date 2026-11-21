@@ -190,6 +190,26 @@ test('profile selection rejects an outside override and a linked canonical root'
   assert.throws(() => profileRoot({ getPath: () => redirected }, {}), /profile path is a link/i);
 });
 
+test('an external model directory in a resumed retirement is protected before any purge', () => {
+  const f = fixture();
+  const external = f.file('.cadenza-data/retired/models/native');
+  f.put('.cadenza-data/retired/models/native/user-model.bin', 'external');
+  f.put('.cadenza-data/retired/settings.json');
+  f.put(
+    '.cadenza-data/pending.json',
+    JSON.stringify({
+      owner: 'app.cadenza.desktop',
+      target: dev(),
+      phase: 'purge',
+      entries: ['models', 'settings.json'],
+    }),
+  );
+  assert.throws(() => initializeProfile(f.profile, dev(), { externalModels: external }), /external model/);
+  assert.equal(fs.readFileSync(path.join(external, 'user-model.bin'), 'utf8'), 'external');
+  assert.equal(fs.existsSync(f.file('.cadenza-data/retired/settings.json')), true);
+  assert.equal(fs.existsSync(f.file('.cadenza-data/pending.json')), true);
+});
+
 test('a corrupt or foreign transaction cannot name an outside item', () => {
   const f = fixture();
   f.seed('still here');

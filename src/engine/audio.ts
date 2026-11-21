@@ -148,7 +148,10 @@ export class AudioClock {
   now(audioStart: number): number {
     if (!this.playing) return this.t0;
     if (this.extOn && this.ext) return this.ext.clock() - audioStart;
-    if (this.src && this.ctx) return this.smooth(Math.max(this.t0, this.t0 + (this.heard(this.ctx) - this.ctx0)));
+    if (this.src && this.ctx) {
+      if (this.ctx.state !== 'running') return Number.isFinite(this.last) ? this.last : this.t0;
+      return this.smooth(Math.max(this.t0, this.t0 + (this.heard(this.ctx) - this.ctx0)));
+    }
     return this.t0 + (performance.now() - this.wall0) / 1000;
   }
   /** The audio context's time of what is being heard now. Its currentTime moves in steps of one render buffer (23 ms
@@ -158,7 +161,7 @@ export class AudioClock {
   private heard(c: AudioContext): number {
     const ts = c.getOutputTimestamp?.();
     if (ts && ts.contextTime != null && ts.performanceTime != null && ts.performanceTime > 0)
-      return ts.contextTime + Math.max(0, performance.now() - ts.performanceTime) / 1000;
+      return Math.min(c.currentTime, ts.contextTime + Math.max(0, performance.now() - ts.performanceTime) / 1000);
     return c.currentTime;
   }
   /** Successive readings as one steady clock: it follows the source closely (a small difference eased out over a few
