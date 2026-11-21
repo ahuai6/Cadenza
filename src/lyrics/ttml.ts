@@ -14,7 +14,7 @@
    background line, a duet) stays up as long as it is sung. The XML is read by a small reader of its own (the lyrics are
    also read where no DOM parser is, in the tests and the planning worker's tools). */
 import type { Parsed, RawLine, RawUnit, RawWord } from './parse';
-import { plainWords } from './parse';
+import { plainWords } from './words';
 
 interface El {
   tag: string;

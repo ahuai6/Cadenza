@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { spawn } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const { once } = require('node:events');
 const readline = require('node:readline');
 const { setTimeout: delay } = require('node:timers/promises');
@@ -35,6 +35,9 @@ async function check(mode) {
     pcm.writeInt16LE(amplitude, off + 2);
   }
   fs.writeFileSync(file, pcm);
+  const alac = process.argv.includes('--alac');
+  const input = alac ? path.join(scratch, 'tone.m4a') : file;
+  if (alac) execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-c:a', 'alac', input], { windowsHide: true });
   const env = { ...process.env };
   delete env.CADENZA_AUDIO_FAKE;
   const child = spawn(bin, [], { env, windowsHide: true });
@@ -55,7 +58,7 @@ async function check(mode) {
   try {
     send({ cmd: 'config', mode, ticket: 1 });
     assert.equal((await wait((e) => e.ev === 'configured')).ok, true);
-    send({ cmd: 'load', seq: 1, id: 'tone', path: file });
+    send({ cmd: 'load', seq: 1, id: 'tone', path: input });
     await wait((e) => e.ev === 'ready');
     send({ cmd: 'play', seq: 1, run: 1, pos: 0 });
     const initialDevice = await wait((e) => e.ev === 'device' && e.open);
@@ -64,6 +67,12 @@ async function check(mode) {
     assert.ok(device);
     if (mode === 'exclusive' && !device.exclusive) {
       assert.ok(events.some((e) => e.ev === 'fallback' && e.code === 'shared'));
+    }
+    await delay(500);
+    const endpointSamples = events.filter((e) => e.ev === 'endpoint-clock' && e.epoch === running.epoch);
+    if (endpointSamples.length > 0) {
+      assert.ok(endpointSamples.length >= 2, 'an available IAudioClock2 must survive multiple observations');
+      assert.ok(endpointSamples.every((e, i) => i === 0 || e.qpc100ns >= endpointSamples[i - 1].qpc100ns));
     }
     send({ cmd: 'pause', seq: 1 });
     const paused = await wait((e) => e.ev === 'pos' && e.epoch === running.epoch && !e.run && e.t > 0);
@@ -82,14 +91,14 @@ async function check(mode) {
         observations.filter((e) => e.source === s).length,
       ]),
     );
-    const endpoint = events.find((e) => e.ev === 'endpoint-clock');
     console.log(
       JSON.stringify({
+        codec: alac ? 'alac' : 'pcm',
         device,
         initialDevice: initialDevice === device ? undefined : initialDevice,
         sources,
         clockSources: events.filter((e) => e.ev === 'clock-source'),
-        endpoint,
+        endpointSamples,
         paused: paused.t,
         seek: seek.t,
         eof: eof.t,

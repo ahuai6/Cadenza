@@ -1,6 +1,6 @@
 # Folia 的特效歌词在 Cadenza 里
 
-Folia（https://github.com/chthollyphile/folia-major，AGPL-3.0，与 Cadenza 相同）的歌词可视化以「风格」的身分接进经典界面的特效歌词。原则：**上游的构图代码原封不动地搬进来，只重写拥有画布与时钟的那一层**，所以能随时跟上游更新。
+Folia（https://github.com/chthollyphile/folia-major，AGPL-3.0，与 Cadenza 相同）的歌词可视化作为风格接入特效歌词。初次移植以保持上游构图为基准，生成文件保留来源与版本。G7 可以在可追踪、可回归和可同步的前提下改良构图、运镜与特效算法，详见 [项目方向](DIRECTION.md#g7-风格构图与共享-gpu-基础设施)。
 
 ## 结构
 
@@ -11,7 +11,7 @@ Folia（https://github.com/chthollyphile/folia-major，AGPL-3.0，与 Cadenza �
 | `src/folia/pixi/` | 与 Pixi v8 兼容的舞台（Container、Graphics、Text、Sprite、滤镜、遮罩、混合模式），以 Canvas2D 画图形与文字、WebGL2 跑 GLSL 滤镜；上游 `import 'pixi.js'` 改指向这里 | Cadenza |
 | `src/folia/shim/` | 上游依赖、Cadenza 另有来源的模块：动态信号、节拍来源、图标、framer-motion 的类型 | Cadenza |
 | `src/folia/adapt.ts` | Cadenza 的歌词模型 → Folia 的 `Line`（用 Cadenza 的分词，含用户自订）；外观 → Folia 的 `Theme` | Cadenza |
-| `src/folia/live.ts` | 节拍时钟（上游 `beatFxLive`）与频段，全部由 Cadenza 的节奏分析供给 | Cadenza |
+| `src/folia/live.ts` | 用当前歌曲时刻采样节拍事件（上游 `beatFxLive`）与频段，事件与频谱由 Cadenza 的节奏分析供给 | Cadenza |
 | `src/folia/engines/` | 各风格的执行层（取代上游的 `create…PixiRuntime.ts`） | Cadenza |
 | `src/render/engines.ts` | 依风格的 `engine` 字段选歌词引擎；导演是默认，Folia 风格画在同一个背景上 | Cadenza |
 
@@ -73,7 +73,7 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 | 五种背景 | 背景 `f-*` | `render/effects/foliaBackdrops.ts` |
 | 商籁的段落转场（模糊、撕裂、淡出） | 转场的样子 `blur`、`glitch`、`fade` | `render/transitions.ts` |
 
-商籁、凝彩本身仍由自己的执行层运镜（Folia 的镜头与分段机制原样保留）。
+商籁和凝彩由各自的执行层运镜。`Engine.frameAt()` 仍计算 Cadenza 导演帧，通用背景、合成和转场可继续消费这份帧数据。G7 需要在对照测试中查清跨风格影响，把构图、镜头和转场的所有权归还给各自风格，再通过明确的组合接口共享底层资源。
 
 ## 还没搬的
 
@@ -82,5 +82,5 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 ## 授权与注意
 
 - 搬进来的每个文件开头标明来源与版本。上游文件里的 `@note Version Control` 等注释保留原样。
-- 只有 `upstream.json` 的 `patches` 改动上游文字，每条注明原因（目前都是 Cadenza 编译器较严格而未使用的名称）。
+- 对上游生成文件的修订通过同步脚本和 `upstream.json` 的 `patches` 记录，说明改动原因、适用的上游版本及验证方法。Cadenza 自有执行层的改良也要有对应的上游对照。
 - Lucide 图标为 ISC 授权；Paper 着色器（`@paper-design/shaders`）为 Apache-2.0 授权。

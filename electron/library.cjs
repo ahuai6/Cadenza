@@ -14,6 +14,9 @@ const fsp = fs.promises;
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { serveFile } = require('./file-response.cjs');
+const { serveAlac } = require('./alac.cjs');
+const { manifest: mp4Manifest } = require('./mp4-integrity.cjs');
+const { isDeepStrictEqual } = require('node:util');
 const { promisify } = require('node:util');
 const gzip = promisify(zlib.gzip),
   gunzip = promisify(zlib.gunzip);
@@ -100,6 +103,10 @@ function trackView(t) {
     albumArtist: o.albumArtist || t.albumArtist || '',
     genre: o.genre || t.genre || [],
     year: o.year || t.year || null,
+    date: t.date || '',
+    copyright: t.copyright || '',
+    isrc: t.isrc || [],
+    upc: t.upc || '',
     track: o.track || t.track || null,
     disc: o.disc || t.disc || null,
     duration: t.duration || 0,
@@ -314,19 +321,29 @@ async function walk(dir, out, depth = 0) {
     }
   }
 }
-const TAGS_V = 4; // what readTags reads; files read by an older version are read again once
-/** TTML lyrics in a file's tags: a field named TTML in whatever form the tag format writes it (a Vorbis comment TTML,
- *  an ID3 TXXX:TTML, an MP4 ----:com.apple.iTunes:TTML), its text when it looks like TTML. */
+const TAGS_V = 5; // re-read metadata in place without changing song IDs or the profile generation
+const alac = (codec) => /^alac$/i.test(codec || '');
+const mp4Audio = (p) => /\.(m4a|mp4)$/i.test(p);
+const isTtmlText = (text) =>
+  typeof text === 'string' && /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<tt[\s>]/i.test(text);
+function embeddedText(value) {
+  if (Buffer.isBuffer(value)) return value.toString('utf8');
+  if (value && typeof value === 'object')
+    return value.text ?? value.value ?? (Array.isArray(value) ? value.join('') : '');
+  return value;
+}
+function mp4LyricOf(native) {
+  const value = embeddedText(native?.iTunes?.find((tag) => tag.id === '©lyr')?.value);
+  return typeof value === 'string' ? value : null;
+}
 function ttmlOf(native) {
-  for (const list of Object.values(native || {}))
-    for (const tag of list || []) {
-      const id = String(tag.id || '').toUpperCase();
-      if (!/(^|[:\s])TTML$/.test(id)) continue;
-      let v = tag.value;
-      if (v && typeof v === 'object') v = v.text ?? v.value ?? (Array.isArray(v) ? v.join('') : '');
-      if (Buffer.isBuffer(v)) v = v.toString('utf8');
-      if (typeof v === 'string' && /<tt[\s>]/i.test(v)) return v;
-    }
+  const lyric = mp4LyricOf(native);
+  if (isTtmlText(lyric)) return lyric;
+  for (const tag of Object.values(native || {}).flat()) {
+    if (!/(^|[:\s])TTML$/i.test(tag.id || '')) continue;
+    const text = embeddedText(tag.value);
+    if (isTtmlText(text)) return text;
+  }
   return null;
 }
 async function readTags(p) {
@@ -342,13 +359,21 @@ async function readTags(p) {
     albumArtist: c.albumartist || '',
     genre: c.genre || [],
     year: c.year || null,
+    date: c.date || '',
+    copyright: c.copyright || '',
+    isrc: c.isrc || [],
+    upc: String(
+      Object.values(r.native)
+        .flat()
+        .find((tag) => /(^|:)UPC$/i.test(tag.id))?.value ?? '',
+    ),
     track: (c.track && c.track.no) || null,
     disc: (c.disk && c.disk.no) || null,
     duration: f.duration || 0,
     codec: f.codec || f.container || '',
     bitrate: f.bitrate || 0,
     cover: pic ? pic.data : null,
-    embedded: !!(c.lyrics && c.lyrics.length),
+    embedded: mp4LyricOf(r.native) !== null || !!c.lyrics?.length,
     ttml: !!ttmlOf(r.native),
     // the sound itself (for the quality label) and the credits (for the ending card)
     sampleRate: f.sampleRate || 0,
@@ -392,6 +417,11 @@ async function scan() {
                   if (tg) {
                     delete tg.cover;
                     Object.assign(old, tg);
+                    if (alac(old.codec)) {
+                      old.failed = false;
+                      delete old.failWhy;
+                      delete old.loudFailed;
+                    }
                   }
                 }
               } else {
@@ -644,13 +674,15 @@ async function readLyrics(id) {
     try {
       mm ||= await import('music-metadata');
       const r = await mm.parseFile(t.path, { skipCovers: true });
+      const raw = mp4LyricOf(r.native);
+      if (raw !== null) return { source: isTtmlText(raw) ? 'ttml' : 'embedded', text: raw };
       const L = (r.common.lyrics || [])[0];
       if (L) {
         const txt =
           L.syncText && L.syncText.length
             ? L.syncText.map((s) => `[${lrcTime((s.timestamp || 0) / 1000)}]${s.text}`).join('\n')
             : L.text || '';
-        if (txt.trim()) return { source: 'embedded', text: txt };
+        if (txt) return { source: 'embedded', text: txt };
       }
     } catch (e) {
       /* unreadable tags */
@@ -666,9 +698,10 @@ async function writeLyrics(id, text, target = 'lrc') {
   // TTML: kept as TTML, beside the file (and read first again); other lyrics on a song that has TTML: the listener's own
   // edit, read from then on in place of the TTML
   const o = db.overrides[id] || {};
-  if (target === 'ttml') {
+  const ttml = isTtmlText(text);
+  if (target === 'ttml' || (ttml && target === 'tag' && ttmlSidecar(t.path))) {
     const b = t.path.slice(0, -path.extname(t.path).length);
-    await fsp.writeFile(ttmlSidecar(t.path) || b + '.ttml', String(text), 'utf8');
+    await writeLyricSidecar(ttmlSidecar(t.path) || b + '.ttml', String(text));
     t.ttmlFile = true;
     if (o.preferLrc) {
       delete o.preferLrc;
@@ -678,44 +711,60 @@ async function writeLyrics(id, text, target = 'lrc') {
     changed();
     return { ok: true, target: 'ttml' };
   }
-  if ((t.ttml || ttmlSidecar(t.path)) && !o.preferLrc) {
-    db.overrides[id] = { ...o, preferLrc: true };
-    save();
-  }
+  if (target === 'tag' && ttml && !mp4Audio(t.path)) return { ok: false, why: 'unsupported' };
   const crlf = String(text).replace(/\r?\n/g, '\r\n'),
     sc = sidecar(t.path);
   if (target === 'tag') {
-    const why = await writeTagLyrics(t.path, String(text).replace(/\r\n/g, '\n'));
+    const why = await writeTagLyrics(t, String(text));
     if (why) return { ok: false, why };
     t.embedded = true;
-    if (sc) await fsp.writeFile(sc, '\ufeff' + crlf, 'utf8');
+    if (ttml) t.ttml = true;
+    else if (mp4Audio(t.path)) t.ttml = false;
+    if (sc && !ttml) await writeLyricSidecar(sc, '\ufeff' + crlf);
     // (the file's new size and time: the next scan sees the same song — its audio key is unchanged, so its analysis stays)
     const st = await fsp.stat(t.path).catch(() => null);
     if (st) {
       t.size = st.size;
       t.mtime = st.mtimeMs;
     }
-    save();
+    const preference = { ...o };
+    if (!ttml && ttmlSidecar(t.path)) preference.preferLrc = true;
+    else delete preference.preferLrc;
+    if (Object.keys(preference).length) db.overrides[id] = preference;
+    else delete db.overrides[id];
     changed();
     return { ok: true, target: 'tag' };
   }
-  await fsp.writeFile(sc || t.path.slice(0, -path.extname(t.path).length) + '.lrc', '\ufeff' + crlf, 'utf8');
+  await writeLyricSidecar(sc || t.path.slice(0, -path.extname(t.path).length) + '.lrc', '\ufeff' + crlf);
+  if (t.ttml || ttmlSidecar(t.path)) db.overrides[id] = { ...o, preferLrc: true };
   t.lrc = true;
   changed();
   return { ok: true, target: 'lrc' };
+}
+async function writeLyricSidecar(file, text) {
+  const tmp = path.join(path.dirname(file), '.cadenza-' + crypto.randomBytes(12).toString('hex'));
+  try {
+    await fsp.writeFile(tmp, text, { encoding: 'utf8', flag: 'wx' });
+    await fsp.rename(tmp, file);
+  } finally {
+    await fsp.rm(tmp, { force: true }).catch(() => {});
+  }
 }
 /** The lyrics written into the file's tags (node-taglib-sharp, LGPL — NOTICE.md). The edit is made on a copy beside the
  *  file and the copy then takes its place, so a failure never leaves a half-written song; a file still held by another
  *  program is tried again for a few seconds. Returns null, or why not. */
 let taglib = null;
-async function writeTagLyrics(p, text) {
+async function writeTagLyrics(track, text) {
+  const p = track.path;
   taglib ||= require('node-taglib-sharp');
-  // (a hidden name — the scan skips dot-files — with the song's own extension, which says the format)
-  const ext = path.extname(p),
-    tmp = path.join(path.dirname(p), '.' + path.basename(p, ext) + '.cadenza-tmp' + ext);
+  const ext = path.extname(p);
   for (let k = 0; k < 8; k++) {
+    const tmp = path.join(path.dirname(p), '.cadenza-' + crypto.randomBytes(12).toString('hex') + ext);
     try {
-      await fsp.copyFile(p, tmp);
+      const before = await fsp.stat(p);
+      if (before.size !== track.size || before.mtimeMs !== track.mtime) return 'changed';
+      const beforeMp4 = mp4Audio(p) ? await mp4Manifest(p) : null;
+      await fsp.copyFile(p, tmp, fs.constants.COPYFILE_EXCL);
       const f = taglib.File.createFromPath(tmp);
       let ok = false;
       try {
@@ -727,20 +776,37 @@ async function writeTagLyrics(p, text) {
       } finally {
         f.dispose();
       }
-      if (!ok) {
-        await fsp.rm(tmp, { force: true }).catch(() => {});
-        return 'unsupported';
+      if (!ok) return 'unsupported';
+      if (beforeMp4) {
+        mm ||= await import('music-metadata');
+        const checked = await mm.parseFile(tmp, { skipCovers: true });
+        const readBack = checked.native.iTunes?.find((tag) => tag.id === '©lyr')?.value;
+        if (
+          (!text && readBack != null && readBack !== '') ||
+          (text && embeddedText(readBack) !== text) ||
+          !isDeepStrictEqual(beforeMp4, await mp4Manifest(tmp))
+        )
+          return 'verification';
       }
+      const now = await fsp.stat(p);
+      if (
+        now.size !== before.size ||
+        now.mtimeMs !== before.mtimeMs ||
+        now.ctimeMs !== before.ctimeMs ||
+        now.ino !== before.ino
+      )
+        return 'changed';
       await fsp.rename(tmp, p);
       return null;
     } catch (e) {
-      await fsp.rm(tmp, { force: true }).catch(() => {});
       const busy = ['EBUSY', 'EPERM', 'EACCES'].includes(e && e.code);
       if (!busy)
         return /unsupported|not supported|unknown file/i.test(String(e && e.message))
           ? 'unsupported'
           : String((e && e.message) || e).slice(0, 160);
       await new Promise((r) => setTimeout(r, 400 + k * 300));
+    } finally {
+      await fsp.rm(tmp, { force: true }).catch(() => {});
     }
   }
   return 'busy';
@@ -1091,6 +1157,7 @@ const MIME = {
   '.m4v': 'video/mp4',
 };
 const MODEL_FILES = new Set(['beat_this-wgsl.bin', 'htdemucs-wgsl.bin']);
+const workshopFiles = new Map();
 const modelDir = () =>
   app.isPackaged ? path.join(process.resourcesPath, 'models') : path.join(__dirname, '..', 'models');
 function registerProtocol() {
@@ -1112,12 +1179,23 @@ function registerProtocol() {
         if (revision && revision !== mediaRevision(t)) {
           return new Response(null, { status: 409, headers: { 'Access-Control-Allow-Origin': '*' } });
         }
+        if (alac(t.codec)) return await serveAlac(t.path, req, t);
         return await serveFile(
           t.path,
           req,
           MIME[path.extname(t.path).toLowerCase()] || 'application/octet-stream',
           revision ? t : null,
         );
+      }
+      if (kind === 'workshop-audio') {
+        const input = key && raw === key && workshopFiles.get(key);
+        if (!input || input.expires < Date.now()) {
+          workshopFiles.delete(key);
+          return new Response(null, { status: 404 });
+        }
+        return input.alac
+          ? await serveAlac(input.path, req, input)
+          : await serveFile(input.path, req, input.type, input);
       }
       // the neural rhythm engine's weights (shipped as resources/models; in a checkout, models/ from scripts/models.mjs):
       // only the files the engine names, nothing else on disk
@@ -1147,6 +1225,36 @@ function register(ipcMain, getWin) {
     if (w && !w.isDestroyed()) w.webContents.send(ch, data);
   };
   ipcMain.handle('lib:get', () => view());
+  ipcMain.handle('lib:openWorkshopAudio', async (event) => {
+    const win = getWin();
+    if (!win || win.webContents !== event.sender) return null;
+    const extensions = [...PLAYABLE].map((ext) => ext.slice(1));
+    const answer = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [{ name: 'Audio', extensions }],
+    });
+    const file = answer.filePaths[0];
+    if (answer.canceled || !file) return null;
+    const ext = path.extname(file).toLowerCase();
+    if (!PLAYABLE.has(ext)) return null;
+    const st = await fsp.stat(file);
+    if (!st.isFile()) return null;
+    const info = mp4Audio(file) ? await readTags(file).catch(() => null) : null;
+    const id = crypto.randomBytes(16).toString('hex');
+    workshopFiles.clear();
+    workshopFiles.set(id, {
+      path: file,
+      size: st.size,
+      mtime: st.mtimeMs,
+      expires: Date.now() + 300000,
+      alac: alac(info?.codec),
+      type: MIME[ext] || 'application/octet-stream',
+    });
+    return { id, name: path.basename(file) };
+  });
+  ipcMain.handle('lib:closeWorkshopAudio', (event, id) => {
+    if (getWin()?.webContents === event.sender) workshopFiles.delete(id);
+  });
   ipcMain.handle('lib:addFolder', async () => {
     const r = await dialog.showOpenDialog(getWin(), { properties: ['openDirectory', 'multiSelections'] });
     if (r.canceled) return view();

@@ -211,4 +211,4 @@ function start(ipcMain, getWin, settings, library) {
   apply();
   return { apply };
 }
-module.exports = { start };
+module.exports = { start, binPath };

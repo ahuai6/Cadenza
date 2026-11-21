@@ -12,6 +12,10 @@ export interface Track {
   albumArtist: string;
   genre: string[];
   year: number | null;
+  date?: string;
+  copyright?: string;
+  isrc?: string[];
+  upc?: string;
   track: number | null;
   disc: number | null;
   duration: number;
@@ -149,6 +153,8 @@ export interface DeskState {
 }
 export interface LibApi {
   get(): Promise<LibView>;
+  openWorkshopAudio(): Promise<{ id: string; name: string } | null>;
+  closeWorkshopAudio(id: string): Promise<void>;
   addFolder(): Promise<LibView>;
   removeFolder(d: string): Promise<LibView>;
   rescan(): Promise<boolean>;
@@ -180,7 +186,7 @@ export interface LibApi {
     id: string,
     t: string,
     target?: 'tag' | 'lrc' | 'ttml',
-  ): Promise<{ ok: boolean; target?: 'tag' | 'lrc'; why?: string }>;
+  ): Promise<{ ok: boolean; target?: 'tag' | 'lrc' | 'ttml'; why?: string }>;
   importLyricsFile(): Promise<string | null>;
   searchLyrics(q: object): Promise<LyricsFound[]>;
   searchMeta(q: object): Promise<MetaFound[]>;

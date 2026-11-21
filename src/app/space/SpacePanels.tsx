@@ -23,10 +23,8 @@ import {
   type Mode,
 } from '../playback/player';
 import { ts } from './i18n';
-import { isTtml, ttmlToLrc } from '../../engine';
 
 // (TTML is edited as LRC, and written back as TTML: player.ts useLyrics)
-const asLrc = (x: string) => (isTtml(x) ? ttmlToLrc(x) : x);
 import { useOutsideClose } from '../ui/outside';
 import s from './SpacePanels.module.css';
 
@@ -176,14 +174,13 @@ function Lyrics({
     [edit, setEdit] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (!hasLyrics && edit == null) setEdit(asLrc(text));
+    if (!hasLyrics && edit == null) setEdit(text);
   }, [hasLyrics]);
   const save = async () => {
     if (edit == null) return;
     setBusy(true);
     try {
-      await useLyrics(edit, { edit: true });
-      setEdit(null);
+      if (await useLyrics(edit, { edit: true })) setEdit(null);
     } finally {
       setBusy(false);
     }
@@ -202,7 +199,7 @@ function Lyrics({
       <header className={s.head}>
         <b>{edit != null ? ts('lyr.edit') : tx('s.lyricList')}</b>
         {edit == null && (
-          <button type="button" className={s.clear} onClick={() => setEdit(asLrc(text))}>
+          <button type="button" className={s.clear} onClick={() => setEdit(text)}>
             {ts('lyr.edit')}
           </button>
         )}

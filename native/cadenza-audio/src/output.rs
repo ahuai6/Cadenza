@@ -559,10 +559,10 @@ pub mod wasapi_be {
         }
         fn latency_100ns(&self) -> Option<i64> { self.latency }
         fn endpoint_position(&mut self) -> Option<(u64, u64)> {
-            let clock = self.endpoint_clock.take()?;
+            let clock = self.endpoint_clock.as_ref()?;
             let (mut frame, mut qpc) = (0, 0);
-            unsafe { clock.GetDevicePosition(&mut frame, Some(&mut qpc)).ok()?; }
-            (qpc != 0).then_some((frame, qpc))
+            let status = unsafe { (clock.vtable().GetDevicePosition)(clock.as_raw(), &mut frame, &mut qpc) };
+            (status == windows::Win32::Foundation::S_OK && qpc != 0).then_some((frame, qpc))
         }
     }
 }

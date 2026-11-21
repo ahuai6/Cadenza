@@ -41,7 +41,9 @@ export async function decodeForAnalysis(
   const r = await fetch(mediaUrl(id, track?.mediaRevision), { signal });
   if (!r.ok) throw new Error('read');
   const size = Number(r.headers.get('content-length'));
-  if (!(size > 0) || size > fileBudget) {
+  const compressed = r.headers.get('x-cadenza-compressed-length');
+  const fileSize = compressed === null ? size : Number(compressed);
+  if (!(size > 0 && fileSize > 0) || fileSize > fileBudget || size > pcmBudget + 128) {
     await r.body?.cancel();
     throw new Error('analysis file budget');
   }

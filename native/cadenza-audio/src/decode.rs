@@ -3,6 +3,7 @@
 // samples shifted up by 16, a 24-bit file by 8, so handing them to a 24- or 32-bit device later is exact.
 use std::collections::VecDeque;
 use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -11,6 +12,7 @@ use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
 use rubato::audioadapter_buffers::owned::InterleavedOwned;
 use rubato::{Fft, FixedSync, Indexing, Resampler};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::audio::Channels;
 use symphonia::core::errors::Error as SymErr;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
@@ -111,6 +113,24 @@ struct Reader {
     dec: Box<dyn AudioDecoder>,
     tid: u32,
     tb: Option<TimeBase>,
+    start: Timestamp,
+    channel_mask: u32,
+}
+
+impl Reader {
+    fn seek_pcm(&mut self, first: u64, rate: u32) -> Result<u64, String> {
+        let mp4 = self.fmt.format_info().short_name == "isomp4";
+        let origin = if mp4 { ts_frames(self.start, self.tb, rate) } else { 0 };
+        let target = first.checked_add(origin).ok_or("PCM seek overflow")?;
+        let time = Time::try_from_secs_f64(target as f64 / rate as f64).ok_or("invalid PCM seek")?;
+        let landed = self.fmt.seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(self.tid) })
+            .map_err(|e| format!("PCM seek: {e}"))?;
+        let actual = ts_frames(landed.actual_ts, self.tb, rate);
+        if mp4 && actual > target {
+            return Err("PCM seek landed late".into());
+        }
+        Ok(target.saturating_sub(actual))
+    }
 }
 
 fn open(path: &str) -> Result<(Reader, SrcInfo), String> {
@@ -130,11 +150,68 @@ fn open(path: &str) -> Result<(Reader, SrcInfo), String> {
     let codec = dec.codec_info().short_name.to_string();
     let integer = codec.starts_with("pcm_s") || codec.starts_with("pcm_u");
     let lossless = matches!(codec.as_str(), "flac" | "alac" | "wavpack") || integer || codec.starts_with("pcm_f");
-    let bits = if lossless && !codec.starts_with("pcm_f") { p.bits_per_sample.or(p.bits_per_coded_sample) } else { None };
+    let bits = if codec == "alac" {
+        use symphonia_common::apple::audio::alac::MagicCookie;
+        p.extra_data.as_deref().and_then(|data| MagicCookie::read(data).ok()).map(|c| u32::from(c.bit_depth))
+    } else if lossless && !codec.starts_with("pcm_f") {
+        p.bits_per_sample.or(p.bits_per_coded_sample)
+    } else { None };
     let info = SrcInfo { rate, ch, bits, frames: track.num_frames, codec, lossless };
     let tid = track.id;
     let tb = track.time_base;
-    Ok((Reader { fmt, dec, tid, tb }, info))
+    let start = track.start_ts;
+    let channel_mask = match p.channels.as_ref() {
+        Some(Channels::Positioned(pos)) => u32::try_from(pos.bits()).unwrap_or(0),
+        _ => 0,
+    };
+    Ok((Reader { fmt, dec, tid, tb, start, channel_mask }, info))
+}
+
+// The desktop serves this integer PCM as a virtual WAVE. Each request can seek independently,
+// and blocking writes to the pipe bound decoding to what the consumer has requested.
+pub fn alac_command(path: &str, range: Option<(u64, u64)>) -> Result<(), String> {
+    let (mut rd, info) = open(path)?;
+    if info.codec != "alac" { return Err("not an ALAC track".into()); }
+    let frames = info.frames.filter(|n| *n > 0).ok_or("unknown ALAC frame count")?;
+    let bits = info.bits.filter(|bits| matches!(bits, 16 | 20 | 24 | 32)).ok_or("unsupported ALAC bit depth")?;
+    let width = bits.div_ceil(8) as usize;
+    let stdout = std::io::stdout();
+    let mut out = std::io::BufWriter::with_capacity(64 * 1024, stdout.lock());
+    let Some((first, mut count)) = range else {
+        writeln!(out, "{}", serde_json::json!({
+            "frames": frames, "rate": info.rate, "channels": info.ch, "bits": bits, "mask": rd.channel_mask
+        })).map_err(|e| e.to_string())?;
+        return out.flush().map_err(|e| e.to_string());
+    };
+    if first > frames || count > frames - first { return Err("invalid ALAC frame range".into()); }
+    let mut skip = 0;
+    if first > 0 && count > 0 {
+        skip = rd.seek_pcm(first, info.rate)?;
+        rd.dec.reset();
+    }
+    let mut samples = Vec::<i32>::new();
+    let mut bytes = Vec::new();
+    while count > 0 {
+        let pkt = rd.fmt.next_packet().map_err(|e| format!("ALAC read: {e}"))?.ok_or("short ALAC stream")?;
+        if pkt.track_id != rd.tid { continue; }
+        let decoded = rd.dec.decode(&pkt).map_err(|e| format!("ALAC decode: {e}"))?;
+        if decoded.spec().channels().count() != info.ch { return Err("ALAC channel layout changed".into()); }
+        let drop = skip.min(decoded.frames() as u64);
+        skip -= drop;
+        let take = count.min(decoded.frames() as u64 - drop);
+        if take == 0 { continue; }
+        samples.resize(decoded.samples_interleaved(), 0);
+        decoded.copy_to_slice_interleaved(&mut samples);
+        bytes.clear();
+        let from = drop as usize * info.ch;
+        let to = from + take as usize * info.ch;
+        for sample in &samples[from..to] {
+            bytes.extend_from_slice(&sample.to_le_bytes()[4 - width..]);
+        }
+        out.write_all(&bytes).map_err(|e| e.to_string())?;
+        count -= take;
+    }
+    out.flush().map_err(|e| e.to_string())
 }
 
 fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shared) -> Result<(), String> {
@@ -181,11 +258,13 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
         if let Some(to) = seek {
             // output frames → source frames
             let target = (to as f64 * info.rate as f64 / plan.rate as f64).round() as u64;
-            let t = Time::try_from_secs_f64(target as f64 / info.rate as f64).unwrap_or(Time::ZERO);
-            match rd.fmt.seek(SeekMode::Accurate, SeekTo::Time { time: t, track_id: Some(rd.tid) }) {
-                Ok(s) => {
-                    skip = target.saturating_sub(ts_frames(s.actual_ts, rd.tb, info.rate));
-                }
+            // Symphonia 0.6.1 can seek its MP4 sample index after EOF, but its atom reader has
+            // no pending atom left to service the first packet. Reopen only the exhausted reader.
+            if done && rd.fmt.format_info().short_name == "isomp4" {
+                (rd, _) = open(path)?;
+            }
+            match rd.seek_pcm(target, info.rate) {
+                Ok(frames) => skip = frames,
                 Err(_) => {
                     // a reader that cannot seek: start over and drop frames up to the target
                     let (r2, _) = open(path)?;

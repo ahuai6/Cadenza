@@ -12,6 +12,7 @@ const music = path.join(scratch, 'music');
 const rate = 48000;
 const tones = [375, 1125, 750, 94, 1500, 1875];
 const rawAac = 'ADTS at 44.1 kHz.aac';
+const alac = process.argv.includes('--alac') ? 'ALAC 24-bit.m4a' : null;
 const cases = {
   'MP3 at 44.1 kHz.mp3': ['-ar', '44100', '-c:a', 'libmp3lame', '-q:a', '4'],
   'AAC in M4A with index at end.m4a': ['-c:a', 'aac', '-b:a', '192k'],
@@ -24,6 +25,7 @@ const cases = {
   'Opus in WebM.webm': ['-c:a', 'libopus'],
   'Vorbis in WebM.webm': ['-c:a', 'libvorbis'],
   'Surround.flac': ['-c:a', 'flac'],
+  ...(alac ? { [alac]: ['-c:a', 'alac', '-sample_fmt', 's32p', '-bits_per_raw_sample', '24'] } : {}),
 };
 
 function generate(name, flags) {
@@ -101,6 +103,7 @@ async function main() {
           duration: name === rawAac ? 0 : long[name] || 4,
           channels: name === 'Surround.flac' ? 6 : 2,
           protected: name === 'locked.ncm',
+          ...(name === alac ? { codec: 'ALAC', bits: 24, lossless: true } : {}),
         },
       ];
     }),
@@ -370,7 +373,7 @@ async function main() {
   } finally {
     await app.close();
   }
-  if (process.argv.includes('--space')) await spaceAudio(env, id('WAV 24-bit.wav'));
+  if (process.argv.includes('--space')) await spaceAudio(env, id(alac ?? 'WAV 24-bit.wav'));
 }
 
 async function spaceAudio(env, id) {

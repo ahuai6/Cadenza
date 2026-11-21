@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { tx, LANGS, currentLang, type Lang } from '../../../i18n';
 import type { Session } from '../../../engine';
-import { desktop, offerFile, pickSavePath, D, type Track } from '../../bridge';
+import { desktop, offerFile, pickSavePath, D, Lib, type Track } from '../../bridge';
 import { ui, useStore, toast } from '../../state';
 import { Icon } from '../../ui/icons';
 import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropdown, usePresence } from '../../ui/kit';
@@ -548,7 +548,12 @@ function LyricsPane({ s: ss }: { s: Session }) {
       </Section>
       <Section title={tx('aud.h')} note={tx('aud.help')}>
         <Row>
-          <Button size="sm" icon="note" disabled={analyzing} onClick={() => audioFile.current?.click()}>
+          <Button
+            size="sm"
+            icon="note"
+            disabled={analyzing}
+            onClick={() => (Lib?.openWorkshopAudio ? void importAudio() : audioFile.current?.click())}
+          >
             {tx('aud.import')}
           </Button>
           {audioName && (

@@ -12,6 +12,8 @@ Cadenza 是一套功能完整的个人音乐库播放器：音乐库管理、高
 
 本程序严格遵守各平台的授权与 DRM。流式平台加密的文件（`.ncm`、`.qmc*`、`.kgm` 等）只会列出，并标示为「受平台保护」，绝不解密、不播放。
 
+4.0.0 开发分支支持无保护 ALAC/M4A。普通播放使用按需解码，Hi-Fi 直接读取原文件。工坊和导出也可使用 ALAC 音频。 [格式与验证记录](docs/G4R.md#b-alac扫描与写入验证)
+
 ## 架构
 
 所有文档从 [`docs/README.md`](docs/README.md)（文档地图）开始；架构总览在 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，开发范式在 `.claude/skills/cadenza/SKILL.md`。
@@ -51,12 +53,11 @@ npm run dist:win                         # Windows 安装包与便携版（relea
 
 Hi-Fi 输出是 `native/cadenza-audio`（Rust）。在 Linux 上可用 `x86_64-pc-windows-gnu` 交叉编译。
 
-### 依赖：一律跟随最新稳定版
+### 依赖与兼容性
 
-- **跟最新稳定版**：npm 套件、Rust crate、CI 的 Node 与 GitHub Actions 都用最新的稳定大版本。不停在旧的大版本，也不用预览版。
+- **升级前验证**：优先采用受维护的稳定版，按实际 Windows、Electron 和音视频工作流验证新版本。升级收益与平台兼容决定何时采用。
 - **精确锁定**：版本一律写死（`package.json` 不用 `^`，`Cargo.toml` 用 `=`）。升级是一次明确的提交，并跑完上面全部测试。
-- **API 变动就迁移**：上游改了 API，就改写我们的代码，不留兼容垫片。上游停止维护并指定接替者时（例如 `mp4-muxer` → Mediabunny），就换到接替者。
-- **唯一例外**：`@types/node` 跟随 Electron 内置的 Node 主版本，不跟 npm 上的最新版，这样类型才符合实际执行环境。
+- **API 变动**：需要迁移时验证受影响功能；保留有兼容依据和退役条件的适配。`@types/node` 跟随 Electron 内置的 Node 主版本。
 
 ## 授权
 

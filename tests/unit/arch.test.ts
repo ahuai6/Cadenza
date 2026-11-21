@@ -55,9 +55,6 @@ describe('architecture', () => {
       'src/app/views/Library.tsx → src/app/views/AlbumLine.tsx',
       'src/app/views/Modals.tsx → src/app/views/Effect.tsx',
       'src/app/views/Settings.tsx → src/app/views/Modals.tsx',
-      // Lyrics parsing and TTML conversion currently call back into each other.
-      'src/lyrics/parse.ts → src/lyrics/ttml.ts',
-      'src/lyrics/ttml.ts → src/lyrics/parse.ts',
       // G6: the analysis entry re-exports the streaming helper that calls it.
       'src/rhythm/index.ts → src/rhythm/stream.ts',
       'src/rhythm/stream.ts → src/rhythm/index.ts',

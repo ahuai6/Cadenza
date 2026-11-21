@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('cadenzaDesktop', {
 });
 contextBridge.exposeInMainWorld('cadenzaLib', {
   get: () => L('lib:get'),
+  openWorkshopAudio: () => L('lib:openWorkshopAudio'),
+  closeWorkshopAudio: (id) => L('lib:closeWorkshopAudio', id),
   addFolder: () => L('lib:addFolder'),
   removeFolder: (d) => L('lib:removeFolder', d),
   rescan: () => L('lib:rescan'),

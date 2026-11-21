@@ -5,7 +5,7 @@ description: Cadenza 项目的开发范式：分层与依赖规则、新增功�
 
 # Cadenza 开发范式
 
-> 3.6.0 是对比基准，当前 4.0.0 开发版包含 G4。重构阶段按独立 Goal 授权。标「现况」的是当前可核对的行为，标「目标」的是待实现和验收的契约。
+> 3.6.0 是对比基准，当前 4.0.0 开发版包含 G4R。重构阶段按独立授权进行。历史决策用于解释已存在的实现。当期产品要求、数据安全、锁定的平台能力和可复现的测试决定改动范围。有效的约束继续执行，有证据的规则变动同步更新代码、测试与文档。
 >
 > 文档地图在 `docs/README.md`；方向与用户已决定的事在 `docs/DIRECTION.md`；架构在 `docs/ARCHITECTURE.md`（细节在 `docs/parts/`）；测试在 `docs/TESTING.md`；发布与维护在 `docs/MAINTENANCE.md`。
 
@@ -33,7 +33,7 @@ lyrics    歌词解析与模型。                    ← core, text
 text      字体、文字量测、分词。
 theme     风格数据（外观、动态、旋钮）。纯数据。
 director  排版、运镜、转场的规划（纯函数，可在 worker 跑）；镜头程序登记表。
-folia     Folia 的风格与背景（上游原样搬入＋Cadenza 的执行层）。在 director 旁、render 之下。
+folia     Folia 的风格与背景（有版本记录的上游生成代码和 Cadenza 执行层）。在 director 旁、render 之下。
 render    把规划画出来；特效、背景、转场的样子都是登记表里的插件。
 engine    Session（视觉计划）＋ Engine（视觉时间、画布、工坊预览）。对外只有 engine/index.ts。
 app       界面。只能引用 engine/index.ts、core、theme、i18n。
@@ -42,7 +42,7 @@ app       界面。只能引用 engine/index.ts、core、theme、i18n。
   ├ views/     经典界面
   └ space/     空间界面
 electron  主进程：音乐库、设置、窗口、Hi-Fi 输出、原生推理。
-native    Rust 的 Hi-Fi 播放核心。
+native    Rust 音频核心：Hi-Fi 设备流和独立的 ALAC PCM 解码。
 ```
 
 规则：
@@ -54,6 +54,7 @@ native    Rust 的 Hi-Fi 播放核心。
 - 当前 `engine/index.ts` 是过渡入口。播放、视觉和共享契约拆分时，按职责调整公开入口与测试，避免把每种能力继续转接到引擎。
 - 桌面生命周期只由 `playback/coordinator.ts` 决定。模块仅依赖 `core`，输出与视觉从两边接入。所有异步提交检查当前请求，输出位置、结束和错误还要检查运行代次。视觉准备与尾卡不能持有播放授权。
 - 普通输出使用经过曲库授权的媒体 URL 和 Web Audio 图。完整 PCM 只能由明确的分析、工坊或导出入口申请。验证流式播放要同时采集文件字节、图内信号和状态，端点验证另行采样。
+- ALAC 走原生按区间解码的 WAVE 媒体响应，继续使用普通输出的音量和空间路径。原始歌词结构必须保留。写入 MP4 标签用同目录副本，回读目标值并校验音频和未改元数据再提交。
 - Hi-Fi 时钟按流单位换算，以 `seq/runId/epoch` 与子进程代次校验结果。恢复以最后确认消费的歌曲位置为准，界面只在当前输出提交范围内短暂插值。设备报告、模拟端点样本和物理 DAC 波形分别验收，操作说明见 `docs/TESTING.md`。
 - `tests/unit/arch.test.ts` 用 Vite 的 TypeScript AST 和模块解析检查静态引用与运行时循环边。已有循环有逐边记录。生命周期、IPC、异步时钟和资源释放以行为测试验收。
 

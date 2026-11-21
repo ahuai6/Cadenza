@@ -11,6 +11,22 @@ use std::io::BufRead;
 use std::sync::mpsc;
 
 fn main() {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        let result = match args.as_slice() {
+            [cmd, path] if cmd == "--alac-info" => decode::alac_command(path, None),
+            [cmd, path, first, count] if cmd == "--alac-pcm" => match (first.parse(), count.parse()) {
+                (Ok(first), Ok(count)) => decode::alac_command(path, Some((first, count))),
+                _ => Err("invalid ALAC frame range".into()),
+            },
+            _ => Err("unknown audio command".into()),
+        };
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let events = proto::start_writer();
     let (tx, rx) = mpsc::sync_channel::<proto::Cmd>(128);
     let th = std::thread::Builder::new().name("play".into()).spawn(move || player::run(rx)).expect("player thread");

@@ -2,6 +2,13 @@
 
 4.0.0 重构使用 [3.6.0 隔离基线](BASELINE-3.6.0.md)。其中记录了同一提交的回归结果、普通与模拟 Hi-Fi 的独立时间点及硬件 GPU 帧数据。后续阶段比较时保留同样的环境、素材和测量口径。
 
+## G4R 复审与 ALAC
+
+- Windows 使用 `node tests/alac-desktop.cjs`，需要同一提交的 Electron 构建、原生 Release 程序、Playwright、FFmpeg 和 FFprobe。测试生成 16／24 位 ALAC、AAC、内嵌 TTML、LRC 与封面样本，验证逐样本解码、seek、实际图内信号、模拟 Hi-Fi、分析、工坊、有声导出和 MP4 原子标签写入。`CADENZA_ALAC_SAMPLE` 可选，脚本只打开隔离副本，比较原文件写入前后的哈希。商业素材禁止进入仓库。
+- `node tests/streaming-desktop.cjs --space --alac` 在 G3 流式回归中增加 24 位 ALAC 双声道测试，再通过真实 Electron 的空间聆听室验证音量、静音和路由恢复。
+- `node tests/hifi-wasapi.cjs --real --alac` 额外使用低电平合成 ALAC 检查共享与独占。存在设备帧观测时须连续采到至少两份报告。无设备帧观测允许继续，输出源由流时钟或 Padding 给出。
+- G4R 的同机复测、输出路径、格式范围、写入约束、架构证据和硬件缺口见 [G4R 复审记录](G4R.md)。下方 G3/G4 数据为历史记录。
+
 ## G4 WASAPI 输出与时钟
 
 - Windows 使用 `cargo test --locked --manifest-path native/cadenza-audio/Cargo.toml`，再构建同一源码的 Release 程序。用 `CADENZA_NATIVE_TEST_BIN` 指向该程序运行 `node --test tests/hifi-clock.cjs`。验证时钟单位、采样率变更后的恢复位置、时钟重置回退、解码下溢、设备重开、独占失败或成功启动后停滞时转共享、指定端点重新出现、过期配置后的旧请求和单次 EOF。可设 `CADENZA_HIFI_SOAK_SECONDS=45`，验证受控的 1.02 倍设备消费率及帧映射。
@@ -49,7 +56,7 @@ Windows 本机通过类型和格式检查、393 项单元及架构断言、6 项
 | Ogg | 44.1 kHz Vorbis，48 kHz Opus |
 | WebM | 48 kHz Opus 和 Vorbis |
 
-另用无保护 ALAC/M4A 对照，锁定版本的媒体元素与旧 `decodeAudioData()` 均报告无法解码。该样本未触发额外回退。裸 ADTS 的曲库扫描可能没有时长，播放器用媒体管线已取得的时长约束正在播放歌曲的分析预算。
+G3 当时的媒体元素和 `decodeAudioData()` 都不能直接解码 ALAC/M4A。G4R 已用原生 ALAC 解码和可 seek 的 PCM 容器接入普通输出及离线读取。裸 ADTS 的曲库扫描可能没有时长，播放器用媒体管线已取得的时长约束正在播放歌曲的分析预算。
 
 - `node --test tests/file-response.cjs` 验证 GET / HEAD、单区间 206、无效与不满足区间的 416、打开的文件与响应一致、错误、请求中止和消费者取消。多个区间统一返回 416。`cadenza://media` 仍通过曲库 ID 授权，受保护文件不可读取。普通输出的 URL 固定当次文件长度与修改时间，后续区间重开时校验。已经缓冲的旧字节可能继续播放，大小和修改时间相同的替换仍需 G5 的内容身份处理。 [Electron 协议](https://www.electronjs.org/docs/latest/api/protocol)
 - `node tests/streaming-desktop.cjs --space` 使用生成文件、独立 profile 和真实 Electron。按需要在 PowerShell 设置 `$env:CADENZA_STREAM_SOAK_SECONDS='60'`，增加连续播放的内存、进程与 CPU 采样。真实路径使用主进程读流字节和关闭记录、Web Audio 分声道 FFT、播放快照、Electron CDP 的 JS Heap 与进程指标。Chrome DevTools 和 Playwright CLI 的隔离 HTTP 页面只补充 Range 和交互证据。

@@ -63,4 +63,4 @@ async function serveFile(file, req, type, expected = null) {
   }
 }
 
-module.exports = { serveFile };
+module.exports = { serveFile, byteRange };

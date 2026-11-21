@@ -16,8 +16,6 @@ import {
   editSong,
   saveSong,
   useLyrics,
-  spreadPlain,
-  hasTimedLines,
   setMvOn,
   unbindMv,
   spacedLines,
@@ -35,7 +33,7 @@ import { MvLook } from './Settings';
 import { setSettings } from '../actions/settings';
 import s from './Effect.module.css';
 import { PerfHud } from './PerfHud';
-import { isTtml, ttmlToLrc } from '../../engine';
+import { isTtml } from '../../engine';
 
 const IDLE_MS = 2600;
 export function EffectView() {
@@ -425,21 +423,19 @@ export function LyricsTab() {
     t = trackOf(p.shownId),
     session = p.session!,
     target = useStore(settings, (x) => x.lyricsTarget) === 'lrc' ? 'lrc' : 'tag';
-  const [text, setText] = useState(() => (p.hasLyrics ? session.spec.lyrics : '') || ''),
+  const [text, setText] = useState(() => session.spec.lyrics || ''),
     [msg, setMsg] = useState('');
   const [q, setQ] = useState({ title: t ? t.title : '', artist: t ? t.artist : '' }),
     [res, setRes] = useState<Awaited<ReturnType<NonNullable<typeof Lib>['searchLyrics']>> | null>(null);
   const [busy, setBusy] = useState(false),
     [pick, setPick] = useState<number | null>(null),
     ta = useRef<HTMLTextAreaElement>(null);
-  // (TTML lyrics are edited as LRC: saved, the song reads its LRC from then on)
   useEffect(() => {
-    const x = (player.get().hasLyrics ? player.get().session?.spec.lyrics : '') || '';
-    setText(isTtml(x) ? ttmlToLrc(x) : x);
+    setText(player.get().session?.spec.lyrics || '');
   }, [p.shownId]);
   const use = async (src: string, edit = false) => {
     const ok = await useLyrics(src, { edit });
-    setText(isTtml(src) ? ttmlToLrc(src) : src);
+    setText(src);
     setMsg(tx(ok ? 's.lyr.saved' : 'load.none'));
   };
   const search = async () => {
@@ -453,7 +449,7 @@ export function LyricsTab() {
     }
     setBusy(false);
   };
-  const end = session.musicEnd;
+  const xml = isTtml(text) || isTtml(session.spec.lyrics || '');
   return (
     <>
       <div style={{ display: 'grid', gap: 8, padding: '6px 0 14px' }}>
@@ -463,23 +459,19 @@ export function LyricsTab() {
             {tx(p.lyrics ? 's.lyr.source.' + p.lyrics.source : 's.lyr.source.none')}
           </span>
         </Row>
-        <CueBar target={ta} />
+        {!xml && <CueBar target={ta} />}
         <textarea
           ref={ta}
           className={s.lyricsTa}
           spellCheck={false}
           value={text}
-          onKeyDown={cueKeyDown}
+          onKeyDown={xml ? undefined : cueKeyDown}
           onChange={(e) => setText(e.target.value)}
           placeholder="[00:12.30]…"
         />
         <Row>
-          <Button
-            kind="primary"
-            size="sm"
-            onClick={() => use(hasTimedLines(text) ? text : spreadPlain(text, end), true)}
-          >
-            {tx('s.lyr.saveLrc')}
+          <Button kind="primary" size="sm" onClick={() => use(text, true)}>
+            {tx(xml ? 's.save' : 's.lyr.saveLrc')}
           </Button>
           <Dropdown
             className={s.target}
@@ -495,7 +487,7 @@ export function LyricsTab() {
             size="sm"
             onClick={async () => {
               const x = await Lib!.importLyricsFile();
-              if (x) use(isTtml(x) || /\[\d+:\d+/.test(x) ? x : spreadPlain(x, end));
+              if (x) use(x);
             }}
           >
             {tx('s.lyr.import')}
@@ -555,7 +547,7 @@ export function LyricsTab() {
                 <>
                   <pre className={s.pre}>{(r.synced || r.plain).split('\n').slice(0, 14).join('\n')}</pre>
                   <div style={{ padding: '0 11px 11px' }}>
-                    <Button kind="primary" size="sm" onClick={() => use(r.synced || spreadPlain(r.plain, end))}>
+                    <Button kind="primary" size="sm" onClick={() => use(r.synced || r.plain)}>
                       {tx('s.lyr.use')}
                     </Button>
                   </div>

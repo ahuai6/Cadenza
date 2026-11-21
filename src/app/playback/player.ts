@@ -7,9 +7,7 @@ import {
   RHYTHM_VERSION,
   isCurrent,
   balanceDb,
-  parseLyrics as parse,
   isTtml,
-  lrcToTtml,
   spacingKey,
   loadSegmenter,
   type RhythmAnalysis,
@@ -112,7 +110,7 @@ let trace: ReturnType<typeof traceBegin> | null = null;
 let preloadTimer: ReturnType<typeof setTimeout> | undefined;
 let audioConfig: Promise<unknown> | null = null;
 let warnedFormat = false;
-const tagEdits = new Map<string, Promise<void>>();
+const tagEdits = new Map<string, ReturnType<NonNullable<typeof Lib>['writeLyrics']>>();
 
 const transport = new PlaybackCoordinator<PreparedOutput>(
   {
@@ -745,35 +743,37 @@ export function editSong(fn: (s: Session) => unknown) {
 }
 
 /* ---------- lyrics ---------- */
-/** New lyrics for the shown song. `edit`: the listener's own edit of the lyrics shown — lyrics that came as TTML were
- *  edited as LRC (ttmlToLrc), and are written back as TTML in their own form (lrcToTtml), never turned into an LRC. */
+/** Persist the supplied source. Edits of TTML remain XML, including lines and tracks not rendered by the player. */
 export async function useLyrics(text: string, o: { edit?: boolean } = {}) {
-  {
-    const was = player.get().session?.spec.lyrics || '';
-    if (o.edit && !isTtml(text) && isTtml(was)) text = lrcToTtml(text, was, (x) => parse(x));
+  const ttml = isTtml(text);
+  if (ttml || (o.edit && isTtml(player.get().session?.spec.lyrics || ''))) {
+    const xml = new DOMParser().parseFromString(text, 'application/xml');
+    if (!ttml || xml.querySelector('parsererror')) {
+      toast(tx('s.lyr.tagFail', { why: 'TTML XML' }));
+      return false;
+    }
   }
-  const p = player.get(),
-    s = p.session;
-  if (!p.shownId || !s || !Lib) return false;
-  s.setLyrics(text);
-  await s.flush();
-  const current = () => player.get().session === s;
-  if (current()) engine.invalidate();
-  // (TTML is kept as TTML — a .ttml beside the song; anything else as the setting says)
-  if (isTtml(text)) {
-    if (current()) projection.set({ hasLyrics: s.hasLyrics, lyrics: { source: 'ttml', text }, rev: p.rev + 1 });
-    await Lib.writeLyrics(p.shownId, text, 'ttml');
-    return s.hasLyrics;
-  }
-  if (current())
+  const { shownId: id, session } = player.get();
+  if (!id || !session || !Lib) return false;
+  const track = trackOf(id);
+  const tag = settings.get().lyricsTarget === 'tag' && (!ttml || track?.ext === 'm4a' || track?.ext === 'mp4');
+  const result = await (tag
+    ? writeIntoFile(id, text)
+    : Lib.writeLyrics(id, text, ttml ? 'ttml' : 'lrc').catch(() => ({ ok: false as const, target: undefined })));
+  if (!result.ok) return false;
+  const { shownId, session: current } = player.get();
+  if (shownId === id && current) {
+    current.setLyrics(text);
+    await current.flush();
+    if (player.get().session !== current) return true;
+    engine.invalidate();
     projection.set({
-      hasLyrics: s.hasLyrics,
-      lyrics: { source: settings.get().lyricsTarget === 'lrc' ? 'lrc' : 'embedded', text },
-      rev: p.rev + 1,
+      hasLyrics: current.hasLyrics,
+      lyrics: { source: ttml ? 'ttml' : result.target === 'tag' ? 'embedded' : 'lrc', text },
+      rev: player.get().rev + 1,
     });
-  if (settings.get().lyricsTarget === 'lrc') await Lib.writeLyrics(p.shownId, text, 'lrc');
-  else await writeIntoFile(p.shownId, text);
-  return s.hasLyrics;
+  }
+  return true;
 }
 /** Serialize writes and keep any new prepare for this file behind the edit. Playback controls retain their latest intent. */
 async function writeIntoFile(id: string, text: string) {
@@ -789,19 +789,23 @@ async function writeIntoFile(id: string, text: string) {
         await closeFile(seq);
       } catch {
         toast(tx('s.lyr.tagBusy'));
-        return;
+        return { ok: false as const, target: undefined };
       }
     }
-    const r = await Lib!.writeLyrics(id, text, 'tag').catch((e) => ({ ok: false, why: String(e) }));
+    const r = await Lib!.writeLyrics(id, text, 'tag').catch((e) => ({ ok: false, target: undefined, why: String(e) }));
     if (!r.ok && r.why === 'unsupported') {
-      await Lib!.writeLyrics(id, text, 'lrc');
+      const fallback = await Lib!
+        .writeLyrics(id, text, isTtml(text) ? 'ttml' : 'lrc')
+        .catch(() => ({ ok: false as const, target: undefined }));
       toast(tx('s.lyr.tagUnsupported'));
+      return fallback;
     } else if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
     else {
       const fresh = await Lib!.get().catch(() => null);
       if (fresh) lib.set(fresh);
-      toast(tx('s.lyr.tagSaved'));
+      toast(tx(r.target === 'tag' ? 's.lyr.tagSaved' : 's.lyr.saved'));
     }
+    return r;
   })().finally(() => {
     if (tagEdits.get(id) === edit) tagEdits.delete(id);
   });
@@ -811,8 +815,9 @@ async function writeIntoFile(id: string, text: string) {
     seq !== undefined || (current && (phase === 'preparing' || (route === 'std' && prepared)))
       ? transport.restart()
       : null;
-  await edit;
+  const result = await edit;
   await resume;
+  return result;
 }
 /** The shown song's lines as its words are spaced now (one per line). */
 export const spacedLines = () =>
@@ -857,20 +862,6 @@ export async function saveSpacing(edited: string[] | null) {
     engine.invalidate();
     projection.set({ rev: p.rev + 1 });
   }
-}
-export const hasTimedLines = (text: string) => parse(text, 0).lines.length > 0 && /\[\d+:\d+/.test(text);
-/** Untimed lyrics (plain text): lines spread evenly between the first beat and the end of the music. */
-export function spreadPlain(text: string, dur: number) {
-  const ls = text
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!ls.length) return '';
-  const a = Math.min(8, dur * 0.06),
-    b = Math.max(a + 1, dur - Math.min(10, dur * 0.06)),
-    step = (b - a) / ls.length;
-  const f = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}`;
-  return ls.map((l, i) => `[${f(a + i * step)}]${l}`).join('\n');
 }
 
 /* ---------- MV ---------- */

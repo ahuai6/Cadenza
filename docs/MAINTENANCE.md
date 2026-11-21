@@ -33,7 +33,7 @@ Vercel 的实际标识用 `npx skills add vercel-labs/agent-skills --list` 查�
 ### 4.0.0 重构期间
 
 - 从保留完整历史的 G0 提交开始，G1–G9 在 `refactor/4.0.0` 上按独立授权开发。每个 Goal 在 Windows 本机构建、启动并完成对应测试后提交，只推送 `origin/refactor/4.0.0`。报告提交 SHA、GitHub 链接、实际验证和剩余问题，随后停在该阶段验收。
-- G4 的开发版本为 `4.0.0-alpha.4`，数据代次与结构版本仍为 1。`alpha.3` 应用资料会在首次运行 `alpha.4` 时按 G1 规则清理一次。运行开发验证时使用新建的合成资料目录。Electron 和原生程序应一起更新，主进程在握手时检查原生时钟协议，避免沿用旧的可执行文件。
+- G4 和 G4R 使用 `4.0.0-alpha.4`，数据代次与结构版本仍为 1。`alpha.3` 应用资料会在首次运行 `alpha.4` 时按 G1 规则清理一次。G4R 只递增曲库内部标签扫描版本，保留应用资料。Electron 和原生程序一起构建，主进程在握手时检查原生时钟协议，ALAC 媒体源也需要更新后的原生程序。运行开发验证使用独立资料目录。 [G4R 复审记录](G4R.md)
 - 阶段构建、运行和测试全部在本机。每次阶段开始核对仓库工作流的触发条件。当前 `release` 的自动触发只监听 `main`，另有手动入口，`preview` 与 `release-notes` 仅手动触发。保持工作流原样，重构期间不推送远端 `main` 或标签，不触发 Actions、预览或发布。
 - G0–G9 全部完成、4.0.0 正式版本机通过验收且用户明确批准发布后，才合入并推送 `main`。阶段推送属当前 Goal 的收尾动作，下一 Goal 与正式发布各自独立授权。
 
@@ -62,7 +62,7 @@ gh api repos/ahuai6/Cadenza/actions/runs --jq '.workflow_runs[] | select(.name==
 gh api repos/ahuai6/Cadenza/releases/latest --jq '.tag_name+" "+(.assets|map(.name)|join(","))'
 ```
 
-推送失败（网络）时以指数退避重试，最多四次。提交消息结尾带这个项目要求的署名行；**提交消息与代码里不写模型名称**。`release-notes` 工作流只在要重写旧版本的说明时手动执行。
+推送遇到网络错误时以指数退避重试，最多四次。提交消息写清实际改动与目的，提交消息与代码里不写模型名称。`release-notes` 工作流只在要重写旧版本的说明时手动执行。
 
 ## 跟上 Folia 上游
 
@@ -74,7 +74,7 @@ gh api repos/ahuai6/Cadenza/releases/latest --jq '.tag_name+" "+(.assets|map(.na
 
 ## 依赖
 
-- 一律跟最新稳定版，精确锁定（`package.json` 不用 `^`，`Cargo.toml` 用 `=`）；升级是一次明确的提交并跑完全部测试。上游改 API 就迁移，不留兼容垫片。例外：`@types/node` 跟 Electron 内置的 Node 主版本。
+- 采用通过验证的稳定版本，精确锁定（`package.json` 不用 `^`，`Cargo.toml` 用 `=`）。升级单独提交并检查行为、兼容性及性能。能保护已支持设备和格式的适配代码需说明原因、验证方法和退役条件。`@types/node` 跟 Electron 内置的 Node 主版本。
 - 神经网络模型不进 git：`scripts/models.mjs` 依 `src/rhythm/neural/models.json` 的 SHA-256 下载并校验；桌面版的 ONNX 模型由用户在设置里下载。
 - 字体全部 SIL OFL 1.1，`npm run build:app` 时由 `scripts/fonts.mjs` 复制进 `dist-app/fonts`；收录表用 `npm run fonts:coverage` 重烤，菜单预览图用 `npm run fonts:previews`。
 - 设置纲要改了要跑 `npm run gen:settings`（单元测试会检查默认值档是否过期）。

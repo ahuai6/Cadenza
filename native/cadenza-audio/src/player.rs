@@ -118,6 +118,7 @@ pub struct Player {
     heard: Option<(u64, u64, f64)>,
     last_hold: Option<(u64, u64, u64, i64)>,
     clock_source: Option<&'static str>,
+    endpoint_sampled_at: Option<Instant>,
     last_consumed: (u64, Instant),
     last_emit: Instant,
     ended: bool,
@@ -202,6 +203,7 @@ pub fn run(rx: Receiver<Cmd>) {
         heard: None,
         last_hold: None,
         clock_source: None,
+        endpoint_sampled_at: None,
         last_consumed: (0, Instant::now()),
         last_emit: Instant::now(),
         ended: false,
@@ -757,6 +759,7 @@ impl Player {
                 self.epoch += 1;
                 self.clock = StreamClock::default();
                 self.clock_source = None;
+                self.endpoint_sampled_at = None;
                 self.check_device_at = Instant::now();
                 let latency = s.latency_100ns().map(|latency| latency as f64 / 10_000.0);
                 self.out = Some(s);
@@ -1094,7 +1097,8 @@ impl Player {
         let m = self.marks.front().filter(|m| h >= m.dev && h <= m.dev + m.len);
         let Some(m) = m else { return };
         let (pos, run) = if m.run { (m.pos + (h.saturating_sub(m.dev)).min(m.len) as i64, true) } else { (m.pos, false) };
-        if run {
+        if run && self.endpoint_sampled_at.is_none_or(|at| at.elapsed() >= Duration::from_millis(200)) {
+            self.endpoint_sampled_at = Some(Instant::now());
             if let Some((frames, qpc)) = out.endpoint_position() {
                 emit(json!({ "ev": "endpoint-clock", "epoch": self.epoch, "frame": frames, "qpc100ns": qpc }));
             }

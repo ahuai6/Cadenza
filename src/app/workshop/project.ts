@@ -10,6 +10,7 @@ import { DEMO_LYRICS } from '../../theme/demo';
 import { tx } from '../../i18n';
 import { remember, keep } from '../state';
 import { audioContext, sessionEnv } from '../playback/stage';
+import { Lib } from '../bridge';
 
 export interface Project {
   app: 'cadenza';
@@ -178,24 +179,41 @@ export async function resetDemo() {
   await openProject(fresh());
   persist();
 }
-export async function importAudio(f: File) {
+export async function importAudio(f?: File) {
   const st = () => ws.get().status;
+  const previousAudio = st().audio;
+  let ticket: Awaited<ReturnType<NonNullable<typeof Lib>['openWorkshopAudio']>> = null;
   ws.set({ analyzing: true, status: { ...st(), audio: tx('aud.analyzing') } });
   try {
-    const buf = await audioContext().decodeAudioData(await f.arrayBuffer());
+    if (!f) ticket = (await Lib?.openWorkshopAudio()) || null;
+    const name = f?.name || ticket?.name;
+    if (!name) {
+      ws.set({ status: { ...st(), audio: previousAudio } });
+      return;
+    }
+    let data: ArrayBuffer;
+    if (f) data = await f.arrayBuffer();
+    else {
+      const response = await fetch('cadenza://workshop-audio/' + ticket!.id);
+      if (!response.ok) throw new Error('workshop audio');
+      data = await response.arrayBuffer();
+    }
+    const buf = await audioContext().decodeAudioData(data);
     const a = await analyzeInBackground(buf);
     edit((s) => s.setAudio(buf, a));
     edit((s) => s.setTiming({ bpm: +a.tempo.bpm.toFixed(1) }));
     ws.set({
-      audioName: f.name,
-      analyzing: false,
+      audioName: name,
       status: {
         ...st(),
-        audio: `${f.name} · ${tx(buf.numberOfChannels > 1 ? 'aud.stereo' : 'aud.mono')} · ${buf.duration.toFixed(1)} s · ${a.tempo.bpm.toFixed(1)} BPM`,
+        audio: `${name} · ${tx(buf.numberOfChannels > 1 ? 'aud.stereo' : 'aud.mono')} · ${buf.duration.toFixed(1)} s · ${a.tempo.bpm.toFixed(1)} BPM`,
       },
     });
   } catch {
-    ws.set({ analyzing: false, status: { ...st(), audio: tx('aud.bad') } });
+    ws.set({ status: { ...st(), audio: tx('aud.bad') } });
+  } finally {
+    if (ticket) void Lib?.closeWorkshopAudio(ticket.id).catch(() => {});
+    ws.set({ analyzing: false });
   }
 }
 export function clearAudio() {
