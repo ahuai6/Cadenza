@@ -5,7 +5,7 @@ description: Cadenza 项目的开发范式：分层与依赖规则、新增功�
 
 # Cadenza 开发范式
 
-> 实现基准为 3.6.0。4.0.0 重构阶段按独立 Goal 授权。标「现况」的是当前可核对的行为，标「目标」的是待实现和验收的契约。根据源码与测试证据修订工程规则。
+> 3.6.0 是对比基准，当前 4.0.0 开发版已完成至 G2。重构阶段按独立 Goal 授权。标「现况」的是当前可核对的行为，标「目标」的是待实现和验收的契约。
 >
 > 文档地图在 `docs/README.md`；方向与用户已决定的事在 `docs/DIRECTION.md`；架构在 `docs/ARCHITECTURE.md`（细节在 `docs/parts/`）；测试在 `docs/TESTING.md`；发布与维护在 `docs/MAINTENANCE.md`。
 
@@ -22,7 +22,7 @@ description: Cadenza 项目的开发范式：分层与依赖规则、新增功�
 3. 界面安静、成熟：技术细节不出现在主要画面上。
 4. 代码让下一个人看得懂、接得上。
 
-## 2. 分层（3.6.0 现况与过渡规则）
+## 2. 分层（当前实现与过渡规则）
 
 ```
 core      数学、颜色、乱数、事件。不依赖任何东西。
@@ -33,7 +33,7 @@ theme     风格数据（外观、动态、旋钮）。纯数据。
 director  排版、运镜、转场的规划（纯函数，可在 worker 跑）；镜头程序登记表。
 folia     Folia 的风格与背景（上游原样搬入＋Cadenza 的执行层）。在 director 旁、render 之下。
 render    把规划画出来；特效、背景、转场的样子都是登记表里的插件。
-engine    Session（一首歌的一切）＋ Engine（时钟、画布、输出）。对外只有 engine/index.ts。
+engine    Session（视觉计划）＋ Engine（视觉时间、画布、工坊预览）。对外只有 engine/index.ts。
 app       界面。只能引用 engine/index.ts、core、theme、i18n。
   ├ state.ts / bridge.ts / playback / actions   逻辑（两种界面共用）
   ├ ui/        两种界面共用的组件
@@ -50,6 +50,7 @@ native    Rust 的 Hi-Fi 播放核心。
 - 界面经 `bridge.ts` 使用桌面能力。依赖检查拒绝渲染端直接导入 Electron 源文件、Electron 包或 Node 内置模块。
 - 空间界面的场景只经过 `space/bind.ts` 读写 Cadenza（它是唯一的门）。
 - 当前 `engine/index.ts` 是过渡入口。播放、视觉和共享契约拆分时，按职责调整公开入口与测试，避免把每种能力继续转接到引擎。
+- 桌面生命周期只由 `playback/coordinator.ts` 决定。模块仅依赖 `core`，输出与视觉从两边接入。所有异步提交检查当前请求，输出位置、结束和错误还要检查运行代次。视觉准备与尾卡不能持有播放授权。
 - `tests/unit/arch.test.ts` 用 Vite 的 TypeScript AST 和模块解析检查静态引用与运行时循环边。已有循环有逐边记录。生命周期、IPC、异步时钟和资源释放以行为测试验收。
 
 ## 3. 功能只定义一次（目标）

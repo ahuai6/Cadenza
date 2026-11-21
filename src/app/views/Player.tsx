@@ -17,6 +17,8 @@ import {
   setMode,
   setVolume,
   seekBy,
+  seekFile,
+  playback,
   MODES,
   MODE_ICON,
   playQueueAt,
@@ -44,7 +46,7 @@ export function Progress({ className = '', times = true }: { className?: string;
     cur = useRef<HTMLSpanElement>(null),
     tot = useRef<HTMLSpanElement>(null),
     drag = useRef(false);
-  const end = () => player.get().session?.musicEnd || 0.01;
+  const end = () => player.get().duration || 0.01;
   useEffect(() => {
     const paint = (t: number) => {
       const d = end(),
@@ -56,10 +58,10 @@ export function Progress({ className = '', times = true }: { className?: string;
       txt(cur.current, '', fmtTime(Math.min(t, d)));
       txt(tot.current, '', fmtTime(d));
     };
-    paint(engine.time);
-    const a = engine.on('tick', (p) => paint(p.t)),
+    paint(playback.time());
+    const a = engine.on('tick', () => paint(playback.time())),
       b = player.subscribe((x, y) => {
-        if (x.session !== y.session) paint(engine.time);
+        if (x.duration !== y.duration || x.phase !== y.phase || x.id !== y.id) paint(playback.time());
       });
     return () => {
       a();
@@ -89,22 +91,22 @@ export function Progress({ className = '', times = true }: { className?: string;
           drag.current = true;
           bar.current!.dataset.drag = 'true';
           e.currentTarget.setPointerCapture(e.pointerId);
-          engine.seek(at(e), true);
+          seekFile(at(e), true);
         }}
         onPointerMove={(e) => {
-          if (drag.current) engine.seek(at(e), true);
+          if (drag.current) seekFile(at(e), true);
         }}
         onPointerUp={(e) => {
           if (drag.current) {
             drag.current = false;
             bar.current!.dataset.drag = '';
-            engine.seek(at(e), false);
+            seekFile(at(e), false);
           }
         }}
         onPointerCancel={() => {
           drag.current = false;
           bar.current!.dataset.drag = '';
-          engine.seek(engine.time, false);
+          seekFile(playback.time(), false);
         }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowRight') {
@@ -129,7 +131,7 @@ export function Progress({ className = '', times = true }: { className?: string;
 }
 
 export function Transport({ big }: { big?: boolean }) {
-  const playing = useStore(player, (x) => x.playing),
+  const playing = useStore(player, (x) => x.intent),
     loading = useStore(player, (x) => x.loading);
   return (
     <div className={s.trans} data-test="transport" data-big={big || undefined}>
@@ -432,8 +434,11 @@ function QueueBody({ box, closing }: { box: React.MutableRefObject<HTMLElement |
     idx = useIndex(),
     [pos, setPos] = useState<React.CSSProperties | null>(null);
   const pict = useStore(ui, (x) => x.layer !== 'none'); // (over the picture: the dark glass of the play page)
-  const items = useMemo(() => p.queue.map((id) => ({ id, t: idx.byId.get(id) })).filter((x) => x.t), [p.queue, idx]);
-  const { shown, down, listProps } = useReorder(items, (list) => reorderQueue(list.map((x) => x.id)), {
+  const items = useMemo(
+    () => p.queue.map((id, i) => ({ key: p.queueKeys[i], t: idx.byId.get(id) })),
+    [p.queue, p.queueKeys, idx],
+  );
+  const { shown, down, listProps } = useReorder(items, (list) => reorderQueue(list.map((x) => x.key)), {
     scroller: '[data-qlist]',
     ignore: '[data-x]',
   });
@@ -473,7 +478,7 @@ function QueueBody({ box, closing }: { box: React.MutableRefObject<HTMLElement |
     const el = box.current?.querySelector('[data-cur="true"]');
     if (el) el.scrollIntoView({ block: 'center' });
   }, []);
-  const cur = shown.findIndex((x) => x.id === p.id),
+  const cur = shown.findIndex((x) => x.key === p.queueKeys[p.index]),
     rest = Math.max(0, shown.length - 1 - cur);
   return (
     <section
@@ -518,11 +523,12 @@ function QueueBody({ box, closing }: { box: React.MutableRefObject<HTMLElement |
       </div>
       <div className={s.qlist} role="list" data-qlist {...listProps}>
         {shown.map((x, k) => {
-          const isCur = x.id === p.id,
-            i = p.queue.indexOf(x.id);
+          if (!x.t) return null;
+          const i = p.queueKeys.indexOf(x.key),
+            isCur = i === p.index;
           return (
             <div
-              key={x.id}
+              key={x.key}
               role="listitem"
               className={s.qrow}
               data-cur={isCur}

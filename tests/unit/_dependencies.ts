@@ -104,6 +104,8 @@ export function boundaryViolation({ from, to }: Edge, allowed: Record<string, st
   if (!to.startsWith('src/')) return 'source must use the platform bridge';
   const [, origin, originGroup] = from.split('/');
   const [, target, targetGroup] = to.split('/');
+  if (from === 'src/app/playback/coordinator.ts' && target !== 'core')
+    return 'playback coordinator owns no platform or scene';
   if (origin !== target && !allowed[origin]?.includes(target)) return 'layer direction';
   if (origin !== 'app') return null;
   if (target === 'engine' && to !== 'src/engine/index.ts') return 'engine public entry';

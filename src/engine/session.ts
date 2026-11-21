@@ -83,14 +83,24 @@ const CUED_FX = new Set(['glass', 'glyph', 'chroma', 'glitch']);
 const titleCard = (s: SongInfo) =>
   `[00:00.00]${(s.title || '♪').replace(/[[\]<>#|]/g, ' ')}` +
   (s.artist ? `\n[00:00.00]${s.artist.replace(/[[\]<>#|]/g, ' ')}` : '');
-export function loadImage(url: string): Promise<HTMLImageElement | null> {
+export function loadImage(url: string, signal?: AbortSignal): Promise<HTMLImageElement | null> {
   return new Promise((res) => {
-    if (!url) return res(null);
+    if (!url || signal?.aborted) return res(null);
     const im = new Image();
     if (!/^data:/.test(url)) im.crossOrigin = 'anonymous';
     im.decoding = 'async';
-    im.onload = () => res(im);
-    im.onerror = () => res(null);
+    const done = (image: HTMLImageElement | null) => {
+      im.onload = im.onerror = null;
+      signal?.removeEventListener('abort', abort);
+      res(image);
+    };
+    const abort = () => {
+      done(null);
+      im.removeAttribute('src');
+    };
+    im.onload = () => done(im);
+    im.onerror = () => done(null);
+    signal?.addEventListener('abort', abort, { once: true });
     im.src = url;
   });
 }
@@ -127,10 +137,15 @@ export class Session {
     this.spec = { ...spec };
   }
 
-  static async open(spec: SessionSpec, env: SessionEnv): Promise<Session> {
+  static async open(
+    spec: SessionSpec,
+    env: SessionEnv,
+    { signal, analyzeAudio = true }: { signal?: AbortSignal; analyzeAudio?: boolean } = {},
+  ): Promise<Session> {
     const s = new Session(spec, env);
     const tc = performance.now();
-    s.cover = await loadImage(spec.coverUrl || '');
+    s.cover = await loadImage(spec.coverUrl || '', signal);
+    signal?.throwIfAborted();
     s.coverKey = spec.coverUrl || '';
     s.timings.cover = performance.now() - tc;
     {
@@ -148,18 +163,20 @@ export class Session {
     let a = spec.analysis && isCurrent(spec.analysis) ? spec.analysis : null;
     const buf = spec.audio;
     // (no analysis can be had — the neural engine only, and it cannot run: the song plays on a tempo grid)
-    if (!a && buf && buf.getChannelData && !buf.load) {
+    if (analyzeAudio && !a && buf && buf.getChannelData && !buf.load) {
       a = await analyzeInBackground(buf as AudioBuffer).catch(() => null);
       if (a) env.onAnalysis?.(a);
     }
     s.analysis = a;
-    await s.build();
+    await s.build(signal);
+    signal?.throwIfAborted();
     // a song with no style of its own takes the motion style that fits it (director/recommend.ts), not one for all
     if (!spec.style) {
       const rec = s.recommended;
       if (motionOf(s.style) !== rec) {
         s.style = withMotion(s.style, rec);
-        await s.replan();
+        await s.replan(signal);
+        signal?.throwIfAborted();
       }
     }
     return s;
@@ -187,7 +204,7 @@ export class Session {
   }
 
   /** Everything from the lyrics down: timing, rhythm map, lyric model, plan. */
-  async build() {
+  async build(signal?: AbortSignal) {
     const sp = this.spec,
       r = parseRange(sp.range),
       buf = sp.audio;
@@ -201,6 +218,7 @@ export class Session {
     const ts = performance.now();
     if (this.hasLyrics) {
       if (!segmenterReady()) await Promise.race([loadSegmenter(), new Promise((r) => setTimeout(r, 2500))]);
+      signal?.throwIfAborted();
       parsed = respace(parsed, sp.spacing);
     }
     // song time 0 is the range start; the lyric shift moves the music under the lyrics (it is in audioStart), so the
@@ -209,16 +227,18 @@ export class Session {
     this.timings.segment = performance.now() - ts;
     const tf = performance.now();
     await ensureFontSoon(this.style.font, text + sp.song.title, this.env.lang, 1200, () => {
+      if (signal?.aborted) return;
       this.fontsLate = true;
       this.dirty |= REPLAN;
     });
+    signal?.throwIfAborted();
     this.timings.font = performance.now() - tf;
     this.parsed = parsed;
-    await this.retime();
+    await this.retime(signal);
   }
   /** From the timing down (the lyric shift, the ending, the rhythm map, the lyric model, the plan) — the words read from
    *  the lyrics as they were: what the timing sliders change, without reading and breaking the lyrics again. */
-  private async retime() {
+  private async retime(signal?: AbortSignal) {
     const sp = this.spec,
       r = parseRange(sp.range),
       buf = sp.audio,
@@ -238,7 +258,7 @@ export class Session {
     if (map.repairs.length) console.warn('[rhythm] analysis repaired as read:', map.repairs.join('; '));
     const doc = buildLyrics(parsed, map, musicEnd);
     const tp = performance.now();
-    const plan = await this.planOf(doc, map, origin, musicEnd, endLen);
+    const plan = await this.planOf(doc, map, origin, musicEnd, endLen, signal);
     this.timings.plan = performance.now() - tp;
     Object.assign(this, { audioStart, endLen, musicEnd, dur, map, sig: new Signals(map), doc, plan, rec: null });
     this.version++;
@@ -250,6 +270,7 @@ export class Session {
     origin: MapOrigin,
     musicEnd: number,
     endLen: number,
+    signal?: AbortSignal,
   ): Promise<ScenePlan> {
     const fc = fontStack(
       this.style.font,
@@ -279,6 +300,7 @@ export class Session {
         labels: this.env.labels,
       },
       origin,
+      signal,
     );
   }
   private get origin(): MapOrigin {
@@ -291,14 +313,22 @@ export class Session {
    *  its opening): everything that follows from it — map, signals, lyric timing, plan — is made aside now, and put in
    *  place at once by takeStaged when the engine finds the moment (under a blur, or with a crossfade). */
   staged: { analysis: RhythmAnalysis; map: RhythmMap; sig: Signals; doc: LyricDoc; plan: ScenePlan } | null = null;
-  async stage(a: RhythmAnalysis): Promise<boolean> {
+  async stage(a: RhythmAnalysis, signal?: AbortSignal): Promise<boolean> {
     if (!this.parsed || !isCurrent(a)) return false;
+    const version = this.version;
     const map = new RhythmMap(a, this.audioStart),
       doc = buildLyrics(this.parsed, map, this.musicEnd);
     if (map.repairs.length) console.warn('[rhythm] analysis repaired as read:', map.repairs.join('; '));
-    const plan = await this.planOf(doc, map, { analysis: a, offset: this.audioStart }, this.musicEnd, this.endLen);
+    const plan = await this.planOf(
+      doc,
+      map,
+      { analysis: a, offset: this.audioStart },
+      this.musicEnd,
+      this.endLen,
+      signal,
+    );
     // (an edit or a newer reading meanwhile has taken over: this one is not wanted any more)
-    if (this.analysis?.partial !== true || this.parsed == null) return false;
+    if (signal?.aborted || this.analysis?.partial !== true || this.version !== version) return false;
     this.staged = { analysis: a, map, sig: new Signals(map), doc, plan };
     return true;
   }
@@ -313,10 +343,10 @@ export class Session {
     this.version++;
     return before;
   }
-  async replan() {
+  async replan(signal?: AbortSignal) {
     const doc = this.doc,
       map = this.map,
-      plan = await this.planOf(doc, map, this.origin, this.musicEnd, this.endLen);
+      plan = await this.planOf(doc, map, this.origin, this.musicEnd, this.endLen, signal);
     // (a rebuild of the words or the timing meanwhile is newer: it keeps its own)
     if (this.doc !== doc || this.map !== map) return;
     this.plan = plan;

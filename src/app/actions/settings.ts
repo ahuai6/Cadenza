@@ -10,9 +10,13 @@ import { applyUiFont } from '../uifont';
 
 export async function setSettings(patch: Partial<Settings>) {
   settings.set(patch);
-  const n = D ? await D.setSettings(patch) : { ...settings.get(), ...patch };
-  settings.set(n);
-  if ('audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch) switchOutput();
+  const save = async () => {
+    const n = D ? await D.setSettings(patch) : { ...settings.get(), ...patch };
+    settings.set(n);
+    return n;
+  };
+  const n =
+    'audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch ? await switchOutput(save) : await save();
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
   if ('volBalance' in patch || 'fixedVolume' in patch) applyBalance();
   applyEngineConfig(n, Object.keys(patch));

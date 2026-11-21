@@ -82,7 +82,8 @@ export function analyzeNow(id: string, decoded?: AudioBuffer | null, urgent = fa
       return a;
     })();
     inflight.set(id, p);
-    p.finally(() => inflight.delete(id));
+    const done = () => inflight.delete(id);
+    void p.then(done, done);
   }
   return p;
 }

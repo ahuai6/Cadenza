@@ -4,7 +4,7 @@
 // that adds songs one by one rebuilds the rooms once.
 import { lib, trackOf, settings } from '../state';
 import { coverUrl, D, type Settings } from '../bridge';
-import { player, playIds, toggle, next, prev } from '../playback/player';
+import { player, playback, seekFile, playIds, toggle, next, prev } from '../playback/player';
 import { setSettings } from '../actions/settings';
 import { engine, audioContext } from '../playback/stage';
 import { accentClock, fontStack, ensureFont, subLines } from '../../engine';
@@ -31,8 +31,11 @@ export interface SpaceNow {
   cover: string | null;
   coverFull: string | null;
   playing: boolean;
+  intent?: boolean;
+  generation?: number;
   /** a song is on its way (asked for, still loading): what plays for it steps aside already */ busy: boolean;
   t: number;
+  fileTime?: number;
   dur: number;
   lines: NowLine[];
 }
@@ -214,9 +217,12 @@ export function createBind(): SpaceBind {
         cover: coverUrl(t?.cover) || null,
         coverFull: coverUrl(t?.cover, true) || null,
         playing: p.playing,
+        intent: p.intent,
+        generation: playback.get().generation,
         busy: p.playing || p.loading,
         t: engine.time,
-        dur: s?.musicEnd || t?.duration || 0,
+        fileTime: playback.time(),
+        dur: p.duration,
         lines,
       };
     },
@@ -229,10 +235,7 @@ export function createBind(): SpaceBind {
     rest: () => {
       D?.win('min');
     },
-    seek: (t) => {
-      const s = player.get().session;
-      if (s) engine.seek(Math.max(0, Math.min(s.musicEnd, t)));
-    },
+    seek: seekFile,
     toggle,
     next: () => {
       next().catch(() => {});
@@ -278,7 +281,7 @@ export function createBind(): SpaceBind {
     audio: () => ({
       ctx: audioContext(),
       route: (n) => engine.audioRoute(n),
-      hifi: !!engine.clock.external,
+      hifi: player.get().route === 'hifi',
       useStandard: () => setSettings({ audioOut: 'standard' }),
     }),
   };

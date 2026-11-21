@@ -26,7 +26,7 @@
 |---|---|
 | `bridge.ts` | 与桌面主行程的类型化接口（音乐库、设置、窗口、Hi-Fi） |
 | `state.ts` | 界面状态（页面、图层、弹窗、音乐库、设置）的 store |
-| `playback/` | 播放器、队列、Hi-Fi、背景分析、引擎实例（`stage.ts`） |
+| `playback/` | `coordinator.ts` 拥有队列和输出生命周期；`player.ts` 投影只读状态并安排视觉；`outputs.ts` 和 `hifi.ts` 适配输出；`stage.ts` 挂载视觉 |
 | `actions/` | 启动（`boot`）、快捷键（`bindKeys`）、换页（`go`）、改设置（`setSettings`、`setLang`） |
 | `engineConfig.ts` | 用户设置 → `EngineConfig` |
 | `layers.ts`、`motion.ts` | 书页播放栏展开与反向收起，艺术图像的坐标插值，正在播放与特效歌词的画面切换 |
@@ -39,6 +39,8 @@
 | `styles/` | 设计变量（`tokens.css`）与基底样式 |
 
 逻辑这一半不得引用 `views/` 或 `ui/`，只有入口 `main.tsx` 例外（架构测试把关）。所以新界面只要调用 `actions/`、读 `state.ts`、挂上 `playback/stage.ts` 的画布，就能接上整个播放器。
+
+经典、空间、任务栏与媒体键使用同一套播放命令。按钮用播放意图决定下一次点击的含义，进度使用文件位置，逐字歌词和空间视觉读换算后的歌曲时间。队列选中和排序使用独立的队列项 `key`，重复出现的同一曲目可以分别选择。
 
 - 设计语言（颜色、字、圆角、动态、积木）见 `docs/DESIGN.md`，数值只在 `styles/tokens.css`。
 - 组件样式用 CSS Modules，类名不会互相覆盖。

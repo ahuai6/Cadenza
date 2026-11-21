@@ -21,6 +21,7 @@ core → rhythm（节奏 SDK）→ director（规划）／folia（Folia 风格�
 lyrics / text / theme / i18n 为叶子模块
 ```
 
+- **播放协调**（`src/app/playback`）：队列、播放意图和输出由统一状态机管理。普通输出与 Hi-Fi 各自准备音频，歌词、节奏和视觉规划在后台接入。
 - **节奏 SDK**（`src/rhythm`）：做起音侦测、速度、拍点、小节与强拍、重拍分级、反拍与抢拍、段落、Drop 与 Build。分析在 Worker 中进行，结果以 `RhythmAnalysis` 带版本缓存。查询接口是 `RhythmMap`，弹簧信号由 `Signals` 提供。
   - 拍点有两个引擎：
     - **神经网络**（Beat This! 与 HTDemucs，在 GPU 上执行，移植自 Folia）；

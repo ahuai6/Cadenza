@@ -93,6 +93,7 @@ export function createWorld(
   // the song playing, read from bind once a frame
   let NOW: SpaceNow = bind.now(),
     nowId = undefined,
+    nowGeneration: number | undefined,
     curLine = -1;
 
   /* ---------- palette: paper and shade make the space, ink makes the line, accents stay under 10% ---------- */
@@ -3323,6 +3324,7 @@ export function createWorld(
     $('focus').hidden = false;
   }
   let playing = false,
+    shownIntent = false,
     songT = 0;
   // Cadenza plays; the scene follows (the card, the cover, the lyrics change when the player says so, in frame())
   function play(ids, index) {
@@ -3728,7 +3730,7 @@ export function createWorld(
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         e.stopPropagation();
-        bind.seek(NOW.t + (e.key === 'ArrowRight' ? 5 : -5));
+        bind.seek((NOW.fileTime ?? NOW.t) + (e.key === 'ArrowRight' ? 5 : -5));
       }
     });
   }
@@ -4266,7 +4268,7 @@ export function createWorld(
     NOW = fakeNow ? { ...fakeNow, t: ((performance.now() - fakeNow.t0) / 1000) * (fakeNow.rate || 1) } : bind.now();
     songT = NOW.t;
     {
-      const u = seeking != null ? seeking : NOW.dur ? Math.min(1, NOW.t / NOW.dur) : 0,
+      const u = seeking != null ? seeking : NOW.dur ? Math.min(1, (NOW.fileTime ?? NOW.t) / NOW.dur) : 0,
         w = (u * 100).toFixed(2);
       if (w !== barW) {
         barW = w;
@@ -4274,15 +4276,18 @@ export function createWorld(
         $('p-seek').setAttribute('aria-valuenow', String(Math.round(u * 100)));
       }
     }
-    if (NOW.playing !== playing) {
-      playing = NOW.playing;
-      $('pp').textContent = playing ? '❚❚' : '▶';
-      $('pp').setAttribute('aria-label', ts(playing ? 'pause' : 'play'));
+    playing = NOW.playing;
+    const intent = NOW.intent ?? NOW.playing;
+    if (intent !== shownIntent) {
+      shownIntent = intent;
+      $('pp').textContent = intent ? '❚❚' : '▶';
+      $('pp').setAttribute('aria-label', ts(intent ? 'pause' : 'play'));
     }
     sound.ambientTick(now, !!NOW.busy);
     if (paused) return; // (the small window, or the window down in the taskbar: nothing of the scene is worked out or drawn)
-    if (NOW.id !== nowId) {
+    if (NOW.id !== nowId || NOW.generation !== nowGeneration) {
       nowId = NOW.id;
+      nowGeneration = NOW.generation;
       $('p-title').textContent = NOW.title || ts('nothing');
       $('p-sub').textContent = [NOW.artist, NOW.album].filter(Boolean).join(' · ');
       altarArt.material.map = covers.get(NOW.coverFull, NOW.id || 'none');

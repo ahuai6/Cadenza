@@ -5,7 +5,7 @@ import { createStore, type Store } from '../core/emitter';
 import type { LibView, Settings, Track } from './bridge';
 import { DEFAULTS } from './settings/schema';
 
-export function useStore<T extends object, R = T>(s: Store<T>, sel?: (v: T) => R): R {
+export function useStore<T extends object, R = T>(s: Pick<Store<T>, 'get' | 'subscribe'>, sel?: (v: T) => R): R {
   return useSyncExternalStore(s.subscribe, () => (sel ? sel(s.get()) : (s.get() as unknown as R)));
 }
 export const remember = <T>(k: string, d: T): T => {

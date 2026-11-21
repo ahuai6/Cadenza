@@ -22,10 +22,16 @@ pub enum Cmd {
     Play {
         pos: f64,
         end: Option<f64>,
+        seq: Option<u64>,
+        #[serde(default)]
+        run: u64,
     },
-    Pause,
-    Stop,
+    Pause { seq: Option<u64> },
+    Stop { seq: Option<u64> },
     Release,
+    Closefile { ticket: u64, seq: u64 },
+    Barrier { ticket: u64 },
+    Clearnext,
     Gain {
         g: f64,
     },

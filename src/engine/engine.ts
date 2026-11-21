@@ -385,6 +385,31 @@ export class Engine extends Emitter<EngineEvents> {
     };
   }
 
+  /** The desktop player owns its audio. The workshop keeps the engine's standalone transport. */
+  private transport: {
+    time(): number;
+    playing(): boolean;
+    ended(): boolean;
+    play(): void;
+    pause(): void;
+    toggle(): void;
+    seek(t: number, scrubbing: boolean): void;
+    gain(): void;
+  } | null = null;
+  private outroAt: number | null = null;
+  followTransport(transport: NonNullable<Engine['transport']>) {
+    this.transport = transport;
+  }
+  transportChanged() {
+    if (this.transport?.ended()) this.outroAt ??= performance.now();
+    else this.outroAt = null;
+    this.dirty = true;
+    this.emit('change', undefined);
+  }
+  private fileTime() {
+    return this.transport ? this.transport.time() - (this.session?.audioStart ?? 0) : this.t;
+  }
+
   /* ---------- sessions ---------- */
   /** Show a session. 'song': the picture crossfades from the previous one, which is snapshot and fades out softly.
    *  'album' (in the effect view): one continuous shot — the song before keeps running on, its picture dissolving into
@@ -392,9 +417,11 @@ export class Engine extends Emitter<EngineEvents> {
    *  while the new song begins; the audio is not touched. */
   show(s: Session, o: { transition?: 'song' | 'album' | 'none'; at?: number; play?: boolean } = {}) {
     const was = this.playing;
-    this.stopAudio();
-    this.carry = null;
-    this.bdCarry = null;
+    if (!this.transport) {
+      this.stopAudio();
+      this.carry = null;
+      this.bdCarry = null;
+    }
     this.goodCf = null;
     this.badFrames = 0;
     if (DEBUG.on) {
@@ -410,17 +437,31 @@ export class Engine extends Emitter<EngineEvents> {
       this.fadeOut = { cv, t0: performance.now() };
     }
     this.session = s;
-    this.t = clamp(o.at ?? 0, 0, Math.max(0, s.dur - 0.01));
+    this.t = clamp(this.transport ? this.fileTime() : (o.at ?? 0), 0, Math.max(0, s.dur - 0.01));
     this.endedFired = false;
     this.musicEndFired = false;
-    this.clock.hold(this.t);
+    if (!this.transport) this.clock.hold(this.t);
     this.dirty = true;
     this.emit('session', s);
     this.emit('change', undefined);
-    if (o.play ?? was) this.play();
+    if (!this.transport && (o.play ?? was)) this.play();
   }
-  clear() {
-    this.stopAudio();
+  clear(transition?: 'song' | 'album') {
+    if (!this.transport) this.stopAudio();
+    else {
+      this.fadeOut = this.carry = this.bdCarry = null;
+      if (this.session && this.view === 'effect' && transition === 'album') {
+        const now = performance.now();
+        this.carry = { s: this.session, t0: this.t, at: now };
+        this.bdCarry = this.lastBd ? { ...this.lastBd, at: now } : null;
+      } else if (this.session && this.view !== 'hidden' && transition) {
+        const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement;
+        cv.getContext('2d')!.drawImage(this.canvas, 0, 0);
+        this.fadeOut = { cv, t0: performance.now() };
+      }
+      this.video.sync(0, false, 0, false);
+      this.mv.sync(0, false, 0, false);
+    }
     this.session = null;
     this.playing = false;
     this.dirty = true;
@@ -430,12 +471,13 @@ export class Engine extends Emitter<EngineEvents> {
 
   /* ---------- transport ---------- */
   get time() {
-    return this.t;
+    return this.transport ? Math.max(0, this.fileTime()) : this.t;
   }
   get isPlaying() {
-    return this.playing;
+    return this.transport?.playing() ?? this.playing;
   }
   play() {
+    if (this.transport) return this.transport.play();
     const s = this.session;
     if (!s) return;
     if (this.t >= s.dur - 0.02) this.t = 0;
@@ -444,6 +486,7 @@ export class Engine extends Emitter<EngineEvents> {
     this.emit('change', undefined);
   }
   pause() {
+    if (this.transport) return this.transport.pause();
     if (!this.playing) return;
     this.t = this.clock.now(this.session?.audioStart ?? 0);
     this.playing = false;
@@ -453,9 +496,11 @@ export class Engine extends Emitter<EngineEvents> {
     this.emit('change', undefined);
   }
   toggle() {
+    if (this.transport) return this.transport.toggle();
     this.playing ? this.pause() : this.play();
   }
   seek(x: number, scrubbing = false) {
+    if (this.transport) return this.transport.seek(x + (this.session?.audioStart ?? 0), scrubbing);
     const s = this.session;
     if (!s) return;
     this.t = clamp(x, 0, Math.max(0, s.dur - 0.01));
@@ -489,6 +534,7 @@ export class Engine extends Emitter<EngineEvents> {
     this.clock.stop();
   }
   private gain() {
+    if (this.transport) return this.transport.gain();
     const s = this.session;
     if (!s) return;
     const e = s.musicEnd,
@@ -682,6 +728,13 @@ export class Engine extends Emitter<EngineEvents> {
   private frame(now: number) {
     const t0 = performance.now(),
       s = this.session;
+    if (this.transport) {
+      const outro = s && this.outroAt !== null ? Math.max(0, (now - this.outroAt) / 1000) : 0;
+      const t = Math.max(0, Math.min(s?.dur ?? Infinity, this.fileTime() + outro));
+      if (t !== this.t || this.playing !== this.transport.playing()) this.dirty = true;
+      this.t = t;
+      this.playing = this.transport.playing();
+    }
     if (this.prevRaf) {
       this.ivs.push(now - this.prevRaf);
       if (this.ivs.length >= 60) {
@@ -701,6 +754,8 @@ export class Engine extends Emitter<EngineEvents> {
         this.g.setTransform(1, 0, 0, 1, 0, 0);
         this.g.clearRect(0, 0, this.canvas.width, this.canvas.height);
       }
+      if (this.transport)
+        this.emit('tick', { t: this.t, dur: 0, musicEnd: 0, playing: this.playing, rs: null, session: null });
       return;
     }
     if (s.needsFlush) {
@@ -711,7 +766,7 @@ export class Engine extends Emitter<EngineEvents> {
         })
         .catch((e) => console.warn(e));
     }
-    if (this.playing && !this.scrub) {
+    if (!this.transport && this.playing && !this.scrub) {
       this.t = this.clock.now(s.audioStart);
       if (!this.musicEndFired && this.t >= s.musicEnd) {
         this.musicEndFired = true;

@@ -1,14 +1,7 @@
-// The player: the queue, and opening one song as a Session with everything bound to it. The data path for a song:
-//   scan (main process): tags, cover, .lrc found  →  background analysis: the rhythm SDK runs once, cached on disk
-//   play: audio decoded (cadenza://media)  +  cached analysis  +  lyrics  +  the song's own style  →  Session  →  engine
-//     (Hi-Fi output: the native player decodes the file instead, and its clock drives the engine)
-//   while it plays: the next song in the queue is prepared ahead, so skipping never waits
-//   edits in the song's panel  →  the session replans; saved to that song (style, timing, lock, MV), lyrics to its .lrc
-// A song change is one swap: the new session is built completely, then shown; the picture crossfades and every view
-// (card, now playing, effect lyrics) switches together, however fast the user skips (each request supersedes the last).
+// Application integration for the playback coordinator and the independent visual Session.
 import { createStore } from '../../core/emitter';
-import { Session, type AudioLike } from '../../engine';
 import {
+  Session,
   ensureFont,
   analyzeHead,
   RHYTHM_VERSION,
@@ -18,33 +11,32 @@ import {
   isTtml,
   lrcToTtml,
   spacingKey,
+  loadSegmenter,
   type RhythmAnalysis,
   type Spacing,
 } from '../../engine';
 import { storedStyle, type Style } from '../../theme/style';
 import { tx } from '../../i18n';
-import { Lib, D, coverUrl, mediaUrl, type Settings, type SongData, type Track } from '../bridge';
+import { Lib, D, coverUrl, type Settings, type SongData, type Track } from '../bridge';
 import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
 import { insertNext, followList } from './queue';
 import { SCHEMA } from '../settings/schema';
 import { engine, sessionEnv } from './stage';
 import { analyzeNow, decodeForAnalysis } from './analysis';
 import { traceBegin, tracePhase, traceEnd } from './trace';
-import { loadSegmenter } from '../../engine';
 import {
   hifiOn,
-  output,
-  load as hifiLoad,
-  preload as hifiPreload,
   refresh as hifiRefresh,
   release as hifiRelease,
+  closeFile,
+  waitReleased,
   onTrouble,
   hwGain,
   hifi,
-  stop as hifiStop,
 } from './hifi';
-
-export type Mode = 'loop' | 'shuffle' | 'one' | 'stop';
+import { PlaybackCoordinator, weightedPick, type PlaybackRequest, type Phase, type Mode } from './coordinator';
+import { prepareOutput, preload, clearPreload, decodeFile, type PreparedOutput } from './outputs';
+export type { Mode } from './coordinator';
 export const MODES: Mode[] = ['loop', 'shuffle', 'one', 'stop'];
 export const MODE_ICON: Record<Mode, string> = { loop: 'repeat', shuffle: 'shuffle', one: 'repeat1', stop: 'once' };
 /** The play mode at start: the one chosen last — except that "stop at the end", left over from earlier versions where
@@ -66,16 +58,21 @@ export interface MvState {
   on: boolean;
   ready: boolean;
 }
-export const player = createStore({
-  /** the song asked for (the card shows it at once) and the song on screen (its session is built and shown) */
+const projection = createStore({
+  /** Compatibility names for the selected song; its visual scene is optional. */
   id: null as string | null,
   shownId: null as string | null,
   session: null as Session | null,
   rev: 0,
   queue: [] as string[],
+  queueKeys: [] as number[],
   index: -1,
   loading: false,
   playing: false,
+  intent: false,
+  duration: 0,
+  phase: 'idle' as Phase,
+  visualError: null as string | null,
   song: null as SongData | null,
   lyrics: null as { source: string; text: string } | null,
   hasLyrics: false,
@@ -89,386 +86,415 @@ export const player = createStore({
   /** which way the last change of song went (1 on to the next, −1 back, 0 a jump), for the pages' own transitions */
   dir: 0 as -1 | 0 | 1,
 });
+export const player = { get: projection.get, subscribe: projection.subscribe };
 
-/* ---------- decoding, with the next song prepared ahead ---------- */
-let decoder: OfflineAudioContext | null = null;
-const decodeFile = async (id: string) => {
-  const r = await fetch(mediaUrl(id));
-  if (!r.ok) throw new Error('read');
-  return (decoder ||= new OfflineAudioContext(2, 1, 48000)).decodeAudioData(await r.arrayBuffer());
-};
-type Prep = {
-  buffer: AudioBuffer | null;
-  analysis: RhythmAnalysis | null;
-  /** what preparing took (ms) */ ms?: { read?: number; rhythm?: number };
-  /** streaming: the whole reading, still coming (the analysis is the opening's) */ later?: Promise<RhythmAnalysis | null>;
-};
-const cache = new Map<string, Promise<Prep>>();
-/** A song's audio and rhythm. One the cache has no reading of yet: streamed (the setting's default) — it plays at once
- *  on a reading of its opening (a third of a second of work), the whole reading following in the background and taken
- *  by the session while the song plays (Session.stage, put in place under the next blur: engine.ts trySwap); or
- *  analysed whole before it plays. Only a whole reading is ever kept (analysis.ts saves it). */
-function prepare(id: string, route: 'std' | 'hifi') {
-  const key = route + ':' + id,
-    hit = cache.get(key);
-  if (hit) return hit;
-  const p = (async (): Promise<Prep> => {
-    let analysis = (await Lib!.analysis(id, RHYTHM_VERSION).catch(() => null)) as RhythmAnalysis | null;
-    if (!isCurrent(analysis)) analysis = null;
-    // the Hi-Fi output reads the file itself: the page decodes only to analyse a song the cache does not have yet
-    const td = performance.now(),
-      buffer = route === 'hifi' ? null : await decodeFile(id),
-      ms = { read: performance.now() - td } as NonNullable<Prep['ms']>;
-    // (a cached reading made for audio of another length — the file replaced under the same name — is not this song's)
-    if (analysis && buffer && !isCurrent(analysis, buffer.duration)) analysis = null;
-    if (analysis) return { buffer, analysis, ms };
-    const ta = performance.now();
-    if (settings.get().rhythmStream === 'full') {
-      const a = await analyzeNow(id, buffer, true).catch(() => null);
-      ms.rhythm = performance.now() - ta;
-      return { buffer, analysis: a, ms };
-    }
-    const pcm = buffer || (await decodeForAnalysis(id).catch(() => null));
-    if (!pcm) return { buffer, analysis: await analyzeNow(id, null, true).catch(() => null) };
-    // (not in a hurry now: the whole reading has the time a background analysis has — the neural engine's drums too)
-    const later = analyzeNow(id, pcm, false).catch(() => null);
-    const head = await analyzeHead(pcm).catch(() => null);
-    later.then((a) => {
-      if (a && cache.get(key) === p) cache.set(key, Promise.resolve({ buffer, analysis: a }));
-    });
-    if (head) {
-      ms.rhythm = performance.now() - ta;
-      return { buffer, analysis: head, later, ms };
-    }
-    const a = await later;
-    ms.rhythm = performance.now() - ta;
-    return { buffer, analysis: a, ms };
-  })();
-  cache.set(key, p);
-  p.catch(() => cache.delete(key));
-  // (the songs prepared: this one, the next, and one more — each holds its decoded audio, a few hundred MB together at most)
-  while (cache.size > 3) cache.delete(cache.keys().next().value!);
-  return p;
-}
-/** Streaming: the whole reading each session is still waiting for. */
+/* Playback and visuals share a request identity. Only the coordinator can authorize sound. */
 const coming = new WeakMap<Session, Promise<RhythmAnalysis | null>>();
-/** Where the shown song's rhythm stands: its whole reading from the start, its opening's (the whole one coming), or the
- *  whole one taken over while it played. */
 export function rhythmState(): 'whole' | 'partial' | 'streamed' | null {
   const s = player.get().session;
   if (!s) return null;
   return s.analysis?.partial || s.staged ? 'partial' : coming.has(s) ? 'streamed' : 'whole';
 }
-/** A song to be analysed again: what was prepared of it goes too (its next play reads the new analysis). */
 export function forgetPrepared(id: string) {
-  cache.delete('std:' + id);
-  cache.delete('hifi:' + id);
+  clearPreload(id);
 }
-/** The shown song's whole rhythm reading, in place (an export waits for it: a video is made on the whole reading). */
 export async function wholeRhythm() {
-  const s = player.get().session,
-    p = s && coming.get(s);
+  const s = player.get().session;
+  const p = s && coming.get(s);
   if (!s || !p) return;
-  if ((await p) && s.staged && s.takeStaged()) engine.invalidate();
-}
-/** What the engine holds for audio the native player plays: its length and layout, and a way to decode it after all
- *  (only an export with sound needs the samples). */
-function standIn(id: string, r: { dur: number; src: { rate: number; ch: number } } | null, t: Track | null): AudioLike {
-  const dur = r && r.dur > 0 ? r.dur : (t && t.duration) || 0,
-    rate = r ? r.src.rate : 48000;
-  return {
-    duration: dur,
-    sampleRate: rate,
-    numberOfChannels: r ? Math.min(2, r.src.ch) : 2,
-    length: Math.round(dur * rate),
-    load: () => decodeFile(id),
-  };
+  if ((await p) && s === player.get().session && s.staged && s.takeStaged()) engine.invalidate();
 }
 
-/* ---------- opening a song ---------- */
-let gen = 0,
-  stale = false,
-  warnedFormat = false;
-/** Play a list: it becomes the queue, in its own order (shuffle only changes which song comes next). */
-export async function playIds(ids: string[], index = 0, opts: { play?: boolean; album?: boolean } = {}) {
-  const want = ids[Math.min(Math.max(0, index), ids.length - 1)];
-  ids = ids.filter((id) => {
-    const t = trackOf(id);
-    return t && !t.protected;
-  });
-  if (!ids.length) return;
-  history.length = 0;
-  round.clear();
-  const i = Math.max(0, ids.indexOf(want));
-  player.set({ queue: ids, index: i, album: opts.album ? { look: null } : null });
-  await loadAt(i, opts.play !== false);
-}
-/** Everything a song needs to be shown: its audio (through the output asked for, or the standard one when the Hi-Fi
- *  output cannot take it), its rhythm, what is kept with it, and its session. */
-async function openSong(
-  id: string,
-  wantRoute: 'std' | 'hifi',
-  ok: () => boolean,
-  tr: ReturnType<typeof traceBegin> | null = null,
-) {
-  let route = wantRoute;
-  // (the word segmenter's dictionary loads alongside the audio: it is not waited for after it)
-  loadSegmenter().catch(() => {});
-  const tm = performance.now(),
-    fresh = !cache.has(route + ':' + id),
-    prepP = prepare(id, route);
-  const [song, lyr, hr, known] = await Promise.all([
-    Lib!.song(id).catch(() => null),
-    Lib!.lyrics(id).catch(() => null),
-    route === 'hifi'
-      ? hifiLoad(id).catch((e) => {
-          console.warn('hifi', e.message);
-          return null;
-        })
-      : null,
-    // (a song analysed before, through the standard output: its length is known from its analysis — the scene is built
-    // from it while the audio decodes, not after)
-    route === 'std' ? (Lib!.analysis(id, RHYTHM_VERSION).catch(() => null) as Promise<RhythmAnalysis | null>) : null,
-  ]);
-  if (!ok()) return null;
-  const t = trackOf(id)!,
-    instr = !!t.instrumental,
-    album = player.get().album;
-  // an instrumental: its own line in place of lyrics, and the record theme unless the song already has a look of its own.
-  // In album play: no fade at the end (the audio is the album's own), only the small title, the first song's look
-  const open = (audio: AudioLike, analysis: RhythmAnalysis | null) =>
-    Session.open(
-      {
-        key: id,
-        instrumental: instr,
-        lyrics: instr ? '' : lyr?.text || '',
-        style: song?.style,
-        preset: instr ? 'vinyl' : undefined,
-        song: {
-          on: true,
-          title: t.title,
-          artist: t.artist || '',
-          composer: t.composer || '',
-          lyricist: t.lyricist || '',
-          album: !!album,
-        },
-        coverUrl: coverUrl(t.cover, true),
-        audio,
-        analysis,
-        lshift: song?.lshift || 0,
-        spacing: song?.spacing,
-        fade: !album,
-        aspect: fxAspect(),
-        look: album?.look || undefined,
-      },
-      sessionEnv(),
-    );
-  let prep: Prep,
-    s: Session,
-    tso = performance.now();
-  if (known && isCurrent(known)) {
-    const early = open(
-      {
-        duration: known.duration,
-        sampleRate: 48000,
-        numberOfChannels: 2,
-        length: Math.round(known.duration * 48000),
-        load: () => decodeFile(id),
-      },
-      known,
-    );
-    [prep, s] = await Promise.all([prepP, early]);
-    if (!ok()) return null;
-    tracePhase(tr, 'media', performance.now() - tm);
-    if (fresh) tracePhase(tr, 'read', prep.ms?.read);
-    tracePhase(tr, 'session', performance.now() - tso);
-    // the decoded audio in place of its stand-in: the same length, nothing to redo; another (a file changed since it was
-    // analysed) builds the timing again
-    if (prep.buffer) {
-      if (Math.abs(prep.buffer.duration - known.duration) < 0.05) s.spec.audio = prep.buffer;
-      else s.setAudio(prep.buffer, prep.analysis);
-    }
-  } else {
-    prep = await prepP;
-    if (!ok()) return null;
-    tracePhase(tr, 'media', performance.now() - tm);
-    if (fresh) {
-      tracePhase(tr, 'read', prep.ms?.read);
-      tracePhase(tr, 'rhythm', prep.ms?.rhythm);
-    }
-    if (route === 'hifi' && !hr) {
-      // a file the Hi-Fi output cannot read, or it is not running: this song goes through the standard output
-      route = 'std';
-      if (!warnedFormat) {
-        warnedFormat = true;
-        toast(tx('s.hifi.notThis'));
+let prepared: PreparedOutput | null = null;
+let visualRequest: PlaybackRequest | null = null;
+let trace: ReturnType<typeof traceBegin> | null = null;
+let preloadTimer: ReturnType<typeof setTimeout> | undefined;
+let audioConfig: Promise<unknown> | null = null;
+let warnedFormat = false;
+
+const transport = new PlaybackCoordinator<PreparedOutput>(
+  {
+    duration: (id) => trackOf(id)?.duration || 0,
+    route: () => (hifiOn() ? 'hifi' : 'std'),
+    plays: (id) => trackOf(id)?.plays || 0,
+    selected(request) {
+      prepared = null;
+      visualRequest = request;
+      cancelVisual();
+      clearTimeout(preloadTimer);
+      const id = request.entry.id;
+      trace = traceBegin(trackOf(id)?.title || id);
+      engine.clear(transport.get().album && request.automatic ? 'album' : 'song');
+      engine.mv.setOn(false);
+      engine.mv.close();
+      const s = transport.get();
+      // Background priority can change independently of the renderer and the output.
+      void Lib?.prioritize([id, ...s.queue.slice(s.index + 1, s.index + 3).map((e) => e.id)]).catch(() => {});
+    },
+    async prepare(request) {
+      const tr = trace;
+      if (audioConfig) await audioConfig;
+      request.signal.throwIfAborted();
+      // Settings can change while requests wait for the device transaction.
+      const route = hifiOn() ? 'hifi' : 'std';
+      let output: PreparedOutput;
+      try {
+        if (route === 'std') await waitReleased();
+        request.signal.throwIfAborted();
+        applyBalance();
+        output = await prepareOutput(
+          { ...request, route },
+          trackOf(request.entry.id)?.duration || 0,
+          transport.get().album,
+        );
+      } catch (error) {
+        if (route === 'std' || request.signal.aborted) throw error;
+        await hifiRelease();
+        request.signal.throwIfAborted();
+        if (!warnedFormat) {
+          warnedFormat = true;
+          toast(tx('s.hifi.notThis'));
+        }
+        output = await prepareOutput({ ...request, route: 'std' }, 0, transport.get().album);
       }
-      prep = await prepare(id, 'std');
-      if (!ok()) return null;
-    }
-    tso = performance.now();
-    s = await open(prep.buffer || standIn(id, hr, t), prep.analysis);
-    tracePhase(tr, 'session', performance.now() - tso);
+      if (tr) tracePhase(tr, 'audioPrepared', performance.now() - tr.t0);
+      return output;
+    },
+    ready(request, output) {
+      prepared = output;
+      const { queue, index } = transport.get();
+      keep('last', { q: queue.slice(0, 3000).map((e) => e.id), i: index });
+      applyBalance();
+      scheduleVisual(request, output);
+      schedulePreload();
+    },
+  },
+  startMode(),
+);
+export const playback = { get: transport.get, subscribe: transport.subscribe, time: () => transport.time };
+export const seekFile = (at: number, scrubbing = false) => transport.seek(at, scrubbing);
+export function stopPlayback() {
+  transport.stop();
+  prepared = null;
+  cancelVisual();
+  clearTimeout(preloadTimer);
+  clearPreload();
+}
+/** Consumers that need a real scene (such as export) can wait without holding playback. */
+export async function waitForVisual(id: string) {
+  const generation = transport.get().generation;
+  return new Promise<Session | null>((resolve) => {
+    const check = () => {
+      const p = player.get();
+      if (transport.get().generation !== generation || p.shownId !== id || p.error || p.visualError || p.session) {
+        off();
+        resolve(transport.get().generation === generation && p.shownId === id ? p.session : null);
+      }
+    };
+    const off = player.subscribe(check);
+    check();
+  });
+}
+engine.followTransport({
+  time: () => transport.time,
+  playing: () => transport.get().phase === 'playing',
+  ended: () => transport.get().phase === 'ended',
+  play: () => transport.play(),
+  pause: () => transport.pause(),
+  toggle,
+  seek: seekFile,
+  gain: () => prepared?.syncGain(),
+});
+transport.subscribe((s, previous) => {
+  const changedQueue = s.queue !== previous.queue;
+  const requested = s.generation !== previous.generation;
+  projection.set({
+    ...(requested
+      ? {
+          id: s.target?.id ?? null,
+          shownId: s.target?.id ?? null,
+          session: null,
+          song: null,
+          lyrics: null,
+          hasLyrics: false,
+          visualError: null,
+          dir: s.direction,
+          mv: { bound: false, name: '', offset: 0, on: false, ready: false },
+        }
+      : {}),
+    ...(changedQueue ? { queue: s.queue.map((e) => e.id), queueKeys: s.queue.map((e) => e.key) } : {}),
+    index: s.index,
+    route: s.route,
+    mode: s.mode,
+    intent: s.intent,
+    duration: s.duration,
+    phase: s.phase,
+    loading: s.phase === 'preparing' || s.phase === 'buffering',
+    playing: s.phase === 'playing',
+    error: s.error,
+  });
+  if (s.generation === previous.generation && s.candidate !== previous.candidate && prepared) schedulePreload();
+  if (s.phase === 'playing' && s.target && lastPlayedGeneration !== s.generation) {
+    lastPlayedGeneration = s.generation;
+    void Lib?.played(s.target.id).catch(() => {});
   }
-  if (tr) tr.cached = !fresh;
-  for (const [k, v] of Object.entries(s.timings)) tracePhase(tr, k, v);
-  // (streaming: the whole reading, made ready aside the moment it arrives — the engine puts it in place)
-  if (prep.later)
+  if (s.phase === 'error' && previous.phase !== 'error') {
+    console.warn('audio playback', s.error);
+    toast(tx(s.error === 'hifi-down' ? 's.hifi.down' : 'aud.bad'));
+  }
+  engine.transportChanged();
+});
+let lastPlayedGeneration = 0;
+
+function schedulePreload() {
+  clearTimeout(preloadTimer);
+  const { candidate, target, route, generation } = transport.get();
+  if (!target || settings.get().prerender === false) return clearPreload();
+  preloadTimer = setTimeout(() => {
+    const s = transport.get();
+    if (generation === s.generation && s.candidate === candidate) preload(candidate, route, target.id);
+  }, 1500);
+}
+
+// At most one scene build is active and one replacement queued. Native image/font
+// work already submitted may finish, but an aborted scene cannot submit a full new build.
+type VisualJob = { request: PlaybackRequest; output: PreparedOutput; abort: AbortController };
+let visualActive: VisualJob | null = null;
+let visualNext: VisualJob | null = null;
+let visualAbort: AbortController | null = null;
+let focusedAnalysis: Promise<RhythmAnalysis | null> | null = null;
+function waitForAnalysis(work: Promise<RhythmAnalysis | null>, signal: AbortSignal) {
+  signal.throwIfAborted();
+  return new Promise<RhythmAnalysis | null>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    void work.then((value) => {
+      signal.removeEventListener('abort', abort);
+      resolve(value);
+    });
+  });
+}
+async function analyzeVisual(id: string, pcm: AudioBuffer | null, urgent: boolean, signal: AbortSignal) {
+  while (focusedAnalysis) {
+    await waitForAnalysis(focusedAnalysis, signal);
+    signal.throwIfAborted();
+  }
+  signal.throwIfAborted();
+  const analysis = (focusedAnalysis = analyzeNow(id, pcm, urgent).catch(() => null));
+  void analysis.then(() => {
+    if (focusedAnalysis === analysis) focusedAnalysis = null;
+  });
+  return waitForAnalysis(analysis, signal);
+}
+function cancelVisual() {
+  visualAbort?.abort();
+  visualAbort = null;
+  visualNext = null;
+}
+function scheduleVisual(request: PlaybackRequest, output: PreparedOutput) {
+  cancelVisual();
+  if (request.signal.aborted) return;
+  visualAbort = new AbortController();
+  visualNext = { request, output, abort: visualAbort };
+  runVisual();
+}
+function runVisual() {
+  if (visualActive || !visualNext) return;
+  const job = (visualActive = visualNext);
+  visualNext = null;
+  void openVisual(job)
+    .catch((error) => {
+      if (!job.abort.signal.aborted && !job.request.signal.aborted) {
+        console.warn('visual preparation', error);
+        projection.set({ visualError: String((error as Error)?.message || error) });
+      }
+    })
+    .finally(() => {
+      visualActive = null;
+      runVisual();
+    });
+}
+async function readRhythm(id: string, duration: number) {
+  const analysis = (await Lib!.analysis(id, RHYTHM_VERSION).catch(() => null)) as RhythmAnalysis | null;
+  return isCurrent(analysis, duration || undefined) ? analysis : null;
+}
+async function openVisual({ request, output, abort }: VisualJob) {
+  const signal = AbortSignal.any([request.signal, abort.signal]);
+  signal.throwIfAborted();
+  const id = request.entry.id;
+  const tr = trace;
+  const t = trackOf(id);
+  if (!t || !Lib) return;
+  const tm = performance.now();
+  void loadSegmenter().catch(() => {});
+  const [storedSong, lyr, cached] = await Promise.all([
+    Lib.song(id).catch(() => null),
+    Lib.lyrics(id).catch(() => null),
+    readRhythm(id, output.duration),
+  ]);
+  signal.throwIfAborted();
+  let analysis = cached;
+  let later: Promise<RhythmAnalysis | null> | undefined;
+  if (!analysis) {
+    const pcm = output.pcm || (await decodeForAnalysis(id).catch(() => null));
+    signal.throwIfAborted();
+    if (settings.get().rhythmStream !== 'full' && pcm) {
+      later = analyzeVisual(id, pcm, false, signal).catch(() => null);
+      analysis = await analyzeHead(pcm).catch(() => null);
+      if (!analysis) {
+        analysis = await later;
+        later = undefined;
+      }
+    } else {
+      analysis = await analyzeVisual(id, pcm, true, signal).catch(() => null);
+    }
+  }
+  signal.throwIfAborted();
+  tracePhase(tr, 'visualData', performance.now() - tm);
+  const song = songWrites.get(id)?.song || storedSong;
+  const album = player.get().album;
+  const instr = !!t.instrumental;
+  const s = await Session.open(
+    {
+      key: id,
+      instrumental: instr,
+      lyrics: instr ? '' : lyr?.text || '',
+      style: song?.style,
+      preset: instr ? 'vinyl' : undefined,
+      song: {
+        on: true,
+        title: t.title,
+        artist: t.artist || '',
+        composer: t.composer || '',
+        lyricist: t.lyricist || '',
+        album: !!album,
+      },
+      coverUrl: coverUrl(t.cover, true),
+      audio: output.audio,
+      analysis,
+      lshift: song?.lshift || 0,
+      spacing: song?.spacing,
+      fade: !album,
+      aspect: fxAspect(),
+      look: album?.look || undefined,
+    },
+    sessionEnv(),
+    { signal, analyzeAudio: false },
+  );
+  signal.throwIfAborted();
+  if (tr) tr.cached = !!cached;
+  for (const [name, ms] of Object.entries(s.timings)) tracePhase(tr, name, ms);
+  const font = ui.get().npLyr.font;
+  if (font && font !== 'ui' && s.hasLyrics) {
+    await Promise.race([
+      ensureFont(font, s.doc.lines.map((line) => line.text).join('')),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
+    ]);
+  }
+  signal.throwIfAborted();
+  if (album && !album.look) projection.set({ album: { look: s.lookOf() } });
+  const fresh = trackOf(id);
+  if (fresh && (fresh.title !== t.title || fresh.artist !== t.artist))
+    s.setSong({ title: fresh.title, artist: fresh.artist || '' });
+  if (fresh && fresh.cover !== t.cover)
+    void s.setCover(coverUrl(fresh.cover, true), false).then(() => {
+      if (!signal.aborted) engine.invalidate();
+    });
+  const mv = song?.mv;
+  engine.show(s);
+  projection.set({
+    session: s,
+    song: song || {},
+    lyrics: lyr,
+    hasLyrics: s.hasLyrics,
+    visualError: null,
+    mv: { bound: !!mv, name: mv?.name || '', offset: mv?.offset || 0, on: false, ready: false },
+  });
+  if (mv) void loadMv(id, mv, !!song?.mvOn);
+  const shown = performance.now();
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (signal.aborted) return;
+      tracePhase(tr, 'show', performance.now() - shown);
+      traceEnd(tr);
+    }),
+  );
+  if (later) {
     coming.set(
       s,
-      prep.later.then((a) => {
-        if (a && s.analysis?.partial) s.stage(a);
-        return a;
-      }),
+      later
+        .then(async (value) => {
+          if (value && !signal.aborted && s === player.get().session) await s.stage(value, signal);
+          return signal.aborted ? null : value;
+        })
+        .catch(() => null),
     );
-  // the play page's own lyric face, its glyphs for these lyrics in before the page shows them (never a late swap)
-  {
-    const f = ui.get().npLyr.font;
-    if (f && f !== 'ui' && s.hasLyrics)
-      await Promise.race([
-        ensureFont(f, s.doc.lines.map((L) => L.text).join('')),
-        new Promise((r) => setTimeout(r, 1500)),
-      ]);
-  }
-  return { s, route, song, lyr };
-}
-/** Album play: the next song opened ahead, so the film runs straight on into it (standard output only: the Hi-Fi output
- *  takes one song at a time and has its own preloading). */
-let ahead: { id: string; p: Promise<Awaited<ReturnType<typeof openSong>>> } | null = null;
-async function loadAt(index: number, play: boolean, at = 0, how: { dir?: -1 | 0 | 1; auto?: boolean } = {}) {
-  const { queue } = player.get(),
-    id = queue[index];
-  if (!id || !Lib) return;
-  const my = ++gen,
-    album = player.get().album;
-  player.set({ index, id, loading: true, error: null, dir: how.dir ?? 0 });
-  Lib.prioritize([id, ...queue.slice(index + 1, index + 3)]).catch(() => {});
-  try {
-    const want: 'std' | 'hifi' = hifiOn() ? 'hifi' : 'std',
-      pre = ahead && ahead.id === id && want === 'std' && album ? ahead.p : null;
-    ahead = null;
-    const tr = traceBegin(trackOf(id)?.title || id);
-    const o = (pre ? await pre.catch(() => null) : null) || (await openSong(id, want, () => my === gen, tr));
-    if (!o || my !== gen) return;
-    const { s, route, song, lyr } = o;
-    if (album && !album.look) player.set({ album: { look: s.lookOf() } });
-    stale = false;
-    engine.pause(); // before the output changes: nothing replays on the way
-    engine.setOutput(route === 'hifi' ? output : null);
-    engine.mv.setOn(false);
-    engine.mv.close();
-    const tsh = performance.now();
-    engine.show(s, { transition: album && how.auto ? 'album' : 'song', at, play });
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        tracePhase(tr, 'show', performance.now() - tsh);
-        traceEnd(tr);
-      }),
-    );
-    const mv = song?.mv;
-    player.set({
-      shownId: id,
-      session: s,
-      loading: false,
-      route,
-      song: song || {},
-      lyrics: lyr,
-      hasLyrics: s.hasLyrics,
-      mv: { bound: !!mv, name: mv ? mv.name : '', offset: mv ? mv.offset : 0, on: false, ready: false },
-    });
-    if (mv) loadMv(id, mv, !!song?.mvOn);
-    applyBalance();
-    Lib.played(id).catch(() => {});
-    keep('last', { q: player.get().queue.slice(0, 3000), i: index });
-    // the next song, ready before it is needed
-    const nx = player.get().queue[index + 1];
-    if (nx && settings.get().prerender !== false)
-      setTimeout(() => {
-        if (my !== gen) return;
-        prepare(nx, route).catch(() => {});
-        if (route === 'hifi') hifiPreload(nx);
-      }, 1500);
-    if (nx && album && route === 'std')
-      setTimeout(() => {
-        if (my !== gen || ahead) return;
-        const p = openSong(nx, 'std', () => true);
-        p.catch(() => {});
-        ahead = { id: nx, p };
-      }, 6000);
-  } catch (e) {
-    if (my !== gen) return;
-    console.warn('load failed', e);
-    player.set({ loading: false, error: String((e as Error)?.message || e) });
-    toast(tx('aud.bad'));
   }
 }
-/** At launch: the song last shown (in its queue) is opened again, paused, so the play page and its picture are made and
- *  ready before anything is played — opening the page or pressing play is then immediate. */
+
+export async function playIds(ids: string[], index = 0, opts: { play?: boolean; album?: boolean } = {}) {
+  if (!Lib) return;
+  const valid = (id: string) => {
+    const track = trackOf(id);
+    return track && !track.protected;
+  };
+  const at = Math.min(Math.max(0, index), ids.length - 1);
+  const q = ids.filter(valid);
+  if (!q.length) return;
+  const i = valid(ids[at]) ? ids.slice(0, at).filter(valid).length : 0;
+  projection.set({ album: opts.album ? { look: null } : null });
+  await transport.replace(q, i, opts.play !== false, !!opts.album);
+}
+const loadAt = (index: number, play: boolean) => transport.select(index, play);
+/** Restore the exact occurrence last selected, paused. */
 export async function resumeLast() {
   if (player.get().id) return;
-  const L = remember<{ q: string[]; i: number } | null>('last', null),
-    ok = (id: string) => {
-      const t = trackOf(id);
-      return !!t && !t.protected;
-    };
-  let q = (L?.q || []).filter(ok),
-    i = L && L.q[L.i] ? q.indexOf(L.q[L.i]) : -1;
-  if (!q.length) {
-    q = lib
+  const last = remember<{ q: string[]; i: number } | null>('last', null);
+  if (
+    last?.q.some((id) => {
+      const track = trackOf(id);
+      return track && !track.protected;
+    })
+  )
+    return playIds(last.q, last.i, { play: false });
+  await playIds(
+    lib
       .get()
       .tracks.filter((t) => !t.protected)
-      .map((t) => t.id);
-    i = 0;
-  }
-  if (q.length) await playIds(q, Math.max(0, i), { play: false });
+      .map((t) => t.id),
+    0,
+    { play: false },
+  );
 }
-/** The output was switched in the settings: the same song, from the same moment, through the other one. */
-export async function switchOutput() {
-  const switching = gen;
-  const play = player.get().playing;
-  // (leaving the Hi-Fi output: its player lets go of the device at once — held exclusively, it would otherwise keep the
-  // standard output silent until it gave the device up on its own, some twenty seconds later)
-  if (!hifiOn() && engine.clock.external) {
-    engine.pause();
-    hifiStop();
-    hifiRelease();
-    await new Promise((r) => setTimeout(r, 300));
+
+/** Serialize device configuration and let the latest playback request wait on its completion. */
+export async function switchOutput<T>(apply: () => Promise<T>): Promise<T> {
+  const prior = audioConfig;
+  const tx = (async () => {
+    if (prior) await prior.catch(() => {});
+    const result = await apply();
+    if (!hifiOn()) await waitReleased();
+    await hifiRefresh();
+    return result;
+  })();
+  audioConfig = tx;
+  if (transport.get().target) void transport.restart();
+  try {
+    return await tx;
+  } finally {
+    if (audioConfig === tx) audioConfig = null;
   }
-  await hifiRefresh();
-  const p = player.get();
-  if (!p.id || switching !== gen) return;
-  // The transport may pause to release the current device. Keep the listener's intent across that pause.
-  await loadAt(p.index, play, engine.time);
 }
 onTrouble((kind) => {
-  if (!engine.clock.external || !hifiOn()) return;
-  if (kind === 'fallback') {
-    toast(tx('s.hifi.fallback'));
-    return;
-  }
-  if (kind === 'toDefault' || kind === 'lost') {
-    toast(tx('s.hifi.toDefault'));
-    return;
-  }
-  if (kind === 'back') {
-    toast(tx('s.hifi.backOn'));
-    return;
-  }
-  stale = true;
-  engine.pause();
-  toast(tx(kind === 'down' ? 's.hifi.down' : 's.hifi.deviceLost'));
+  if (transport.get().route !== 'hifi' || !hifiOn()) return;
+  toast(tx(kind === 'fallback' ? 's.hifi.fallback' : kind === 'back' ? 's.hifi.backOn' : 's.hifi.toDefault'));
 });
-/** The workshop takes the audio device: the player pauses and the Hi-Fi output lets go of it. */
-/** The audio context made ahead (at launch). */
 export function warmAudio() {
   engine.clock.warm();
 }
-export function yieldAudio() {
-  engine.pause();
-  if (engine.clock.external) {
-    hifiRelease();
-    stale = true;
-  }
+export async function yieldAudio() {
+  transport.pause();
+  if (hifiOn()) await hifiRelease().catch((error) => console.warn('hifi release', error));
 }
 
 /* ---------- edits to the playing song's tags or cover show at once, in every view ---------- */
@@ -495,7 +521,7 @@ lib.subscribe((L, prev) => {
       }),
     );
     if (q) {
-      player.set({ queue: q });
+      transport.reconcile(q);
       return;
     }
   }
@@ -504,23 +530,26 @@ lib.subscribe((L, prev) => {
   if (L.tracks === prev.tracks) return;
   const p = player.get(),
     s = p.session;
-  if (!s || !p.shownId) return;
+  if (!p.shownId) return;
   const t = trackOf(p.shownId),
     was = prev.tracks.find((x) => x.id === p.shownId);
   if (!t || !was) return;
-  if (was.title !== t.title || was.artist !== t.artist) {
+  if (!!was.instrumental !== !!t.instrumental && prepared && visualRequest) {
+    scheduleVisual(visualRequest, prepared);
+    return;
+  }
+  if (s && (was.title !== t.title || was.artist !== t.artist)) {
     s.setSong({ title: t.title, artist: t.artist || '' });
     engine.invalidate();
   }
-  if (was.cover !== t.cover) s.setCover(coverUrl(t.cover, true), false).then(() => engine.invalidate());
-  if (!!was.instrumental !== !!t.instrumental) {
-    loadAt(p.index, p.playing, engine.time);
-    return;
-  }
+  if (s && was.cover !== t.cover)
+    void s.setCover(coverUrl(t.cover, true), false).then(() => {
+      if (s === player.get().session) engine.invalidate();
+    });
   // (its loudness measured just now: taken at once only near the start — later, a jump in the middle of the song would be
   // heard; it applies from the song's next play)
-  if (was.loudness?.lufs !== t.loudness?.lufs && engine.time < 2) applyBalance();
-  player.set({ rev: p.rev + 1 });
+  if (was.loudness?.lufs !== t.loudness?.lufs && transport.time < 2) applyBalance();
+  projection.set({ rev: p.rev + 1 });
 });
 
 /** The volume balance for the song now playing: a steady gain towards a like loudness. Through the standard output, or
@@ -545,7 +574,7 @@ export function setFxAspect(shape: string) {
     s.spec.aspect = a;
     s.setStyle('aspect', a);
     engine.invalidate();
-    player.set({ rev: player.get().rev + 1 });
+    projection.set({ rev: player.get().rev + 1 });
   }
 }
 export function applyBalance() {
@@ -571,7 +600,7 @@ export async function setInstrumental(id: string, on: boolean) {
   if (song && song.style && !song.locked) {
     const { style: _s, ...rest } = song;
     await Lib.setSong(id, rest);
-    if (player.get().shownId === id) player.set({ song: rest });
+    if (player.get().shownId === id) projection.set({ song: rest });
   }
   await Lib.instrumental(id, on);
   toast(tx(on ? 's.instr.marked' : 's.instr.unmarked'));
@@ -579,216 +608,102 @@ export async function setInstrumental(id: string, on: boolean) {
 
 /* ---------- transport ---------- */
 export function toggle() {
-  const p = player.get();
-  if (!p.id) {
-    const t = lib.get().tracks.filter((x) => !x.protected);
-    if (t.length) playIds(t.map((x) => x.id));
-    return;
-  }
-  if (stale && !engine.isPlaying) {
-    loadAt(p.index, true, engine.time);
-    return;
-  } // load it again, then go on from there
-  engine.toggle();
+  const s = transport.get();
+  if (!s.target) {
+    const ids = lib
+      .get()
+      .tracks.filter((t) => !t.protected)
+      .map((t) => t.id);
+    if (ids.length) void playIds(ids);
+  } else if (s.intent) transport.pause();
+  else transport.play();
 }
-export const seekBy = (d: number) => {
-  const s = player.get().session;
-  if (s) engine.seek(Math.max(0, Math.min(s.musicEnd, engine.time + d)));
-};
+export const seekBy = (d: number) => transport.seek(transport.time + d);
 export function setVolume(v: number) {
-  player.set({ volume: v });
+  projection.set({ volume: v });
   keep('vol', v);
   engine.setVolume(v);
 }
 engine.setVolume(player.get().volume);
-// what the play page is drawn over (its settings: 顯示 → 背景)
 engine.setPageBackdrop(ui.get().npLyr.bg || 'ambient');
 ui.subscribe((x, y) => {
   if (x.npLyr.bg !== y.npLyr.bg) engine.setPageBackdrop(x.npLyr.bg || 'ambient');
 });
-/* the queue and how it moves on:
-   loop    the queue in order, round and round
-   shuffle a pseudo-random pick each time, from the songs not yet heard this round (no repeats until all have played);
-           a song played less often is more likely: weight 1 / (1 + plays)^0.75
-   one     the same song again when it ends (skipping still moves on)
-   stop    the queue in order once, pausing after the last song */
-const history: string[] = [];
-const round = new Set<string>();
-let seed = (Date.now() ^ 0x9e3779b9) >>> 0;
-const rand = () => {
-  seed = (seed + 0x6d2b79f5) >>> 0;
-  let t = seed;
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
-export function shufflePick(queue: string[], current: number, rng = rand) {
-  const n = queue.length;
-  if (n < 2) return n ? 0 : -1;
-  if (current >= 0) round.add(queue[current]);
-  let cand: number[] = [];
-  for (let i = 0; i < n; i++) if (i !== current && !round.has(queue[i])) cand.push(i);
-  if (!cand.length) {
-    round.clear();
-    if (current >= 0) round.add(queue[current]);
-    cand = [];
-    for (let i = 0; i < n; i++) if (i !== current) cand.push(i);
-  }
-  const w = cand.map((i) => 1 / Math.pow(1 + (trackOf(queue[i])?.plays || 0), 0.75)),
-    sum = w.reduce((a, b) => a + b, 0);
-  let r = rng() * sum;
-  for (let k = 0; k < cand.length; k++) {
-    r -= w[k];
-    if (r <= 0) return cand[k];
-  }
-  return cand[cand.length - 1];
+
+/** Initial shuffle selection for the library button. The running queue shuffles occurrences. */
+export function shufflePick(queue: string[], current: number, rng = Math.random) {
+  const indices = queue.map((_, i) => i).filter((i) => i !== current);
+  return weightedPick(indices, (i) => trackOf(queue[i])?.plays || 0, rng) ?? (queue.length ? 0 : -1);
 }
-export function setMode(m: Mode) {
-  if (!MODES.includes(m)) return;
-  player.set({ mode: m });
-  keep('mode', m);
-  if (m === 'shuffle') round.clear();
+export function setMode(mode: Mode) {
+  if (!MODES.includes(mode)) return;
+  transport.setMode(mode);
+  keep('mode', mode);
 }
-export async function next(auto = false) {
-  const p = player.get(),
-    n = p.queue.length;
-  if (!n) return;
-  if (auto && p.mode === 'one') {
-    engine.seek(0);
-    engine.play();
-    return;
-  }
-  let j: number;
-  // (an album plays through in its own order, once — round again only in the loop mode)
-  if (p.mode === 'shuffle' && !p.album) j = shufflePick(p.queue, p.index);
-  else {
-    j = p.index + 1;
-    if (j >= n) {
-      if (auto && (p.mode === 'stop' || (p.album && p.mode !== 'loop'))) {
-        engine.pause();
-        return;
-      }
-      j = 0;
-    }
-  }
-  if (j < 0) return;
-  if (p.id) history.push(p.id);
-  if (history.length > 200) history.shift();
-  await loadAt(j, true, 0, { dir: 1, auto });
-}
-export async function prev() {
-  const p = player.get();
-  if (engine.time > 3) {
-    engine.seek(0);
-    return;
-  }
-  if (p.mode === 'shuffle' && !p.album) {
-    while (history.length) {
-      const id = history.pop()!,
-        i = p.queue.indexOf(id);
-      if (i >= 0) {
-        await loadAt(i, true, 0, { dir: -1 });
-        return;
-      }
-    }
-  }
-  if (p.index > 0) await loadAt(p.index - 1, true, 0, { dir: -1 });
-  else if (p.mode === 'loop' && p.queue.length > 1) await loadAt(p.queue.length - 1, true, 0, { dir: -1 });
-  else engine.seek(0);
-}
-/** Add songs at the end of the queue; with nothing playing, the first of them starts. */
+export const next = () => transport.next();
+export const prev = () => transport.previous();
+
+/** Add songs at the end of the queue; with nothing selected, start the first of them. */
 export async function enqueue(ids: string[]) {
-  const p = player.get(),
-    add = ids.filter((id) => {
-      const t = trackOf(id);
-      return t && !t.protected && !p.queue.slice(p.index + 1).includes(id) && id !== p.id;
-    });
+  const p = player.get();
+  const add = ids.filter((id) => {
+    const t = trackOf(id);
+    return t && !t.protected && !p.queue.slice(p.index + 1).includes(id) && id !== p.id;
+  });
   if (!add.length) {
     toast(tx('s.queue.already'));
     return;
   }
   const q = p.queue.concat(add);
-  player.set({ queue: q });
+  transport.reconcile(q);
   const t = trackOf(add[0]);
   toast(add.length > 1 ? tx('s.queue.addedN', { n: add.length }) : tx('s.queue.added', { title: t ? t.title : '' }));
   if (!p.id) await loadAt(q.length - add.length, true);
 }
-/** Songs to play next, right after the one playing; with nothing playing, the first of them starts. */
+/** Songs to play next, right after the one playing. */
 export async function playNext(ids: string[]) {
-  const p = player.get(),
-    add = ids.filter((id) => {
-      const t = trackOf(id);
-      return t && !t.protected && id !== p.id;
-    });
+  const p = player.get();
+  const add = ids.filter((id) => {
+    const t = trackOf(id);
+    return t && !t.protected && id !== p.id;
+  });
   if (!add.length) return;
   if (!p.id || p.index < 0) {
-    await playIds(add, 0);
+    await playIds(add);
     return;
   }
-  player.set({ queue: insertNext(p.queue, p.index, add) });
+  transport.reconcile(insertNext(p.queue, p.index, add));
   const t = trackOf(add[0]);
   toast(add.length > 1 ? tx('s.queue.nextN', { n: add.length }) : tx('s.queue.nextOne', { title: t ? t.title : '' }));
 }
-export async function playQueueAt(i: number) {
-  const p = player.get();
-  if (i === p.index) {
-    engine.play();
-    return;
-  }
-  if (p.id) history.push(p.id);
-  await loadAt(i, true);
-}
-export function removeFromQueue(i: number) {
-  const p = player.get();
-  if (i === p.index || i < 0 || i >= p.queue.length) return;
-  const q = p.queue.slice();
-  q.splice(i, 1);
-  player.set({ queue: q, index: i < p.index ? p.index - 1 : p.index });
-}
-export function reorderQueue(ids: string[]) {
-  const p = player.get();
-  if (ids.length !== p.queue.length) return;
-  player.set({ queue: ids, index: Math.max(0, ids.indexOf(p.id!)) });
-}
-export function clearQueue() {
-  const p = player.get();
-  if (!p.id) {
-    player.set({ queue: [], index: -1 });
-    return;
-  }
-  player.set({ queue: [p.id], index: 0 });
-  history.length = 0;
-  round.clear();
-}
+export const playQueueAt = (i: number) => transport.playAt(i);
+export const removeFromQueue = (i: number) => transport.remove(i);
+export const reorderQueue = (keys: number[]) => transport.reorder(keys);
+export const clearQueue = () => transport.clearQueue();
 engine.on('change', () => {
-  const pl = engine.isPlaying,
-    p = player.get();
-  player.set({ playing: pl, rev: p.rev + 1, hasLyrics: p.session ? p.session.hasLyrics : false });
-});
-// the music ends: with the picture closed go on at once; in the effect view let the ending card play out first (album
-// play has none: the next song follows straight on)
-engine.on('musicend', (s) => {
-  if (s === player.get().session && (ui.get().layer !== 'fx' || player.get().album)) next(true);
-});
-engine.on('ended', (s) => {
-  if (s === player.get().session && ui.get().layer === 'fx' && !player.get().album) next(true);
+  const p = player.get();
+  if (p.session) projection.set({ rev: p.rev + 1, hasLyrics: p.session.hasLyrics });
 });
 D?.onMedia((op) => {
   if (op === 'toggle') toggle();
-  else if (op === 'next') next();
-  else if (op === 'prev') prev();
+  else if (op === 'next') void next();
+  else if (op === 'prev') void prev();
 });
 
 /* ---------- what is bound to the song: saved shortly after each change ---------- */
-let saveTm = 0;
+const songWrites = new Map<string, { timer: number; song: SongData }>();
 export function saveSong(patch: Partial<SongData>) {
   const p = player.get();
   if (!p.shownId || !Lib) return;
   const song = { ...(p.song || {}), ...patch };
-  player.set({ song });
-  clearTimeout(saveTm);
+  projection.set({ song });
   const id = p.shownId;
-  saveTm = window.setTimeout(() => Lib!.setSong(id, song).catch(() => {}), 500);
+  clearTimeout(songWrites.get(id)?.timer);
+  const timer = window.setTimeout(() => {
+    songWrites.delete(id);
+    void Lib!.setSong(id, song).catch(() => {});
+  }, 500);
+  songWrites.set(id, { song, timer });
 }
 /** Change the shown song's session (its style, timing, lyrics) and keep the change with the song. */
 export function editSong(fn: (s: Session) => unknown) {
@@ -796,7 +711,7 @@ export function editSong(fn: (s: Session) => unknown) {
   if (!s || player.get().song?.locked) return;
   fn(s);
   engine.invalidate();
-  player.set({ rev: player.get().rev + 1 });
+  projection.set({ rev: player.get().rev + 1 });
   saveSong({ style: storedStyle(s.ownStyle()), lshift: s.spec.lshift || 0, v: 3 });
 }
 
@@ -813,18 +728,20 @@ export async function useLyrics(text: string, o: { edit?: boolean } = {}) {
   if (!p.shownId || !s || !Lib) return false;
   s.setLyrics(text);
   await s.flush();
-  engine.invalidate();
+  const current = () => player.get().session === s;
+  if (current()) engine.invalidate();
   // (TTML is kept as TTML — a .ttml beside the song; anything else as the setting says)
   if (isTtml(text)) {
-    player.set({ hasLyrics: s.hasLyrics, lyrics: { source: 'ttml', text }, rev: p.rev + 1 });
+    if (current()) projection.set({ hasLyrics: s.hasLyrics, lyrics: { source: 'ttml', text }, rev: p.rev + 1 });
     await Lib.writeLyrics(p.shownId, text, 'ttml');
     return s.hasLyrics;
   }
-  player.set({
-    hasLyrics: s.hasLyrics,
-    lyrics: { source: settings.get().lyricsTarget === 'lrc' ? 'lrc' : 'embedded', text },
-    rev: p.rev + 1,
-  });
+  if (current())
+    projection.set({
+      hasLyrics: s.hasLyrics,
+      lyrics: { source: settings.get().lyricsTarget === 'lrc' ? 'lrc' : 'embedded', text },
+      rev: p.rev + 1,
+    });
   if (settings.get().lyricsTarget === 'lrc') await Lib.writeLyrics(p.shownId, text, 'lrc');
   else await writeIntoFile(p.shownId, text);
   return s.hasLyrics;
@@ -833,15 +750,18 @@ export async function useLyrics(text: string, o: { edit?: boolean } = {}) {
  *  stopped (its decoder closed) first, and the song is loaded again afterwards at the same moment, playing if it was. A
  *  format without a lyrics tag gets the .lrc beside it instead; a file another program holds is said so. */
 async function writeIntoFile(id: string, text: string) {
-  const p = player.get(),
-    hi = p.route === 'hifi' && p.shownId === id,
-    was = engine.isPlaying,
-    at = engine.time,
-    index = p.index;
-  if (hi) {
-    engine.pause();
-    hifiStop();
-    await new Promise((r) => setTimeout(r, 260));
+  const { generation, intent, target } = transport.get();
+  const seq = target?.id === id ? prepared?.nativeSeq : undefined;
+  const at = transport.time;
+  if (seq !== undefined) {
+    transport.pause();
+    try {
+      await closeFile(seq);
+    } catch (error) {
+      toast(tx('s.lyr.tagBusy'));
+      if (transport.get().generation === generation) void transport.restart(intent, at);
+      return;
+    }
   }
   const r = await Lib!.writeLyrics(id, text, 'tag').catch((e) => ({ ok: false, why: String(e) }));
   if (!r.ok && r.why === 'unsupported') {
@@ -850,7 +770,7 @@ async function writeIntoFile(id: string, text: string) {
   } else if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
   else toast(tx('s.lyr.tagSaved'));
   // (back to where it was: the song opened again from the rewritten file)
-  if (hi && player.get().shownId === id) await loadAt(index, was, at);
+  if (seq !== undefined && transport.get().generation === generation) await transport.restart(intent, at);
 }
 /** The shown song's lines as its words are spaced now (one per line). */
 export const spacedLines = () =>
@@ -889,10 +809,12 @@ export async function saveSpacing(edited: string[] | null) {
     if (Object.keys(o).length) sp = o;
   }
   s.setSpacing(sp);
-  await s.flush();
-  engine.invalidate();
   saveSong({ spacing: sp });
-  player.set({ rev: p.rev + 1 });
+  await s.flush();
+  if (player.get().session === s) {
+    engine.invalidate();
+    projection.set({ rev: p.rev + 1 });
+  }
 }
 export const hasTimedLines = (text: string) => parse(text, 0).lines.length > 0 && /\[\d+:\d+/.test(text);
 /** Untimed lyrics (plain text): lines spread evenly between the first beat and the end of the music. */
@@ -911,20 +833,24 @@ export function spreadPlain(text: string, dur: number) {
 
 /* ---------- MV ---------- */
 async function loadMv(id: string, mv: { offset: number }, on: boolean) {
+  const generation = transport.get().generation;
+  const session = player.get().session;
   engine.mv.offset = mv.offset || 0;
   const ok = await engine.mv.open(`cadenza://mv/${id}?v=${Date.now()}`);
-  if (player.get().shownId !== id) return;
-  player.set({ mv: { ...player.get().mv, ready: ok, on: ok && on } });
+  if (transport.get().generation !== generation || player.get().session !== session || player.get().shownId !== id)
+    return;
+  projection.set({ mv: { ...player.get().mv, ready: ok, on: ok && on } });
   if (ok && on) engine.mv.setOn(true);
 }
 export async function bindMv() {
   const p = player.get();
   if (!p.shownId || !Lib) return false;
+  const generation = transport.get().generation;
   const r = await Lib.bindMv(p.shownId);
-  if (!r) return false;
+  if (!r || generation !== transport.get().generation) return false;
   // (kept on before the clip is opened: binding it changes the library, and a song opened again meanwhile reads what
   // is kept — it would find the MV off, and turn it off)
-  player.set({
+  projection.set({
     mv: { bound: true, name: r.name, offset: r.offset, on: false, ready: false },
     song: { ...(p.song || {}), mv: r, mvOn: true },
   });
@@ -936,21 +862,21 @@ export function setMvOn(on: boolean) {
   const p = player.get();
   if (!p.mv.ready) return;
   engine.mv.setOn(on);
-  player.set({ mv: { ...p.mv, on } });
+  projection.set({ mv: { ...p.mv, on } });
   saveSong({ mvOn: on });
 }
 export function setMvOffset(x: number) {
   const p = player.get();
   engine.mv.offset = +x || 0;
   engine.invalidate();
-  player.set({ mv: { ...p.mv, offset: +x || 0 } });
+  projection.set({ mv: { ...p.mv, offset: +x || 0 } });
   saveSong({ mv: { ...(p.song?.mv || { name: p.mv.name }), offset: +x || 0 } });
 }
 export async function unbindMv() {
   const p = player.get();
   engine.mv.setOn(false);
   engine.mv.close();
-  player.set({ mv: { bound: false, name: '', offset: 0, on: false, ready: false } });
+  projection.set({ mv: { bound: false, name: '', offset: 0, on: false, ready: false } });
   saveSong({ mvOn: false });
   if (p.shownId)
     Lib?.setSong(p.shownId, { ...(player.get().song || {}), mv: null, mvOn: false, unbind: true }).catch(() => {});
@@ -959,15 +885,16 @@ export async function unbindMv() {
 /* ---------- a library song, elsewhere ---------- */
 /** For the workshop: a song's audio, analysis, lyrics, cover and bound style. */
 export async function songForWorkshop(t: Track) {
-  const [prep, song, lyr] = await Promise.all([
-    prepare(t.id, 'std'),
+  const [buffer, cached, song, lyr] = await Promise.all([
+    decodeFile(t.id),
+    readRhythm(t.id, t.duration),
     Lib!.song(t.id).catch(() => null),
     Lib!.lyrics(t.id).catch(() => null),
   ]);
   // (the workshop works on the whole reading)
   return {
-    buffer: prep.buffer,
-    analysis: (prep.later && (await prep.later)) || prep.analysis,
+    buffer,
+    analysis: cached || (await analyzeNow(t.id, buffer, false).catch(() => null)),
     song,
     lyrics: t.instrumental ? '' : lyr?.text || '',
     name: t.file,

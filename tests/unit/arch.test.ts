@@ -67,6 +67,13 @@ describe('architecture', () => {
 });
 
 describe('architecture checker', () => {
+  it('keeps the playback state machine independent of platform and visual adapters', () => {
+    const coordinator = 'src/app/playback/coordinator.ts';
+    expect(boundaryViolation(dependency(coordinator, 'src/engine/index.ts'), ALLOWED)).toBeTruthy();
+    expect(boundaryViolation(dependency(coordinator, 'src/app/bridge.ts'), ALLOWED)).toBeTruthy();
+    expect(boundaryViolation(dependency(coordinator, 'src/app/playback/outputs.ts'), ALLOWED)).toBeTruthy();
+    expect(boundaryViolation(dependency(coordinator, 'src/core/emitter.ts'), ALLOWED)).toBeNull();
+  });
   it('finds executable and type references without interpreting comments or strings', () => {
     const content = [
       '// import fake from "../fake";',

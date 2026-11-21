@@ -1,17 +1,12 @@
 # 引擎（`src/engine`）
 
-Session（一首歌的一切）与 Engine（时钟、画布、输出、交接、导出）。界面只经过 `src/engine/index.ts` 使用它。总览在 `docs/ARCHITECTURE.md`。
+Session 管理歌词、风格、节奏图和导演计划。Engine 管理视觉时间、画布和交接，并保留工坊的独立预览传输。桌面流经播放协调器取得输出文件时间。总览在 `docs/ARCHITECTURE.md`。
 
 ## 接口
 
 ```ts
-const engine = new Engine(canvas, platform)
-const s = await engine.open(spec)          // Session：音频 + 节奏 + 歌词 + 样式 → plan（在闲置时预先建好下一首）
-engine.show(s, { transition: 'song' })     // 切歌：两个 session 同时渲染、交叉过渡
-engine.view.to('effect', handoff)          // 环境（播放页背景）↔ 特效歌词，共享元素由引擎接手
-engine.transport.play() / pause() / seek(t)
-engine.export(s, opts)                     // 以独立的渲染器实例导出，不改动任何共享状态
-configure(engine, { render, gfx, mv, rhythm }) // 宿主（桌面界面、工坊、测试）设置引擎的唯一入口
+const session = await Session.open(spec, environment, { signal, analyzeAudio: false })
+engine.show(session) // 桌面已通过 followTransport() 绑定协调器，显示场景不会操作音频
 ```
 - **编辑与重建**（`session.ts`）：每个编辑只标记它需要的重建——整个重新规划（`REPLAN`）、从歌词起重建（`BUILD`：歌词、分词、字体、范围、速度）、只重算时间（`RETIME`：歌词微调、片尾长度，不重新解析和分词）、只重算特效触发（`RECUE`：碎玻璃、字形纹样、色散、故障的开关，触发灵敏度、字形纹样频率）。重建同一时间只跑一个（`flush`）；重建期间每帧都会再要求，都并入同一个，期间的新编辑由下一轮处理。旋钮各自读到哪一层见 `KNOB_REBUILD`。
 - **规划在背景线程**（2.12，`engine/planner.ts`、`engine/plan.worker.ts`）：重新规划（版面、镜头、触发、标题）在 Worker 里做，画面照旧用目前的规划继续播放，新的规划好了才一次换上。
@@ -26,10 +21,10 @@ configure(engine, { render, gfx, mv, rhythm }) // 宿主（桌面界面、工坊
 - **神经网络分析排队**：同一时间只跑一首歌，因为 Worker 中的网络会共用缓冲区。即将播放的歌（`urgent`）优先：
   - 它会插到背景歌曲前面；
   - 若此时正有一首背景歌曲在跑，那次分析会中止，该歌之后再重跑一次，不会退回内置分析。
-- **多页面并行渲染**：播放页背景就是引擎（环境视图）；特效视图在背景预热（规划、字形缓存、精灵图）；切歌时新旧两个 session 同时渲染并交叉过渡。
+- **多页面并行渲染**：播放页背景是环境视图，特效视图在后台准备规划与字形。桌面换曲先撤下旧 Session，视觉可保留一份用于过渡的旧画面。即使没有可用的新 Session，输出仍能运行，界面显示新曲目和进度。导出显式等待所选 Session 就绪，工坊继续用自己的预览与导出入口。
 - **共享元素过渡**：界面量出 DOM 封面与歌词行的位置交给 `handoff`；引擎从那些位置把封面（旋转角同步、黑胶从封面下滑出）与歌词行飞到场景位置；屏幕特效依过渡进度连续变化。返回时反向。
 - **模糊转场不抽搐**：
   - 缩小用逐级减半的平均（`gfx.ts` 的 `downsample`），不是一次缩到很小（一次缩 6 倍以上的双线性采样会产生闪烁的锯齿）；模糊半径换算到缩小后的尺度，下限 1.5 像素，画面上永远看不出低分辨率那一层。
   - 转场前后 0.5 秒内不调整自适应分辨率（分辨率一变，字形缓存也要重建）。
   - 转场峰值之后的第一帧在转场开始前就预热（`lookAhead`），切点后不会因为第一次绘制而卡一下。
-- **歌词写入标签**（`electron/library.cjs` 的 `writeTagLyrics`，node-taglib-sharp）：在同一文件夹的隐藏临时副本上写入，完成后改名覆盖原档（被占用时重试）；Hi-Fi 输出时先让解码器关闭文件（`stop`），写完从原位置重新加载。格式不支持时改存 `.lrc`。设置「歌词保存位置」可选标签或 `.lrc`。
+- **歌词写入标签**（`electron/library.cjs` 的 `writeTagLyrics`，node-taglib-sharp）：在同一文件夹的隐藏临时副本上写入，完成后改名覆盖原档（被占用时重试）；Hi-Fi 输出时等待原生程序确认关闭当前解码文件，写完后仅在原播放请求仍有效时从之前的位置重新加载。格式不支持时改存 `.lrc`。设置「歌词保存位置」可选标签或 `.lrc`。

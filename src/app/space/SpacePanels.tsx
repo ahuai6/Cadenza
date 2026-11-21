@@ -301,9 +301,9 @@ function Queue({ onClose, closing }: { onClose: () => void; closing: boolean }) 
       </div>
       <ol className={s.list}>
         {items.map((x) => {
-          const on = x.id === p.id;
+          const on = x.i === p.index;
           return (
-            <li key={x.id + ':' + x.i} data-cur={on}>
+            <li key={p.queueKeys[x.i]} data-cur={on}>
               <button type="button" className={s.row} onClick={() => playQueueAt(x.i)}>
                 <span className={s.cover}>
                   <Cover k={x.t!.cover} />

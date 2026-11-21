@@ -12,11 +12,13 @@ function binPath() {
   const exe = process.platform === 'win32' ? 'cadenza-audio.exe' : 'cadenza-audio';
   if (app.isPackaged) return path.join(process.resourcesPath, exe);
   const root = path.join(__dirname, '..', 'native', 'cadenza-audio', 'target');
-  return (
-    [path.join(root, 'release', exe), path.join(root, 'x86_64-pc-windows-gnu', 'release', exe)].find((p) =>
-      fs.existsSync(p),
-    ) || path.join(root, 'release', exe)
-  );
+  const host = path.join(root, 'release', exe);
+  const production = path.join(root, 'x86_64-pc-windows-gnu', 'release', exe);
+  // build:native and the host-only test build use different target directories.
+  // During development use the last build so an older binary cannot shadow it.
+  if (process.platform !== 'win32') return host;
+  const builtAt = (p) => fs.statSync(p, { throwIfNoEntry: false })?.mtimeMs || 0;
+  return builtAt(production) > builtAt(host) ? production : host;
 }
 // Hi-Fi output needs WASAPI (Windows); elsewhere only the tests' simulated device
 const supported = () => (process.platform === 'win32' || !!process.env.CADENZA_AUDIO_FAKE) && fs.existsSync(binPath());
@@ -119,6 +121,20 @@ function start(ipcMain, getWin, settings, library) {
   ipcMain.handle('audio:state', () => ({ supported: supported(), ...state }));
   ipcMain.handle('audio:cmd', async (_e, o) => {
     if (!o || typeof o.cmd !== 'string') return false;
+    if (o.cmd === 'wait-released') {
+      if (!shutdown) return true;
+      let timer;
+      try {
+        return await Promise.race([
+          shutdown.then(() => true),
+          new Promise((resolve) => {
+            timer = setTimeout(() => resolve(false), 3000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     if (want && shutdown) await shutdown;
     if (!want || shutdown) return false;
     if (!proc) {
@@ -128,9 +144,13 @@ function start(ipcMain, getWin, settings, library) {
     if (o.cmd === 'load') {
       const p = library.pathOf(o.id);
       if (!p) return false;
-      return write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: o.seq | 0 });
+      return write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: Number.isSafeInteger(o.seq) ? o.seq : 0 });
     }
-    if (['play', 'pause', 'stop', 'release', 'gain', 'hwgain', 'devices'].includes(o.cmd)) {
+    if (
+      ['play', 'pause', 'stop', 'release', 'gain', 'hwgain', 'devices', 'closefile', 'barrier', 'clearnext'].includes(
+        o.cmd,
+      )
+    ) {
       return write(o);
     }
     return false;

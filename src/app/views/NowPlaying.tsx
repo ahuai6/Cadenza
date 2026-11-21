@@ -34,7 +34,7 @@ export function NowPlaying() {
   const album = useStore(player, (x) => !!x.album),
     dir = useStore(player, (x) => x.dir),
     shownId = useStore(player, (x) => x.shownId || x.id),
-    loading = useStore(player, (x) => x.loading && !x.shownId),
+    loading = useStore(player, (x) => !!x.shownId && !x.session && !x.visualError && !x.error),
     hasLyrics = useStore(player, (x) => x.hasLyrics),
     session = useStore(player, (x) => x.session),
     instr = useStore(lib, () => !!trackOf(shownId)?.instrumental);

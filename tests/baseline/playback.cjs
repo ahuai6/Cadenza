@@ -86,6 +86,14 @@ function tapFakeDevice(directory) {
 
 async function measure(mode) {
   const prof = path.join(out, mode);
+  // G0 snapshots predate profile generations. Current builds need a marker
+  // before inserting fixtures or startup correctly treats them as legacy data.
+  const profileModule = path.join(snapshot, 'electron', 'profile.cjs');
+  if (fs.existsSync(profileModule)) {
+    const { initializeProfile, identifyBuild } = require(profileModule);
+    fs.mkdirSync(prof);
+    initializeProfile(prof, identifyBuild(require(path.join(snapshot, 'package.json')).version));
+  }
   fs.mkdirSync(path.join(prof, 'library'), { recursive: true });
   fs.writeFileSync(
     path.join(prof, 'library', 'db.json'),

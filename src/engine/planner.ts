@@ -48,13 +48,29 @@ function getWorker(): Worker | null {
   }
   return worker;
 }
-const ask = (w: Worker, req: PlanRequest) =>
+const ask = (w: Worker, req: PlanRequest, signal?: AbortSignal) =>
   new Promise<PlanReply>((res, rej) => {
-    pending.set(req.id, res);
+    signal?.throwIfAborted();
+    const abort = () => {
+      pending.delete(req.id);
+      if (!pending.size && worker === w) {
+        // There is no unrelated workshop/export work to preserve on this worker.
+        w.terminate();
+        worker = null;
+        sent.clear();
+      }
+      rej(signal?.reason);
+    };
+    pending.set(req.id, (reply) => {
+      signal?.removeEventListener('abort', abort);
+      res(reply);
+    });
+    signal?.addEventListener('abort', abort, { once: true });
     try {
       w.postMessage(req);
     } catch (e) {
       pending.delete(req.id);
+      signal?.removeEventListener('abort', abort);
       rej(e);
     }
   });
@@ -62,7 +78,8 @@ const ask = (w: Worker, req: PlanRequest) =>
 /** Plan off the page's thread (or on it, if it must). `input` as director/plan takes it; `origin` says how its map was
  *  made. Last statistics, for the profiler and the tests. */
 export const PLAN_STATS = { worker: 0, here: 0, ms: 0, miss: 0 };
-export async function planSong(input: PlanInput, origin: MapOrigin): Promise<ScenePlan> {
+export async function planSong(input: PlanInput, origin: MapOrigin, signal?: AbortSignal): Promise<ScenePlan> {
+  signal?.throwIfAborted();
   const w = getWorker();
   if (w) {
     const measures = measuresFor(input.doc, input.style, input.measure);
@@ -86,9 +103,9 @@ export async function planSong(input: PlanInput, origin: MapOrigin): Promise<Sce
       sent.add(k);
     }
     try {
-      let r = await ask(w, req(spec));
+      let r = await ask(w, req(spec), signal);
       if (r.missing && 'key' in spec)
-        r = await ask(w, req({ ...spec, analysis: (origin as { analysis: RhythmAnalysis }).analysis }));
+        r = await ask(w, req({ ...spec, analysis: (origin as { analysis: RhythmAnalysis }).analysis }), signal);
       if (r.plan) {
         const p = r.plan as ScenePlan;
         p.map = input.map;
@@ -100,10 +117,12 @@ export async function planSong(input: PlanInput, origin: MapOrigin): Promise<Sce
       }
       if (r.error) console.warn('planning worker:', r.error);
     } catch (e) {
+      signal?.throwIfAborted();
       console.warn('planning worker:', e);
     }
   }
   // (here: the same planner, on this thread)
   PLAN_STATS.here++;
+  signal?.throwIfAborted();
   return planHere(input);
 }

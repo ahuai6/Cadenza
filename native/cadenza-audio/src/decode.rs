@@ -44,6 +44,7 @@ pub struct Q {
     pub plan: Option<Plan>,
     pub err: Option<String>,
     pub quit: bool,
+    pub closed: bool,
 }
 
 pub struct Shared {
@@ -69,24 +70,32 @@ impl Shared {
         self.q.lock().unwrap().quit = true;
         self.cv.notify_all();
     }
+    pub fn wait_closed(&self, timeout: std::time::Duration) -> bool {
+        let q = self.q.lock().unwrap();
+        let (q, _) = self.cv.wait_timeout_while(q, timeout, |q| !q.closed).unwrap();
+        q.closed
+    }
 }
 
 const AHEAD_SEC: f64 = 6.0; // how far ahead the queue is kept full
 
 pub fn spawn(path: String, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>) -> Arc<Shared> {
     let sh = Arc::new(Shared {
-        q: Mutex::new(Q { buf: VecDeque::new(), base: 0, eof: false, seek: None, gen: 0, info: None, plan: None, err: None, quit: false }),
+        q: Mutex::new(Q { buf: VecDeque::new(), base: 0, eof: false, seek: None, gen: 0, info: None, plan: None, err: None, quit: false, closed: false }),
         cv: Condvar::new(),
     });
     let s2 = sh.clone();
     std::thread::Builder::new()
         .name("decode".into())
         .spawn(move || {
-            if let Err(e) = run(&path, plan_for, &s2) {
-                let mut q = s2.q.lock().unwrap();
+            let result = run(&path, plan_for, &s2);
+            let mut q = s2.q.lock().unwrap();
+            if let Err(e) = result {
                 q.err = Some(e);
                 q.eof = true;
             }
+            q.closed = true;
+            s2.cv.notify_all();
         })
         .expect("decode thread");
     sh

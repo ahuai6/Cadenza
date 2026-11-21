@@ -16,6 +16,7 @@ export class VideoSource {
   offset = 0;
   /** during export: the decoded frame for the current time (WebCodecs), replacing the element */
   exportFrame: { cv: CanvasImageSource; displayWidth: number; displayHeight: number } | null = null;
+  private cancelOpen: (() => void) | null = null;
   async open(url: string, file?: Blob | null, name = ''): Promise<boolean> {
     this.close();
     this.url = url;
@@ -26,24 +27,37 @@ export class VideoSource {
     v.playsInline = true;
     v.preload = 'auto';
     v.crossOrigin = 'anonymous';
-    const ok = await new Promise<boolean>((res) => {
-      v.onloadeddata = () => res(true);
-      v.onerror = () => res(false);
+    const ok = await new Promise<boolean>((resolve) => {
+      const done = (ok: boolean) => {
+        clearTimeout(timer);
+        v.onloadeddata = v.onerror = null;
+        this.cancelOpen = null;
+        if (ok) {
+          this.el = v;
+          this.ready = true;
+        } else {
+          v.removeAttribute('src');
+          v.load();
+        }
+        resolve(ok);
+      };
+      const timer = setTimeout(() => done(v.readyState >= 2), 10000);
+      this.cancelOpen = () => done(false);
+      v.onloadeddata = () => done(true);
+      v.onerror = () => done(false);
       v.src = url;
-      setTimeout(() => res(v.readyState >= 2), 10000);
     });
-    if (!ok || this.url !== url) return false;
-    this.el = v;
-    this.ready = true;
-    return true;
+    return ok && this.el === v;
   }
   close() {
+    this.cancelOpen?.();
     if (this.el) {
       this.el.pause();
       this.el.removeAttribute('src');
       this.el.load();
     }
     this.el = null;
+    this.url = '';
     this.ready = false;
   }
   /** The clip's own time at song time t. */

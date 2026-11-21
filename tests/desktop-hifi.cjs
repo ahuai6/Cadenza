@@ -140,7 +140,7 @@ const ok = (name, pass, detail) => {
   });
   const p1 = await C(() => ({
     route: window.__cadenza.player.get().route,
-    ext: !!window.__cadenza.engine.clock.external,
+    ext: window.__cadenza.player.get().route === 'hifi',
     dev: window.__ev.filter((e) => e.ev === 'device' && e.open).pop(),
   }));
   ok(
@@ -252,7 +252,7 @@ const ok = (name, pass, detail) => {
   await win.waitForFunction(() => window.__cadenza.engine.isPlaying, null, { timeout: 15000 }).catch(() => {});
   await W(1200);
   const back = await C(() => ({
-    ext: !!window.__cadenza.engine.clock.external,
+    ext: window.__cadenza.player.get().route === 'hifi',
     playing: window.__cadenza.engine.isPlaying,
     dev: window.__ev.filter((e) => e.ev === 'device').pop(),
   }));
@@ -280,7 +280,7 @@ const ok = (name, pass, detail) => {
     })
     .catch(() => {});
   await W(800);
-  const sw = await C(() => ({ ext: !!window.__cadenza.engine.clock.external, t: window.__cadenza.engine.time }));
+  const sw = await C(() => ({ ext: window.__cadenza.player.get().route === 'hifi', t: window.__cadenza.engine.time }));
   const run = await C(() => window.cadenzaAudio.state().then((s) => s.running));
   ok(
     'standard output: carries on from the same moment, native player stopped',
@@ -309,7 +309,7 @@ const ok = (name, pass, detail) => {
     await W(800);
     const q = await C(() => ({
       route: window.__cadenza.player.get().route,
-      ext: !!window.__cadenza.engine.clock.external,
+      ext: window.__cadenza.player.get().route === 'hifi',
       t: window.__cadenza.engine.time,
       set: window.__cadenza.settings.get().audioOut,
     }));

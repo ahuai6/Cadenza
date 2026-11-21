@@ -1,13 +1,9 @@
-// The Hi-Fi output from the page's side. The native player (electron/audio.cjs → native/cadenza-audio) decodes and plays
-// the file; the page keeps everything else: the lyrics, the effects, the queue. This module
-//   - loads a song there and waits until enough of it is decoded (a song never starts before it can play smoothly)
-//   - hands the engine an output whose clock is the native player's: the sample leaving the device, reported every 20 ms
-//     and smoothed here so the lyrics move evenly between reports
-//   - keeps what the settings page shows: devices, what the device takes, the format of what is playing
+// Renderer side of the native output. Load and run identities are separate: a seek or
+// resume on the same decoder must not accept reports about samples queued before it.
 import { createStore } from '../../core/emitter';
-import type { ExternalOut } from '../../engine';
 import { AudioOut as A } from '../bridge';
 import { settings } from '../state';
+import type { OutputEvent } from './coordinator';
 
 export interface HifiState {
   supported: boolean;
@@ -18,10 +14,7 @@ export interface HifiState {
   track: any;
   error: string | null;
   fallback: boolean;
-  /** the volume balance in the device's hardware volume: whether the device has one, and what is applied */ hw: {
-    supported: boolean;
-    db: number;
-  } | null;
+  hw: { supported: boolean; db: number } | null;
 }
 export const hifi = createStore<HifiState>({
   supported: false,
@@ -35,113 +28,147 @@ export const hifi = createStore<HifiState>({
   hw: null,
 });
 export const hifiOn = () => !!A && settings.get().audioOut === 'hifi' && hifi.get().supported;
+const cmd = (o: Record<string, unknown>) => A?.cmd(o).catch(() => false) ?? Promise.resolve(false);
 
-/* ---------- the clock ---------- */
-// After a play request the clock holds at the requested position until the player reports from there: what is still in
-// the device's buffer from before and the silence while a DAC locks never move the lyrics backwards or early.
-const C = { base: 0, at: 0, run: false, hold: false, want: 0, id: null as string | null };
-function onPos(e: { id: string; t: number; run: boolean }) {
-  if (e.id !== C.id) return;
-  if (C.hold) {
-    if (Math.abs(e.t - C.want) > 0.15) return;
-    C.hold = false;
-  }
-  const n = performance.now();
+type Ready = {
+  seq: number;
+  dur: number | null;
+  src: { rate: number; ch: number; bits: number; codec: string };
+  out: any;
+};
+let seq = 0,
+  selected = 0,
+  runId = 0,
+  ticket = 0;
+let active: { seq: number; runId: number; notify: (event: OutputEvent) => void } | null = null;
+const waiting = new Map<number, { res: (e: Ready) => void; rej: (e: Error) => void }>();
+const barriers = new Map<number, (ok: boolean) => void>();
+const clock = { base: 0, at: 0, run: false };
+export const time = () => clock.base + (clock.run ? (performance.now() - clock.at) / 1000 : 0);
+const hold = (t: number) => Object.assign(clock, { base: t, at: performance.now(), run: false });
+const matches = (e: { seq: number; runId: number }) => active?.seq === e.seq && active.runId === e.runId;
+
+function onPos(e: { seq: number; runId: number; t: number; run: boolean }) {
+  if (!matches(e)) return;
   if (!e.run) {
-    C.base = e.t;
-    C.at = n;
-    C.run = false;
+    if (clock.run) hold(e.t);
+    active?.notify('buffering');
     return;
   }
-  const est = C.run ? C.base + (n - C.at) / 1000 : C.base;
-  // a report is only a sample of a steadily running clock: follow it gently, jump only when far off
-  if (!C.run || Math.abs(e.t - est) > 0.08) C.base = e.t;
-  else C.base = est + (e.t - est) * 0.1;
-  C.at = n;
-  C.run = true;
+  const estimate = time();
+  clock.base = !clock.run || Math.abs(e.t - estimate) > 0.08 ? e.t : estimate + (e.t - estimate) * 0.1;
+  clock.at = performance.now();
+  clock.run = true;
+  active?.notify('running');
 }
-let lastG = -1;
-export const output: ExternalOut = {
-  play(pos, end) {
-    C.base = pos;
-    C.want = pos;
-    C.at = performance.now();
-    C.run = false;
-    C.hold = true;
-    lastG = -1;
-    A!.cmd({ cmd: 'play', pos, end: isFinite(end) ? end : null });
-  },
-  stop() {
-    C.base = this.clock();
-    C.run = false;
-    C.hold = false;
-    A!.cmd({ cmd: 'pause' });
-  },
-  clock() {
-    return C.run ? C.base + (performance.now() - C.at) / 1000 : C.base;
-  },
-  // fixed volume: the samples reach the DAC untouched, the volume is the amplifier's; only mute (0) still applies
-  gain(g) {
-    // (above 1 only with the volume balance's boost, which keeps within the song's headroom)
-    const v = settings.get().fixedVolume !== false ? (g > 0 ? 1 : 0) : Math.max(0, Math.min(4, g));
-    if (Math.abs(v - lastG) > 0.002 || (v === 0) !== (lastG === 0)) {
-      lastG = v;
-      A!.cmd({ cmd: 'gain', g: v });
-    }
-  },
-};
-
-/** The volume balance with a fixed volume: in the device's own hardware volume (dB from the user's level), so the
- *  samples still reach the DAC untouched; a device without one keeps its level (hifi.hw says which). */
-let lastHw: number | null = null;
+let lastGain = -1,
+  lastHw: number | null = null;
+export function gain(g: number, fixed: number) {
+  const v =
+    settings.get().fixedVolume !== false
+      ? hifi.get().hw?.supported === false
+        ? fixed
+        : fixed > 0
+          ? 1
+          : 0
+      : Math.max(0, Math.min(4, g));
+  if (Math.abs(v - lastGain) <= 0.002 && (v === 0) === (lastGain === 0)) return;
+  lastGain = v;
+  void cmd({ cmd: 'gain', g: v });
+}
 export function hwGain(db: number) {
   if (!A || (lastHw !== null && Math.abs(db - lastHw) < 0.05)) return;
   lastHw = db;
-  A.cmd({ cmd: 'hwgain', db });
+  void cmd({ cmd: 'hwgain', db });
 }
-
-/* ---------- loading ---------- */
-let seq = 0;
-const waiting = new Map<number, { res: (e: any) => void; rej: (e: Error) => void }>();
-/** Load a song as the current one: resolves once it is decoded far enough ahead, with its format and length. */
-export function load(
-  id: string,
-): Promise<{ dur: number; src: { rate: number; ch: number; bits: number; codec: string } }> {
+export function load(id: string, signal: AbortSignal): Promise<Ready> {
+  signal.throwIfAborted();
   const s = ++seq;
-  C.id = id;
-  C.hold = true;
-  C.want = 0;
+  selected = s;
+  hifi.set({ track: null });
   return new Promise((res, rej) => {
-    waiting.set(s, { res, rej });
-    A!.cmd({ cmd: 'load', id, seq: s }).then((ok) => {
-      if (!ok && waiting.has(s)) {
-        waiting.delete(s);
-        rej(new Error('hifi-unavailable'));
-      }
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      waiting.delete(s);
+    };
+    const fail = (error: Error) => {
+      cleanup();
+      stop(s);
+      rej(error);
+    };
+    const abort = () => fail(signal.reason);
+    const timer = setTimeout(() => fail(new Error('hifi-timeout')), 20_000);
+    waiting.set(s, {
+      res: (e) => {
+        cleanup();
+        res(e);
+      },
+      rej: fail,
     });
-    setTimeout(() => {
-      if (waiting.has(s)) {
-        waiting.delete(s);
-        rej(new Error('hifi-timeout'));
-      }
-    }, 20000);
+    signal.addEventListener('abort', abort, { once: true });
+    void cmd({ cmd: 'load', id, seq: s }).then((ok) => {
+      if (!ok) waiting.get(s)?.rej(new Error('hifi-unavailable'));
+    });
   });
 }
-export const preload = (id: string) => A && A.cmd({ cmd: 'load', id, next: true });
-/** Let go of the device (the workshop plays through the standard output). */
-export const release = () => A && A.cmd({ cmd: 'release' });
-/** Stop and let go of the song (its decoder closed: the file is no longer held). */
-export const stop = () => A && A.cmd({ cmd: 'stop' });
+export const preload = (id: string | null) => cmd(id ? { cmd: 'load', id, next: true } : { cmd: 'clearnext' });
+export function start(seq: number, pos: number, notify: (event: OutputEvent) => void) {
+  if (seq !== selected) return notify({ error: 'hifi-stale-load' });
+  const run = { seq, runId: ++runId, notify };
+  active = run;
+  hold(pos);
+  void cmd({ cmd: 'play', pos, end: null, seq, run: run.runId }).then((ok) => {
+    if (!ok && active === run) notify({ error: 'hifi-start-rejected' });
+  });
+}
+export function pause(seq: number) {
+  if (seq !== selected) return;
+  hold(time());
+  active = null;
+  void cmd({ cmd: 'pause', seq });
+}
+export function stop(seq: number) {
+  if (seq !== selected) return;
+  selected = 0;
+  active = null;
+  hold(time());
+  void cmd({ cmd: 'stop', seq });
+}
+async function acknowledge(o: Record<string, unknown>) {
+  const n = ++ticket;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const completion = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), 3000);
+    barriers.set(n, resolve);
+  });
+  try {
+    return (await cmd({ ...o, ticket: n })) && (await completion);
+  } finally {
+    clearTimeout(timer);
+    barriers.delete(n);
+  }
+}
+export async function release() {
+  if (!hifiOn()) return await waitReleased();
+  if (!(await cmd({ cmd: 'release' })) || !(await acknowledge({ cmd: 'barrier' }))) throw new Error('hifi-release');
+}
+export async function closeFile(seq: number) {
+  if (!(await acknowledge({ cmd: 'closefile', seq }))) throw new Error('hifi-close-file');
+}
+export async function waitReleased() {
+  if (A && !(await cmd({ cmd: 'wait-released' }))) throw new Error('hifi-release');
+}
 
-type Trouble = 'fallback' | 'device' | 'down' | 'lost' | 'toDefault' | 'back';
-const listeners = new Set<(k: Trouble) => void>();
-export const onTrouble = (f: (k: Trouble) => void) => {
+type Notice = 'fallback' | 'lost' | 'toDefault' | 'back';
+const listeners = new Set<(notice: Notice) => void>();
+export const onTrouble = (f: (notice: Notice) => void) => {
   listeners.add(f);
   return () => {
     listeners.delete(f);
   };
 };
-
+const notice = (n: Notice) => listeners.forEach((fn) => fn(n));
 export async function refresh() {
   if (!A) return;
   const s = await A.state();
@@ -153,7 +180,7 @@ export async function refresh() {
     device: s.device,
     error: s.error,
   });
-  if (s.running) A.cmd({ cmd: 'devices' });
+  if (s.running) void cmd({ cmd: 'devices' });
 }
 if (A) {
   A.onEvent((e) => {
@@ -161,9 +188,16 @@ if (A) {
       case 'pos':
         onPos(e);
         break;
+      case 'ended':
+        if (matches(e)) active?.notify('ended');
+        break;
+      case 'barrier':
+        barriers.get(e.ticket)?.(e.ok !== false);
+        break;
       case 'hello':
-        hifi.set({ running: true, error: null, hw: null });
+        lastGain = -1;
         lastHw = null;
+        hifi.set({ running: true, error: null, hw: null });
         break;
       case 'hwvol':
         hifi.set({ hw: { supported: !!e.supported, db: e.supported ? +e.db || 0 : 0 } });
@@ -177,68 +211,47 @@ if (A) {
       case 'device':
         hifi.set({ device: e.open ? e : null });
         break;
-      case 'ready': {
-        const w = waiting.get(e.seq);
-        hifi.set({ track: { src: e.src, out: e.out } });
-        if (w) {
-          waiting.delete(e.seq);
-          w.res(e);
-        }
+      case 'ready':
+        if (e.seq === selected) hifi.set({ track: { src: e.src, out: e.out } });
+        waiting.get(e.seq)?.res(e);
         break;
-      }
-      // (the chosen device is not there: the default plays in its place, and the chosen one again once it is back)
       case 'fallback':
-        if (e.code === 'default' || e.code === 'back') {
-          listeners.forEach((f) => f(e.code === 'default' ? 'toDefault' : 'back'));
-          break;
+        if (e.code === 'default' || e.code === 'back') notice(e.code === 'default' ? 'toDefault' : 'back');
+        else {
+          hifi.set({ fallback: true });
+          notice('fallback');
         }
-        hifi.set({ fallback: true });
-        listeners.forEach((f) => f('fallback'));
         break;
-      // a device lost while a song played: the player opens one again and goes on from the same place — the clock waits
-      // where it is until it reports from there
       case 'lost':
+        if (!matches(e)) break;
         if (e.resume) {
-          C.want = output.clock();
-          C.base = C.want;
-          C.at = performance.now();
-          C.run = false;
-          C.hold = true;
-          listeners.forEach((f) => f('lost'));
-        } else listeners.forEach((f) => f('device'));
+          hold(time());
+          active?.notify('buffering');
+          notice('lost');
+        } else active?.notify({ error: e.msg || 'hifi-device' });
         break;
-      case 'error': {
-        if (e.code === 'decode' && e.seq && waiting.has(e.seq)) {
-          const w = waiting.get(e.seq)!;
-          waiting.delete(e.seq);
-          w.rej(new Error('hifi-decode'));
-          break;
-        }
-        if (e.code === 'device') {
+      case 'error':
+        if (e.code === 'decode' && waiting.has(e.seq)) waiting.get(e.seq)!.rej(new Error('hifi-decode'));
+        else if (e.code === 'decode' && e.seq === active?.seq) active?.notify({ error: 'hifi-decode' });
+        else if (e.code === 'device' && matches(e)) {
           hifi.set({ error: e.msg });
-          listeners.forEach((f) => f('device'));
+          active?.notify({ error: e.msg || 'hifi-device' });
         }
         break;
-      }
       case 'stopped':
-      case 'down': {
-        const unexpected = e.ev === 'down';
+      case 'down':
         lastHw = null;
         hifi.set({ running: false, device: null, hw: null, track: null, caps: null, fallback: false });
-        if (unexpected || !hifiOn()) {
-          for (const [, w] of waiting) w.rej(new Error(unexpected ? 'hifi-down' : 'hifi-stopped'));
-          waiting.clear();
+        if (e.ev === 'down' || !hifiOn()) {
+          const error = 'hifi-' + e.ev;
+          for (const w of waiting.values()) w.rej(new Error(error));
+          active?.notify({ error });
         }
-        if (unexpected) listeners.forEach((f) => f('down'));
-        break;
-      }
-      default:
         break;
     }
   });
-  refresh();
+  void refresh().catch(() => {});
 }
-
 /** What the badge says about the current song: its format, and what reaches the DAC. */
 export function describe(h: HifiState) {
   const t = h.track,

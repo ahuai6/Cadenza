@@ -18,6 +18,7 @@ export interface ExternalOut {
   clock(): number;
   gain(g: number): void;
 }
+export type AudioClockEvent = 'running' | 'buffering' | 'ended' | { error: string };
 
 export class AudioClock {
   private ctx: AudioContext | null = null;
@@ -28,6 +29,7 @@ export class AudioClock {
   private wall0 = 0;
   private ext: ExternalOut | null = null;
   private extOn = false;
+  private timer: ReturnType<typeof setTimeout> | undefined;
   /** the smoothed clock: its last reading (song time, and when), so it never steps back and never stands still */
   private last = -Infinity;
   private lastAt = 0;
@@ -62,7 +64,14 @@ export class AudioClock {
     return this.ext;
   }
   /** Start at song time t. */
-  start(t: number, buf: AudioLike | null, audioStart: number, end: number) {
+  start(
+    t: number,
+    buf: AudioLike | null,
+    audioStart: number,
+    end: number,
+    notify?: (event: AudioClockEvent) => void,
+    tick?: () => void,
+  ) {
     this.stopOutput();
     this.t0 = t;
     this.wall0 = performance.now();
@@ -76,7 +85,6 @@ export class AudioClock {
     }
     if (!(buf as AudioBuffer).getChannelData || (buf as AudioLike).load) return; // a stand-in without an outside player: silent
     const c = this.ac();
-    c.resume?.();
     const off = audioStart + t,
       when = c.currentTime + 0.04;
     const s = c.createBufferSource();
@@ -86,12 +94,37 @@ export class AudioClock {
     else if (off < end) s.start(when, off, end - off);
     this.src = s;
     this.ctx0 = when;
+    c.resume().catch((error) => {
+      if (this.src === s && notify) notify({ error: String(error) });
+    });
+    if (notify) {
+      let running = false;
+      const poll = () => {
+        if (this.src !== s) return;
+        const heard = this.heard(c);
+        if (c.state === 'running' && heard >= when + Math.max(0, end - off)) {
+          this.stop();
+          notify('ended');
+          return;
+        }
+        const nowRunning = c.state === 'running' && heard >= when;
+        if (nowRunning !== running) {
+          running = nowRunning;
+          notify(running ? 'running' : 'buffering');
+        }
+        if (nowRunning) tick?.();
+        if (this.src === s) this.timer = setTimeout(poll, 15);
+      };
+      this.timer = setTimeout(poll, 15);
+    }
   }
   stop() {
     this.stopOutput();
     this.playing = false;
   }
   private stopOutput() {
+    clearTimeout(this.timer);
+    this.timer = undefined;
     if (this.extOn) {
       this.extOn = false;
       try {

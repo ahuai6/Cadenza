@@ -48,7 +48,7 @@ enum St {
 #[derive(Debug)]
 enum Pending {
     Pause,
-    Seek(f64, Option<f64>),
+    Seek(Start),
     Swap,
     Stop,
     Underrun,
@@ -59,7 +59,11 @@ struct Mark {
     pos: i64,
     run: bool,
     id: Option<Arc<str>>,
+    seq: u64,
+    run_id: u64,
+    eof: bool,
 }
+type Start = (f64, Option<f64>, u64);
 
 const FADE_S: f64 = 0.006;
 const GLIDE_S: f64 = 0.02;
@@ -81,7 +85,8 @@ pub struct Player {
     incoming: Option<Track>,
     next: Option<Track>,
     st: St,
-    want: Option<(f64, Option<f64>)>,
+    want: Option<Start>,
+    run_id: u64,
     fade_in: bool,
     head: i64,
     end: Option<i64>,
@@ -95,6 +100,7 @@ pub struct Player {
     marks: VecDeque<Mark>,
     last_emit: Instant,
     ended: bool,
+    reported_end: Option<(u64, u64)>,
     idle_at: Option<Instant>,
     rng: u64,
     bytes: Vec<u8>,
@@ -121,6 +127,7 @@ pub fn run(rx: Receiver<Cmd>) {
         next: None,
         st: St::Idle,
         want: None,
+        run_id: 0,
         fade_in: false,
         head: 0,
         end: None,
@@ -134,6 +141,7 @@ pub fn run(rx: Receiver<Cmd>) {
         marks: VecDeque::new(),
         last_emit: Instant::now(),
         ended: false,
+        reported_end: None,
         idle_at: None,
         rng: 0x9E3779B97F4A7C15,
         bytes: Vec::new(),
@@ -346,7 +354,10 @@ impl Player {
                         self.spawn(&id, &path, seq)
                     }
                 };
-                let Some(t) = t else { return true };
+                let Some(t) = t else {
+                    emit(json!({ "ev": "error", "code": "decode", "id": id, "seq": seq, "msg": "output unavailable" }));
+                    return true;
+                };
                 // the music cut by a song change also fades out
                 self.want = None;
                 if self.playing_audibly() {
@@ -357,24 +368,35 @@ impl Player {
                     self.incoming = None;
                     self.pending = None;
                     self.cur = Some(t);
+                    self.run_id = 0;
+                    self.ended = false;
                     self.st = St::Idle;
                     self.idle_at = Some(Instant::now());
                 }
                 emit(json!({ "ev": "loading", "id": id, "seq": seq }));
             }
-            Cmd::Play { pos, end } => {
+            Cmd::Play { pos, end, seq, run } => {
+                let target = self.incoming.as_ref().or(self.cur.as_ref());
+                if seq.is_some() && seq != target.map(|t| t.seq) { return true; }
+                if let Some(t) = target.filter(|t| t.failed) {
+                    emit(json!({ "ev": "error", "code": "decode", "seq": t.seq, "runId": run, "msg": "decoder failed" }));
+                    return true;
+                }
                 if matches!(self.pending, Some(Pending::Swap)) {
-                    self.want = Some((pos, end));
+                    self.want = Some((pos, end, run));
                 } else if self.playing_audibly() {
-                    self.pending = Some(Pending::Seek(pos, end));
+                    self.pending = Some(Pending::Seek((pos, end, run)));
                     self.env_to = 0.0;
                 } else {
                     self.pending = None;
-                    self.want = Some((pos, end));
+                    self.want = Some((pos, end, run));
                     self.st = St::Waiting;
                 }
             }
-            Cmd::Pause => {
+            Cmd::Pause { seq } => {
+                if seq.is_some() && seq != self.incoming.as_ref().or(self.cur.as_ref()).map(|t| t.seq) {
+                    return true;
+                }
                 self.want = None;
                 if matches!(self.pending, Some(Pending::Swap)) {
                     // the swap still happens; nothing starts after it
@@ -386,13 +408,18 @@ impl Player {
                     self.idle_at = Some(Instant::now());
                 }
             }
-            Cmd::Stop => {
+            Cmd::Stop { seq } => {
+                if seq.is_some() && seq != self.incoming.as_ref().or(self.cur.as_ref()).map(|t| t.seq) {
+                    return true;
+                }
                 self.want = None;
+                self.incoming = None;
                 if self.playing_audibly() {
                     self.pending = Some(Pending::Stop);
                     self.env_to = 0.0;
                 } else {
                     self.cur = None;
+                    self.pending = None;
                     self.st = St::Idle;
                     self.idle_at = Some(Instant::now());
                 }
@@ -400,6 +427,8 @@ impl Player {
             Cmd::Release => {
                 self.hush();
                 self.close();
+                self.want = None;
+                self.pending = None;
                 // the device goes back to others (the standard output): its own level with it
                 if self.hw_db != 0.0 {
                     self.hw(0.0);
@@ -408,6 +437,23 @@ impl Player {
                     self.st = St::Paused;
                 }
             }
+            Cmd::Closefile { ticket, seq } => {
+                let mut ok = true;
+                if Some(seq) == self.incoming.as_ref().or(self.cur.as_ref()).map(|t| t.seq) {
+                    self.hush();
+                    let readers: Vec<_> = self.cur.iter().chain(&self.incoming).map(|t| t.sh.clone()).collect();
+                    self.cur = None;
+                    self.incoming = None;
+                    self.want = None;
+                    self.pending = None;
+                    self.st = St::Idle;
+                    self.idle_at = Some(Instant::now());
+                    ok = readers.iter().all(|r| r.wait_closed(Duration::from_secs(1)));
+                }
+                emit(json!({ "ev": "barrier", "ticket": ticket, "ok": ok }));
+            }
+            Cmd::Barrier { ticket } => emit(json!({ "ev": "barrier", "ticket": ticket })),
+            Cmd::Clearnext => self.next = None,
             Cmd::Gain { g } => {
                 // (above 1 only for the volume balance's boost, which keeps within the song's own headroom)
                 self.gain_to = if g.is_finite() { g.clamp(0.0, 4.0) } else { 0.0 };
@@ -430,12 +476,13 @@ impl Player {
                 self.st = St::Paused;
                 self.idle_at = Some(Instant::now());
             }
-            Pending::Seek(pos, end) => {
-                self.want = Some((pos, end));
+            Pending::Seek(start) => {
+                self.want = Some(start);
                 self.st = St::Waiting;
             }
             Pending::Swap => {
                 self.cur = self.incoming.take();
+                self.run_id = 0;
                 self.ended = false;
                 self.st = if self.want.is_some() { St::Waiting } else { St::Idle };
                 self.idle_at = Some(Instant::now());
@@ -500,7 +547,7 @@ impl Player {
         }
         // a requested start: once the song's format is known
         if self.pending.is_none() {
-            if let Some((pos, end)) = self.want {
+            if let Some((pos, end, run)) = self.want {
                 let Some(cur) = self.cur.as_ref() else {
                     self.want = None;
                     return;
@@ -520,6 +567,8 @@ impl Player {
                         self.head = target;
                     }
                     self.end = end.map(|e| (e * rate).round() as i64);
+                    self.run_id = run;
+                    if run == 0 { self.reported_end = None; }
                     self.ended = false;
                     self.fade_in = self.head > 0;
                     self.st = St::Waiting;
@@ -601,12 +650,12 @@ impl Player {
                         let (id, path, seq) = (cur.id.to_string(), cur.path.clone(), cur.seq);
                         drop(cur);
                         self.cur = self.spawn(&id, &path, seq);
-                        self.want = Some((self.head as f64 / old, self.end.map(|e| e as f64 / old)));
+                        self.want = Some((self.head as f64 / old, self.end.map(|e| e as f64 / old), self.run_id));
                         self.st = St::Waiting;
                     }
                     self.next = None;
                 } else {
-                    emit(json!({ "ev": "error", "code": "device", "msg": e }));
+                    emit(json!({ "ev": "error", "code": "device", "seq": self.cur.as_ref().map(|t| t.seq), "runId": self.run_id, "msg": e }));
                     self.st = St::Paused;
                 }
                 false
@@ -646,15 +695,19 @@ impl Player {
 
     fn mark(&mut self, len: usize, pos: i64, run: bool) {
         let id = self.cur.as_ref().map(|t| t.id.clone());
+        let seq = self.cur.as_ref().map(|t| t.seq).unwrap_or(0);
+        let run_id = self.run_id;
+        let eof = self.ended;
         let dev = self.dev_written + self.frames.len() as u64 / self.ofmt.map(|f| f.ch as u64).unwrap_or(2) - len as u64;
         if let Some(m) = self.marks.back_mut() {
-            let same = m.run == run && m.id == id && m.dev + m.len == dev && (if run { m.pos + m.len as i64 == pos } else { m.pos == pos });
+            let same = m.run == run && m.id == id && m.seq == seq && m.run_id == run_id && m.eof == eof
+                && m.dev + m.len == dev && (if run { m.pos + m.len as i64 == pos } else { m.pos == pos });
             if same {
                 m.len += len as u64;
                 return;
             }
         }
-        self.marks.push_back(Mark { dev, len: len as u64, pos, run, id });
+        self.marks.push_back(Mark { dev, len: len as u64, pos, run, id, seq, run_id, eof });
         while self.marks.len() > 64 {
             self.marks.pop_front();
         }
@@ -720,16 +773,12 @@ impl Player {
             let avail = Shared::frames(&q);
             let lim = self.end.map(|e| (e - self.head).max(0) as usize).unwrap_or(usize::MAX);
             if lim == 0 || (q.eof && avail == 0) {
-                // the music is over (or its range is): silence, while the time keeps running for the ending
+                // Mark the first silent frame. Report EOF only after the device consumes the preceding audio.
                 drop(q);
                 self.frames.resize(self.frames.len() + left * ch, 0);
-                self.mark(left, self.head, true);
-                self.head += left as i64;
+                self.ended = true;
+                self.mark(left, self.head, false);
                 n += left;
-                if !self.ended {
-                    self.ended = true;
-                    emit(json!({ "ev": "ended", "id": self.cur.as_ref().map(|t| t.id.to_string()) }));
-                }
                 continue;
             }
             if avail == 0 {
@@ -796,10 +845,10 @@ impl Player {
         // a song playing goes on, from where it was, on whatever device is there now (the default, if the chosen one
         // was unplugged): the device is opened again as a song starting would open it
         let resume = matches!(self.st, St::Playing | St::Waiting) && self.cur.is_some();
-        emit(json!({ "ev": "lost", "msg": e, "resume": resume }));
+        emit(json!({ "ev": "lost", "seq": self.cur.as_ref().map(|t| t.seq), "runId": self.run_id, "msg": e, "resume": resume }));
         if resume {
             let rate = self.cur.as_ref().and_then(|c| c.sh.q.lock().unwrap().plan.map(|p| p.rate as f64)).unwrap_or(48000.0);
-            self.want = Some((self.head as f64 / rate, self.end.map(|x| x as f64 / rate)));
+            self.want = Some((self.head as f64 / rate, self.end.map(|x| x as f64 / rate), self.run_id));
             self.st = St::Waiting;
             self.fade_in = true;
         } else if self.st != St::Idle {
@@ -824,7 +873,13 @@ impl Player {
         let m = self.marks.iter().find(|m| h >= m.dev && h < m.dev + m.len).or(self.marks.back());
         let Some(m) = m else { return };
         let (pos, run) = if m.run { (m.pos + (h.saturating_sub(m.dev)).min(m.len) as i64, true) } else { (m.pos, false) };
-        emit(json!({ "ev": "pos", "id": m.id.as_deref(), "t": pos as f64 / f.rate as f64, "run": run }));
+        if m.eof && m.id.is_some() && self.reported_end != Some((m.seq, m.run_id)) {
+            self.reported_end = Some((m.seq, m.run_id));
+            emit(json!({ "ev": "ended", "id": m.id.as_deref(), "seq": m.seq, "runId": m.run_id }));
+        } else if !m.eof {
+            emit(json!({ "ev": "pos", "id": m.id.as_deref(), "seq": m.seq, "runId": m.run_id,
+                "t": pos as f64 / f.rate as f64, "run": run }));
+        }
     }
 }
 

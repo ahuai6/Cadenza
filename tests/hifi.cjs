@@ -369,6 +369,40 @@ function maxStep(a, full, from = 0, to = a.length) {
     ok(!!fb && !!run && !err, 'the default device plays in its place, said once, no error, nothing to choose again');
     await A.done();
   }
+  console.log('load and run identities');
+  {
+    const A = start('rates=44100;fmts=i16', 'epochs');
+    try {
+      A.send({ cmd: 'load', id: 'cd', path: F.cd, seq: 1 });
+      await A.wait((e) => e.ev === 'ready' && e.seq === 1);
+      A.send({ cmd: 'play', seq: 1, run: 1, pos: 0 });
+      await A.wait((e) => e.ev === 'pos' && e.seq === 1 && e.runId === 1 && e.run);
+      A.send({ cmd: 'stop', seq: 1 });
+      A.send({ cmd: 'load', id: 'cd', path: F.cd, seq: 2 });
+      await A.wait((e) => e.ev === 'ready' && e.seq === 2);
+      A.send({ cmd: 'play', seq: 1, run: 9, pos: 3 });
+      A.send({ cmd: 'play', seq: 2, run: 2, pos: 1 });
+      const p = await A.wait((e) => e.ev === 'pos' && e.seq === 2 && e.runId === 2 && e.run);
+      A.send({ cmd: 'stop', seq: 1 });
+      A.send({ cmd: 'pause', seq: 1 });
+      A.send({ cmd: 'play', seq: 2, run: 3, pos: 2, end: 2.2 });
+      const sought = await A.wait((e) => e.ev === 'pos' && e.seq === 2 && e.runId === 3 && e.run);
+      const eof = await A.wait((e) => e.ev === 'ended' && e.seq === 2 && e.runId === 3);
+      ok(
+        !A.evs.some((e) => e.runId === 9) && p.t >= 1 && p.t < 1.1,
+        'a stale load cannot start a new run for the same track id',
+      );
+      ok(
+        sought.t >= 2 && sought.t < 2.1 && eof.at - sought.at > 100,
+        'seek and consumed EOF retain the authorized run identity',
+      );
+      A.send({ cmd: 'closefile', seq: 2, ticket: 4 });
+      const closed = await A.wait((e) => e.ev === 'barrier' && e.ticket === 4);
+      ok(closed.ok, 'closing a file acknowledges decoder release');
+    } finally {
+      await A.done();
+    }
+  }
   console.log(fails ? `${fails} failed` : 'all passed');
   process.exit(fails ? 1 : 0);
 })().catch((e) => {

@@ -1427,23 +1427,42 @@ const ok = (name, pass, detail) => {
       async ([a, b, c]) => {
         const A = window.__cadenza.api,
           P = window.__cadenza.player,
-          out = {},
-          w = (ms) => new Promise((r) => setTimeout(r, ms));
+          out = {};
+        const finish = () =>
+          new Promise((resolve, reject) => {
+            const before = A.playback.get().generation;
+            const off = A.playback.subscribe((state) => {
+              if (state.generation !== before || state.phase === 'ended') {
+                clearTimeout(timer);
+                off();
+                resolve();
+              }
+            });
+            const timer = setTimeout(() => {
+              off();
+              reject(new Error('the audio did not end'));
+            }, 6000);
+            A.seekFile(A.playback.get().duration - 0.12);
+          });
+        const running = async (i) => {
+          await A.playQueueAt(i);
+          await new Promise((r) => setTimeout(r, 250));
+        };
         await A.playIds([a, b, c], 0);
-        await w(800);
         A.setMode('one');
-        await A.next(true);
+        await finish();
         out.one = P.get().index;
         A.setMode('loop');
-        await A.next(true);
+        await finish();
         out.loop1 = P.get().index;
-        await A.next(true);
-        await A.next(true);
+        await running(1);
+        await finish();
+        await running(2);
+        await finish();
         out.loopWrap = P.get().index;
         A.setMode('stop');
-        await A.playQueueAt(2);
-        await A.next(true);
-        await w(200);
+        await running(2);
+        await finish();
         out.stopIdx = P.get().index;
         out.stopPlaying = window.__cadenza.engine.isPlaying;
         A.setMode('loop');
@@ -1456,19 +1475,27 @@ const ok = (name, pass, detail) => {
       modes.one === 0 && modes.loop1 === 1 && modes.loopWrap === 0 && modes.stopIdx === 2 && !modes.stopPlaying,
       JSON.stringify(modes),
     );
-    const sh = await C(() => {
+    const sh = await C(async () => {
       const A = window.__cadenza.api,
-        q = window.__cadenza.player.get().queue;
+        q = window.__cadenza.player.get().queue.slice();
       let good = true,
         cur = 0;
-      for (let r = 0; r < 300; r++) {
+      await A.playIds(q, cur);
+      A.setMode('shuffle');
+      for (let r = 0; r < 3; r++) {
         const seen = new Set([q[cur]]);
         for (let k = 0; k < q.length - 1; k++) {
-          cur = A.shufflePick(q, cur);
+          await A.next();
+          cur = A.playback.get().index;
           if (seen.has(q[cur])) good = false;
           seen.add(q[cur]);
         }
+        if (r < 2) {
+          await A.next();
+          cur = A.playback.get().index;
+        }
       }
+      A.setMode('loop');
       return good;
     });
     ok('shuffle: no repeats within a round', sh);

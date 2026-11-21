@@ -53,7 +53,7 @@ export function boot(ready: () => void): () => void {
   // (the taskbar's play / pause button shows what a click would do)
   let wasPlaying: boolean | null = null;
   const tell = () => {
-    const on = playerApi.player.get().playing;
+    const on = playerApi.player.get().intent;
     if (on !== wasPlaying) {
       wasPlaying = on;
       d.playing?.(on)?.catch?.(() => {});

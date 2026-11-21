@@ -16,6 +16,7 @@ import {
   FX_ASPECTS,
   setFxAspect,
   wholeRhythm,
+  waitForVisual,
 } from '../playback/player';
 import { ExportPanel, exportBusy } from './panes';
 import { LyricsTab } from './Effect';
@@ -38,7 +39,7 @@ export async function exportTrack(t: Track, list?: Track[]) {
     const ids = (list || [t]).filter((x) => !x.protected).map((x) => x.id);
     await playIds(ids, ids.indexOf(t.id), { play: false });
   } else engine.pause();
-  if (player.get().shownId !== t.id) return;
+  if (!(await waitForVisual(t.id))) return;
   open({ kind: 'export' });
 }
 
