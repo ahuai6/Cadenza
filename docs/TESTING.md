@@ -2,6 +2,14 @@
 
 4.0.0 重构使用 [3.6.0 隔离基线](BASELINE-3.6.0.md)。其中记录了同一提交的回归结果、普通与模拟 Hi-Fi 的独立时间点及硬件 GPU 帧数据。后续阶段比较时保留同样的环境、素材和测量口径。
 
+## G1 资料生命周期
+
+- `node --test tests/profile.cjs` 验证版本、独立数据代次、清理恢复、4.0.1 保留、显式结构迁移、外部文件、Windows 联接和独占文件句柄。破坏性用例全部在新建的系统临时目录运行。
+- 完成本地应用构建后运行 `node --test tests/profile-desktop.cjs`。需要隔离工具目录中的 Playwright，可以用 `CADENZA_PROFILE_RENDERER` 指定构建好的 `dist-app`。此套件用真实 Electron 验证版本更新、同版本重启、旧库导入关闭、共用单实例锁和 `--reset-data`，通过测试入口将应用数据与操作系统集成隔离。
+- 安装包与便携包使用同一个启动策略。本地使用 `electron-builder --win --x64 --publish never` 生成包。将 `CADENZA_PROFILE_PORTABLE` 指向便携包，`CADENZA_PROFILE_INSTALLER_PAYLOAD` 指向从安装包解出的 `Cadenza.exe`，运行 `node --test tests/profile-packaged.cjs`。套件用同一合成 profile 验证首次断代、换包继续使用资料和手动重置。执行安装向导与系统安装登记需另用隔离的 Windows 环境。
+
+G1 采用 Windows build 26300 与 Electron 45.1.0 验证。类型检查通过，38 套单元测试共 378 项通过，文件系统 9 项、Electron 启动场景 2 项、打包应用启动场景 1 项通过。经典桌面 76 项和模拟 Hi-Fi 桌面 19 项通过。本机生成未签名的 `4.0.0-alpha.1` 安装包和便携包。安装包解出的应用与实际便携包已启动验证，安装向导和系统登记未实际执行。正式 4.0.0 和 4.0.1 由隔离测试构建标记模拟。
+
 每一套测什么、怎么跑、什么时候要跑、结果怎么读。流程规则（每次改动至少跑哪些、反馈怎么写）在 `.claude/skills/cadenza/SKILL.md` 第 6 节。
 
 ## 必过（每次改动）

@@ -17,9 +17,7 @@ const {
 } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const library = require('./library.cjs');
-const audio = require('./audio.cjs');
-const inferHost = require('./inferHost.cjs');
+const { profileRoot, identifyBuild, initializeProfile } = require('./profile.cjs');
 
 app.setName('Cadenza');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -35,20 +33,32 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
-if (process.env.CADENZA_USER_DATA) app.setPath('userData', process.env.CADENZA_USER_DATA); // tests run against a clean profile
-// everything reset (Settings → data): the profile is removed here, as the app starts again, before anything opens it
-if (process.argv.includes('--reset-data')) {
-  try {
-    fs.rmSync(app.getPath('userData'), { recursive: true, force: true });
-  } catch (e) {
-    /* in use: kept */
+const isolatedProfile = !!process.env.CADENZA_USER_DATA;
+try {
+  const root = profileRoot(app);
+  app.setPath('userData', root);
+  app.setPath('sessionData', root);
+  // Use the legacy profile root as the lock namespace too, so a running 3.6.0 also prevents a reset.
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    process.exit(0);
   }
+  initializeProfile(root, identifyBuild(app.getVersion()), {
+    reset: process.argv.includes('--reset-data'),
+    externalModels: process.env.CADENZA_NATIVE_MODELS,
+  });
+} catch (error) {
+  console.error('Cadenza profile initialization:', error);
+  dialog.showErrorBox(
+    'Cadenza 无法初始化应用数据',
+    '请关闭正在占用资料的程序，处理提示中的路径或文件，然后重新启动。\n\n' + error.message,
+  );
+  process.exit(1);
 }
+const library = require('./library.cjs');
+const audio = require('./audio.cjs');
+const inferHost = require('./inferHost.cjs');
 protocol.registerSchemesAsPrivileged([library.scheme]);
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-  process.exit(0);
-}
 
 const desk = require('./desk.cjs');
 let win = null,
@@ -72,7 +82,7 @@ try {
 }
 function applySettings() {
   nativeTheme.themeSource = settings.theme === 'light' || settings.theme === 'dark' ? settings.theme : 'system';
-  if (process.platform !== 'linux')
+  if (!isolatedProfile && process.platform !== 'linux')
     app.setLoginItemSettings({ openAtLogin: !!settings.openAtLogin, args: ['--hidden'] });
   if (settings.closeToTray && !tray) makeTray();
   else if (!settings.closeToTray && tray) {
@@ -318,6 +328,10 @@ ipcMain.handle('app:relaunch', () => {
   app.relaunch();
   app.exit(0);
 });
+ipcMain.handle('lib:resetAll', () => {
+  app.relaunch({ args: [...process.argv.slice(1).filter((a) => a !== '--reset-data'), '--reset-data'] });
+  app.quit();
+});
 ipcMain.handle('settings:get', () => ({ ...settings, platform: process.platform, version: app.getVersion() }));
 function saveSettings(patch) {
   for (const k of Object.keys(patch || {})) if (k in DEFAULTS) settings[k] = patch[k];
@@ -395,6 +409,7 @@ app.whenReady().then(async () => {
   hifi = audio.start(ipcMain, () => win, settings, library);
   infer = inferHost.start(ipcMain, () => win, settings);
   createWindow();
+  if (isolatedProfile) return;
   for (const [key, op] of [
     ['MediaPlayPause', 'toggle'],
     ['MediaNextTrack', 'next'],

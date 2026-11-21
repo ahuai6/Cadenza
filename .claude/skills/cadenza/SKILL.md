@@ -165,6 +165,10 @@ npm run build:app
 
 ## 7. 本机验收与发布
 
+4.0.0 重构以 `docs/MAINTENANCE.md` 中的阶段工作流为准。获授权的 Goal 在 `refactor/4.0.0` 上完成 Windows 本机验证后提交并推送同名远端分支，报告 SHA、验证结果和问题后停止。重构期间构建全部留在本机。远端 `main` 与 Actions 等待全部阶段完成、本机验收和明确的发布批准。
+
+以下为常规维护流程：
+
 1. 日常直接在本地 `main` 开发，大改动需要独立测试时临时开分支。
 2. 在用户的 Windows 本机构建、启动并验证改动，交付用户可以打开的本地版本。用户确认后再推送或手动触发 GitHub 构建。
 3. 正式发布时更新 `package.json` 与 `package-lock.json` 的版本号，在 `docs/RELEASE.md` 顶部说明用户能看到的变化，然后提交并推送 `main`。已有同版本发布时，`release` 会跳过构建与发布。临时分支需要预览包时，手动运行 `preview`。

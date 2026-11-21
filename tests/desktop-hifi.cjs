@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
+const { identifyBuild, initializeProfile } = require('../electron/profile.cjs');
 const ROOT = path.resolve(__dirname, '..'),
   CACHE = path.join(__dirname, '.cache'),
   SHOTS = process.argv[2] || os.tmpdir();
@@ -64,6 +65,7 @@ const ok = (name, pass, detail) => {
   fs.mkdirSync(DUMP);
 
   const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'czh-'));
+  initializeProfile(prof, identifyBuild(require('../package.json').version));
   fs.mkdirSync(path.join(prof, 'library'), { recursive: true });
   fs.writeFileSync(
     path.join(prof, 'library', 'db.json'),

@@ -57,44 +57,12 @@ let db = null,
 let want = 0; // the rhythm SDK version the page asks for (it tells us with each request)
 const empty = () => ({ version: 1, folders: [], tracks: {}, favorites: [], playlists: [], overrides: {} });
 
-// first start: take over the library of Lyric Motion (the app Cadenza replaces), if there is one: folders, favourites,
-// playlists, the user's own tags and covers, and each song's bound style. Tracks are rescanned (ids come from the file
-// contents, so they match); the old beat analysis is not reused, the rhythm SDK analyses again.
-async function adopt() {
-  const old = path.join(app.getPath('appData'), 'Lyric Motion', 'library');
-  try {
-    const o = JSON.parse(await fsp.readFile(path.join(old, 'db.json'), 'utf8'));
-    db = {
-      ...empty(),
-      folders: o.folders || [],
-      favorites: o.favorites || [],
-      playlists: o.playlists || [],
-      overrides: o.overrides || {},
-    };
-    for (const [d, to] of [
-      ['covers', P.covers()],
-      ['thumbs', P.thumbs()],
-      ['songs', P.songs()],
-    ]) {
-      try {
-        for (const f of await fsp.readdir(path.join(old, d)))
-          await fsp.copyFile(path.join(old, d, f), path.join(to, f));
-      } catch (e) {
-        /* not there */
-      }
-    }
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
 async function load() {
   for (const d of [root(), P.covers(), P.thumbs(), P.analysis(), P.songs()]) await fsp.mkdir(d, { recursive: true });
   try {
     db = { ...empty(), ...JSON.parse(await fsp.readFile(P.db(), 'utf8')) };
   } catch (e) {
     db = empty();
-    if (!process.env.CADENZA_USER_DATA && (await adopt())) save();
   }
 }
 // written shortly after the last change, through a temporary file so a crash never leaves half a database
@@ -1300,10 +1268,6 @@ function register(ipcMain, getWin) {
     analysisProgress();
     send('lib:wake');
     return true;
-  });
-  ipcMain.handle('lib:resetAll', () => {
-    app.relaunch({ args: [...process.argv.slice(1).filter((a) => a !== '--reset-data'), '--reset-data'] });
-    app.exit(0);
   });
   ipcMain.handle('lib:nextAnalysis', (_e, version) => nextJob(version));
   ipcMain.handle('lib:prioritize', (_e, ids) => {
