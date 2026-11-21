@@ -33,8 +33,8 @@ for (let i = 0; i < tones.length; i++) {
   fs.writeFileSync(path.join(music, i + '.lrc'), '[00:01.00]Visual line ' + i + '\n');
 }
 
-async function run(route) {
-  const prof = path.join(scratch, route);
+async function run(route, crash = false) {
+  const prof = path.join(scratch, crash ? 'crash' : route);
   fs.mkdirSync(prof);
   initializeProfile(prof, identifyBuild(require('../package.json').version));
   fs.mkdirSync(path.join(prof, 'library'), { recursive: true });
@@ -63,7 +63,8 @@ async function run(route) {
   );
   const env = { ...process.env, CADENZA_USER_DATA: prof };
   delete env.CADENZA_AUDIO_FAKE;
-  if (route === 'hifi') env.CADENZA_AUDIO_FAKE = 'rates=48000;fmts=i16;dump=' + path.join(prof, 'pcm');
+  if (route === 'hifi')
+    env.CADENZA_AUDIO_FAKE = 'rates=48000;fmts=i16;dump=' + path.join(prof, 'pcm') + (crash ? ';crash-after=0.6' : '');
   const app = await _electron.launch({
     executablePath: require(path.join(ROOT, 'node_modules', 'electron')),
     args: [ROOT, '--no-sandbox'],
@@ -78,6 +79,25 @@ async function run(route) {
     await wait(() => !!window.__cadenza?.pauseAnalysis);
     await run(() => window.__cadenza.pauseAnalysis(true, 'g2 fixture'));
     await wait(() => window.__cadenza?.lib.get().tracks.length === 5);
+    if (crash) {
+      await run(() => {
+        window.crashEvents = [];
+        window.cadenzaAudio.onEvent((e) => window.crashEvents.push(e));
+        const { api, lib } = window.__cadenza;
+        void api.playIds([lib.get().tracks[0].id], 0);
+      });
+      await wait(() => window.crashEvents.some((e) => e.ev === 'pos' && e.run));
+      await wait(() => window.__cadenza.api.playback.get().error === 'hifi-down');
+      await wait(() => {
+        const stopped = window.crashEvents.find((e) => e.ev === 'down');
+        return stopped && window.crashEvents.some((e) => e.ev === 'hello' && e.processEpoch > stopped.processEpoch);
+      });
+      assert.equal(await run(() => window.__cadenza.api.playback.get().intent), false);
+      assert.equal(await run(() => window.__cadenza.api.playback.get().output), null);
+      assert.deepEqual(errors, []);
+      console.log('pass hifi child fault: replacement process is ready without restoring a revoked run');
+      return;
+    }
     await run(() => {
       const { api, lib } = window.__cadenza;
       const id = lib.get().tracks.find((t) => t.file === '0.wav')?.id || lib.get().tracks[0].id;
@@ -144,7 +164,14 @@ async function run(route) {
       }
       return ids;
     }, route);
-    const target = (i) => wait((id) => window.__cadenza.api.playback.get().output?.id === id, q[i]);
+    const target = (i) =>
+      wait(
+        ({ id, route }) => {
+          const state = window.__cadenza.api.playback.get();
+          return state.output?.id === id && state.route === route;
+        },
+        { id: q[i], route },
+      );
 
     await wait(() => window.__cadenza.lib.get().analysisFor == null);
     await run(async (id) => {
@@ -277,7 +304,14 @@ async function run(route) {
       await wait((hz) => hz.every((f) => !window.g2.graphSignal(f)), tones);
       assert.equal(await run(() => window.__cadenza.engine.clock.src), null);
     } else {
-      await wait(() => window.g2.events.filter((e) => e.ev === 'pos').at(-1)?.id === null);
+      try {
+        await wait(() => window.g2.events.filter((e) => e.ev === 'pos').at(-1)?.id === null);
+      } catch (error) {
+        console.error(
+          await run(() => ({ playback: window.__cadenza.api.playback.get(), tail: window.g2.events.slice(-15) })),
+        );
+        throw error;
+      }
       await run((id) => window.__cadenza.api.playIds([id], 0), q[4]);
       await target(4);
       await wait((id) => window.__cadenza.player.get().session?.spec.key === id, q[4]);
@@ -344,7 +378,9 @@ async function run(route) {
 }
 
 (async () => {
-  for (const route of process.argv.slice(2).length ? process.argv.slice(2) : ['std', 'hifi']) await run(route);
+  for (const route of process.argv.slice(2).length ? process.argv.slice(2) : ['std', 'hifi', 'crash']) {
+    await run(route === 'crash' ? 'hifi' : route, route === 'crash');
+  }
   console.log('Evidence:', scratch);
 })().catch((error) => {
   console.error(error);

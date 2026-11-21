@@ -1,6 +1,7 @@
 // The protocol with the app: one JSON object per line, commands on stdin, events on stdout.
 use serde::Deserialize;
 use std::io::Write;
+use std::sync::{mpsc::{sync_channel, SyncSender}, OnceLock};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "cmd", rename_all = "lowercase")]
@@ -10,6 +11,7 @@ pub enum Cmd {
         device: Option<String>,
         mode: Option<String>, // "exclusive" | "shared"
         release_after: Option<f64>,
+        ticket: Option<u64>,
     },
     Load {
         id: String,
@@ -42,9 +44,31 @@ pub enum Cmd {
     Quit,
 }
 
+static EVENTS: OnceLock<SyncSender<Option<serde_json::Value>>> = OnceLock::new();
+
+pub fn start_writer() -> std::thread::JoinHandle<()> {
+    let (send, receive) = sync_channel::<Option<serde_json::Value>>(128);
+    let _ = EVENTS.set(send);
+    std::thread::Builder::new().name("events".into()).spawn(move || {
+        let mut out = std::io::stdout().lock();
+        while let Ok(Some(event)) = receive.recv() {
+            if writeln!(out, "{event}").and_then(|_| out.flush()).is_err() { break; }
+        }
+    }).expect("event writer")
+}
+
+pub fn finish_writer(thread: std::thread::JoinHandle<()>) {
+    if let Some(events) = EVENTS.get() { let _ = events.send(None); }
+    let _ = thread.join();
+}
+
 pub fn emit(v: serde_json::Value) {
-    let out = std::io::stdout();
-    let mut l = out.lock();
-    let _ = writeln!(l, "{v}");
-    let _ = l.flush();
+    if let Some(events) = EVENTS.get() {
+        if v["ev"] == "pos" && v["run"] == true {
+            // The next running observation can replace a stale one; lifecycle events still require delivery.
+            let _ = events.try_send(Some(v));
+        } else {
+            let _ = events.send(Some(v));
+        }
+    }
 }

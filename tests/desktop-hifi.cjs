@@ -48,6 +48,8 @@ const ok = (name, pass, detail) => {
     path.join(CACHE, 'lib', 'A', '02 無詞的歌.flac'),
     '-ar',
     '96000',
+    '-ac',
+    '2',
     '-c:a',
     'flac',
     '-sample_fmt',

@@ -28,44 +28,86 @@ function start(ipcMain, getWin, settings, library) {
     shutdown = null,
     want = false,
     restarts = 0,
-    lastStart = 0;
+    lastStart = 0,
+    retryTimer = null,
+    processEpoch = 0,
+    configSerial = 0,
+    configuration = null;
   const state = { running: false, devices: [], caps: null, device: null, error: null };
   const send = (ev) => {
     const w = getWin();
-    if (w && !w.isDestroyed()) w.webContents.send('audio:ev', ev);
+    if (w && !w.isDestroyed()) w.webContents.send('audio:ev', { ...ev, processEpoch });
   };
   const write = (o) => {
     if (!proc || shutdown || !proc.stdin.writable) return false;
     proc.stdin.write(JSON.stringify(o) + '\n');
     return true;
   };
-  const config = () =>
-    write({
-      cmd: 'config',
-      device: settings.audioDevice || null,
-      mode: settings.audioMode === 'shared' ? 'shared' : 'exclusive',
-      release_after: 20,
+  function config() {
+    const device = settings.audioDevice || null;
+    const mode = settings.audioMode === 'shared' ? 'shared' : 'exclusive';
+    const key = JSON.stringify([device, mode]);
+    if (configuration?.key === key) return;
+    configuration?.settle(false);
+    const ticket = ++configSerial;
+    let resolve;
+    const done = new Promise((r) => {
+      resolve = r;
     });
+    const timer = setTimeout(() => settle(false), 3500);
+    function settle(ok) {
+      clearTimeout(timer);
+      resolve(ok);
+      if (!ok && configuration?.ticket === ticket) configuration.key = null;
+    }
+    configuration = { key, ticket, done, settle };
+    if (
+      !write({
+        cmd: 'config',
+        device,
+        mode,
+        release_after: 20,
+        ticket,
+      })
+    )
+      settle(false);
+  }
 
   function launch() {
     if (proc || !want || !supported()) return;
     lastStart = Date.now();
     const child = spawn(binPath(), [], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     proc = child;
-    state.running = true;
+    processEpoch++;
+    state.running = false;
     state.error = null;
     readline.createInterface({ input: child.stdout }).on('line', (line) => {
-      if (shutdown) return;
+      if (proc !== child || shutdown) return;
       let ev;
       try {
         ev = JSON.parse(line);
       } catch (e) {
         return;
       }
+      if (ev.ev === 'hello') {
+        if (ev.clockProtocol !== 1) {
+          state.error = 'hifi-protocol';
+          configuration?.settle(false);
+          child.stdin.end();
+          return;
+        }
+        state.running = true;
+      } else if (!state.running) return;
+      if (ev.ev === 'configured') {
+        if (configuration?.ticket === ev.ticket) configuration.settle(ev.ok === true);
+        return;
+      }
       if (ev.ev === 'devices') state.devices = ev.list;
       else if (ev.ev === 'caps') state.caps = ev;
-      else if (ev.ev === 'device') state.device = ev.open ? ev : null;
-      else if (ev.ev === 'error' && ev.code === 'device') state.error = ev.msg;
+      else if (ev.ev === 'device') {
+        state.device = ev.open ? ev : null;
+        if (ev.open) state.error = null;
+      } else if (ev.ev === 'error' && ev.code === 'device') state.error = ev.msg;
       send(ev);
     });
     child.stdin.on('error', () => {
@@ -76,6 +118,8 @@ function start(ipcMain, getWin, settings, library) {
     });
     child.once('close', () => {
       const expected = !!shutdown;
+      configuration?.settle(false);
+      configuration = null;
       proc = null;
       shutdown = null;
       state.running = false;
@@ -87,11 +131,17 @@ function start(ipcMain, getWin, settings, library) {
         launch();
         return;
       }
-      send({ ev: 'down' });
+      send({ ev: 'down', reason: state.error });
       // an unexpected exit: start again (a few times, then give up and let the page fall back to the standard output)
-      if (want) {
+      if (want && state.error !== 'hifi-protocol') {
         if (Date.now() - lastStart > 30000) restarts = 0;
-        if (restarts++ < 3) setTimeout(launch, 800);
+        if (restarts < 3) {
+          const delay = 500 * 2 ** restarts++;
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            launch();
+          }, delay);
+        }
       }
     });
     write({ cmd: 'devices' });
@@ -100,6 +150,8 @@ function start(ipcMain, getWin, settings, library) {
   function stop() {
     want = false;
     restarts = 0;
+    clearTimeout(retryTimer);
+    retryTimer = null;
     if (proc && !shutdown) {
       const child = proc;
       shutdown = new Promise((resolve) => child.once('close', resolve));
@@ -113,12 +165,12 @@ function start(ipcMain, getWin, settings, library) {
   function apply() {
     if (settings.audioOut === 'hifi') {
       want = true;
-      if (proc) config();
-      else launch();
+      if (proc && !shutdown) config();
+      else if (!proc && !retryTimer) launch();
     } else stop();
   }
 
-  ipcMain.handle('audio:state', () => ({ supported: supported(), ...state }));
+  ipcMain.handle('audio:state', () => ({ supported: supported(), processEpoch, ...state }));
   ipcMain.handle('audio:cmd', async (_e, o) => {
     if (!o || typeof o.cmd !== 'string') return false;
     if (o.cmd === 'wait-released') {
@@ -137,11 +189,11 @@ function start(ipcMain, getWin, settings, library) {
     }
     if (want && shutdown) await shutdown;
     if (!want || shutdown) return false;
-    if (!proc) {
-      if (want) launch();
-      if (!proc) return false;
-    }
+    if (!proc) return false;
     if (o.cmd === 'load') {
+      const owner = proc;
+      const tx = configuration;
+      if (!tx || !(await tx.done) || proc !== owner || configuration !== tx || shutdown) return false;
       const p = library.pathOf(o.id);
       if (!p) return false;
       return write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: Number.isSafeInteger(o.seq) ? o.seq : 0 });

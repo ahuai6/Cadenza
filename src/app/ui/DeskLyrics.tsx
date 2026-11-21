@@ -11,14 +11,15 @@ import s from './DeskLyrics.module.css';
 export function DeskLyrics() {
   const [feed, setFeed] = useState<DeskFeed | null>(null),
     [st, setSt] = useState<DeskState>({ locked: false, size: 34, hovered: false }),
-    got = useRef(0),
+    latest = useRef<{ feed: DeskFeed; got: number } | null>(null),
     box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     document.documentElement.dataset.desk = '';
     D?.deskState?.().then((x) => x && setSt(x));
     const a = D?.onDeskFeed?.((d) => {
-        got.current = performance.now();
-        setFeed(d);
+        const previous = latest.current?.feed.revision;
+        latest.current = { feed: d, got: performance.now() };
+        if (d.revision == null || previous !== d.revision) setFeed(d);
       }),
       b = D?.onDeskState?.((x) => setSt(x));
     return () => {
@@ -33,8 +34,11 @@ export function DeskLyrics() {
     const step = () => {
       raf = requestAnimationFrame(step);
       const el = box.current;
-      if (!el || !feed) return;
-      const t = feed.t + (feed.playing ? (performance.now() - got.current) / 1000 : 0);
+      const data = latest.current;
+      if (!el || !data) return;
+      const { feed, got } = data;
+      const elapsed = Math.min(feed.advanceMs ?? Infinity, performance.now() - got);
+      const t = feed.t + (feed.playing ? elapsed / 1000 : 0);
       el.querySelectorAll<HTMLElement>('[data-t]').forEach((u) => {
         const on = t >= +u.dataset.t!;
         if ((u.dataset.on === '') !== on) on ? (u.dataset.on = '') : delete u.dataset.on;
@@ -42,7 +46,7 @@ export function DeskLyrics() {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [feed]);
+  }, []);
   const lines = feed?.lines || [];
   return (
     <div

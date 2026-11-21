@@ -25,7 +25,7 @@ Vercel 的实际标识用 `npx skills add vercel-labs/agent-skills --list` 查�
 | 阶段 | 资料与用途 |
 | --- | --- |
 | G2–G3 播放与时钟 | [getOutputTimestamp](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/getOutputTimestamp) 与 [Web Audio 规范](https://www.w3.org/TR/webaudio/#dom-audiocontext-getoutputtimestamp) 解释输出时间采样与外推。[MediaElementAudioSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/MediaElementAudioSourceNode) 用于比较普通输出后端。[Electron protocol](https://www.electronjs.org/docs/latest/api/protocol) 用于核对自定义协议、流和范围请求。[Mediabunny](https://mediabunny.dev/guide/introduction) 用于评估解复用与流式媒体。 |
-| G4 Windows 音频设备 | [WASAPI](https://learn.microsoft.com/en-us/windows/win32/coreaudio/wasapi)、[独占流](https://learn.microsoft.com/en-us/windows/win32/coreaudio/exclusive-mode-streams)、[无效设备恢复](https://learn.microsoft.com/en-us/windows/win32/coreaudio/recovering-from-an-invalid-device-error)。结合实际设备核对缓冲、时间、模式切换与恢复。 |
+| G4 Windows 音频设备 | 流位置通过频率换算，设备位置和流延迟用于诊断。比较轮询、事件驱动与共享周期时，记录具体驱动、下溢和 CPU，并保留 USB DAC 锁定验证。[流时钟](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition) · [设备时钟](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock2-getdeviceposition) · [流延迟](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-getstreamlatency) · [独占流](https://learn.microsoft.com/en-us/windows/win32/coreaudio/exclusive-mode-streams) · [共享周期](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nn-audioclient-iaudioclient3) · [无效设备恢复](https://learn.microsoft.com/en-us/windows/win32/coreaudio/recovering-from-an-invalid-device-error) |
 | G5–G6 文件、身份和缓存 | [Symphonia](https://github.com/pdeljanov/Symphonia) 用于核对容器和音频载荷。[Node crypto](https://nodejs.org/api/crypto.html) 用于增量 SHA-256。[Electron app](https://www.electronjs.org/docs/latest/api/app) 用于资料路径、单实例和启动生命周期。[Windows 重解析点](https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-points) 用于路径安全检查。 |
 | G7 WebGL2、PixiJS 与 Folia | PixiJS 8 [渲染器](https://pixijs.com/8.x/guides/components/renderers)、[滤镜](https://pixijs.com/8.x/guides/components/filters)、[性能](https://pixijs.com/8.x/guides/concepts/performance-tips) 和 [WebGL 工程实践](https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices)。先核对 Folia 锁定 API 与 Chromium 实测能力，再评估迁移。 |
 | G8–G9 工坊、导出和界面 | [Mediabunny 写入媒体](https://mediabunny.dev/guide/writing-media-files)、[Playwright ElectronApplication](https://playwright.dev/docs/api/class-electronapplication)、[React 状态结构](https://react.dev/learn/choosing-the-state-structure) 与 [Electron 性能](https://www.electronjs.org/docs/latest/tutorial/performance)。用于帧输出、状态所有权、桌面端到端与性能诊断。 |
@@ -33,7 +33,7 @@ Vercel 的实际标识用 `npx skills add vercel-labs/agent-skills --list` 查�
 ### 4.0.0 重构期间
 
 - 从保留完整历史的 G0 提交开始，G1–G9 在 `refactor/4.0.0` 上按独立授权开发。每个 Goal 在 Windows 本机构建、启动并完成对应测试后提交，只推送 `origin/refactor/4.0.0`。报告提交 SHA、GitHub 链接、实际验证和剩余问题，随后停在该阶段验收。
-- G3 的开发版本为 `4.0.0-alpha.3`，数据代次与结构版本均为 1。`alpha.2` 应用资料会在首次运行 `alpha.3` 时按 G1 规则清理一次。运行开发验证时使用新建的合成资料目录。
+- G4 的开发版本为 `4.0.0-alpha.4`，数据代次与结构版本仍为 1。`alpha.3` 应用资料会在首次运行 `alpha.4` 时按 G1 规则清理一次。运行开发验证时使用新建的合成资料目录。Electron 和原生程序应一起更新，主进程在握手时检查原生时钟协议，避免沿用旧的可执行文件。
 - 阶段构建、运行和测试全部在本机。每次阶段开始核对仓库工作流的触发条件。当前 `release` 的自动触发只监听 `main`，另有手动入口，`preview` 与 `release-notes` 仅手动触发。保持工作流原样，重构期间不推送远端 `main` 或标签，不触发 Actions、预览或发布。
 - G0–G9 全部完成、4.0.0 正式版本机通过验收且用户明确批准发布后，才合入并推送 `main`。阶段推送属当前 Goal 的收尾动作，下一 Goal 与正式发布各自独立授权。
 

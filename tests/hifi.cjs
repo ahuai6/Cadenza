@@ -176,10 +176,12 @@ function maxStep(a, full, from = 0, to = a.length) {
     const p1 = A.evs.filter((e) => e.ev === 'pos' && e.run).pop();
     const rate = (p1.t - p0.t) / ((p1.at - p0.at) / 1000);
     ok(Math.abs(rate - 1) < 0.04, `the clock runs in real time (${rate.toFixed(3)}×)`);
+    const pauseStart = A.evs.length;
     A.send({ cmd: 'pause' });
+    const held = await A.wait((e) => e.ev === 'pos' && !e.run && e.at >= p1.at);
     await sleep(300);
-    const after = A.evs.filter((e) => e.ev === 'pos').slice(-3);
-    ok(after.every((e) => !e.run) && Math.abs(after[2].t - after[0].t) < 1e-9, 'pause: the clock stops');
+    const after = A.evs.slice(pauseStart).filter((e) => e.ev === 'pos' && e.at >= held.at);
+    ok(after.length > 0 && after.every((e) => !e.run && Math.abs(e.t - held.t) < 1e-9), 'pause: the clock stops');
     await A.done();
     const d = A.dumps();
     ok(d.length === 1 && /-96000-i24in32-ex/.test(d[0]), `one device opening: ${d[0]}`);
@@ -325,12 +327,12 @@ function maxStep(a, full, from = 0, to = a.length) {
     A.send({ cmd: 'load', id: 'hr', path: F.hr, seq: 1 });
     await A.wait((e) => e.ev === 'ready');
     A.send({ cmd: 'hwgain', db: -6 });
+    A.send({ cmd: 'play', pos: 0 });
     const h = await A.wait((e) => e.ev === 'hwvol');
     ok(
       h.supported && h.db === -6 && h.level === -26,
       `a song 6 dB too loud: the device from the user's -20 to ${h.level} dB`,
     );
-    A.send({ cmd: 'play', pos: 0 });
     await A.wait((e) => e.ev === 'pos' && e.run);
     await sleep(1400);
     A.send({ cmd: 'hwgain', db: 2 });
@@ -351,6 +353,9 @@ function maxStep(a, full, from = 0, to = a.length) {
     const B = start('rates=96000;fmts=i24in32', 'nohw');
     B.send({ cmd: 'config', mode: 'exclusive' });
     B.send({ cmd: 'hwgain', db: -6 });
+    B.send({ cmd: 'load', id: 'hr', path: F.hr, seq: 1 });
+    await B.wait((e) => e.ev === 'ready');
+    B.send({ cmd: 'play', pos: 0 });
     const nh = await B.wait((e) => e.ev === 'hwvol');
     ok(nh.supported === false, 'a device without a hardware volume: nothing is touched (and the page is told)');
     await B.done();

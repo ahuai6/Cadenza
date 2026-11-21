@@ -1,6 +1,7 @@
-// cadenza-audio: the desktop app's Hi-Fi output. It reads the music file itself and sends it to the device at the file's own
-// sample rate and full bit depth (WASAPI exclusive mode), so nothing in between mixes, resamples or changes it.
+// The desktop app's Hi-Fi output process. It decodes the music file and negotiates the actual WASAPI device format.
+// Samples can be passed through at source precision when the exclusive format and playback processing allow it.
 // The app talks to it over stdin/stdout (see proto.rs); when the app goes away, stdin closes and it stops cleanly.
+mod clock;
 mod decode;
 mod output;
 mod player;
@@ -10,7 +11,8 @@ use std::io::BufRead;
 use std::sync::mpsc;
 
 fn main() {
-    let (tx, rx) = mpsc::channel::<proto::Cmd>();
+    let events = proto::start_writer();
+    let (tx, rx) = mpsc::sync_channel::<proto::Cmd>(128);
     let th = std::thread::Builder::new().name("play".into()).spawn(move || player::run(rx)).expect("player thread");
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -30,4 +32,5 @@ fn main() {
     }
     let _ = tx.send(proto::Cmd::Quit);
     let _ = th.join();
+    proto::finish_writer(events);
 }

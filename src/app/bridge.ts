@@ -137,6 +137,8 @@ export interface DeskFeed {
   id: string | null;
   t: number;
   playing: boolean;
+  advanceMs?: number;
+  revision?: number;
   lines: { t: number; text: string; units: { c: string; t: number | null; sp: boolean }[] }[];
   /** the index in `lines` of the line being sung (-1: none yet) */ cur: number;
 }

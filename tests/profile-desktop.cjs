@@ -51,6 +51,7 @@ function appFolder(label, version, stage, generation = 1) {
 const alpha = appFolder('alpha', '4.0.0-alpha.1', 'development');
 const alpha2 = appFolder('alpha2', '4.0.0-alpha.2', 'development');
 const alpha3 = appFolder('alpha3', '4.0.0-alpha.3', 'development');
+const alpha4 = appFolder('alpha4', '4.0.0-alpha.4', 'development');
 const nextGeneration = appFolder('alpha-new-generation', '4.0.0-alpha.1', 'development', 2);
 const candidate = appFolder('release-candidate', '4.0.0', 'development', 2);
 const formal = appFolder('formal', '4.0.0', 'stable', 2);
@@ -122,6 +123,10 @@ test('real desktop opens after legacy, generation and release-stage resets, then
   assert.equal(f.record().version, '4.0.0-alpha.3');
   f.seed('alpha3');
   assert.deepEqual(await f.run(alpha3), { version: '4.0.0-alpha.3', empty: false, theme: 'light' });
+  assert.equal((await f.run(alpha4)).empty, true);
+  assert.equal(f.record().version, '4.0.0-alpha.4');
+  f.seed('alpha4');
+  assert.deepEqual(await f.run(alpha4), { version: '4.0.0-alpha.4', empty: false, theme: 'light' });
   assert.equal((await f.run(nextGeneration)).empty, true);
   assert.equal(f.record().generation, 2);
   f.seed('generation 2');

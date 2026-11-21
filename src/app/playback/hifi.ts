@@ -4,6 +4,7 @@ import { createStore } from '../../core/emitter';
 import { AudioOut as A } from '../bridge';
 import { settings } from '../state';
 import type { OutputEvent } from './coordinator';
+import { HifiClock, type NativeObservation } from './hifi-clock';
 
 export interface HifiState {
   supported: boolean;
@@ -14,6 +15,7 @@ export interface HifiState {
   track: any;
   error: string | null;
   fallback: boolean;
+  exact: boolean;
   hw: { supported: boolean; db: number } | null;
 }
 export const hifi = createStore<HifiState>({
@@ -25,6 +27,7 @@ export const hifi = createStore<HifiState>({
   track: null,
   error: null,
   fallback: false,
+  exact: false,
   hw: null,
 });
 export const hifiOn = () => !!A && settings.get().audioOut === 'hifi' && hifi.get().supported;
@@ -40,26 +43,22 @@ let seq = 0,
   selected = 0,
   runId = 0,
   ticket = 0;
+let processEpoch = 0;
 let active: { seq: number; runId: number; notify: (event: OutputEvent) => void } | null = null;
 const waiting = new Map<number, { res: (e: Ready) => void; rej: (e: Error) => void }>();
 const barriers = new Map<number, (ok: boolean) => void>();
-const clock = { base: 0, at: 0, run: false };
-export const time = () => clock.base + (clock.run ? (performance.now() - clock.at) / 1000 : 0);
-const hold = (t: number) => Object.assign(clock, { base: t, at: performance.now(), run: false });
+const clock = new HifiClock();
+export const time = () => clock.time(performance.now());
+export const clockBudgetMs = () => clock.remainingMs(performance.now());
+const hold = (t: number) => clock.reset(t);
 const matches = (e: { seq: number; runId: number }) => active?.seq === e.seq && active.runId === e.runId;
 
-function onPos(e: { seq: number; runId: number; t: number; run: boolean }) {
-  if (!matches(e)) return;
-  if (!e.run) {
-    if (clock.run) hold(e.t);
-    active?.notify('buffering');
-    return;
-  }
-  const estimate = time();
-  clock.base = !clock.run || Math.abs(e.t - estimate) > 0.08 ? e.t : estimate + (e.t - estimate) * 0.1;
-  clock.at = performance.now();
-  clock.run = true;
-  active?.notify('running');
+function onPos(e: NativeObservation & { seq: number; runId: number; exact: boolean }) {
+  if (!matches(e) || !clock.observe(e, performance.now())) return;
+  const owner = active;
+  const exact = e.run && !!e.exact;
+  if (hifi.get().exact !== exact) hifi.set({ exact });
+  if (active === owner) owner?.notify(e.run ? 'running' : 'buffering');
 }
 let lastGain = -1,
   lastHw: number | null = null;
@@ -85,7 +84,7 @@ export function load(id: string, signal: AbortSignal): Promise<Ready> {
   signal.throwIfAborted();
   const s = ++seq;
   selected = s;
-  hifi.set({ track: null });
+  hifi.set({ track: null, exact: false });
   return new Promise((res, rej) => {
     const cleanup = () => {
       clearTimeout(timer);
@@ -107,8 +106,11 @@ export function load(id: string, signal: AbortSignal): Promise<Ready> {
       rej: fail,
     });
     signal.addEventListener('abort', abort, { once: true });
-    void cmd({ cmd: 'load', id, seq: s }).then((ok) => {
-      if (!ok) waiting.get(s)?.rej(new Error('hifi-unavailable'));
+    queueMicrotask(() => {
+      if (selected !== s || !waiting.has(s)) return;
+      void cmd({ cmd: 'load', id, seq: s }).then((ok) => {
+        if (!ok) waiting.get(s)?.rej(new Error('hifi-unavailable'));
+      });
     });
   });
 }
@@ -118,6 +120,7 @@ export function start(seq: number, pos: number, notify: (event: OutputEvent) => 
   const run = { seq, runId: ++runId, notify };
   active = run;
   hold(pos);
+  hifi.set({ exact: false });
   void cmd({ cmd: 'play', pos, end: null, seq, run: run.runId }).then((ok) => {
     if (!ok && active === run) notify({ error: 'hifi-start-rejected' });
   });
@@ -126,6 +129,7 @@ export function pause(seq: number) {
   if (seq !== selected) return;
   hold(time());
   active = null;
+  hifi.set({ exact: false });
   void cmd({ cmd: 'pause', seq });
 }
 export function stop(seq: number) {
@@ -133,6 +137,7 @@ export function stop(seq: number) {
   selected = 0;
   active = null;
   hold(time());
+  hifi.set({ exact: false });
   void cmd({ cmd: 'stop', seq });
 }
 async function acknowledge(o: Record<string, unknown>) {
@@ -172,6 +177,8 @@ const notice = (n: Notice) => listeners.forEach((fn) => fn(n));
 export async function refresh() {
   if (!A) return;
   const s = await A.state();
+  if (s.processEpoch < processEpoch) return;
+  processEpoch = s.processEpoch;
   hifi.set({
     supported: s.supported,
     running: s.running,
@@ -184,12 +191,17 @@ export async function refresh() {
 }
 if (A) {
   A.onEvent((e) => {
+    if (!Number.isSafeInteger(e.processEpoch) || e.processEpoch < processEpoch) return;
+    processEpoch = e.processEpoch;
     switch (e.ev) {
       case 'pos':
         onPos(e);
         break;
       case 'ended':
-        if (matches(e)) active?.notify('ended');
+        if (matches(e) && clock.accepts(e.epoch)) {
+          hifi.set({ exact: false });
+          active?.notify('ended');
+        }
         break;
       case 'barrier':
         barriers.get(e.ticket)?.(e.ok !== false);
@@ -197,7 +209,7 @@ if (A) {
       case 'hello':
         lastGain = -1;
         lastHw = null;
-        hifi.set({ running: true, error: null, hw: null });
+        hifi.set({ running: true, error: null, hw: null, exact: false });
         break;
       case 'hwvol':
         hifi.set({ hw: { supported: !!e.supported, db: e.supported ? +e.db || 0 : 0 } });
@@ -206,10 +218,14 @@ if (A) {
         hifi.set({ devices: e.list || [] });
         break;
       case 'caps':
-        hifi.set({ caps: e, fallback: false });
+        hifi.set({ caps: e });
         break;
       case 'device':
-        hifi.set({ device: e.open ? e : null });
+        hifi.set({
+          device: e.open ? e : null,
+          fallback: !!e.open && e.requestedExclusive && !e.exclusive,
+          exact: false,
+        });
         break;
       case 'ready':
         if (e.seq === selected) hifi.set({ track: { src: e.src, out: e.out } });
@@ -223,9 +239,10 @@ if (A) {
         }
         break;
       case 'lost':
-        if (!matches(e)) break;
+        if (!matches(e) || !clock.accepts(e.epoch)) break;
         if (e.resume) {
-          hold(time());
+          clock.observe({ ...e, run: false, limit: e.t }, performance.now());
+          hifi.set({ exact: false });
           active?.notify('buffering');
           notice('lost');
         } else active?.notify({ error: e.msg || 'hifi-device' });
@@ -233,7 +250,7 @@ if (A) {
       case 'error':
         if (e.code === 'decode' && waiting.has(e.seq)) waiting.get(e.seq)!.rej(new Error('hifi-decode'));
         else if (e.code === 'decode' && e.seq === active?.seq) active?.notify({ error: 'hifi-decode' });
-        else if (e.code === 'device' && matches(e)) {
+        else if (e.code === 'device' && matches(e) && clock.accepts(e.epoch)) {
           hifi.set({ error: e.msg });
           active?.notify({ error: e.msg || 'hifi-device' });
         }
@@ -241,7 +258,8 @@ if (A) {
       case 'stopped':
       case 'down':
         lastHw = null;
-        hifi.set({ running: false, device: null, hw: null, track: null, caps: null, fallback: false });
+        hifi.set({ running: false, device: null, hw: null, track: null, caps: null, fallback: false, exact: false });
+        for (const settle of barriers.values()) settle(false);
         if (e.ev === 'down' || !hifiOn()) {
           const error = 'hifi-' + e.ev;
           for (const w of waiting.values()) w.rej(new Error(error));
@@ -262,14 +280,7 @@ export function describe(h: HifiState) {
   const out = d || t.out,
     exclusive = !!out.exclusive,
     resample = out.rate !== t.src.rate;
-  const bitperfect =
-    exclusive &&
-    !resample &&
-    !!t.src.bits &&
-    t.src.bits <= out.bits &&
-    t.src.ch <= 2 &&
-    settings.get().fixedVolume !== false &&
-    // (the balance on the samples, the device having no hardware volume of its own: not bit-perfect then)
-    !(settings.get().volBalance !== false && h.hw?.supported === false);
-  return { src, out: `${khz(out.rate)} kHz / ${out.bits} bit`, exclusive, resample, bitperfect };
+  const bitperfect = !!d && exclusive && h.exact;
+  const resolution = out.fmt === 'f32' ? 'float32' : `${out.bits} bit`;
+  return { src, out: `${khz(out.rate)} kHz / ${resolution}`, exclusive, resample, bitperfect };
 }

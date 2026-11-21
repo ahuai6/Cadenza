@@ -22,9 +22,10 @@ use symphonia::core::units::{Time, TimeBase, Timestamp};
 pub struct SrcInfo {
     pub rate: u32,
     pub ch: usize,
-    pub bits: Option<u32>, // None for lossy codecs (they decode to floating point)
+    pub bits: Option<u32>, // Known valid bits of integer PCM, where the container reports them.
     pub frames: Option<u64>,
     pub codec: String,
+    pub lossless: bool,
 }
 
 // what the decoder produces for the output
@@ -45,6 +46,7 @@ pub struct Q {
     pub err: Option<String>,
     pub quit: bool,
     pub closed: bool,
+    pub refill_at: usize,
 }
 
 pub struct Shared {
@@ -75,13 +77,16 @@ impl Shared {
         let (q, _) = self.cv.wait_timeout_while(q, timeout, |q| !q.closed).unwrap();
         q.closed
     }
+    pub fn closed(&self) -> bool {
+        self.q.lock().unwrap().closed
+    }
 }
 
 const AHEAD_SEC: f64 = 6.0; // how far ahead the queue is kept full
 
 pub fn spawn(path: String, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>) -> Arc<Shared> {
     let sh = Arc::new(Shared {
-        q: Mutex::new(Q { buf: VecDeque::new(), base: 0, eof: false, seek: None, gen: 0, info: None, plan: None, err: None, quit: false, closed: false }),
+        q: Mutex::new(Q { buf: VecDeque::new(), base: 0, eof: false, seek: None, gen: 0, info: None, plan: None, err: None, quit: false, closed: false, refill_at: 0 }),
         cv: Condvar::new(),
     });
     let s2 = sh.clone();
@@ -123,9 +128,10 @@ fn open(path: &str) -> Result<(Reader, SrcInfo), String> {
     // (gapless: the decoder trims the encoder's delay and padding)
     let dec = symphonia::default::get_codecs().make_audio_decoder(p, &AudioDecoderOptions::default().gapless(true)).map_err(|e| format!("codec: {e}"))?;
     let codec = dec.codec_info().short_name.to_string();
-    let lossless = matches!(codec.as_str(), "flac" | "alac" | "wavpack") || codec.starts_with("pcm");
-    let bits = if lossless { p.bits_per_sample.or(p.bits_per_coded_sample) } else { None };
-    let info = SrcInfo { rate, ch, bits, frames: track.num_frames, codec };
+    let integer = codec.starts_with("pcm_s") || codec.starts_with("pcm_u");
+    let lossless = matches!(codec.as_str(), "flac" | "alac" | "wavpack") || integer || codec.starts_with("pcm_f");
+    let bits = if lossless && !codec.starts_with("pcm_f") { p.bits_per_sample.or(p.bits_per_coded_sample) } else { None };
+    let info = SrcInfo { rate, ch, bits, frames: track.num_frames, codec, lossless };
     let tid = track.id;
     let tb = track.time_base;
     Ok((Reader { fmt, dec, tid, tb }, info))
@@ -139,12 +145,17 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
         q.info = Some(info.clone());
         q.plan = Some(plan);
     }
-    let cap = (AHEAD_SEC * plan.rate as f64) as usize * plan.ch;
+    let per_second = plan.rate as usize * plan.ch;
+    let cap = ((AHEAD_SEC * per_second as f64) as usize).min(4 * 1024 * 1024).max(per_second / 2);
     let mut conv = Convert::new(&info, plan);
     let mut sbuf: Vec<i32> = Vec::new();
     let mut gen = 0u64;
     let mut skip: u64 = 0; // source frames still to drop after a seek (seeks land on a packet boundary)
     let mut done = false;
+    let mut stall = std::env::var("CADENZA_AUDIO_FAKE").ok().and_then(|s| {
+        s.split(';').find_map(|kv| kv.strip_prefix("stall-decoder-ms=")?.parse::<u64>().ok())
+    });
+    let mut produced = 0usize;
     loop {
         // wait until there is room, a seek, or the end
         let seek = {
@@ -153,10 +164,13 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
                 if q.quit {
                     return Ok(());
                 }
-                if q.seek.is_some() || (!done && q.buf.len() < cap) {
+                let threshold = if q.refill_at != 0 { q.refill_at } else { cap };
+                if q.seek.is_some() || (!done && q.buf.len() < threshold) {
+                    q.refill_at = 0;
                     break;
                 }
-                q = sh.cv.wait_timeout(q, Duration::from_millis(100)).unwrap().0;
+                q.refill_at = if done { 0 } else { cap - per_second.min(cap) / 4 };
+                q = sh.cv.wait(q).unwrap();
             }
             let s = q.seek.take();
             if s.is_some() {
@@ -187,12 +201,25 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
         if done {
             continue;
         }
+        if produced >= (plan.rate as usize * plan.ch * 7 / 10) {
+            if let Some(ms) = stall.take() {
+                let q = sh.q.lock().unwrap();
+                let gen = q.gen;
+                drop(sh.cv.wait_timeout_while(q, Duration::from_millis(ms.min(4000)), |q| !q.quit && q.gen == gen).unwrap());
+                continue;
+            }
+        }
         let pkt = match rd.fmt.next_packet() {
             Ok(Some(p)) => p,
-            Ok(None) | Err(SymErr::IoError(_)) | Err(SymErr::ResetRequired) => {
+            Ok(None) | Err(SymErr::ResetRequired) => {
                 // the end of the file: flush the resampler's tail
                 let tail = conv.flush();
                 push(sh, gen, tail, true);
+                done = true;
+                continue;
+            }
+            Err(SymErr::IoError(ref error)) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                push(sh, gen, conv.flush(), true);
                 done = true;
                 continue;
             }
@@ -223,6 +250,7 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
             continue;
         }
         let out = conv.push(s, sch);
+        produced = produced.saturating_add(out.len());
         push(sh, gen, out, false);
     }
 }
