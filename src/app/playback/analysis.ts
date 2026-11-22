@@ -13,8 +13,8 @@ import {
   type RhythmAnalysis,
 } from '../../engine';
 
-import { Lib, mediaUrl } from '../bridge';
-import { lib, trackOf } from '../state';
+import { Lib, mediaUrl, type AnalysisToken } from '../bridge';
+import { lib, settings, trackOf } from '../state';
 
 let busy = false,
   paused = false,
@@ -58,59 +58,71 @@ const upgrade = new Set<string>();
 const inflight = new Map<string, Promise<RhythmAnalysis>>();
 export function analyzeNow(
   id: string,
-  decoded?: AudioBuffer | null,
-  urgent = false,
-  duration?: number,
+  {
+    decoded,
+    urgent = false,
+    duration,
+    granted,
+  }: { decoded?: AudioBuffer | null; urgent?: boolean; duration?: number; granted?: AnalysisToken } = {},
 ): Promise<RhythmAnalysis> {
-  let p = inflight.get(id);
+  const input = trackOf(id)?.mediaRevision;
+  const { rhythmRuntime, rhythmDevice } = settings.get();
+  const key = JSON.stringify([id, input, rhythmEngine(), neuralDrums(), rhythmRuntime, rhythmDevice]);
+  let p = inflight.get(key);
   if (!p) {
     // (needed at once: the beats on the GPU have 20 s, else the built-in analysis answers; the drums come later)
     // (in the background the GPU has a time in proportion to the song — a minute and a little over half the song's own
     // length — then the built-in analysis answers: a slow or stalled GPU never holds the whole library's queue)
     p = (async () => {
-      const buf = decoded || (await decodeForAnalysis(id, false, undefined, duration)),
-        dur = buf.length / buf.sampleRate;
-      const opts = urgent ? { drums: false, timeoutMs: 20_000, urgent: true } : { timeoutMs: 60_000 + dur * 600 };
-      // (the neural engine only, and it did not answer while the player waited: the song plays on a tempo grid, and is
-      // analysed again in the background, with the time a background analysis has)
-      lib.set({ analysisFor: id });
-      let a = await analyzeInBackground(buf, (k) => lib.set({ analysisNow: k, analysisFor: id }), opts)
-        .catch((e) => {
-          if (urgent && rhythmEngine() === 'neural') {
-            upgrade.add(id);
-            setTimeout(() => loop(), 30_000);
-          }
-          throw e;
-        })
-        .finally(() => lib.set({ analysisFor: null, analysisNow: null }));
-      // (a reading that is not sound — rhythm/validate.ts — is never kept: the built-in analysis has one more go, and a
-      // song it cannot read either is marked failed, with why, instead of being analysed again and again)
-      let why = checkAnalysis(a, dur);
-      if (why && a.engine !== 'dsp') {
-        console.warn('[analysis]', id, why, '— the built-in analysis tries');
-        a = await analyzeInBackground(buf, undefined, { ...opts, engine: 'dsp' });
-        why = checkAnalysis(a, dur);
+      const issued = granted ?? (await Lib?.analysisToken(id));
+      const token = issued?.source === input ? issued : null;
+      try {
+        const buf = decoded || (await decodeForAnalysis(id, false, undefined, duration)),
+          dur = buf.length / buf.sampleRate;
+        const opts = urgent ? { drums: false, timeoutMs: 20_000, urgent: true } : { timeoutMs: 60_000 + dur * 600 };
+        // (the neural engine only, and it did not answer while the player waited: the song plays on a tempo grid, and is
+        // analysed again in the background, with the time a background analysis has)
+        lib.set({ analysisFor: id });
+        let a = await analyzeInBackground(buf, (k) => lib.set({ analysisNow: k, analysisFor: id }), opts)
+          .catch((e) => {
+            if (urgent && rhythmEngine() === 'neural') {
+              upgrade.add(id);
+              setTimeout(() => loop(), 30_000);
+            }
+            throw e;
+          })
+          .finally(() => lib.set({ analysisFor: null, analysisNow: null }));
+        // (a reading that is not sound — rhythm/validate.ts — is never kept: the built-in analysis has one more go, and a
+        // song it cannot read either is marked failed, with why, instead of being analysed again and again)
+        let why = checkAnalysis(a, dur);
+        if (why && a.engine !== 'dsp') {
+          console.warn('[analysis]', id, why, '— the built-in analysis tries');
+          a = await analyzeInBackground(buf, undefined, { ...opts, engine: 'dsp' });
+          why = checkAnalysis(a, dur);
+        }
+        if (why) {
+          console.warn('[analysis]', id, why);
+          throw new Error(why);
+        }
+        if (token) await Lib?.saveAnalysis(id, a, token);
+        // (and a song the GPU did not answer in time, when it can run at all: no second built-in pass on a machine without one)
+        if (
+          urgent &&
+          (a.stems === 'skipped'
+            ? neuralDrums()
+            : a.engine === 'dsp' && rhythmEngine() !== 'dsp' && (await neuralStatus()).ok)
+        ) {
+          upgrade.add(id);
+          setTimeout(() => loop(), 30_000);
+        }
+        return a;
+      } catch (error) {
+        if (token) await Lib?.analysisFailed(id, String((error as Error)?.message || error).slice(0, 200), token);
+        throw error;
       }
-      if (why) {
-        console.warn('[analysis]', id, why);
-        await Lib?.analysisFailed(id, why);
-        throw Object.assign(new Error(why), { reported: true });
-      }
-      await Lib?.saveAnalysis(id, a);
-      // (and a song the GPU did not answer in time, when it can run at all: no second built-in pass on a machine without one)
-      if (
-        urgent &&
-        (a.stems === 'skipped'
-          ? neuralDrums()
-          : a.engine === 'dsp' && rhythmEngine() !== 'dsp' && (await neuralStatus()).ok)
-      ) {
-        upgrade.add(id);
-        setTimeout(() => loop(), 30_000);
-      }
-      return a;
     })();
-    inflight.set(id, p);
-    const done = () => inflight.delete(id);
+    inflight.set(key, p);
+    const done = () => inflight.delete(key);
     void p.then(done, done);
   }
   return p;
@@ -133,21 +145,18 @@ async function loop() {
         if (await verifyCached()) continue;
         break;
       }
+      if (!trackOf(job.id)?.audioContentId) break;
+      const token = await Lib.analysisToken(job.id);
+      // A watcher or later scan will wake the queue with the current file. Avoid spinning on stale paths.
+      if (!token || token.source !== trackOf(job.id)?.mediaRevision) break;
       upgrade.delete(job.id);
       if (job.only === 'loudness') {
-        // a song analysed before the volume balance: only how loud it is
         try {
-          await Lib.saveLoudness(job.id, await loudnessInBackground(await decodeForAnalysis(job.id, true)));
+          await Lib.saveLoudness(job.id, await loudnessInBackground(await decodeForAnalysis(job.id, true)), token);
         } catch {
-          await Lib.saveLoudness(job.id, null);
+          await Lib.saveLoudness(job.id, null, token);
         }
-      } else
-        try {
-          await analyzeNow(job.id);
-        } catch (e) {
-          if (!(e as { reported?: boolean }).reported)
-            await Lib.analysisFailed(job.id, String((e as Error)?.message || e).slice(0, 200));
-        }
+      } else await analyzeNow(job.id, { granted: token }).catch(() => {});
       await sleep(120);
     }
   } finally {
@@ -164,13 +173,15 @@ async function verifyCached(): Promise<boolean> {
         wake = r;
       });
     // (no length to compare with here: a tag's duration can be off — that check is made against decoded audio only)
+    const token = await Lib.analysisToken(id);
+    if (!token) continue;
     const a = await Lib.analysis(id, RHYTHM_VERSION).catch(() => null),
       why = checkAnalysis(a);
     if (why) {
       console.warn('[analysis] cached analysis of', id, 'is unsound:', why);
       await Lib.reanalyze([id]);
       bad = true;
-    } else await Lib.verified(id, RHYTHM_VERSION);
+    } else await Lib.verified(id, RHYTHM_VERSION, token);
     await sleep(40);
   }
   return bad;
@@ -178,6 +189,7 @@ async function verifyCached(): Promise<boolean> {
 export function startAnalysis() {
   if (!Lib) return;
   Lib.onWake(() => loop());
+  Lib.onChanged(() => loop());
   setTimeout(loop, 1500);
 }
 /** Hold the library's queue (between songs) for a reason — an export, or the effect lyrics on screen while a song plays

@@ -305,7 +305,7 @@ async function analyzeVisual(
     signal.throwIfAborted();
   }
   signal.throwIfAborted();
-  const analysis = (focusedAnalysis = analyzeNow(id, pcm, urgent, duration).catch(() => null));
+  const analysis = (focusedAnalysis = analyzeNow(id, { decoded: pcm, urgent, duration }).catch(() => null));
   void analysis.then(() => {
     if (focusedAnalysis === analysis) focusedAnalysis = null;
   });
@@ -927,7 +927,7 @@ export async function songForWorkshop(t: Track) {
   // (the workshop works on the whole reading)
   return {
     buffer,
-    analysis: cached || (await analyzeNow(t.id, buffer, false).catch(() => null)),
+    analysis: cached || (await analyzeNow(t.id, { decoded: buffer }).catch(() => null)),
     song,
     lyrics: t.instrumental ? '' : lyr?.text || '',
     name: t.file,

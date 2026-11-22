@@ -15,6 +15,9 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { serveFile } = require('./file-response.cjs');
 const { serveAlac } = require('./alac.cjs');
+const { binPath } = require('./audio.cjs');
+const identity = require('./audio-identity.cjs');
+const { openLibrary, replace, assertDirectory } = require('./library-storage.cjs');
 const { manifest: mp4Manifest } = require('./mp4-integrity.cjs');
 const { isDeepStrictEqual } = require('node:util');
 const { promisify } = require('node:util');
@@ -50,7 +53,7 @@ const P = {
   db: () => path.join(root(), 'db.json'),
   covers: () => path.join(root(), 'covers'),
   thumbs: () => path.join(root(), 'thumbs'),
-  analysis: () => path.join(root(), 'rhythm'),
+  analysis: () => path.join(root(), 'rhythm-v2'),
   songs: () => path.join(root(), 'songs'),
 };
 
@@ -58,36 +61,39 @@ let db = null,
   mm = null,
   send = () => {};
 let want = 0; // the rhythm SDK version the page asks for (it tells us with each request)
-const empty = () => ({ version: 1, folders: [], tracks: {}, favorites: [], playlists: [], overrides: {} });
+let preferences = {};
+const activeTrack = (id) => (Object.hasOwn(db.tracks, id) && !db.tracks[id].detached ? db.tracks[id] : null);
 
 async function load() {
-  for (const d of [root(), P.covers(), P.thumbs(), P.analysis(), P.songs()]) await fsp.mkdir(d, { recursive: true });
-  try {
-    db = { ...empty(), ...JSON.parse(await fsp.readFile(P.db(), 'utf8')) };
-  } catch (e) {
-    db = empty();
+  for (const d of [root(), P.covers(), P.thumbs(), P.analysis(), P.songs()]) {
+    await fsp.mkdir(d, { recursive: true });
+    await assertDirectory(d);
   }
+  db = await openLibrary(P.db());
+  db.derived ??= {};
 }
-// written shortly after the last change, through a temporary file so a crash never leaves half a database
-let saveTm = 0,
-  saving = Promise.resolve();
-function save() {
+
+let saveTm = 0;
+let saving = Promise.resolve();
+function flush() {
   clearTimeout(saveTm);
-  saveTm = setTimeout(() => {
-    saving = saving
-      .then(async () => {
-        const tmp = P.db() + '.tmp';
-        await fsp.writeFile(tmp, JSON.stringify(db));
-        await fsp.rename(tmp, P.db());
-      })
-      .catch(() => {});
-  }, 400);
+  saveTm = 0;
+  const body = JSON.stringify(db);
+  saving = saving.catch(() => {}).then(() => replace(P.db(), body));
+  return saving;
+}
+function save() {
+  if (saveTm) return;
+  saveTm = setTimeout(() => void flush().catch((error) => console.error('[library save]', error)), 400);
 }
 let changeTm = 0;
 function changed() {
   save();
-  clearTimeout(changeTm);
-  changeTm = setTimeout(() => send('lib:changed', view()), 120);
+  if (!changeTm)
+    changeTm = setTimeout(() => {
+      changeTm = 0;
+      send('lib:changed', view());
+    }, 120);
 }
 
 // what the page sees: tracks with the user's edits applied, no paths beyond the file name
@@ -115,6 +121,16 @@ function trackView(t) {
     sampleRate: t.sampleRate || 0,
     channels: t.channels || 0,
     mediaRevision: mediaRevision(t),
+    audioContentId: identity.validId(t.audioContentId) ? t.audioContentId : null,
+    identityState: t.protected
+      ? 'protected'
+      : identity.validId(t.audioContentId)
+        ? 'verified'
+        : t.identityError
+          ? 'unverified'
+          : 'pending',
+    metadataRevision: t.metadataRevision || 0,
+    lyricsRevision: t.lyricsRevision || 0,
     bits: t.bits || 0,
     lossless: !!t.lossless,
     ext: path.extname(t.path).slice(1).toLowerCase(),
@@ -125,7 +141,7 @@ function trackView(t) {
     embedded: !!t.embedded,
     ttml: !!(t.ttml || t.ttmlFile),
     protected: !!t.protected,
-    analyzed: t.analyzed || 0,
+    analyzed: rhythmSummary(t)?.version || 0,
     added: t.added,
     plays: t.plays || 0,
     last: t.last || 0,
@@ -133,7 +149,7 @@ function trackView(t) {
     edited: Object.keys(o).some((k) => k !== 'coverKey' && k !== 'instrumental'),
     coverSet: !!o.coverKey,
     instrumental: !!o.instrumental,
-    loudness: t.loudness || null,
+    loudness: loudnessOf(t),
     // what the file itself says, for the edit form's placeholders and per-field reset
     tags: {
       title: t.title || path.parse(t.path).name,
@@ -150,122 +166,17 @@ function trackView(t) {
 function view() {
   return {
     folders: db.folders.slice(),
-    tracks: Object.values(db.tracks).map(trackView),
+    tracks: Object.values(db.tracks)
+      .filter((t) => !t.detached)
+      .map(trackView),
+    identityConflicts: Object.values(db.tracks)
+      .filter((t) => t.detached)
+      .map((t) => ({ id: t.id, file: path.basename(t.path), reason: t.detached })),
     favorites: db.favorites.slice(),
     playlists: db.playlists.map((p) => ({ ...p, tracks: p.tracks.slice() })),
   };
 }
 
-/* ---------- identity: the same recording keeps its id when moved or renamed ---------- */
-async function fileId(p, size) {
-  const fh = await fsp.open(p, 'r');
-  const h = crypto.createHash('sha1');
-  h.update(String(size));
-  try {
-    const n = Math.min(65536, size),
-      a = Buffer.alloc(n);
-    await fh.read(a, 0, n, 0);
-    h.update(a);
-    if (size > n) {
-      const b = Buffer.alloc(n);
-      await fh.read(b, 0, n, Math.max(0, size - n));
-      h.update(b);
-    }
-  } finally {
-    await fh.close();
-  }
-  return h.digest('hex').slice(0, 20);
-}
-/* The audio's own key: a hash of the sound alone, not of the file. Tags live at the head (ID3v2, FLAC metadata blocks,
-   an MP4's boxes before its media) and at the tail (ID3v1, APE) — editing them changes the file, not the sound — so the
-   key reads only the audio payload: its length, and 64 KB at its start, middle and end. A song whose tags were edited,
-   or that was renamed or moved, keeps its key, and with it its analysis, its plays and everything bound to it. */
-async function audioKey(p, size) {
-  const fh = await fsp.open(p, 'r');
-  try {
-    const rd = async (pos, n) => {
-      const b = Buffer.alloc(Math.max(0, Math.min(n, size - pos)));
-      if (b.length) await fh.read(b, 0, b.length, pos);
-      return b;
-    };
-    let a = 0,
-      b = size;
-    const head = await rd(0, 64);
-    if (head.toString('latin1', 0, 3) === 'ID3') {
-      a =
-        10 +
-        (((head[6] & 0x7f) << 21) | ((head[7] & 0x7f) << 14) | ((head[8] & 0x7f) << 7) | (head[9] & 0x7f)) +
-        (head[5] & 0x10 ? 10 : 0);
-    }
-    if (head.toString('latin1', 0, 4) === 'fLaC') {
-      a = 4;
-      for (let k = 0; k < 64 && a < size; k++) {
-        const h = await rd(a, 4);
-        const last = h[0] & 0x80,
-          len = h.readUIntBE(1, 3);
-        a += 4 + len;
-        if (last) break;
-      }
-    } else if (head.toString('latin1', 4, 8) === 'ftyp') {
-      let q = 0;
-      for (let k = 0; k < 64 && q + 8 <= size; k++) {
-        const h = await rd(q, 16);
-        let len = h.readUInt32BE(0);
-        const ty = h.toString('latin1', 4, 8);
-        let hd = 8;
-        if (len === 1) {
-          len = Number(h.readBigUInt64BE(8));
-          hd = 16;
-        } else if (len === 0) len = size - q;
-        if (ty === 'mdat') {
-          a = q + hd;
-          b = q + len;
-          break;
-        }
-        if (len < 8) break;
-        q += len;
-      }
-    } else if (head.toString('latin1', 0, 4) === 'RIFF') {
-      let q = 12;
-      for (let k = 0; k < 64 && q + 8 <= size; k++) {
-        const h = await rd(q, 8),
-          len = h.readUInt32LE(4),
-          ty = h.toString('latin1', 0, 4);
-        if (ty === 'data') {
-          a = q + 8;
-          b = Math.min(size, q + 8 + len);
-          break;
-        }
-        q += 8 + len + (len & 1);
-      }
-    }
-    // (the tail: an ID3v1 tag, an APE tag before it)
-    if (b === size && size > 128) {
-      const t = await rd(size - 128, 128);
-      if (t.toString('latin1', 0, 3) === 'TAG') b -= 128;
-      const ap = await rd(Math.max(0, b - 32), 32);
-      if (ap.toString('latin1', 0, 8) === 'APETAGEX')
-        b -= ap.readUInt32LE(12) + (ap.readUInt32LE(20) & 0x80000000 ? 32 : 0);
-    }
-    // (an MPEG stream's first frame may be its Xing/LAME info frame — rewritten by tools that only touch tags — so the
-    // sound is read from a little after it)
-    {
-      const f = await rd(a, 4);
-      if (f[0] === 0xff && (f[1] & 0xe0) === 0xe0 && b - a > 65536 * 3 + 8192) a += 4096;
-    }
-    if (!(b > a)) {
-      a = 0;
-      b = size;
-    }
-    const n = Math.min(65536, b - a),
-      h = crypto.createHash('sha1');
-    h.update('audio:' + (b - a));
-    for (const at of [a, a + Math.floor((b - a - n) / 2), b - n]) h.update(await rd(at, n));
-    return h.digest('hex').slice(0, 20);
-  } finally {
-    await fh.close();
-  }
-}
 const ttmlSidecar = (p) => {
   const b = p.slice(0, -path.extname(p).length);
   for (const e of ['.ttml', '.TTML']) if (fs.existsSync(b + e)) return b + e;
@@ -373,6 +284,7 @@ async function readTags(p) {
     codec: f.codec || f.container || '',
     bitrate: f.bitrate || 0,
     cover: pic ? pic.data : null,
+    tagLyric: digest(JSON.stringify([mp4LyricOf(r.native), ttmlOf(r.native), c.lyrics || []])),
     embedded: mp4LyricOf(r.native) !== null || !!c.lyrics?.length,
     ttml: !!ttmlOf(r.native),
     // the sound itself (for the quality label) and the credits (for the ending card)
@@ -385,9 +297,116 @@ async function readTags(p) {
     tv: TAGS_V,
   };
 }
+// Pending discoveries need only one stat snapshot. Full verification runs separately from the scan and the player.
+const pending = new Map();
+let activeIdentity = null,
+  indexing = false,
+  stopping = false;
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function queueIdentity(track, previous) {
+  if (stopping || track.protected) return;
+  const stamp = track.sourceStamp;
+  const queued = pending.get(track.path);
+  if (queued?.stamp === stamp) return;
+  if (activeIdentity?.track.path === track.path && activeIdentity.stamp === stamp) return;
+  if (activeIdentity?.track.path === track.path) activeIdentity.controller.abort();
+  pending.set(track.path, { track, previous, stamp });
+}
+async function indexAudio() {
+  if (indexing) return;
+  indexing = true;
+  try {
+    while (!stopping && pending.size) {
+      const [file, entry] = pending.entries().next().value;
+      pending.delete(file);
+      const { track, previous, stamp } = entry;
+      const controller = new AbortController();
+      activeIdentity = { track, controller, stamp };
+      let content;
+      try {
+        content = await identity.fingerprint(binPath(), file, stamp, controller.signal);
+      } catch {
+        // A corrupt or unsupported file can still use the ordinary output. It has no reusable analysis identity.
+      } finally {
+        activeIdentity = null;
+      }
+      const current = await fsp.stat(file).catch(() => null);
+      if (
+        stopping ||
+        controller.signal.aborted ||
+        pending.has(file) ||
+        track.sourceStamp !== stamp ||
+        !current ||
+        identity.revision(current) !== stamp
+      )
+        continue;
+      if (previous) {
+        if (
+          db.tracks[previous.id] === previous &&
+          previous.detached &&
+          content &&
+          content === previous.audioContentId
+        ) {
+          track.id = previous.id;
+          track.added = previous.added;
+          track.last = previous.last;
+          track.plays = previous.plays;
+          track.metadataRevision = (previous.metadataRevision || 0) + Number(!sameMetadata(track, previous));
+          track.lyricsRevision =
+            (previous.lyricsRevision || 0) +
+            Number(track.sidecarStamp !== previous.sidecarStamp || track.tagLyric !== previous.tagLyric);
+        }
+      } else if (db.tracks[track.id] !== track || track.detached) continue;
+      track.audioContentId = content;
+      track.identityError = !content;
+      db.tracks[track.id] = track;
+      changed();
+      send('lib:wake');
+      await pause(40);
+    }
+  } finally {
+    indexing = false;
+  }
+}
+
+const metadataFields = [
+  'title',
+  'artist',
+  'album',
+  'albumArtist',
+  'genre',
+  'year',
+  'date',
+  'copyright',
+  'isrc',
+  'upc',
+  'track',
+  'disc',
+  'composer',
+  'lyricist',
+  'coverKey',
+];
+const sameMetadata = (a, b) => metadataFields.every((k) => isDeepStrictEqual(a[k], b[k]));
+
+async function sidecars(track) {
+  const files = [ttmlSidecar(track.path), sidecar(track.path)];
+  const stamps = await Promise.all(
+    files.map(async (file) => {
+      const info = file && (await fsp.stat(file).catch(() => null));
+      return info ? identity.revision(info) : '';
+    }),
+  );
+  const current = stamps.join('|');
+  if (track.sidecarStamp !== current) track.lyricsRevision = (track.lyricsRevision || 0) + 1;
+  track.sidecarStamp = current;
+  [track.ttmlFile, track.lrc] = files.map(Boolean);
+}
+
 let scanning = false,
   rescan = false;
 async function scan() {
+  if (stopping) return;
   if (scanning) {
     rescan = true;
     return;
@@ -397,96 +416,122 @@ async function scan() {
     do {
       rescan = false;
       const files = [];
-      for (const d of db.folders) await walk(d, files);
-      const seen = new Set(files),
-        byPath = new Map(Object.values(db.tracks).map((t) => [t.path, t]));
-      let done = 0;
-      send('lib:progress', { phase: 'scan', done, total: files.length });
-      const queue = files.slice(),
-        work = async () => {
-          for (let p; (p = queue.shift()); ) {
-            try {
-              const st = await fsp.stat(p),
-                old = byPath.get(p);
-              if (old && old.size === st.size && old.mtime === st.mtimeMs) {
-                old.lrc = !!sidecar(p);
-                old.ttmlFile = !!ttmlSidecar(p);
-                if (!old.ak && !old.protected) old.ak = await audioKey(p, st.size).catch(() => undefined); // (a song from before audio keys: its key, once)
-                if (!old.protected && old.tv !== TAGS_V) {
-                  const tg = await readTags(p).catch(() => null);
-                  if (tg) {
-                    delete tg.cover;
-                    Object.assign(old, tg);
-                    if (alac(old.codec)) {
-                      old.failed = false;
-                      delete old.failWhy;
-                      delete old.loudFailed;
-                    }
-                  }
-                }
-              } else {
-                // which song this is: the one at this path, or (moved, renamed) one gone from its path, whose sound is the same —
-                // then it keeps its id; tags written into the file change the file, never the sound
-                const ak = await audioKey(p, st.size).catch(() => null),
-                  same = (t) => t && ak && t.ak === ak;
-                const moved =
-                  ak && !same(old)
-                    ? Object.values(db.tracks).find((t) => t.ak === ak && t.path !== p && !seen.has(t.path))
-                    : null;
-                const id = same(old) ? old.id : moved ? moved.id : await fileId(p, st.size),
-                  x = path.extname(p).toLowerCase(),
-                  prev = db.tracks[id];
-                const base = {
-                  id,
-                  ak,
-                  path: p,
-                  size: st.size,
-                  mtime: st.mtimeMs,
-                  added: prev?.added || Date.now(),
-                  plays: prev?.plays || 0,
-                  last: prev?.last || 0,
-                  lrc: !!sidecar(p),
-                  ttmlFile: !!ttmlSidecar(p),
-                  failed: false,
-                };
-                if (PROTECTED.has(x)) db.tracks[id] = { ...base, title: path.parse(p).name, protected: true };
-                else {
-                  const tg = await readTags(p).catch(() => ({}));
-                  const coverKey = await storeCover(tg.cover).catch(() => null);
-                  delete tg.cover;
-                  // (the analysis goes with the sound: kept while the audio key is the same, whatever happened to the tags)
-                  db.tracks[id] = {
-                    ...prev,
-                    ...base,
-                    ...tg,
-                    coverKey,
-                    protected: false,
-                    analyzed: prev?.analyzed && (prev.ak ? prev.ak === ak : prev.size === st.size) ? prev.analyzed : 0,
-                    ...(prev && prev.ak && prev.ak !== ak ? { loudness: undefined } : {}),
-                  };
-                }
-                if (old && old.id !== id) delete db.tracks[old.id];
-              }
-            } catch (e) {
-              /* unreadable file: skipped this time */
-            }
-            done++;
-            if (done % 8 === 0 || done === files.length)
-              send('lib:progress', { phase: 'scan', done, total: files.length });
+      for (const folder of db.folders) await walk(folder, files);
+      const seen = new Set(files);
+      const rows = Object.values(db.tracks);
+      const byPath = new Map();
+      const orphansByKey = new Map();
+      for (const t of rows) {
+        const prior = byPath.get(t.path);
+        if (!prior || (prior.detached && !t.detached)) byPath.set(t.path, t);
+        if (!seen.has(t.path)) {
+          t.detached ||= 'missing';
+          if (t.fileKey) {
+            const matches = orphansByKey.get(t.fileKey) || [];
+            matches.push(t);
+            orphansByKey.set(t.fileKey, matches);
           }
-        };
-      await Promise.all([work(), work(), work(), work()]);
-      for (const t of Object.values(db.tracks)) if (!seen.has(t.path)) delete db.tracks[t.id]; // gone from disk (or its folder was removed)
-      const live = new Set(Object.keys(db.tracks));
-      db.favorites = db.favorites.filter((id) => live.has(id));
-      for (const pl of db.playlists) pl.tracks = pl.tracks.filter((id) => live.has(id));
+        }
+      }
+      for (const file of pending.keys()) if (!seen.has(file)) pending.delete(file);
+      if (activeIdentity && !seen.has(activeIdentity.track.path)) activeIdentity.controller.abort();
+      let done = 0;
+      send('lib:progress', { phase: 'scan', done, total: seen.size });
+      for (const file of seen) {
+        if (stopping) return;
+        try {
+          const st = await fsp.stat(file);
+          if (!st.isFile()) continue;
+          const stamp = identity.revision(st),
+            key = identity.fileKey(st);
+          const matches = orphansByKey.get(key);
+          const old = byPath.get(file) || (matches?.length === 1 ? matches[0] : null);
+          const legacyUnchanged =
+            old && !old.sourceStamp && old.path === file && old.size === st.size && old.mtime === st.mtimeMs;
+          const unchanged = old && (old.sourceStamp === stamp || legacyUnchanged);
+          if (unchanged) {
+            Object.assign(old, { path: file, fileKey: key, sourceStamp: stamp, size: st.size, mtime: st.mtimeMs });
+            delete old.detached;
+            await sidecars(old);
+            if (!old.protected && old.tv !== TAGS_V) {
+              const tags = await readTags(file).catch(() => null);
+              if (tags) {
+                delete tags.cover;
+                Object.assign(old, tags);
+              }
+            }
+            if (!identity.validId(old.audioContentId) && !old.identityError) queueIdentity(old);
+          } else {
+            // Keep an old entry and all its user data quarantined until bytes confirm a safe association.
+            if (old) old.detached = old.path === file ? 'changed' : 'missing';
+            if (
+              pending.get(file)?.stamp === stamp ||
+              (activeIdentity?.track.path === file && activeIdentity.stamp === stamp)
+            )
+              continue;
+            const track = {
+              id: crypto.randomBytes(16).toString('hex'),
+              path: file,
+              size: st.size,
+              mtime: st.mtimeMs,
+              fileKey: key,
+              sourceStamp: stamp,
+              added: Date.now(),
+              plays: 0,
+              last: 0,
+              metadataRevision: (old?.metadataRevision || 0) + 1,
+              lyricsRevision: (old?.lyricsRevision || 0) + 1,
+              protected: PROTECTED.has(path.extname(file).toLowerCase()),
+            };
+            await sidecars(track);
+            if (track.protected) {
+              track.title = path.parse(file).name;
+            } else {
+              const tags = await readTags(file).catch(() => ({}));
+              track.coverKey = await storeCover(tags.cover).catch(() => null);
+              delete tags.cover;
+              Object.assign(track, tags);
+            }
+            const previous = !track.protected && old && identity.validId(old.audioContentId) ? old : null;
+            if (!previous) db.tracks[track.id] = track;
+            queueIdentity(track, previous);
+          }
+        } catch {
+          // An unreadable path can be reconsidered on the next scan.
+        } finally {
+          done++;
+          if (done % 8 === 0) send('lib:progress', { phase: 'scan', done, total: seen.size });
+        }
+      }
       changed();
-      send('lib:progress', { phase: 'idle', done: files.length, total: files.length });
+      send('lib:progress', { phase: 'idle', done: seen.size, total: seen.size });
       send('lib:wake');
+      void indexAudio().catch((error) => console.error('[audio identity]', error));
     } while (rescan);
   } finally {
     scanning = false;
   }
+}
+
+async function indexExisting() {
+  for (const t of Object.values(db.tracks)) {
+    if (t.protected || t.detached) continue;
+    const st = await fsp.stat(t.path).catch(() => null);
+    if (
+      !st?.isFile() ||
+      st.size !== t.size ||
+      st.mtimeMs !== t.mtime ||
+      (t.sourceStamp && t.sourceStamp !== identity.revision(st))
+    ) {
+      t.detached = st?.isFile() ? 'changed' : 'missing';
+      continue;
+    }
+    t.fileKey = identity.fileKey(st);
+    t.sourceStamp = identity.revision(st);
+    if (!identity.validId(t.audioContentId) && !t.identityError) queueIdentity(t);
+  }
+  changed();
+  await indexAudio();
 }
 
 /* ---------- watching: a folder that changes is rescanned a moment later ---------- */
@@ -514,108 +559,228 @@ function watchAll() {
     }
 }
 
-/* ---------- the rhythm cache: RhythmAnalysis JSON per song, compressed ---------- */
-/** Analyse these songs again: their cached analyses dropped, each first in the queue. */
+/* ---------- derived audio data, addressed by verified content and algorithm ---------- */
+const loudnessVersion = 1;
+const flavor = () => {
+  const engine = ['neural', 'dsp'].includes(preferences.rhythmEngine) ? preferences.rhythmEngine : 'auto';
+  return [
+    engine,
+    preferences.rhythmDrums === false ? 'nodrums' : 'drums',
+    preferences.rhythmRuntime === 'webgpu' ? 'webgpu' : 'auto',
+    preferences.rhythmDevice === 'cpu' ? 'cpu' : 'auto',
+  ].join('-');
+};
+const summary = (t) => (identity.validId(t?.audioContentId) ? db.derived[t.audioContentId] : null);
+const rhythmSummary = (t) => summary(t)?.rhythm?.[flavor()];
+const loudnessOf = (t) => {
+  const record = summary(t);
+  const l = record?.loudness;
+  return record?.loudnessVersion === loudnessVersion && Number.isFinite(l?.lufs) && Number.isFinite(l?.peak) ? l : null;
+};
+const contentRecord = (key) => (db.derived[key] ??= { rhythm: {} });
+const analysisVersion = (n) => Number.isSafeInteger(n) && n > 0;
+const analysisFlavor = (value) => /^(auto|dsp|neural)-(drums|nodrums)-(auto|webgpu)-(auto|cpu)$/.test(value);
+const anFile = (key, settings, version) => {
+  if (!identity.validId(key) || !analysisFlavor(settings) || !analysisVersion(version))
+    throw new Error('invalid rhythm key');
+  return path.join(P.analysis(), `${key.slice(-64)}-${settings}-${version}.json.gz`);
+};
+const digest = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
+let cacheEpoch = 0,
+  writes = Promise.resolve();
+const trackEpoch = new Map();
+function serialize(write) {
+  const operation = writes.catch(() => {}).then(write);
+  writes = operation;
+  return operation;
+}
+function matchesToken(id, token) {
+  const t = activeTrack(id);
+  return (
+    t &&
+    token &&
+    token.id === id &&
+    identity.validId(t.audioContentId) &&
+    token.content === t.audioContentId &&
+    token.source === t.sourceStamp &&
+    token.epoch === cacheEpoch &&
+    token.revision === (trackEpoch.get(t.audioContentId) || 0) &&
+    token.settings === flavor()
+  );
+}
+async function currentSource(t) {
+  if (!t || !t.sourceStamp) return false;
+  const st = await fsp.stat(t.path).catch(() => null);
+  return st?.isFile() && identity.revision(st) === t.sourceStamp;
+}
+async function analysisToken(id) {
+  const t = activeTrack(id);
+  if (!t || !identity.validId(t.audioContentId) || !(await currentSource(t)) || activeTrack(id) !== t) return null;
+  return {
+    id,
+    content: t.audioContentId,
+    source: t.sourceStamp,
+    epoch: cacheEpoch,
+    revision: trackEpoch.get(t.audioContentId) || 0,
+    settings: flavor(),
+  };
+}
 async function reanalyze(ids) {
+  const contents = new Set();
   for (const id of ids) {
-    const t = db.tracks[id];
-    if (!t || t.protected) continue;
-    t.analyzed = 0;
-    t.ok = 0;
-    t.failed = false;
-    delete t.failWhy;
-    await fsp.rm(anFile(id), { force: true }).catch(() => {});
+    const t = activeTrack(id);
+    if (t && identity.validId(t.audioContentId)) contents.add(t.audioContentId);
   }
-  priority = [...ids.filter((id) => db.tracks[id]), ...priority.filter((id) => !ids.includes(id))];
-  save();
-  changed();
-  analysisProgress();
-  send('lib:wake');
-  return true;
+  for (const key of contents) trackEpoch.set(key, (trackEpoch.get(key) || 0) + 1);
+  return serialize(async () => {
+    for (const key of contents) {
+      const record = db.derived[key];
+      for (const [settings, row] of Object.entries(record?.rhythm || {}))
+        if (analysisFlavor(settings) && analysisVersion(row?.version))
+          await fsp.rm(anFile(key, settings, row.version), { force: true });
+      if (record) record.rhythm = {};
+    }
+    for (const t of Object.values(db.tracks)) {
+      if (!contents.has(t.audioContentId)) continue;
+      delete t.failWhy;
+      delete t.failed;
+    }
+    priority = [...ids.filter(activeTrack), ...priority.filter((id) => !ids.includes(id))];
+    changed();
+    analysisProgress();
+    send('lib:wake');
+    return true;
+  });
 }
 async function clearDir(d) {
   try {
+    await assertDirectory(d);
     for (const f of await fsp.readdir(d)) await fsp.rm(path.join(d, f), { force: true, recursive: true });
   } catch (e) {
-    /* not there */
+    if (e.code !== 'ENOENT') throw e;
   }
 }
-const anFile = (id) => path.join(P.analysis(), id.replace(/[^a-f0-9]/g, '') + '.json.gz');
-async function saveAnalysis(id, a) {
-  const t = db.tracks[id];
-  if (!t || !a || typeof a.version !== 'number' || !Array.isArray(a.beats)) return false;
-  await fsp.writeFile(anFile(id), await gzip(Buffer.from(JSON.stringify(a)), { level: 6 }));
-  if (!want) want = a.version; // (a song saved before the page's first request for the queue says which version is wanted)
-  t.analyzed = a.version;
-  t.failed = false;
-  if (a.duration && !t.duration) t.duration = a.duration;
-  if (a.loudness) setLoud(t, a.loudness);
-  save();
-  analysisProgress();
-  return true;
+async function saveAnalysis(id, a, token) {
+  if (!matchesToken(id, token) || !analysisVersion(a?.version) || !Array.isArray(a.beats) || a.partial) return false;
+  const body = JSON.stringify(a);
+  const envelope = JSON.stringify({
+    key: token.content,
+    settings: token.settings,
+    version: a.version,
+    sum: digest(body),
+    body,
+  });
+  if (Buffer.byteLength(envelope) > 32 * 1024 * 1024) {
+    await analysisFailed(id, 'rhythm cache size budget', token);
+    return false;
+  }
+  const encoded = await gzip(Buffer.from(envelope), { level: 6 });
+  return serialize(async () => {
+    const valid = () => matchesToken(id, token);
+    const t = activeTrack(id);
+    if (!valid() || !(await currentSource(t)) || !valid()) return false;
+    const file = anFile(token.content, token.settings, a.version);
+    if (!(await replace(file, encoded, valid)) || !valid()) return false;
+    const record = contentRecord(token.content);
+    const prev = record.rhythm[token.settings];
+    record.rhythm[token.settings] = { version: a.version, checked: false };
+    if (analysisVersion(prev?.version) && prev.version !== a.version)
+      await fsp.rm(anFile(token.content, token.settings, prev.version), { force: true });
+    if (!want) want = a.version;
+    if (a.duration && !t.duration) t.duration = a.duration;
+    if (a.loudness) setLoud(record, a.loudness);
+    delete t.failed;
+    delete t.failWhy;
+    changed();
+    analysisProgress();
+    return true;
+  });
 }
 async function getAnalysis(id, version) {
+  const token = await analysisToken(id);
+  if (!token) return null;
+  const t = activeTrack(id),
+    row = rhythmSummary(t);
+  if (!row || (version != null && row.version !== version)) return null;
   try {
-    const a = JSON.parse((await gunzip(await fsp.readFile(anFile(id)))).toString());
-    return version == null || a.version === version ? a : null;
-  } catch (e) {
+    const file = anFile(token.content, token.settings, row.version);
+    const MAX = 32 * 1024 * 1024;
+    if ((await fsp.stat(file)).size > MAX) throw new Error('oversized rhythm cache');
+    const data = JSON.parse((await gunzip(await fsp.readFile(file), { maxOutputLength: MAX })).toString());
+    if (
+      data.key !== token.content ||
+      data.settings !== token.settings ||
+      data.version !== row.version ||
+      data.sum !== digest(data.body)
+    )
+      throw new Error('invalid rhythm cache');
+    const result = JSON.parse(data.body);
+    if (!Array.isArray(result.beats) || result.version !== row.version) throw new Error('invalid rhythm data');
+    return matchesToken(id, token) && (await currentSource(t)) && matchesToken(id, token) ? result : null;
+  } catch {
+    if (matchesToken(id, token) && rhythmSummary(t) === row) delete summary(t).rhythm[token.settings];
+    changed();
+    send('lib:wake');
     return null;
   }
 }
-// progress of the background analysis, as a small event: a large library is not re-sent to the page after every song
 let apTm = 0;
 function analysisProgress() {
   clearTimeout(apTm);
   apTm = setTimeout(() => {
-    const all = Object.values(db.tracks).filter((t) => !t.protected && !t.failed),
-      done = all.filter((t) => t.analyzed === want).length;
+    const all = Object.values(db.tracks).filter(
+      (t) => !t.detached && !t.protected && !t.identityError && t.failed !== flavor(),
+    );
+    const done = all.filter((t) => rhythmSummary(t)?.version === want).length;
     send('lib:analysis', { done, total: all.length });
-    if (done === all.length) changed();
   }, 150);
 }
-// a song's loudness (the volume balance), kept with the track: small, and the player needs it before the analysis
-const setLoud = (t, l) => {
-  if (l && isFinite(l.lufs) && isFinite(l.peak))
-    t.loudness = { lufs: +(+l.lufs).toFixed(2), peak: +(+l.peak).toFixed(4) };
+const setLoud = (record, l) => {
+  if (Number.isFinite(l?.lufs) && Number.isFinite(l?.peak)) {
+    record.loudness = { lufs: +l.lufs.toFixed(2), peak: +l.peak.toFixed(4) };
+    record.loudnessVersion = loudnessVersion;
+  }
 };
-function saveLoudness(id, l) {
-  const t = db.tracks[id];
-  if (!t) return false;
-  if (l) setLoud(t, l);
-  else t.loudFailed = true;
+function saveLoudness(id, l, token) {
+  return serialize(async () => {
+    const t = activeTrack(id);
+    if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return false;
+    if (l) setLoud(contentRecord(token.content), l);
+    else t.loudFailed = true;
+    changed();
+    return true;
+  });
+}
+async function analysisFailed(id, why, token) {
+  const t = activeTrack(id);
+  if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return false;
+  t.failed = flavor();
+  t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined;
   save();
-  changed();
+  analysisProgress();
   return true;
 }
-// the queue: songs the player asked for first, then the most recently played and added; once every song is analysed,
-// the songs analysed before the volume balance have only their loudness measured (no full analysis again)
 let priority = [];
 function nextJob(version) {
   if (version) want = version;
-  const pick = (id) => {
-    const t = db.tracks[id];
-    return t && !t.protected && t.analyzed !== want && !t.failed ? t : null;
-  };
-  const loudPick = (id) => {
-    const t = db.tracks[id];
-    return t && !t.protected && t.analyzed === want && !t.loudness && !t.loudFailed ? t : null;
+  const ready = (t) => t && !t.detached && !t.protected && identity.validId(t.audioContentId);
+  const pick = (t) => {
+    if (!ready(t)) return null;
+    if (rhythmSummary(t)?.version !== want) return t.failed === flavor() ? null : { id: t.id };
+    if (!loudnessOf(t) && !t.loudFailed) return { id: t.id, only: 'loudness' };
+    return null;
   };
   while (priority.length) {
-    const id = priority.shift(),
-      t = pick(id);
-    if (t) return { id: t.id };
-    const u = loudPick(id);
-    if (u) return { id: u.id, only: 'loudness' };
+    const item = pick(activeTrack(priority.shift()));
+    if (item) return item;
   }
-  const byRecent = (a, b) => b.last - a.last || b.added - a.added;
-  const t = Object.values(db.tracks)
-    .filter((x) => pick(x.id))
-    .sort(byRecent)[0];
-  if (t) return { id: t.id };
-  const u = Object.values(db.tracks)
-    .filter((x) => loudPick(x.id))
-    .sort(byRecent)[0];
-  return u ? { id: u.id, only: 'loudness' } : null;
+  return (
+    Object.values(db.tracks)
+      .sort((a, b) => b.last - a.last || b.added - a.added)
+      .map(pick)
+      .find(Boolean) || null
+  );
 }
 
 /* ---------- per-song data: the lyric style bound to this song, lock, MV, timing ---------- */
@@ -629,7 +794,7 @@ async function getSong(id) {
 }
 // the page may change everything here except which video file is bound as the MV: that only comes from the open dialog
 async function setSong(id, data, fromDialog) {
-  if (!db.tracks[id] || !data || typeof data !== 'object') return false;
+  if (!activeTrack(id) || !data || typeof data !== 'object') return false;
   if (!fromDialog) {
     const old = await getSong(id);
     data = {
@@ -644,8 +809,8 @@ async function setSong(id, data, fromDialog) {
 
 /* ---------- lyrics: the .lrc beside the audio file, or the lyrics embedded in it ---------- */
 async function readLyrics(id) {
-  const t = db.tracks[id];
-  if (!t) return null;
+  const t = activeTrack(id);
+  if (!t || (t.sourceStamp && !(await currentSource(t)))) return null;
   const sc = sidecar(t.path);
   // TTML first — a .ttml beside the file, or a TTML field in its tags — unless the listener has edited the lyrics here
   // since (their edit is kept as LRC and read from then on)
@@ -693,8 +858,9 @@ async function readLyrics(id) {
 /** Save a song's lyrics: into the file's own lyrics tag (target 'tag': ID3 USLT, Vorbis LYRICS, MP4 ©lyr), or as the .lrc
  *  beside it. A .lrc already there is kept in step either way (it is read first). Returns how it went. */
 async function writeLyrics(id, text, target = 'lrc') {
-  const t = db.tracks[id];
+  const t = activeTrack(id);
   if (!t || t.protected) return { ok: false, why: 'protected' };
+  if (t.sourceStamp && !(await currentSource(t))) return { ok: false, why: 'changed' };
   // TTML: kept as TTML, beside the file (and read first again); other lyrics on a song that has TTML: the listener's own
   // edit, read from then on in place of the TTML
   const o = db.overrides[id] || {};
@@ -702,7 +868,7 @@ async function writeLyrics(id, text, target = 'lrc') {
   if (target === 'ttml' || (ttml && target === 'tag' && ttmlSidecar(t.path))) {
     const b = t.path.slice(0, -path.extname(t.path).length);
     await writeLyricSidecar(ttmlSidecar(t.path) || b + '.ttml', String(text));
-    t.ttmlFile = true;
+    await sidecars(t);
     if (o.preferLrc) {
       delete o.preferLrc;
       db.overrides[id] = o;
@@ -717,15 +883,20 @@ async function writeLyrics(id, text, target = 'lrc') {
   if (target === 'tag') {
     const why = await writeTagLyrics(t, String(text));
     if (why) return { ok: false, why };
-    t.embedded = true;
+    t.embedded = !!text;
+    t.lyricsRevision = (t.lyricsRevision || 0) + 1;
+    const tags = await readTags(t.path).catch(() => null);
+    if (tags) t.tagLyric = tags.tagLyric;
     if (ttml) t.ttml = true;
     else if (mp4Audio(t.path)) t.ttml = false;
-    if (sc && !ttml) await writeLyricSidecar(sc, '\ufeff' + crlf);
-    // (the file's new size and time: the next scan sees the same song — its audio key is unchanged, so its analysis stays)
-    const st = await fsp.stat(t.path).catch(() => null);
-    if (st) {
-      t.size = st.size;
-      t.mtime = st.mtimeMs;
+    if (sc && !ttml) {
+      await writeLyricSidecar(sc, '\ufeff' + crlf);
+      await sidecars(t);
+    }
+    if (!t.audioContentId) {
+      delete t.identityError;
+      queueIdentity(t);
+      void indexAudio().catch((error) => console.error('[audio identity]', error));
     }
     const preference = { ...o };
     if (!ttml && ttmlSidecar(t.path)) preference.preferLrc = true;
@@ -737,7 +908,7 @@ async function writeLyrics(id, text, target = 'lrc') {
   }
   await writeLyricSidecar(sc || t.path.slice(0, -path.extname(t.path).length) + '.lrc', '\ufeff' + crlf);
   if (t.ttml || ttmlSidecar(t.path)) db.overrides[id] = { ...o, preferLrc: true };
-  t.lrc = true;
+  await sidecars(t);
   changed();
   return { ok: true, target: 'lrc' };
 }
@@ -762,7 +933,12 @@ async function writeTagLyrics(track, text) {
     const tmp = path.join(path.dirname(p), '.cadenza-' + crypto.randomBytes(12).toString('hex') + ext);
     try {
       const before = await fsp.stat(p);
-      if (before.size !== track.size || before.mtimeMs !== track.mtime) return 'changed';
+      if (
+        before.size !== track.size ||
+        before.mtimeMs !== track.mtime ||
+        (track.sourceStamp && identity.revision(before) !== track.sourceStamp)
+      )
+        return 'changed';
       const beforeMp4 = mp4Audio(p) ? await mp4Manifest(p) : null;
       await fsp.copyFile(p, tmp, fs.constants.COPYFILE_EXCL);
       const f = taglib.File.createFromPath(tmp);
@@ -788,6 +964,10 @@ async function writeTagLyrics(track, text) {
         )
           return 'verification';
       }
+      if (identity.validId(track.audioContentId)) {
+        const proof = await identity.fingerprint(binPath(), tmp, identity.revision(await fsp.stat(tmp)));
+        if (proof !== track.audioContentId) return 'verification';
+      }
       const now = await fsp.stat(p);
       if (
         now.size !== before.size ||
@@ -796,7 +976,15 @@ async function writeTagLyrics(track, text) {
         now.ino !== before.ino
       )
         return 'changed';
+      if (activeTrack(track.id) !== track) return 'changed';
       await fsp.rename(tmp, p);
+      const stat = await fsp.stat(p);
+      Object.assign(track, {
+        size: stat.size,
+        mtime: stat.mtimeMs,
+        fileKey: identity.fileKey(stat),
+        sourceStamp: identity.revision(stat),
+      });
       return null;
     } catch (e) {
       const busy = ['EBUSY', 'EPERM', 'EACCES'].includes(e && e.code);
@@ -950,32 +1138,56 @@ async function searchMeta(q) {
 }
 // apply a chosen match: its tags as an override in the library (the audio file is never rewritten)
 async function applyMeta(id, m) {
-  const t = db.tracks[id];
+  const t = activeTrack(id);
   if (!t) return false;
+  const rev = t.metadataRevision || 0;
   const o = { ...(db.overrides[id] || {}) };
-  for (const k of ['title', 'artist', 'album', 'year']) if (m[k]) o[k] = m[k];
-  if (m.genre && m.genre.length) o.genre = m.genre;
+  const applied = ['title', 'artist', 'album', 'year'].filter((k) => m[k]);
+  for (const k of applied) o[k] = m[k];
+  if (m.genre && m.genre.length) {
+    o.genre = m.genre;
+    applied.push('genre');
+  }
   o.mbid = m.mbid;
   if (m.mbid) {
     try {
       const g = await mb(`https://musicbrainz.org/ws/2/recording/${m.mbid}?fmt=json&inc=genres`);
-      if (g.genres && g.genres.length)
+      if (g.genres && g.genres.length) {
         o.genre = g.genres
           .sort((a, b) => b.count - a.count)
           .slice(0, 3)
           .map((x) => x.name);
+        applied.push('genre');
+      }
     } catch (e) {
       /* tags without genres */
     }
   }
+  if (activeTrack(id) !== t || (t.metadataRevision || 0) !== rev) return false;
   db.overrides[id] = o;
+  if (m.mbid)
+    recordFieldOrigins(id, o, applied, {
+      provider: 'musicbrainz',
+      namespace: 'recording',
+      id: String(m.mbid),
+      access: { kind: 'public' },
+      availability: {},
+    });
+  t.metadataRevision = (t.metadataRevision || 0) + 1;
   changed();
   return true;
 }
 // the user's own edits: a field left empty goes back to what the file says
 const EDITABLE = ['title', 'artist', 'album', 'albumArtist', 'year', 'genre', 'track', 'disc'];
+function recordFieldOrigins(id, fields, keys, source) {
+  const origins = (db.fieldOrigins[id] ??= {});
+  for (const key of keys) {
+    if (Object.hasOwn(fields, key)) origins[key] = { source };
+    else delete origins[key];
+  }
+}
 function editMeta(id, f) {
-  const t = db.tracks[id];
+  const t = activeTrack(id);
   if (!t || !f) return false;
   const o = { ...(db.overrides[id] || {}) };
   for (const k of EDITABLE) {
@@ -999,7 +1211,15 @@ function editMeta(id, f) {
     else o[k] = v;
   }
   delete o.mbid;
+  if (activeTrack(id) !== t) return false;
   db.overrides[id] = o;
+  recordFieldOrigins(
+    id,
+    o,
+    EDITABLE.filter((key) => Object.hasOwn(f, key)),
+    'manual',
+  );
+  t.metadataRevision = (t.metadataRevision || 0) + 1;
   changed();
   return true;
 }
@@ -1091,8 +1311,9 @@ async function searchCovers(q) {
 }
 // set a song's cover: a chosen search result, an image file the user picks, or back to the file's own
 async function setCover(id, how, getWin) {
-  const t = db.tracks[id];
+  const t = activeTrack(id);
   if (!t) return false;
+  const rev = t.metadataRevision || 0;
   const o = { ...(db.overrides[id] || {}) };
   if (how && how.reset) delete o.coverKey;
   else if (how && how.url) {
@@ -1110,7 +1331,10 @@ async function setCover(id, how, getWin) {
     o.coverKey = await storeCover(await fsp.readFile(r.filePaths[0]));
   } else return false;
   if (!o.coverKey) delete o.coverKey;
+  if (activeTrack(id) !== t || (t.metadataRevision || 0) !== rev) return false;
   db.overrides[id] = o;
+  recordFieldOrigins(id, o, ['coverKey'], 'manual');
+  t.metadataRevision = (t.metadataRevision || 0) + 1;
   changed();
   return true;
 }
@@ -1127,20 +1351,30 @@ function setInstrumental(id, on) {
 }
 // back to what the file says: its tags, its cover, or both
 function resetMeta(id, part) {
+  const t = activeTrack(id);
+  if (!t) return false;
   const o = { ...(db.overrides[id] || {}) };
   // (marking a song as an instrumental is not one of its tags: resetting them keeps it)
   if (part === 'cover') delete o.coverKey;
   else if (part === 'tags') {
-    for (const k of Object.keys(o)) if (k !== 'coverKey' && k !== 'instrumental') delete o[k];
-  } else for (const k of Object.keys(o)) if (k !== 'instrumental') delete o[k];
+    for (const k of Object.keys(o)) if (k !== 'coverKey' && k !== 'instrumental' && k !== 'preferLrc') delete o[k];
+  } else for (const k of Object.keys(o)) if (k !== 'instrumental' && k !== 'preferLrc') delete o[k];
   if (Object.keys(o).length) db.overrides[id] = o;
   else delete db.overrides[id];
+  recordFieldOrigins(
+    id,
+    o,
+    Object.keys(db.fieldOrigins[id] || {}).filter((key) => !Object.hasOwn(o, key)),
+    'manual',
+  );
+  t.metadataRevision = (t.metadataRevision || 0) + 1;
   changed();
   return true;
 }
 
 /* ---------- cadenza:// — covers, thumbnails, audio and a song's MV ---------- */
-const mediaRevision = (t) => (Number.isFinite(t.mtime) && Number.isFinite(t.size) ? `${t.size}:${t.mtime}` : '');
+const mediaRevision = (t) =>
+  t.sourceStamp || (Number.isFinite(t.mtime) && Number.isFinite(t.size) ? `${t.size}:${t.mtime}` : '');
 const MIME = {
   '.mp3': 'audio/mpeg',
   '.m4a': 'audio/mp4',
@@ -1173,18 +1407,19 @@ function registerProtocol() {
         return serveFile(p, req, kind === 'thumb' ? 'image/jpeg' : 'image/*');
       }
       if (kind === 'media') {
-        const t = key && raw === key && db.tracks[key];
+        const t = key && raw === key && activeTrack(key);
         if (!t || t.protected) return new Response(null, { status: 404 });
         const revision = u.searchParams.get('rev');
         if (revision && revision !== mediaRevision(t)) {
           return new Response(null, { status: 409, headers: { 'Access-Control-Allow-Origin': '*' } });
         }
-        if (alac(t.codec)) return await serveAlac(t.path, req, t);
+        const expected = { size: t.size, mtime: t.mtime, sourceStamp: t.sourceStamp };
+        if (alac(t.codec)) return await serveAlac(t.path, req, expected);
         return await serveFile(
           t.path,
           req,
           MIME[path.extname(t.path).toLowerCase()] || 'application/octet-stream',
-          revision ? t : null,
+          expected,
         );
       }
       if (kind === 'workshop-audio') {
@@ -1299,12 +1534,17 @@ function register(ipcMain, getWin) {
     else if (op === 'add') {
       for (const id of [].concat(b)) if (db.tracks[id] && !p.tracks.includes(id)) p.tracks.push(id);
     } else if (op === 'remove') p.tracks = p.tracks.filter((id) => ![].concat(b).includes(id));
-    else if (op === 'order') p.tracks = [].concat(b).filter((id) => p.tracks.includes(id));
+    else if (op === 'order') {
+      const current = new Set(p.tracks);
+      const ordered = [...new Set([].concat(b).filter((id) => current.has(id)))];
+      const moved = new Set(ordered);
+      p.tracks = [...ordered, ...p.tracks.filter((id) => !moved.has(id))];
+    }
     changed();
     return true;
   });
   ipcMain.handle('lib:played', (_e, id) => {
-    const t = db.tracks[id];
+    const t = activeTrack(id);
     if (t) {
       t.plays = (t.plays || 0) + 1;
       t.last = Date.now();
@@ -1312,49 +1552,45 @@ function register(ipcMain, getWin) {
     }
   });
   ipcMain.handle('lib:analysis', (_e, id, version) => getAnalysis(id, version));
-  ipcMain.handle('lib:saveAnalysis', (_e, id, a) => saveAnalysis(id, a));
-  ipcMain.handle('lib:saveLoudness', (_e, id, l) => saveLoudness(id, l));
-  ipcMain.handle('lib:analysisFailed', (_e, id, why) => {
-    const t = db.tracks[id];
-    if (t) {
-      t.failed = true;
-      t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined;
-      save();
-      analysisProgress();
-    }
-  });
-  // the cache's own upkeep: songs analysed again, a sound analysis remembered as checked, the caches cleared, everything reset
+  ipcMain.handle('lib:analysisToken', (_e, id) => analysisToken(id));
+  ipcMain.handle('lib:saveAnalysis', (_e, id, a, token) => saveAnalysis(id, a, token));
+  ipcMain.handle('lib:saveLoudness', (_e, id, l, token) => saveLoudness(id, l, token));
+  ipcMain.handle('lib:analysisFailed', (_e, id, why, token) => analysisFailed(id, why, token));
   ipcMain.handle('lib:reanalyze', (_e, ids) =>
     reanalyze(ids === 'all' ? Object.keys(db.tracks) : Array.isArray(ids) ? ids : []),
   );
-  ipcMain.handle('lib:verified', (_e, id, version) => {
-    const t = db.tracks[id];
-    if (t && t.analyzed === version) {
-      t.ok = version;
+  ipcMain.handle('lib:verified', async (_e, id, version, token) => {
+    const t = activeTrack(id);
+    if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return;
+    const row = rhythmSummary(t);
+    if (row?.version === version) {
+      row.checked = true;
       save();
     }
   });
   ipcMain.handle('lib:unverified', (_e, version) =>
     Object.values(db.tracks)
-      .filter((t) => !t.protected && t.analyzed === version && t.ok !== version)
+      .filter((t) => !t.detached && rhythmSummary(t)?.version === version && !rhythmSummary(t).checked)
       .map((t) => t.id),
   );
-  ipcMain.handle('lib:clearCaches', async () => {
-    await clearDir(P.analysis());
-    await clearDir(P.thumbs());
-    for (const t of Object.values(db.tracks)) {
-      t.analyzed = 0;
-      t.ok = 0;
-      t.failed = false;
-      delete t.failWhy;
-      delete t.loudness;
-      delete t.loudFailed;
-    }
-    save();
-    changed();
-    analysisProgress();
-    send('lib:wake');
-    return true;
+  ipcMain.handle('lib:clearCaches', () => {
+    cacheEpoch++;
+    trackEpoch.clear();
+    return serialize(async () => {
+      await clearDir(P.analysis());
+      await clearDir(path.join(root(), 'rhythm'));
+      await clearDir(P.thumbs());
+      db.derived = {};
+      for (const t of Object.values(db.tracks)) {
+        delete t.failed;
+        delete t.failWhy;
+        delete t.loudFailed;
+      }
+      changed();
+      analysisProgress();
+      send('lib:wake');
+      return true;
+    });
   });
   ipcMain.handle('lib:nextAnalysis', (_e, version) => nextJob(version));
   ipcMain.handle('lib:prioritize', (_e, ids) => {
@@ -1362,7 +1598,7 @@ function register(ipcMain, getWin) {
     send('lib:wake');
   });
   ipcMain.handle('lib:song', async (_e, id) => {
-    const s = await getSong(id);
+    const s = activeTrack(id) && (await getSong(id));
     if (s && s.mv) s.mv = { name: s.mv.name, offset: s.mv.offset || 0 };
     return s;
   });
@@ -1380,7 +1616,7 @@ function register(ipcMain, getWin) {
   ipcMain.handle('lib:searchCovers', (_e, q) => searchCovers(q || {}));
   ipcMain.handle('lib:setCover', (_e, id, how) => setCover(id, how, getWin));
   ipcMain.handle('lib:bindMv', async (_e, id) => {
-    if (!db.tracks[id]) return null;
+    if (!activeTrack(id)) return null;
     const r = await dialog.showOpenDialog(getWin(), {
       properties: ['openFile'],
       filters: [{ name: 'Video', extensions: ['mp4', 'm4v', 'webm', 'mov', 'mkv'] }],
@@ -1402,19 +1638,38 @@ function register(ipcMain, getWin) {
 }
 
 async function start(ipcMain, getWin, settings) {
+  preferences = settings;
   await load();
   registerProtocol();
   register(ipcMain, getWin);
   watchAll();
-  if (settings.scanOnLaunch !== false) setTimeout(scan, 600);
+  setTimeout(() => {
+    const work = settings.scanOnLaunch !== false && db.folders.length ? scan() : indexExisting();
+    void work.catch((error) => console.error('[library index]', error));
+  }, 600);
 }
 // the file behind a playable track (for the Hi-Fi output, which reads files itself); never a protected one
-const pathOf = (id) => {
-  const t = db.tracks[id];
-  return t && !t.protected ? t.path : null;
+const pathOf = async (id) => {
+  const t = activeTrack(id);
+  if (!t || t.protected) return null;
+  if (t.sourceStamp && (!(await currentSource(t)) || activeTrack(id) !== t)) return null;
+  return t.path;
 };
+async function close() {
+  stopping = true;
+  clearTimeout(watchTm);
+  clearTimeout(changeTm);
+  pending.clear();
+  activeIdentity?.controller.abort();
+  for (const watcher of watchers.values()) watcher.close();
+  if (db) {
+    await writes.catch(() => {});
+    await flush();
+  }
+}
 module.exports = {
   start,
+  close,
   pathOf,
   scheme: {
     scheme: 'cadenza',

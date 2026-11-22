@@ -1,9 +1,10 @@
 import type { SettingValues } from './settings/schema';
+import type { AudioContentId, LyricsRevision, MetadataRevision, TrackId } from '../core/media-identity';
 // What the page may ask the desktop for (electron/preload.cjs), typed. In the web build there is no desktop: files are
 // handed over as downloads and nothing else exists.
 
 export interface Track {
-  id: string;
+  id: TrackId;
   file: string;
   folder: string;
   title: string;
@@ -25,6 +26,10 @@ export interface Track {
   bits: number;
   channels?: number;
   mediaRevision?: string;
+  audioContentId?: AudioContentId | null;
+  identityState?: 'verified' | 'pending' | 'unverified' | 'protected';
+  metadataRevision?: MetadataRevision;
+  lyricsRevision?: LyricsRevision;
   lossless: boolean;
   ext: string;
   composer: string;
@@ -68,6 +73,16 @@ export interface LibView {
   tracks: Track[];
   favorites: string[];
   playlists: Playlist[];
+  identityConflicts?: { id: TrackId; file: string; reason: 'missing' | 'changed' }[];
+}
+
+export interface AnalysisToken {
+  id: TrackId;
+  content: AudioContentId;
+  source: string;
+  epoch: number;
+  revision: number;
+  settings: string;
 }
 /** What is bound to one song: its lyric style, lyric timing, the lock, its MV. */
 export interface SongData {
@@ -162,15 +177,17 @@ export interface LibApi {
   playlist(op: string, a?: unknown, b?: unknown): Promise<unknown>;
   played(id: string): Promise<void>;
   analysis(id: string, version?: number): Promise<unknown>;
-  saveAnalysis(id: string, a: unknown): Promise<boolean>;
-  saveLoudness(id: string, l: { lufs: number; peak: number } | null): Promise<boolean>;
-  analysisFailed(id: string, why?: string): Promise<void>;
+  analysisToken(id: string): Promise<AnalysisToken | null>;
+  saveAnalysis(id: string, a: unknown, token: AnalysisToken): Promise<boolean>;
+  saveLoudness(id: string, l: { lufs: number; peak: number } | null, token: AnalysisToken): Promise<boolean>;
+  analysisFailed(id: string, why: string, token: AnalysisToken): Promise<boolean>;
   /** analyse these songs again (their cached analysis dropped), first in the queue */ reanalyze(
     ids: string[] | 'all',
   ): Promise<boolean>;
   /** a cached analysis found sound: not checked again until a new version */ verified(
     id: string,
     version: number,
+    token: AnalysisToken,
   ): Promise<void>;
   /** the songs whose cached analysis of this version has not been checked yet */ unverified(
     version: number,

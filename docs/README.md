@@ -27,6 +27,7 @@
 | 重跑 3.6.0 基线、核对 G0 记录 | [`BASELINE-3.6.0.md`](BASELINE-3.6.0.md) |
 | 发布、依赖、数据兼容、环境的坑、已知的债 | [`MAINTENANCE.md`](MAINTENANCE.md) |
 | G4 复审、ALAC 音频和内嵌歌词兼容 | [`G4R.md`](G4R.md) |
+| G5 曲库索引迁移、音频身份与缓存 | [`IDENTITY.md`](IDENTITY.md) |
 | G5/G5.5 在线音乐研究、数据与模块边界 | [`ONLINE-RESEARCH.md`](ONLINE-RESEARCH.md) |
 | 每一版改了什么（写给用户） | [`RELEASE.md`](RELEASE.md) |
 

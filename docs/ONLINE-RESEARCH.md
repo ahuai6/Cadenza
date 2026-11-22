@@ -1,6 +1,6 @@
-# G4R 在线音乐前置研究
+# 在线音乐前置研究与 G5 决策
 
-对照 [Denza-Fork 参考文档](https://github.com/ahuai6/Denza-Fork/blob/7152ca59236ec7f753a7562e4ddeded7d0dcf39a/docs/DENZA-ONLINE-API.md) 和同一提交的源码。2026-11-22 核对 `custom` HEAD 为 `7152ca59236ec7f753a7562e4ddeded7d0dcf39a`（v3.2.9-denza.10），与固定参考无差异。本文把源码中有调用链、隔离测试有覆盖和公网现场可用分开记录。G4R 只研究接口，无登录、商业媒体下载或在线功能实现。
+对照 [Denza-Fork 参考文档](https://github.com/ahuai6/Denza-Fork/blob/7152ca59236ec7f753a7562e4ddeded7d0dcf39a/docs/DENZA-ONLINE-API.md) 和同一提交的源码。2026-11-22 核对 `custom` HEAD 为 `7152ca59236ec7f753a7562e4ddeded7d0dcf39a`（v3.2.9-denza.10），与固定参考无差异。本文把源码中有调用链、隔离测试有覆盖和公网现场可用分开记录。G4R 记录接口证据。G5 更新接入计划和认证边界，实际登录、翻译、播放及下载留到 G5.5。
 
 ## 1. 平台能力与证据
 
@@ -10,7 +10,7 @@
 | QQ 音乐 | SDK 搜索、二维码登录、私人歌单分页、MP3 档与 FLAC 请求，直接获取 QRC 或 SDK 回退 | 源码明确拒绝原生 Hi-Res。直接歌词和 SDK 回退有模拟测试。音质、会话恢复与全量歌单需要后续经授权验证。 |
 | 酷狗 | 社区 SDK 快照、设备注册、二维码和会话、私有／公开歌单、多个档位、KRC/LRC 和语言轨 | 有私有列表 ID、公开列表备选路径和测试。真实设备注册、权限、签名兼容及高档编码待确认。 |
 | Apple 官方 | 官方目录和个人资料库接口。Denza 通过网页会话发现令牌，外部浏览器播放 | Apple 文档确认目录、用户授权的资料库与歌单以及 MusicKit 播放。Cadenza 评估正式开发者令牌和 MusicKit 授权机制，保留外部官方播放。受保护流不可供本地分析、导出或下载。 |
-| LyricsFlow | 匿名第三方目录展开、歌词、独立文件服务 | 现场验证 OpenAPI、状态及匿名目录响应。文件服务自报解密链路，排除。目录优先用官方来源。歌词在来源与许可明确前保持关闭。 |
+| LyricsFlow | 匿名第三方目录展开、歌词、独立文件服务 | 现场验证 OpenAPI、状态及匿名目录响应。G5 决策将其列作独立候选。计划验证目录、歌词及经授权的文件服务，按能力逐项启用。 |
 | LRCLIB | 精确匹配和搜索已用于独立歌词入口 | 公共搜索返回预期的 JSON 数组。升级 Cadenza 现有入口时保留逐行与纯文本的精度标识。 |
 | AMLL TTML、QQ 换源 | 原参考中的生态和调研条目 | 无当前适配。AMLL 先核对所需曲目与使用许可，QQ 先对照真实契约和维护数据。 |
 
@@ -32,7 +32,8 @@
 
 - 官方目录按 `/v1/catalog/{storefront}/search` 使用 `term/types/limit/offset`。用户资料库按 `/v1/me/library/playlists` 与关系页请求，遵循官方 `next`、账户授权和地区。`l` 是元数据语言，`storefront` 是地区及目录范围。上传资源有个人资料库 ID，可能没有目录对应项。Denza 的 `apple-music.cjs` 从网页脚本发现开发者令牌，隔离窗口获取用户令牌并以 `/v1/me/storefront` 验证。Cadenza 应使用自己的签发服务或已授权集成，令牌只发往官方明确的主机，禁止从网页脚本抽取并复用他人令牌。Windows 播放到官方页面，MusicKit 内嵌另验平台与许可。 [Apple Music API](https://developer.apple.com/documentation/applemusicapi) · [MusicKit](https://developer.apple.com/musickit/) · [Apple 客户端源码](https://github.com/ahuai6/Denza-Fork/blob/7152ca5923/electron/apple-music.cjs)
 - LyricsFlow 的 `/openapi.json` 返回 200、`application/json`、OpenAPI 3.1.0／服务 2.0.0，未声明通用安全方案。匿名 `/search` 返回 200，含 `results.songs.data` 与 `meta`。无匹配歌词探针 `/lyrics/by-metadata` 返回 404 和 JSON `error`，有结果的歌词正文与版权来源未实测。文档中的 `/lyrics` 接受目录 ID 与地区，元数据入口接受标题、艺人、专辑、时长毫秒与地区。Denza 客户端解析结构化响应，保留原生 TTML，并限制目录展开分页最多 2,000 首、同源继续。 [服务协议](https://api.trylyricsflow.com/openapi.json) · [Denza 客户端](https://github.com/ahuai6/Denza-Fork/blob/7152ca5923/electron/online/lyricsflow-audio.cjs)
-- 服务 `/status` 确实返回 200，并自报音频、视频与解密处理能力。OpenAPI 针对文件路由的 `200` 只标示 JSON，未给出可信的音频二进制契约。本次仅核对协议与非媒体响应，没有请求文件、试听流或受保护音频。匿名可访问和上游代码许可证均无法证明音频或歌词的再分发权。Cadenza 不调用该文件与流服务。 [服务状态](https://api.trylyricsflow.com/status) · [Apple 开发者协议入口](https://developer.apple.com/support/terms/)
+- G5 在 G4R 之后调整产品决策，保留 LyricsFlow 的目录、链接展开、Apple Music 录音匹配、TTML 与元数据歌词回退，以及 MP3、FLAC、AAC、ALAC 文件服务的接入计划。Denza 客户端负责普通 HTTP 响应、重定向及文件校验。服务参数和状态只能说明其自报的服务行为。Apple Music 官方凭据始终限定在官方授权通道。LyricsFlow 使用独立匿名适配器，文件能力仅对可确认授权且不涉及规避媒体保护的响应启用。 [服务协议](https://api.trylyricsflow.com/openapi.json) · [Denza 客户端](https://github.com/ahuai6/Denza-Fork/blob/7152ca5923/electron/online/lyricsflow-audio.cjs)
+- G5.5 先用合成或明确授权的音频核对响应类型、首字节和停滞超时、重定向跟随、取消、完整时长与真实编码。Denza 的等待时间是参考配置。使用独立短期租约，拒绝 HTML、错误 JSON、试听冒充完整文件、格式降级和授权不明的资源。通过 MP4 探测区分 ALAC/AAC，扩展名从探测结果选择。G5 复核公开 OpenAPI 2.0.0 的目录、歌词和下载路由，无商业媒体响应测试。
 
 ### 下载、歌词与写入经验
 
@@ -40,12 +41,21 @@
 - Denza 的 `downloadLyricFormats()` 在 `interleave()` 后调用 `cleanBlankLyricRows()`。`translationLrc()` 将 TTML 临时转成 LRC 并清理，`mergeTranslations()` 输出时又清理一次。清理会移除空行、纯时间戳与 `//`；合并还可能重排、去重同时间戳行。这些路径不移植。可借鉴按行 ID 回填、按时间和原文匹配译文、保留读音、给位置猜测加提示。Denza 当前行 ID 以时间为主，新模型需要区分多个同起点的原词、和声或舞台行。`translation-service.cjs` 有 OpenAI、DeepSeek、兼容 HTTP 和 Codex 纯文本后端，响应按 ID 校验。测试中的假响应与临时音频只能证明客户端契约。 [下载歌词](https://github.com/ahuai6/Denza-Fork/blob/7152ca5923/src/lyrics/download.ts) · [译文匹配](https://github.com/ahuai6/Denza-Fork/blob/7152ca5923/src/lyrics/translation.ts) · [验证示例](https://github.com/ahuai6/Denza-Fork/blob/7152ca5923/tests/unit/online.test.ts)
 - Cadenza 已有 LRCLIB 精确搜索和普通搜索，2026-11-22 公开搜索探针返回 `200 []`。后续将其置于共同歌词候选入口，按歌曲版本和时长区分。AMLL 的 TTML 库和 API 源码许可分别标示为 CC0-1.0 和 Apache-2.0。第三方歌词的使用仍按来源、权利及地区审查，保持原始歌词的计时精度。 [LRCLIB](https://lrclib.net/docs) · [AMLL 数据库](https://github.com/amll-dev/amll-ttml-db) · [AMLL API](https://github.com/amll-dev/amll-ttml-api)
 
-## 2. G5 先确定持久化关系
+## Sign in with ChatGPT 与 AI 服务边界
+
+G5.5 优先接入官方 Sign in with ChatGPT 和 Responses API。账户身份认证与 ChatGPT 套餐调用分别授权。本地开源应用参考官方动态注册路径，实际套餐使用取决于预览资格、地区、工作区与账户权限，以及 OpenAI 对产品的适用条件。未获权限时保留本地编辑功能并提示账户状态。 [官方入门](https://developers.openai.com/siwc/quickstart) · [开源应用接入](https://developers.openai.com/siwc/token-sharing-open-source) · [Electron 示例](https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt)
+
+- Electron 主进程保存稳定且不含用户身份信息的 host ID。每个账户及工作区保存官方签发的客户端注册引用。系统浏览器完成 OAuth 2.0 授权，回环回调限制本次流程的状态、超时和地址，使用 PKCE S256 与 OIDC nonce。采用官方 SDK 或依据官方实现校验 ID Token 签名、issuer、audience、nonce 与过期时间，核对实际授予的调用权限。请求 `offline_access`、`resource.invoke` 和 `chatgpt.tokens.use.direct` 时按官方指引使用 `https://api.openai.com/v1` 资源。
+- 主进程使用系统凭据保护或 Electron safeStorage 加密令牌，Renderer 只接收账户引用、授权状态、模型目录和翻译结果。每账户合并刷新请求，分清临时失败、失效令牌、授权降级和退出。退出取消当前账户任务并清本地凭据，提供官方账户应用管理入口进行授权撤销。音乐平台凭据与 AI 账户存储隔离，日志过滤秘密。
+- 使用选定账户访问官方 `GET /v1/models`，展示当前账户可见的模型。对官方 `POST /v1/responses` 发起 `store: false`、`stream: true` 的 HTTP 请求，等到 `response.completed` 才接受完整结果。根据官方预览限制构造请求，处理额度、区域、工作区权限和模型能力。目标模型支持结构化输出时使用结构化结果，应用始终校验行 ID、文本和完整性。模型只处理用户选中的歌词文本，写回保留原时刻及其他轨道。 [模型与推理](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) · [预览限制](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+- G5.5 定义 AI 账户授权、模型发现和翻译任务的主进程接口，为其他合法服务保留独立适配器。依赖范围为官方 OAuth/OIDC 与公开 HTTP API，产品不嵌入 Codex CLI 或 app-server。
+
+## 2. G5 持久化关系
 
 | 记录 | 关键字段及规则 |
 | --- | --- |
 | `TrackId` | 一个可收藏、入队、编辑和统计的本地曲库条目。可关联多个 `RemoteTrackRef`。相同音频的其他条目仍独立。 |
-| `AudioContentId` | 按明确版本的规则对完整音频负载计算 SHA-256。MP4 需理解样本表、编辑表及解码配置，覆盖实际音频样本顺序；G4R 的 `mdat` 安全校验仍独立存在。重采样、重编码或更换有效样本必须重新验证有关缓存。文件正在更换且身份未知时隔离旧分析。 |
+| `AudioContentId` | 按 [G5 内容身份](IDENTITY.md) 的版本规则对完整音频包及解码配置计算 SHA-256。MP4 另纳入音轨样本及编辑表。G4R 的 `mdat` 安全校验继续用于标签事务。重采样、重编码或更换有效样本必须重新验证有关缓存。文件正在更换且身份未知时隔离旧分析。 |
 | `RemoteTrackRef` | `provider + namespace + providerId`。账户私有命名空间加本地账户引用，Apple 的目录、地区可用性和用户资料库引用分开。名称、时长、ISRC、专辑和版本词只形成候选关联。支持现场、重制、翻唱及同名冲突。 |
 | `RecordingMatch` | 两条引用的候选关系，记录证据、匹配置信度、人工选择和修订。不同平台的 ID 永不互相覆盖。 |
 | `MediaVariant` 与 `MediaLease` | 档位与资源引用记录名义编码、实际探测编码、码率、采样率及权限。临时 URL、响应头、范围能力及失效时点只留在短期授权租约中，和请求代次绑定。 |

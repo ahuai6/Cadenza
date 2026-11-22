@@ -33,6 +33,7 @@ function start(ipcMain, getWin, settings, library) {
     processEpoch = 0,
     configSerial = 0,
     configuration = null;
+  const pendingLoads = { current: null, next: null };
   const state = { running: false, devices: [], caps: null, device: null, error: null };
   const send = (ev) => {
     const w = getWin();
@@ -173,6 +174,14 @@ function start(ipcMain, getWin, settings, library) {
   ipcMain.handle('audio:state', () => ({ supported: supported(), processEpoch, ...state }));
   ipcMain.handle('audio:cmd', async (_e, o) => {
     if (!o || typeof o.cmd !== 'string') return false;
+    const lane = o.next ? 'next' : 'current';
+    if (o.cmd === 'load') pendingLoads[lane] = o;
+    if (o.cmd === 'clearnext' || o.cmd === 'release') pendingLoads.next = null;
+    if (
+      o.cmd === 'release' ||
+      ((o.cmd === 'stop' || o.cmd === 'closefile') && (!o.seq || pendingLoads.current?.seq === o.seq))
+    )
+      pendingLoads.current = null;
     if (o.cmd === 'wait-released') {
       if (!shutdown) return true;
       let timer;
@@ -194,8 +203,9 @@ function start(ipcMain, getWin, settings, library) {
       const owner = proc;
       const tx = configuration;
       if (!tx || !(await tx.done) || proc !== owner || configuration !== tx || shutdown) return false;
-      const p = library.pathOf(o.id);
-      if (!p) return false;
+      const p = await library.pathOf(o.id);
+      if (!p || pendingLoads[lane] !== o || proc !== owner || configuration !== tx || shutdown || !want) return false;
+      pendingLoads[lane] = null;
       return write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: Number.isSafeInteger(o.seq) ? o.seq : 0 });
     }
     if (

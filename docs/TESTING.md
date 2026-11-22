@@ -2,6 +2,13 @@
 
 4.0.0 重构使用 [3.6.0 隔离基线](BASELINE-3.6.0.md)。其中记录了同一提交的回归结果、普通与模拟 Hi-Fi 的独立时间点及硬件 GPU 帧数据。后续阶段比较时保留同样的环境、素材和测量口径。
 
+## G5 内容身份
+
+- 构建 Windows 原生 Release 后运行 `node --test tests/audio-identity.cjs`。使用 FFmpeg 生成音频，分别验证标签变化、MP4 编辑时间变化、编码内容变化和旧索引原子迁移。
+- Windows Electron 运行 `node tests/identity-desktop.cjs`。测试在合成 66 条曲目的资料目录中迁移旧索引，观察后台验证期间的真实 Web Audio 图信号，并验证同一内容多条目、同卷移动、文件替换、独立修订、失联资料、过期写入拒绝、缓存损坏恢复及同版本重启复用。
+- 本机两轮对照以旧声消失后发出播放命令至新歌曲进入播放态且图内有信号为口径，每轮每种条件各 6 次。身份索引尚余 52–62 条时，P50 为 55.8–58.9 ms，两轮最大值 110.9 ms。队列清空后 P50 为 40.9–41.8 ms，两轮最大值 62.4 ms。启动返回后约 768–804 ms 窗口就绪，完整曲库哈希仍在后台。该小样本仅说明本机并发起播行为，未测物理出声或大曲库下的尾部延迟。
+- 运行 `node tests/alac-desktop.cjs`、`node tests/streaming-desktop.cjs --space --alac`、原有 G1 隔离测试和播放生命周期回归。 正式资料目录和实际服务凭据不参与测试。 [指纹算法、索引和缓存](IDENTITY.md)
+
 ## G4R 复审与 ALAC
 
 - Windows 使用 `node tests/alac-desktop.cjs`，需要同一提交的 Electron 构建、原生 Release 程序、Playwright、FFmpeg 和 FFprobe。测试生成 16／24 位 ALAC、AAC、内嵌 TTML、LRC 与封面样本，验证逐样本解码、seek、实际图内信号、模拟 Hi-Fi、分析、工坊、有声导出和 MP4 原子标签写入。`CADENZA_ALAC_SAMPLE` 可选，脚本只打开隔离副本，比较原文件写入前后的哈希。商业素材禁止进入仓库。
@@ -58,7 +65,7 @@ Windows 本机通过类型和格式检查、393 项单元及架构断言、6 项
 
 G3 当时的媒体元素和 `decodeAudioData()` 都不能直接解码 ALAC/M4A。G4R 已用原生 ALAC 解码和可 seek 的 PCM 容器接入普通输出及离线读取。裸 ADTS 的曲库扫描可能没有时长，播放器用媒体管线已取得的时长约束正在播放歌曲的分析预算。
 
-- `node --test tests/file-response.cjs` 验证 GET / HEAD、单区间 206、无效与不满足区间的 416、打开的文件与响应一致、错误、请求中止和消费者取消。多个区间统一返回 416。`cadenza://media` 仍通过曲库 ID 授权，受保护文件不可读取。普通输出的 URL 固定当次文件长度与修改时间，后续区间重开时校验。已经缓冲的旧字节可能继续播放，大小和修改时间相同的替换仍需 G5 的内容身份处理。 [Electron 协议](https://www.electronjs.org/docs/latest/api/protocol)
+- `node --test tests/file-response.cjs` 验证 GET / HEAD、单区间 206、无效与不满足区间的 416、打开的文件与响应一致、错误、请求中止和消费者取消。多个区间统一返回 416。`cadenza://media` 仍通过曲库 ID 授权，受保护文件不可读取。后续区间重开时重新校验大小、mtime、ctime 和文件系统身份。已经缓冲的旧字节可能继续播放，重新验证中的文件快照不会命中持久化分析。 [Electron 协议](https://www.electronjs.org/docs/latest/api/protocol)
 - `node tests/streaming-desktop.cjs --space` 使用生成文件、独立 profile 和真实 Electron。按需要在 PowerShell 设置 `$env:CADENZA_STREAM_SOAK_SECONDS='60'`，增加连续播放的内存、进程与 CPU 采样。真实路径使用主进程读流字节和关闭记录、Web Audio 分声道 FFT、播放快照、Electron CDP 的 JS Heap 与进程指标。Chrome DevTools 和 Playwright CLI 的隔离 HTTP 页面只补充 Range 和交互证据。
 - 常规曲库分析与视觉的临时完整解码使用 64 MiB 文件预算和 128 MiB 的 PCM 估算上限。超过预算，可直接播放并使用已有分析或基础视觉。节奏分析任务保留现有策略，已提交给 Chromium 的解码仍会收尾。超长音频的渐进式分析和任务资源调度由 G6 处理。工坊和有声导出是显式离线操作，有各自完整解码的内存成本。
 - 保持独立的旧信号结束、新信号出现与视觉计划三个时间点。`tests/baseline/playback.cjs` 保持 3.6.0 原口径。`tests/baseline/continuity.cjs <快照目录> <输出目录>` 在 G2 及后续版本测量 20 次前后段频率不同的 seek、预读后的手动选择以及真实图内自然续播间隙。两个输出目录均需是 `CADENZA_BASELINE_ROOT` 下不存在的直接子目录。图内间隙与解码器、缓冲区、图调度和采样窗口相关，物理端点另测。

@@ -403,27 +403,47 @@ ipcMain.handle('show-item', (_e, p) => {
 });
 
 app.on('second-instance', showWin);
-app.whenReady().then(async () => {
-  applySettings();
-  await library.start(ipcMain, () => win, settings);
-  hifi = audio.start(ipcMain, () => win, settings, library);
-  infer = inferHost.start(ipcMain, () => win, settings);
-  createWindow();
-  if (isolatedProfile) return;
-  for (const [key, op] of [
-    ['MediaPlayPause', 'toggle'],
-    ['MediaNextTrack', 'next'],
-    ['MediaPreviousTrack', 'prev'],
-  ]) {
-    try {
-      globalShortcut.register(key, () => win && win.webContents.send('media', op));
-    } catch (e) {
-      /* taken by another app */
+app
+  .whenReady()
+  .then(async () => {
+    applySettings();
+    await library.start(ipcMain, () => win, settings);
+    hifi = audio.start(ipcMain, () => win, settings, library);
+    infer = inferHost.start(ipcMain, () => win, settings);
+    createWindow();
+    if (isolatedProfile) return;
+    for (const [key, op] of [
+      ['MediaPlayPause', 'toggle'],
+      ['MediaNextTrack', 'next'],
+      ['MediaPreviousTrack', 'prev'],
+    ]) {
+      try {
+        globalShortcut.register(key, () => win && win.webContents.send('media', op));
+      } catch (e) {
+        /* taken by another app */
+      }
     }
-  }
-});
-app.on('before-quit', () => {
+  })
+  .catch((error) => {
+    console.error('[library startup]', error);
+    dialog.showErrorBox('Cadenza 无法启动曲库', error.message);
+    app.quit();
+  });
+let libraryClosing = false,
+  libraryClosed = false;
+app.on('before-quit', (event) => {
+  if (libraryClosed) return;
+  event.preventDefault();
+  if (libraryClosing) return;
+  libraryClosing = true;
   quitting = true;
+  void library
+    .close()
+    .catch((error) => console.error('[library close]', error))
+    .finally(() => {
+      libraryClosed = true;
+      app.quit();
+    });
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => {

@@ -1895,6 +1895,14 @@ const ok = (name, pass, detail) => {
   }
   // the data group: each action asks first (cancelled here: nothing is cleared); the photosensitivity warning is shown
   {
+    await C(() => window.__cadenza.setSettings({ rhythmEngine: 'dsp' }));
+    const cached = () =>
+      C(async () => {
+        const { tracks } = await window.cadenzaLib.get();
+        return tracks.filter((t) => t.analyzed > 0).map(({ id, analyzed }) => [id, analyzed]);
+      });
+    await win.waitForFunction(async () => (await window.cadenzaLib.get()).tracks.some((t) => t.analyzed > 0));
+    const before = await cached();
     await win.getByRole('button', { name: '清除暫存資料' }).click();
     await W(400);
     await shot('settings-confirm');
@@ -1904,17 +1912,18 @@ const ok = (name, pass, detail) => {
     });
     await win.locator('[data-test=modal]').getByRole('button', { name: '取消' }).click();
     await W(400);
-    const after = await C(() =>
-      window.cadenzaLib.get().then((v) => ({
-        modal: !!document.querySelector('[data-test=modal]'),
-        an: v.tracks.filter((t) => t.analyzed > 0).length,
-      })),
-    );
+    const modal = await C(() => !!document.querySelector('[data-test=modal]'));
+    const after = await cached();
     const warn = await C(() => document.body.innerText.includes('光敏性癲癇提醒'));
     ok(
       'settings: clearing the caches asks first, and cancelling keeps them; the photosensitivity warning is shown',
-      !!dlg && dlg.includes('清除') && !after.modal && after.an > 0 && warn,
-      JSON.stringify({ dlg: dlg && dlg.slice(0, 40), ...after, warn }),
+      !!dlg &&
+        dlg.includes('清除') &&
+        !modal &&
+        before.length > 0 &&
+        JSON.stringify(after) === JSON.stringify(before) &&
+        warn,
+      JSON.stringify({ dlg: dlg && dlg.slice(0, 40), modal, before, after, warn }),
     );
   }
   await win.getByRole('radio', { name: '淺色' }).click();

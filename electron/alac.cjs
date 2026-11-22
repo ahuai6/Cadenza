@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const { promisify } = require('node:util');
 const { byteRange } = require('./file-response.cjs');
 const { binPath } = require('./audio.cjs');
+const { revision } = require('./audio-identity.cjs');
 
 const run = promisify(execFile);
 const cache = new Map();
@@ -151,7 +152,12 @@ async function serveAlac(file, req, expected) {
     return new Response(null, { status: 405, headers: { ...headers, Allow: 'GET, HEAD' } });
   const st = await fs.stat(file);
   if (!st.isFile()) return new Response(null, { status: 404, headers });
-  if (expected && (st.size !== expected.size || st.mtimeMs !== expected.mtime)) {
+  if (
+    expected &&
+    (st.size !== expected.size ||
+      st.mtimeMs !== expected.mtime ||
+      (expected.sourceStamp && revision(st) !== expected.sourceStamp))
+  ) {
     return new Response(null, { status: 409, headers });
   }
   headers['X-Cadenza-Compressed-Length'] = String(st.size);

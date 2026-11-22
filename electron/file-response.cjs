@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const { Readable, addAbortSignal } = require('node:stream');
+const { revision } = require('./audio-identity.cjs');
 
 const chunkBytes = 64 * 1024;
 const cors = { 'Access-Control-Allow-Origin': '*' };
@@ -23,7 +24,12 @@ async function serveFile(file, req, type, expected = null) {
     handle = await fs.open(file, 'r');
     const st = await handle.stat();
     if (!st.isFile()) return new Response(null, { status: 404, headers: cors });
-    if (expected && (st.size !== expected.size || st.mtimeMs !== expected.mtime)) {
+    if (
+      expected &&
+      (st.size !== expected.size ||
+        st.mtimeMs !== expected.mtime ||
+        (expected.sourceStamp && revision(st) !== expected.sourceStamp))
+    ) {
       return new Response(null, { status: 409, headers: cors });
     }
     const size = st.size;
