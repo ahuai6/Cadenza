@@ -37,6 +37,8 @@ Cadenza 以 **GNU Affero General Public License v3.0**（AGPL-3.0-only）发布�
 
 - **qrcode**（MIT，Copyright (c) 2012 Ryan Day，<https://github.com/soldair/node-qrcode>）：生成音乐厅账户授权二维码。
 
+- **@sansenjian/qq-music-api**（MIT，<https://github.com/sansenjian/qq-music-api>）：用于读取 QQ 音乐公开榜单。许可全文随该 npm 包提供。
+
 ## 字体
 
 所有随程序附带的字体皆为 SIL Open Font License 1.1（经由 Fontsource 套件取得），授权允许随软件散布。清单见 `scripts/fonts.mjs`。

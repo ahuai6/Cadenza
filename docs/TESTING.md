@@ -1,5 +1,7 @@
 # 测试
 
+G5.5-BR 增加 Apple Music 官方与回退隔离、四平台界面、QQ SDK 榜单、FLAC 内嵌译文与账号权限查询验证。运行 `npm run online:verify` 后，用隔离资料的 `tests/hall-live-desktop.cjs` 和 `tests/hall-download-desktop.cjs` 分别验证公网与本地数据路径。 [验证边界](G55-BR.md)
+
 ## G5.5-A 编辑模式与音乐厅
 
 - `npm run build:app` 后，在 Windows 运行 `node tests/product-desktop.cjs`。分别启动隔离的经典和空间配置，测试默认权限、直接 IPC 拦截、快捷键、草稿恢复、歌曲时间设置写回、日常预设选择，以及音频请求与视觉 Session 在切换中连续。验证窗口单实例、打开关闭、标题栏拖动区、最小化恢复、最大化、640×480 下的滚动和焦点、已保存主题及实时外观同步。截图输出到测试临时目录。设置 `CADENZA_NATIVE_WINDOW_DRAG=1` 时，还在音乐厅拥有系统前台焦点的情况下验证物理窗口位置移动。

@@ -59,7 +59,7 @@ function lyricFields(comments) {
   return comments.flatMap((item, index) => {
     const key = keyOf(item);
     const canonical = key.toUpperCase();
-    if (!/^(TTML|LYRICS?|UNSYNCEDLYRICS)$/.test(canonical)) return [];
+    if (!/^(TTML|LYRICS?|UNSYNCEDLYRICS|LYRICS_TRANSLATION|LYRICS_TRANSLITERATION)$/.test(canonical)) return [];
     const i = occurrence.get(canonical) || 0;
     occurrence.set(canonical, i + 1);
     return [{ id: 'flac:' + canonical + ':' + i, key, index }];
@@ -89,6 +89,9 @@ async function hashAudio(file, start) {
   return hash.digest('hex');
 }
 async function write(file, target, destination, text) {
+  return writeFields(file, destination, [{ target, text }]);
+}
+async function writeFields(file, destination, edits) {
   const { blocks, audio } = await header(file);
   let index = blocks.findIndex((block) => block.type === 4);
   if (index < 0) {
@@ -96,16 +99,23 @@ async function write(file, target, destination, text) {
     blocks.push({ type: 4, body: Buffer.concat([int(7), Buffer.from('Cadenza'), int(0)]) });
   }
   const { vendor, comments } = chunks(blocks[index].body);
-  if (target.startsWith('flac:')) {
-    const field = lyricFields(comments).find((item) => item.id === target);
-    if (!field) throw new Error('Lyrics field no longer exists');
-    if (text === null) comments.splice(field.index, 1);
-    else comments[field.index] = Buffer.from(field.key + '=' + text);
-  } else {
-    const key = target === 'new:ttml' ? 'TTML' : target === 'new:lrc' ? 'LYRICS' : null;
-    if (!key || text === null || comments.some((value) => keyOf(value).toUpperCase() === key))
-      throw new Error('Select the existing lyrics field');
-    comments.push(Buffer.from(key + '=' + text));
+  for (const { target, text } of edits) {
+    if (target.startsWith('flac:')) {
+      const field = lyricFields(comments).find((item) => item.id === target);
+      if (!field) throw new Error('Lyrics field no longer exists');
+      if (text === null) comments.splice(field.index, 1);
+      else comments[field.index] = Buffer.from(field.key + '=' + text);
+    } else {
+      const key = {
+        'new:ttml': 'TTML',
+        'new:lrc': 'LYRICS',
+        'new:translation': 'LYRICS_TRANSLATION',
+        'new:transliteration': 'LYRICS_TRANSLITERATION',
+      }[target];
+      if (!key || text === null || comments.some((value) => keyOf(value).toUpperCase() === key))
+        throw new Error('Select the existing lyrics field');
+      comments.push(Buffer.from(key + '=' + text));
+    }
   }
   blocks[index].body = Buffer.concat([
     int(vendor.length),
@@ -138,4 +148,4 @@ async function write(file, target, destination, text) {
   )
     throw new Error('FLAC verification failed');
 }
-module.exports = { fields, write };
+module.exports = { fields, write, writeFields };

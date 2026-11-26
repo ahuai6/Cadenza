@@ -102,7 +102,7 @@ export function MusicHall() {
         <nav aria-label={tx('hall.title')} className={s.routes}>
           {navigation.map((key) => (
             <button type="button" key={key} aria-current={page === key ? 'page' : undefined} onClick={() => move(key)}>
-              {key === 'downloads' ? '下载任务' : tx('hall.' + key)}
+              {key === 'downloads' ? tx('hall.downloads') : tx('hall.' + key)}
             </button>
           ))}
         </nav>
@@ -115,12 +115,21 @@ export function MusicHall() {
       <main ref={main} className={s.scroll} data-test="hall-scroll">
         <div className={s.page}>
           <h1 ref={heading} tabIndex={-1} className={s.title}>
-            {page === 'downloads' ? '下载任务' : tx(page === 'discover' ? 'hall.title' : 'hall.accounts')}
+            {page === 'downloads' ? tx('hall.downloads') : tx(page === 'discover' ? 'hall.title' : 'hall.accounts')}
           </h1>
           {failed && <p role="status">{tx('hall.loadFail')}</p>}
           {record && (
             <Turn k={page}>
-              {page === 'discover' && provider && <Discovery record={record} provider={provider} select={select} />}
+              {page === 'discover' && provider && (
+                <Discovery
+                  record={record}
+                  provider={provider}
+                  select={select}
+                  setDownloadPreference={(downloadPreference) =>
+                    setRecord((value) => value && { ...value, downloadPreference })
+                  }
+                />
+              )}
               {page === 'accounts' && <Accounts record={record} refresh={reloadAccounts} />}
               {page === 'downloads' && <Downloads />}
             </Turn>
@@ -143,10 +152,12 @@ function Discovery({
   record,
   provider,
   select,
+  setDownloadPreference,
 }: {
   record: HallSnapshot;
   provider: HallProvider;
   select: (id: string) => void;
+  setDownloadPreference: (preference: HallSnapshot['downloadPreference']) => void;
 }) {
   const rail = useRef<HTMLDivElement>(null);
   const account = record.accounts.find((a) => a.provider === provider.id && a.state === 'connected');
@@ -196,7 +207,13 @@ function Discovery({
           <div className={s.workspace}>
             <div className={s.content}>
               {provider.capabilities.search !== 'unavailable' ? (
-                <Catalog key={provider.id} provider={provider} accounts={record.accounts} />
+                <Catalog
+                  key={provider.id}
+                  provider={provider}
+                  accounts={record.accounts}
+                  downloadPreference={record.downloadPreference}
+                  setDownloadPreference={setDownloadPreference}
+                />
               ) : (
                 <section className={s.block + ' ' + s.search}>
                   <span className={s.searchMark}>
@@ -296,6 +313,7 @@ function Accounts({ record, refresh }: { record: HallSnapshot; refresh: () => Pr
                 ) : (
                   <Status label={p.capabilities.account === 'unavailable' ? 'hall.unavailable' : 'hall.disconnected'} />
                 )}
+                {p.configuration?.officialCatalog === false && <p>{tx('hall.officialSettings')}</p>}
                 {p.capabilities.account === 'public' && (
                   <AccountControls provider={p.id} accounts={matches} refresh={refresh} />
                 )}
@@ -375,6 +393,11 @@ function Downloads() {
           {task.total > 0 && <progress aria-label="下载进度" max={task.total} value={task.bytes} />}
           {task.problem && <p>{taskProblems[task.problem] || task.problem}</p>}
           <div className={s.trackActions}>
+            {task.saved && (
+              <button type="button" onClick={() => void hallApi?.downloadReveal(task.id)}>
+                {tx('hall.revealDownload')}
+              </button>
+            )}
             {['queued', 'resolving', 'downloading', 'retrying', 'verifying'].includes(task.state) && (
               <button type="button" onClick={() => void hallApi?.downloadAct(task.id, 'cancel')}>
                 取消

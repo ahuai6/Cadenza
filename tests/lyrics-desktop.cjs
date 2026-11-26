@@ -204,7 +204,7 @@ async function quiet(win) {
     await win.waitForFunction(() =>
       window.__cadenza.player
         .get()
-        .session.doc.lines.some(
+        .session?.doc.lines.some(
           (line) => line.sub === 'Translation one' || JSON.stringify(line).includes('Translation one'),
         ),
     );

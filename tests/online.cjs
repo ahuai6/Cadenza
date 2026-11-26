@@ -16,7 +16,10 @@ test('provider capabilities are registered separately from catalog and account c
       },
     },
   });
-  assert.equal(service.snapshot().providers.find(({ id }) => id === 'lyricsflow').capabilities.download, 'unavailable');
+  assert.equal(
+    service.snapshot().providers.some(({ id }) => id === 'lyricsflow'),
+    false,
+  );
   assert.throws(() => service.register({ id: 'bad', capabilities: { download: 'public' } }, {}), { code: 'invalid' });
   service.register(
     { id: 'test', name: 'Provider', capabilities: { search: 'public', playlists: 'authorized' } },
@@ -189,6 +192,7 @@ test('NetEase authorizes on the main side and rejects partial playlists and down
   await assert.rejects(playlist(), { code: 'incomplete' });
 
   const download = () => invoke('download', { id: '21', tier: 'lossless' }, '8');
+  assert.deepEqual(await invoke('variants', { id: '21' }, '8'), ['lossless']);
   const lease = await download();
   assert.equal(lease.permission, 'save');
   assert.equal(lease.lyrics.text, lyrics);
@@ -198,4 +202,80 @@ test('NetEase authorizes on the main side and rejects partial playlists and down
   await invoke('account', { action: 'logout', account: '8' });
   await assert.rejects(download(), { code: 'sign-in-required' });
   assert.equal(credentials.size, 0);
+});
+test('Apple Music uses canonical catalog IDs, an isolated LyricsFlow client and explicit provenance', async (t) => {
+  const { registerPublicProviders } = require('../electron/online-providers.cjs');
+  const service = createOnlineService();
+  registerPublicProviders(service, 'fixture-developer-token');
+  const calls = [];
+  let officialFailure = false;
+  let mismatch = false;
+  const item = (id) => ({
+    id,
+    type: 'songs',
+    attributes: { name: 'Fixture', durationInMillis: 90000, previews: [{ url: 'https://audio.mzstatic.com/a.m4a' }] },
+  });
+  t.mock.method(globalThis, 'fetch', async (url, { headers }) => {
+    const { hostname, pathname } = new URL(url);
+    calls.push({ hostname, pathname, headers });
+    if (hostname === 'api.music.apple.com' && officialFailure) return new Response(null, { status: 503 });
+    if (pathname.endsWith('/search')) return Response.json({ results: { songs: { data: [item('101')] } } });
+    if (pathname.endsWith('/songs/101')) return Response.json({ data: [item(mismatch ? '102' : '101')] });
+    throw new Error('Unexpected endpoint');
+  });
+  assert.deepEqual(
+    service.snapshot().providers.map(({ id }) => id),
+    ['netease', 'qq', 'kugou', 'apple'],
+  );
+  const request = (capability, input, account) => service.invoke({ provider: 'apple', capability, input, account });
+  const official = await request('search', { query: 'fixture', region: 'jp', offset: 0 });
+  assert.equal(official.source, 'apple');
+  officialFailure = true;
+  const publicCatalog = await request('search', { query: 'other', region: 'jp', offset: 0 });
+  assert.equal(publicCatalog.source, 'lyricsflow');
+  assert.deepEqual(publicCatalog.rows[0].ref, official.rows[0].ref);
+  const audition = await request('preview', { id: '101', region: 'jp' }, 'irrelevant-account');
+  assert.equal(audition.permission, 'stream');
+  mismatch = true;
+  await assert.rejects(request('preview', { id: '101', region: 'jp' }), { code: 'unmatched' });
+  await assert.rejects(request('download', { id: '101' }), { code: 'unavailable' });
+  assert.ok(
+    calls.filter((call) => call.hostname === 'api.trylyricsflow.com').every((call) => !call.headers.Authorization),
+  );
+  assert.ok(
+    calls
+      .filter((call) => call.hostname === 'api.music.apple.com')
+      .every((call) => call.headers.Authorization === 'Bearer fixture-developer-token'),
+  );
+});
+
+test('download access checks only require accounts for operations declared authorized', async () => {
+  const service = createOnlineService({
+    catalog: [],
+    vault: {
+      read: async () => ({ userToken: 'account-only' }),
+    },
+  });
+  service.register(
+    { id: 'public', name: 'Public', capabilities: { download: 'public' } },
+    {
+      download: (_, { secret }) => secret,
+    },
+  );
+  service.register(
+    { id: 'private', name: 'Private', capabilities: { download: 'authorized' } },
+    {
+      download: (_, { secret }) => secret.userToken,
+    },
+  );
+  assert.equal(service.requireAccess('public', 'download', ''), 'public');
+  assert.equal(await service.invoke({ provider: 'public', capability: 'download', account: 'irrelevant' }), null);
+  assert.throws(() => service.requireAccess('private', 'download', ''), { code: 'sign-in-required' });
+  service.setAccount('private', { id: 'account', name: 'Expired', state: 'expired' });
+  assert.throws(() => service.requireAccess('private', 'download', 'account'), { code: 'expired' });
+  service.setAccount('private', { id: 'account', name: 'Connected', state: 'connected' });
+  assert.equal(
+    await service.invoke({ provider: 'private', capability: 'download', account: 'account' }),
+    'account-only',
+  );
 });

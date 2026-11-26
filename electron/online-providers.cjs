@@ -1,7 +1,7 @@
 const { OnlineError } = require('./online.cjs');
+const { registerApple } = require('./online-apple.cjs');
 
 const boundedText = (x, limit = 200) => (typeof x === 'string' ? x.slice(0, limit) : '');
-const storefront = (x) => (/^[a-z]{2}$/.test(x || '') ? x : 'us');
 const catalogId = (value) =>
   (typeof value === 'string' || Number.isSafeInteger(value)) && /^[A-Za-z0-9._-]{1,96}$/.test(String(value))
     ? String(value)
@@ -67,144 +67,44 @@ async function getJson(url, options) {
     throw new OnlineError('invalid-response');
   }
 }
-function appleStyle(provider, base, headers = {}) {
-  const get = (resource, params, signal) => {
-    const url = new URL(resource, base);
-    url.search = new URLSearchParams(params).toString();
-    return getJson(url, { signal, headers });
-  };
-  function row(item, country) {
-    const a = item?.attributes;
-    const id = catalogId(item?.id);
-    if (!a?.name || !id || !['songs', 'albums', 'playlists'].includes(item.type)) return null;
-    const image = publicUrl(
-      a.artwork?.url?.replaceAll('{w}', '160').replaceAll('{h}', '160').replaceAll('{f}', 'jpg'),
-      ['mzstatic.com'],
-    );
-    return {
-      ref: { provider, namespace: item.type, id, access: { kind: 'public' }, availability: { storefront: country } },
-      title: boundedText(a.name),
-      artist: boundedText(a.artistName || a.curatorName),
-      album: boundedText(a.albumName),
-      duration: Number.isFinite(a.durationInMillis) ? a.durationInMillis / 1000 : undefined,
-      preview: !!publicUrl(a.previews?.[0]?.url, ['mzstatic.com', 'itunes.apple.com'], true),
-      image,
-    };
-  }
-  function page(items, country, next) {
-    if (!Array.isArray(items)) throw new OnlineError('invalid-response');
-    return {
-      rows: items
-        .slice(0, 120)
-        .map((item) => row(item, country))
-        .filter(Boolean),
-      more: !!next,
-    };
-  }
-  const tracks = 'songs';
-  const operations = {
-    async search({ query, offset, region }, { signal }) {
-      const country = storefront(region);
-      const data = await get(
-        '/v1/catalog/' + country + '/search',
-        { term: query, types: tracks, limit: 25, offset },
-        signal,
-      );
-      if (!data.results) throw new OnlineError('invalid-response');
-      return page(data.results.songs?.data || [], country, data.results.songs?.next);
-    },
-    async charts({ region }, { signal }) {
-      const country = storefront(region);
-      const data = await get('/v1/catalog/' + country + '/charts', { types: tracks, limit: 25 }, signal);
-      return page(data.results?.songs?.[0]?.data, country);
-    },
-    async collection({ id, namespace, offset, region }, { signal }) {
-      if (!['albums', 'playlists'].includes(namespace)) throw new OnlineError('invalid');
-      const country = storefront(region);
-      const data = await get(`/v1/catalog/${country}/${namespace}/${id}/tracks`, { limit: 25, offset }, signal);
-      return page(data.data, country, data.next);
-    },
-    async preview({ id, region }, { signal }) {
-      const country = storefront(region);
-      const data = await get(`/v1/catalog/${country}/songs/${id}`, {}, signal);
-      const link = publicUrl(
-        data.data?.[0]?.attributes?.previews?.[0]?.url,
-        ['mzstatic.com', 'itunes.apple.com'],
-        true,
-      );
-      if (!link) throw new OnlineError('not-found');
-      return {
-        url: link,
-        expiresAt: Date.now() + 120000,
-        permission: 'stream',
-        title: boundedText(data.data?.[0]?.attributes?.name),
-      };
-    },
-    async open({ id, namespace, region }) {
-      const family = { albums: 'album', playlists: 'playlist', songs: 'song' }[namespace];
-      if (!family) throw new OnlineError('invalid');
-      return { url: 'https://music.apple.com/' + storefront(region) + '/' + family + '/' + id };
-    },
-  };
-  return { operations, get, page };
-}
-
 function registerPublicProviders(service, developerToken) {
-  const flow = appleStyle('lyricsflow', 'https://api.trylyricsflow.com');
+  registerApple(service, developerToken, { getJson, boundedText, publicUrl, catalogId });
   service.register(
     {
-      id: 'lyricsflow',
-      name: 'LyricsFlow',
-      capabilities: {
-        search: 'public',
-        charts: 'public',
-        recommendations: 'public',
-        collection: 'public',
-        preview: 'public',
-        lyrics: 'public',
-        open: 'public',
-      },
+      id: 'qq',
+      name: 'QQ Music',
+      label: 'hall.qq',
+      capabilities: { search: 'public', charts: 'public', open: 'public' },
     },
     {
-      ...flow.operations,
-      async search(input, context) {
-        let link;
-        try {
-          link = new URL(input.query);
-        } catch {
-          /* ordinary search terms */
-        }
-        if (!link) return flow.operations.search(input, context);
-        if (!publicUrl(link.href, ['music.apple.com'])) throw new OnlineError('restricted');
-        const [region, namespace, ...rest] = link.pathname.split('/').filter(Boolean);
-        const song = catalogId(link.searchParams.get('i') || '');
-        const key = song || catalogId(rest.at(-1));
-        const type = song ? 'songs' : { song: 'songs', album: 'albums', playlist: 'playlists' }[namespace];
-        if (!key || !type || !/^[a-z]{2}$/.test(region)) throw new OnlineError('invalid');
-        const result = await flow.get(`/v1/catalog/${region}/${type}/${key}`, {}, context.signal);
-        return flow.page(result.data, region, result.next);
+      async charts(_input, { signal }) {
+        const { getTopLists } = require('@sansenjian/qq-music-api/services');
+        const response = await getTopLists({
+          isFormat: false,
+          option: { signal, timeout: 8000, maxRedirects: 0, maxContentLength: 2 * 1024 * 1024 },
+        });
+        signal.throwIfAborted();
+        if (response.status !== 200) throw new OnlineError('provider-failed');
+        const data = response.body?.response;
+        if (data?.code !== 0 || !Array.isArray(data.data?.topList)) throw new OnlineError('invalid-response');
+        return {
+          rows: data.data.topList.slice(0, 50).flatMap((chart) => {
+            const id = catalogId(chart.id);
+            if (!/^\d+$/.test(id) || !chart.topTitle) return [];
+            return [
+              {
+                ref: { provider: 'qq', namespace: 'charts', id, access: { kind: 'public' }, availability: {} },
+                title: boundedText(chart.topTitle),
+                artist: '',
+                album: '',
+                image: publicUrl(String(chart.picUrl || '').replace(/^http:/, 'https:'), ['gtimg.cn']),
+                preview: false,
+              },
+            ];
+          }),
+          more: false,
+        };
       },
-      async lyrics({ region, id }, { signal }) {
-        const data = await flow.get('/lyrics', { storefront: storefront(region), song: id }, signal);
-        if (String(data.trackId) !== id) throw new OnlineError('invalid-response');
-        const content = boundedText(data.syncedLyrics || data.plainLyrics, 500000);
-        if (!content) throw new OnlineError('not-found');
-        return { text: content, format: boundedText(data.format, 20) };
-      },
-      async recommendations({ region }, { signal }) {
-        const country = storefront(region);
-        const data = await flow.get('/recommendations', { storefront: country }, signal);
-        if (!Array.isArray(data.data)) throw new OnlineError('invalid-response');
-        return flow.page(
-          data.data.flatMap((group) => group.relationships?.contents?.data || []),
-          country,
-        );
-      },
-    },
-  );
-  service.register(
-    { id: 'qq', name: 'QQ Music', label: 'hall.qq', capabilities: { search: 'public', open: 'public' } },
-    {
       async search({ query, offset }, { signal }) {
         const url = new URL('https://c.y.qq.com/soso/fcgi-bin/client_search_cp');
         url.search = new URLSearchParams({ w: query, p: String(1 + Math.floor(offset / 25)), n: '25', format: 'json' });
@@ -233,6 +133,7 @@ function registerPublicProviders(service, developerToken) {
         };
       },
       async open({ id, namespace }) {
+        if (namespace === 'charts' && /^\d+$/.test(id)) return { url: 'https://y.qq.com/n/ryqq/toplist/' + id };
         if (namespace !== 'songs') throw new OnlineError('invalid');
         return { url: 'https://y.qq.com/n/ryqq/songDetail/' + id };
       },
@@ -265,17 +166,6 @@ function registerPublicProviders(service, developerToken) {
       },
     },
   );
-  if (developerToken) {
-    const apple = appleStyle('apple', 'https://api.music.apple.com', { Authorization: 'Bearer ' + developerToken });
-    service.register(
-      {
-        id: 'apple',
-        name: 'Apple Music',
-        capabilities: { search: 'public', charts: 'public', collection: 'public', preview: 'public', open: 'public' },
-      },
-      apple.operations,
-    );
-  }
 }
 
 module.exports = { registerPublicProviders, catalogId, boundedText, publicUrl, request, getJson };

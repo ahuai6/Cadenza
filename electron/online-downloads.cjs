@@ -39,6 +39,15 @@ const normalizeCodec = (codec) => {
 function deadline(ms, code, abort) {
   return setTimeout(() => abort.abort(new OnlineError(code)), ms);
 }
+async function writeFlacLyrics(file, edits) {
+  const staged = temporary(path.dirname(file), '.flac');
+  try {
+    await flac.writeFields(file, staged, edits);
+    await fs.rename(staged, file);
+  } finally {
+    await remove(staged);
+  }
+}
 async function receive(lease, filename, update, signal) {
   let url = publicUrl(lease.url, audioDomains, true);
   if (!url || lease.permission !== 'save' || lease.expiresAt <= Date.now()) throw new OnlineError('restricted');
@@ -171,16 +180,11 @@ async function decorate(file, lease, info, nativeBin, signal) {
     handle.dispose();
   }
   const text = lease.lyrics?.text;
+  const flacEdits = [];
   if (typeof text === 'string' && text.length && !existing.lyrics?.length) {
     const xml = /^\s*(?:<\?xml[^>]*>\s*)?<tt[\s>]/i.test(text);
     if (info.kind.ext === '.flac') {
-      const staged = temporary(path.dirname(file), '.flac');
-      try {
-        await flac.write(file, xml ? 'new:ttml' : 'new:lrc', staged, text);
-        await fs.rename(staged, file);
-      } finally {
-        await remove(staged);
-      }
+      flacEdits.push({ target: xml ? 'new:ttml' : 'new:lrc', text });
     } else if (info.kind.ext === '.mp3') {
       tags.write(file, 'id3', 'id3:new', text);
       if (!tags.read(file, 'id3').some((item) => item.text === text)) throw new OnlineError('tag-verification');
@@ -199,12 +203,37 @@ async function decorate(file, lease, info, nativeBin, signal) {
         throw new OnlineError('tag-verification');
     }
   }
+  const auxiliary = { ...lease.lyrics?.auxiliary };
+  if (info.kind.ext === '.flac') {
+    const previousFields = flacEdits.length || Object.keys(auxiliary).length ? await flac.fields(file) : [];
+    const verified = [];
+    for (const role of ['translation', 'transliteration']) {
+      const value = auxiliary[role];
+      if (typeof value !== 'string' || !value) continue;
+      const field = 'LYRICS_' + role.toUpperCase();
+      const previous = previousFields.find((item) => item.key.toUpperCase() === field);
+      if (previous && previous.text !== value) continue;
+      if (!previous) flacEdits.push({ target: 'new:' + role, text: value });
+      verified.push({ field, text: value });
+      delete auxiliary[role];
+    }
+    if (flacEdits.length) await writeFlacLyrics(file, flacEdits);
+    if (verified.length) {
+      const fields = await flac.fields(file);
+      if (
+        !verified.every(({ field, text }) =>
+          fields.some((item) => item.key.toUpperCase() === field && item.text === text),
+        )
+      )
+        throw new OnlineError('tag-verification');
+    }
+  }
   const checked = await inspected(file, lease);
   if (!checked.metadata.common.title || (existing.picture?.length && !checked.metadata.common.picture?.length))
     throw new OnlineError('tag-verification');
   const after = await identity.fingerprint(nativeBin(), file, identity.revision(await fs.stat(file)), signal);
   if (before !== after) throw new OnlineError('tag-verification');
-  return before;
+  return { content: before, auxiliary };
 }
 
 // TagLib rewrites tag blocks synchronously. Keep that disk and CPU work off the Electron IPC thread.
@@ -234,7 +263,7 @@ if (!isMainThread) {
   void inspected(workerData.file, workerData.lease)
     .then((info) => decorate(workerData.file, workerData.lease, info, () => workerData.binary, abort.signal))
     .then(
-      (content) => parentPort.postMessage({ content }),
+      (result) => parentPort.postMessage({ content: result }),
       (error) => parentPort.postMessage({ code: error instanceof OnlineError ? error.code : 'tag-verification' }),
     )
     .finally(() => parentPort.close());
@@ -251,7 +280,7 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
     publish(snapshot());
   };
   const snapshot = () =>
-    queue.map(({ id, state, problem, bytes, total, title, tier }) => ({
+    queue.map(({ id, state, problem, bytes, total, title, tier, import: imported }) => ({
       id,
       state,
       problem,
@@ -259,6 +288,7 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
       total,
       title,
       tier,
+      saved: state === 'complete' && !!imported,
     }));
   async function execute(job) {
     const { signal } = job.abort;
@@ -288,7 +318,7 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
       const info = await inspected(part, lease);
       file = part + info.kind.ext;
       await fs.rename(part, file);
-      const content = await decorateAsync(file, lease, nativeBin(), signal);
+      const { content, auxiliary } = await decorateAsync(file, lease, nativeBin(), signal);
       signal.throwIfAborted();
       const stem = segment([lease.track.artist, lease.track.title].filter(Boolean).join(' - ')) || 'Audio';
       const prefix = /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(stem) ? '_' + stem : stem;
@@ -313,7 +343,7 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
         tier: job.tier,
         detected: info.detected,
         content,
-        auxiliary: lease.lyrics?.auxiliary,
+        auxiliary,
       };
       job.state = 'importing';
       emit();
@@ -407,6 +437,10 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
       return true;
     },
     snapshot,
+    savedFile(id) {
+      const job = queue.find((item) => item.id === id && item.state === 'complete');
+      return job?.import?.file;
+    },
     async close() {
       closed = true;
       for (const job of queue) job.abort.abort();

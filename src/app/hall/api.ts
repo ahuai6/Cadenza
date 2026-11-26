@@ -6,6 +6,7 @@ export interface HallProvider {
   id: string;
   name: string;
   label?: string;
+  configuration?: { officialCatalog?: boolean };
   capabilities: Record<ProviderCapability, 'unavailable' | 'public' | 'authorized'>;
 }
 export interface HallSnapshot {
@@ -13,6 +14,7 @@ export interface HallSnapshot {
   accounts: { provider: string; id: string; name: string; state: 'connected' | 'expired' | 'disconnected' }[];
   ai: { id: string; name: string; auth: 'oauth' | 'api-key'; state: 'unavailable' }[];
   appearance: HallAppearance;
+  downloadPreference: HallDownloadPreference;
 }
 export interface HallTrack {
   ref: RemoteTrackRef;
@@ -27,6 +29,7 @@ export interface HallPage {
   rows: HallTrack[];
   more: boolean;
   syncedAt?: number;
+  source?: 'apple' | 'lyricsflow';
 }
 export type HallCapability = 'search' | 'recommendations' | 'charts' | 'collection' | 'preview' | 'lyrics' | 'open';
 export interface HallPreview {
@@ -47,6 +50,10 @@ export type HallResult =
   | { ok: true; data?: HallPage; lyrics?: { text: string; format: string } }
   | { ok: false; code: string };
 export type HallTier = 'standard' | 'high' | 'lossless';
+export interface HallDownloadPreference {
+  hasDirectory: boolean;
+  tier?: HallTier;
+}
 export interface HallDownload {
   id: string;
   title: string;
@@ -55,14 +62,31 @@ export interface HallDownload {
   problem?: string;
   bytes: number;
   total: number;
+  saved?: boolean;
 }
 interface HallApi {
   read(): Promise<HallSnapshot | null>;
   downloads(): Promise<HallDownload[]>;
+  downloadVariants(
+    provider: string,
+    input: { track: string; account?: string; region?: string },
+  ): Promise<{ ok: true; tiers: HallTier[] } | { ok: false; code: string }>;
   downloadAdd(
     provider: string,
-    input: { track: string; account: string; title: string; tier: HallTier; conflict: 'keep' | 'skip' },
-  ): Promise<{ ok: true; task: HallDownload } | { ok: false; code: string }>;
+    input: {
+      track: string;
+      account?: string;
+      region?: string;
+      title: string;
+      tier: HallTier;
+      conflict: 'keep' | 'skip';
+      useDefault: boolean;
+      remember: boolean;
+    },
+  ): Promise<
+    { ok: true; task: HallDownload; downloadPreference: HallDownloadPreference } | { ok: false; code: string }
+  >;
+  downloadReveal(id: string): Promise<boolean>;
   downloadAct(id: string, action: 'cancel' | 'retry'): Promise<boolean>;
   onDownloads(fn: (tasks: HallDownload[]) => void): () => void;
   account(
@@ -75,7 +99,7 @@ interface HallApi {
     input: { account: string; id?: string; refresh?: boolean },
   ): Promise<{ ok: true; data: HallPage } | { ok: false; code: string; previous?: HallPage }>;
   catalog(provider: string, capability: HallCapability, input: object): Promise<HallResult>;
-  cancel(provider: string, lane: 'browse' | 'search' | 'playlists'): Promise<void>;
+  cancel(provider: string, lane: 'browse' | 'search' | 'playlists' | 'variants'): Promise<void>;
   stopPreview(): Promise<void>;
   onPreview(fn: (preview: HallPreview | null) => void): () => void;
   window(op: 'min' | 'max' | 'close'): Promise<void>;

@@ -69,6 +69,7 @@ export type ProviderCapability =
   | 'lyrics'
   | 'preview'
   | 'download'
+  | 'variants'
   | 'open';
 export interface ProviderDescriptor {
   id: string;

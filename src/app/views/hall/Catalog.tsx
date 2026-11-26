@@ -9,6 +9,7 @@ import {
   type HallSnapshot,
   type HallTier,
 } from '../../hall/api';
+import { tx } from '../../../i18n';
 import { Icon } from '../../ui/icons';
 import s from './MusicHall.module.css';
 
@@ -17,6 +18,7 @@ const modes = [
   ['charts', '榜单'],
 ] as const;
 const errors: Record<string, string> = {
+  unmatched: 'hall.unmatched',
   'provider-failed': '来源暂时无法响应，请重试。',
   'not-found': '没有可用内容。',
   'invalid-response': '来源返回了无法识别的内容。',
@@ -36,7 +38,17 @@ const remembered = new Map<
   string,
   { search: string; region: string; query: Query | null; page: HallPage; scroll: number }
 >();
-export function Catalog({ provider, accounts }: { provider: HallProvider; accounts: HallSnapshot['accounts'] }) {
+export function Catalog({
+  provider,
+  accounts,
+  downloadPreference,
+  setDownloadPreference,
+}: {
+  provider: HallProvider;
+  accounts: HallSnapshot['accounts'];
+  downloadPreference: HallSnapshot['downloadPreference'];
+  setDownloadPreference: (value: HallSnapshot['downloadPreference']) => void;
+}) {
   const id = useId();
   const prior = remembered.get(provider.id);
   const [search, setSearch] = useState(prior?.search || '');
@@ -50,13 +62,20 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
   const [lyrics, setLyrics] = useState<{ name: string; text: string; format: string } | null>(null);
   const [account, setAccount] = useState('');
   const [download, setDownload] = useState<HallTrack | null>(null);
-  const [tier, setTier] = useState<HallTier>('standard');
+  const [tier, setTier] = useState<HallTier>(downloadPreference.tier ?? 'standard');
+  const [useDefault, setUseDefault] = useState(downloadPreference.hasDirectory);
+  const [remember, setRemember] = useState(false);
+  const [tiers, setTiers] = useState<HallTier[] | null>(null);
+  const [variantError, setVariantError] = useState('');
   const [conflict, setConflict] = useState<'keep' | 'skip'>('keep');
   const [adding, setAdding] = useState(false);
   const availableAccounts = accounts.filter((item) => item.provider === provider.id && item.state === 'connected');
   const activeAccount = availableAccounts.find((item) => item.id === account) ?? availableAccounts[0];
+  const canDownload =
+    provider.capabilities.download === 'public' || (provider.capabilities.download === 'authorized' && !!activeAccount);
   const run = useRef(0);
   const previewRun = useRef(0);
+  const downloadRun = useRef(0);
   const history = useRef<{ query: Query; data: HallPage; scroll: number }[]>([]);
   const list = useRef<HTMLDivElement>(null);
   const apply = async (value: Query) => {
@@ -66,7 +85,7 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
     setQuery(value);
     setNotice('');
     const merge = (found: HallPage) =>
-      setPage((current) => (value.offset ? { rows: [...current.rows, ...found.rows], more: found.more } : found));
+      setPage((current) => (value.offset ? { ...found, rows: [...current.rows, ...found.rows] } : found));
     const cached = pages.get(key);
     if (cached && cached.expiry > Date.now()) {
       merge(cached.data);
@@ -106,10 +125,12 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
     return () => {
       run.current++;
       previewRun.current++;
+      downloadRun.current++;
       off?.();
       void hallApi?.cancel(provider.id, 'search');
       void hallApi?.cancel(provider.id, 'browse');
       void hallApi?.cancel(provider.id, 'playlists');
+      void hallApi?.cancel(provider.id, 'variants');
     };
   }, [provider.id]);
   useEffect(() => {
@@ -177,9 +198,30 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
       if (number === previewRun.current) setNotice('歌词无法读取。');
     }
   }
+  async function downloadOptions(track: HallTrack) {
+    const ticket = ++downloadRun.current;
+    setDownload(track);
+    setTiers(null);
+    setVariantError('');
+    frame()?.scrollTo(0, 0);
+    const result = await hallApi!
+      .downloadVariants(provider.id, {
+        track: track.ref.id,
+        account: provider.capabilities.download === 'authorized' ? activeAccount?.id : undefined,
+        region: track.ref.availability.storefront || region,
+      })
+      .catch(() => ({ ok: false as const, code: 'provider-failed' }));
+    if (ticket !== downloadRun.current) return;
+    if (!result.ok) {
+      setVariantError(result.code);
+      return;
+    }
+    setTiers(result.tiers);
+    setTier((current) => (result.tiers.includes(current) ? current : (result.tiers[0] ?? current)));
+  }
   const frame = () => list.current?.closest('[data-test="hall-scroll"]');
   return (
-    <section className={s.catalog} aria-label="在线目录">
+    <section className={s.catalog} aria-label={tx('hall.catalog')}>
       <form
         className={s.catalogSearch}
         onSubmit={(event) => {
@@ -187,16 +229,16 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
           if (search.trim()) void apply({ kind: 'search', offset: 0, query: search.trim(), region });
         }}
       >
-        <label htmlFor={id}>歌曲搜索</label>
+        <label htmlFor={id}>{tx('hall.searchTracks')}</label>
         <input
           id={id}
           type="search"
-          placeholder="输入歌曲或艺人"
+          placeholder={tx('hall.searchPlaceholder')}
           value={search}
           maxLength={120}
           onChange={(event) => setSearch(event.currentTarget.value)}
         />
-        {['lyricsflow', 'apple'].includes(provider.id) && (
+        {provider.id === 'apple' && (
           <select aria-label="目录地区" value={region} onChange={(event) => setRegion(event.currentTarget.value)}>
             <option value="us">美国</option>
             <option value="cn">中国大陆</option>
@@ -205,7 +247,7 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
           </select>
         )}
         <button type="submit" disabled={!search.trim()}>
-          搜索
+          {tx('hall.searchSubmit')}
         </button>
       </form>
       {activeAccount && provider.capabilities.playlists === 'authorized' && (
@@ -239,16 +281,27 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
           {page.syncedAt && <small>同步于 {new Date(page.syncedAt).toLocaleString()}</small>}
         </div>
       )}
-      {download && activeAccount && (
+      {download && canDownload && (
         <section className={s.block} aria-label="确认加入曲库">
           <strong>{download.title}</strong>
+          <p role="status">
+            {variantError
+              ? tx('hall.variantsFailed')
+              : !tiers
+                ? tx('hall.loadingVariants')
+                : !tiers.length
+                  ? tx('hall.noVariants')
+                  : ''}
+          </p>
           <div className={s.catalogTabs}>
             <label>
               音质{' '}
               <select value={tier} onChange={(event) => setTier(event.target.value as HallTier)}>
-                <option value="standard">标准</option>
-                <option value="high">高码率</option>
-                <option value="lossless">无损</option>
+                {tiers?.map((item) => (
+                  <option key={item} value={item}>
+                    {tx('hall.tier.' + item)}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -258,20 +311,44 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
                 <option value="skip">跳过</option>
               </select>
             </label>
+            {downloadPreference.hasDirectory && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={useDefault}
+                  onChange={(event) => setUseDefault(event.currentTarget.checked)}
+                />{' '}
+                {tx('hall.useDownloadDefault')}
+              </label>
+            )}
+            <label>
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(event) => setRemember(event.currentTarget.checked)}
+              />{' '}
+              {tx('hall.rememberDownload')}
+            </label>
             <button
               type="button"
-              disabled={adding}
+              disabled={adding || !tiers?.includes(tier)}
               onClick={async () => {
                 setAdding(true);
                 try {
                   const result = await hallApi!.downloadAdd(provider.id, {
                     track: download.ref.id,
-                    account: activeAccount.id,
+                    account: provider.capabilities.download === 'authorized' ? activeAccount?.id : undefined,
+                    region: download.ref.availability.storefront || region,
                     title: download.title,
                     tier,
                     conflict,
+                    useDefault,
+                    remember,
                   });
                   if (result.ok) {
+                    setDownloadPreference(result.downloadPreference);
+                    setUseDefault(result.downloadPreference.hasDirectory);
+                    setRemember(false);
                     setDownload(null);
                     setNotice('已排队，请在下载任务查看进度。');
                   } else if (result.code !== 'cancelled') setNotice(errors[result.code] || '无法加入下载队列。');
@@ -282,9 +359,15 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
                 }
               }}
             >
-              选择目录并下载
+              {tx(useDefault ? 'hall.startDownload' : 'hall.chooseDownloadDir')}
             </button>
-            <button type="button" onClick={() => setDownload(null)}>
+            <button
+              type="button"
+              onClick={() => {
+                downloadRun.current++;
+                setDownload(null);
+              }}
+            >
               取消
             </button>
           </div>
@@ -349,18 +432,21 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
           </button>
         </div>
       )}
-      {notice && (
-        <p role="status">
-          {notice}{' '}
-          {query && (
-            <button type="button" onClick={() => void apply(query)}>
-              重试
-            </button>
-          )}
-        </p>
-      )}
-      {!notice && working && <p role="status">正在获取目录…</p>}
-      {!working && !notice && query && !page.rows.length && <p role="status">未找到内容。</p>}
+      <div role="status">
+        {notice && (
+          <p>
+            {notice.startsWith('hall.') ? tx(notice) : notice}{' '}
+            {query && (
+              <button type="button" onClick={() => void apply(query)}>
+                重试
+              </button>
+            )}
+          </p>
+        )}
+        {!notice && working && <p>正在获取目录…</p>}
+        {!working && !notice && query && !page.rows.length && <p>未找到内容。</p>}
+      </div>
+      {page.source === 'lyricsflow' && <small>{tx('hall.catalogFallback')}</small>}
       <div ref={list} aria-busy={working}>
         {page.rows.length > 0 && (
           <ul className={s.trackList}>
@@ -411,20 +497,17 @@ export function Catalog({ provider, accounts }: { provider: HallProvider; accoun
                       歌词
                     </button>
                   )}
-                  {activeAccount &&
-                    provider.capabilities.download === 'authorized' &&
-                    track.ref.namespace === 'songs' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDownload(track);
-                          setNotice('');
-                          frame()?.scrollTo(0, 0);
-                        }}
-                      >
-                        加入资料库
-                      </button>
-                    )}
+                  {canDownload && track.ref.namespace === 'songs' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotice('');
+                        void downloadOptions(track);
+                      }}
+                    >
+                      加入资料库
+                    </button>
+                  )}
                   {provider.capabilities.open === 'public' && (
                     <button type="button" onClick={() => void command('open', track)}>
                       打开官网

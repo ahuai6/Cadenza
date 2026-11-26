@@ -114,6 +114,7 @@ const lyrics = '[00:00.50]A fixture line\n\n[00:02.50]\n[00:03.00]Another fixtur
             restricted,
             skipped,
             duplicate,
+            savedFile: manager.savedFile(original),
             files: await fs.readdir(music),
           };
         } finally {
@@ -126,16 +127,12 @@ const lyrics = '[00:00.50]A fixture line\n\n[00:02.50]\n[00:03.00]Another fixtur
     assert.equal(evidence.failed.problem, 'import-failed', JSON.stringify(evidence));
     assert.deepEqual(evidence.filesBeforeRetry, ['Fixture - Synthetic.flac']);
     assert.equal(evidence.recovered.state, 'complete');
+    assert.equal(evidence.savedFile, path.join(music, 'Fixture - Synthetic.flac'));
     assert.equal(evidence.rejected.problem, 'invalid-response');
     assert.equal(evidence.restricted.problem, 'restricted');
     assert.equal(evidence.skipped.state, 'skipped');
     assert.equal(evidence.duplicate.state, 'complete');
-    assert.deepEqual(evidence.files, [
-      'Fixture - Synthetic (2).flac',
-      'Fixture - Synthetic (2).flac.translation.lrc',
-      'Fixture - Synthetic.flac',
-      'Fixture - Synthetic.flac.translation.lrc',
-    ]);
+    assert.deepEqual(evidence.files, ['Fixture - Synthetic (2).flac', 'Fixture - Synthetic.flac']);
     await main.waitForFunction(() => window.__cadenza.lib.get().tracks.length === 2);
     const tracks = await main.evaluate(() => window.__cadenza.lib.get().tracks);
     assert.notEqual(tracks[0].id, tracks[1].id);
@@ -145,8 +142,12 @@ const lyrics = '[00:00.50]A fixture line\n\n[00:02.50]\n[00:03.00]Another fixtur
     const found = await main.evaluate((id) => window.cadenzaLib.lyrics(id), tracks[0].id);
     assert.equal(found.text, lyrics);
     const sources = await main.evaluate((id) => window.cadenzaLib.lyricSources(id), tracks[0].id);
-    assert.equal(sources.fields.find((field) => field.id === 'sidecar:translation').text, translation);
-    assert.notEqual(sources.primary, 'sidecar:translation');
+    assert.equal(sources.fields.find((field) => field.id.startsWith('flac:LYRICS_TRANSLATION:')).text, translation);
+    assert.equal(sources.primary, 'flac:LYRICS:0');
+    const nativeFields = await require('../electron/flac-lyrics.cjs').fields(
+      path.join(music, 'Fixture - Synthetic.flac'),
+    );
+    assert.equal(nativeFields.find((field) => field.key === 'LYRICS_TRANSLATION').text, translation);
     await main.evaluate((id) => window.__cadenza.api.playIds([id], 0), tracks[0].id);
     await main.waitForFunction(() => window.__cadenza.api.playback.get().phase === 'playing');
     console.log(
@@ -154,6 +155,28 @@ const lyrics = '[00:00.50]A fixture line\n\n[00:02.50]\n[00:03.00]Another fixtur
     );
   } finally {
     await app.close();
+  }
+  const fresh = path.join(scratch, 'fresh-profile');
+  fs.mkdirSync(fresh);
+  initializeProfile(fresh, identifyBuild(require('../package.json').version));
+  fs.mkdirSync(path.join(fresh, 'library'), { recursive: true });
+  fs.writeFileSync(path.join(fresh, 'library', 'db.json'), JSON.stringify({ version: 1, folders: [music] }));
+  fs.writeFileSync(path.join(fresh, 'settings.json'), JSON.stringify({ closeToTray: false, rhythmEngine: 'dsp' }));
+  const restored = await _electron.launch({
+    executablePath: require('electron'),
+    args: [root],
+    env: { ...process.env, CADENZA_USER_DATA: fresh },
+  });
+  try {
+    const main = await restored.firstWindow();
+    await main.waitForFunction(() => window.__cadenza?.lib.get().tracks.length === 2);
+    const found = await main.evaluate(() => window.cadenzaLib.lyricSources(window.__cadenza.lib.get().tracks[0].id));
+    assert.equal(found.fields.find((field) => field.id === 'flac:LYRICS_TRANSLATION:0').text, translation);
+    assert.equal(found.fields.find((field) => field.id === 'flac:LYRICS:0').text, lyrics);
+    assert.equal(found.primary, 'flac:LYRICS:0');
+    console.log('Fresh isolated profile recovered embedded original and translation directly from FLAC');
+  } finally {
+    await restored.close();
   }
   console.log('Evidence:', scratch);
 })().catch((error) => {

@@ -6,11 +6,26 @@ const { createDownloads } = require('./online-downloads.cjs');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { assertDirectory, replace } = require('./library-storage.cjs');
+const VALID_TIERS = ['standard', 'high', 'lossless'];
 
 function musicHall({ online, fromMain, preferences, asset, getPlayer, library, nativeBin }) {
   let window = null;
   let fetchingPreview;
   let previewStatus = null;
+  const downloadPrefsFile = path.join(app.getPath('userData'), 'library', 'online-download-preferences.json');
+  let downloadPrefs = {};
+  let downloadPrefsWrite = Promise.resolve();
+  let downloadPrefsLoad;
+  function loadDownloadPrefs() {
+    downloadPrefsLoad ||= (async () => {
+      await assertDirectory(path.dirname(downloadPrefsFile));
+      if (!(await fs.lstat(downloadPrefsFile)).isFile()) return;
+      const data = JSON.parse(await fs.readFile(downloadPrefsFile, 'utf8'));
+      if (typeof data.folder === 'string' && path.isAbsolute(data.folder) && VALID_TIERS.includes(data.tier))
+        downloadPrefs = { folder: data.folder, tier: data.tier };
+    })().catch(() => {});
+    return downloadPrefsLoad;
+  }
   const displayPreview = () => {
     if (!previewStatus) return tell('hall:preview-display', null);
     const { provider, id, phase, position, duration, title } = previewStatus;
@@ -29,7 +44,7 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
         capability: 'download',
         account: job.account,
         owner: job.owner,
-        input: { id: job.track, tier: job.tier },
+        input: { id: job.track, tier: job.tier, region: job.region },
         signal,
       }),
   });
@@ -107,11 +122,19 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
     });
     return true;
   });
-  ipcMain.handle('hall:read', (event) =>
-    authorized(event) ? { ...online.snapshot(), appearance: preferences() } : null,
-  );
+  ipcMain.handle('hall:read', async (event) => {
+    if (!authorized(event)) return null;
+    await loadDownloadPrefs();
+    return authorized(event)
+      ? {
+          ...online.snapshot(),
+          appearance: preferences(),
+          downloadPreference: { hasDirectory: !!downloadPrefs.folder, tier: downloadPrefs.tier },
+        }
+      : null;
+  });
   ipcMain.handle('hall:cancel', (event, provider, lane) => {
-    if (authorized(event) && catalogId(provider) && ['browse', 'search', 'playlists'].includes(lane))
+    if (authorized(event) && catalogId(provider) && ['browse', 'search', 'playlists', 'variants'].includes(lane))
       online.cancel(event.sender.id, provider + ':' + lane);
   });
   ipcMain.handle('hall:preview-stop', (event) => {
@@ -122,7 +145,7 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
     const owner = event.sender.id;
     const input = {
       id: catalogId(raw?.id || ''),
-      namespace: ['songs', 'albums', 'playlists'].includes(raw?.namespace) ? raw.namespace : 'songs',
+      namespace: ['songs', 'albums', 'playlists', 'charts'].includes(raw?.namespace) ? raw.namespace : 'songs',
       query: boundedText(raw?.query, 120).trim(),
       region: /^[a-z]{2}$/.test(raw?.region) ? raw.region : 'us',
       offset: Number.isSafeInteger(raw?.offset) ? Math.min(1000, Math.max(0, raw.offset)) : 0,
@@ -141,7 +164,14 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
         const job = { owner, abort: new AbortController() };
         fetchingPreview = job;
         try {
-          const media = await online.invoke({ provider, capability, input, owner, lane: 'preview' });
+          const media = await online.invoke({
+            provider,
+            capability,
+            input,
+            owner,
+            lane: 'preview',
+            signal: job.abort.signal,
+          });
           job.abort.signal.throwIfAborted();
           const asset = await audition.prepare(media, job.abort.signal);
           if (fetchingPreview !== job || !window || window.isDestroyed() || owner !== window.webContents.id)
@@ -290,44 +320,104 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
     }
   });
   ipcMain.handle('hall:download-list', (event) => (authorized(event) ? downloads.snapshot() : []));
+  ipcMain.handle('hall:download-variants', async (event, provider, raw) => {
+    if (!authorized(event)) return { ok: false, code: 'restricted' };
+    const id = catalogId(raw?.track);
+    const account = catalogId(raw?.account);
+    const region = /^[a-z]{2}$/.test(raw?.region) ? raw.region : 'us';
+    if (!id) return { ok: false, code: 'invalid' };
+    try {
+      online.requireAccess(provider, 'download', account);
+      const tiers = await online.invoke({
+        provider,
+        capability: 'variants',
+        account,
+        owner: event.sender.id,
+        lane: provider + ':variants',
+        input: { id, region },
+      });
+      if (!authorized(event)) return { ok: false, code: 'cancelled' };
+      if (!Array.isArray(tiers)) return { ok: false, code: 'invalid-response' };
+      return { ok: true, tiers: [...new Set(tiers.filter((tier) => VALID_TIERS.includes(tier)))] };
+    } catch (error) {
+      return { ok: false, code: error instanceof OnlineError ? error.code : 'provider-failed' };
+    }
+  });
   ipcMain.handle(
     'hall:download-act',
     (event, id, command) =>
       authorized(event) && ['cancel', 'retry'].includes(command) && downloads.act(catalogId(id), command),
   );
+  ipcMain.handle('hall:download-reveal', async (event, id) => {
+    if (!authorized(event)) return false;
+    const file = downloads.savedFile(catalogId(id));
+    if (!file) return false;
+    return fs
+      .lstat(file)
+      .then((stat) => {
+        if (!authorized(event) || !stat.isFile()) return false;
+        shell.showItemInFolder(file);
+        return true;
+      })
+      .catch(() => false);
+  });
   ipcMain.handle('hall:download-add', async (event, provider, raw) => {
     if (!authorized(event)) return { ok: false, code: 'restricted' };
     const account = catalogId(raw?.account),
       track = catalogId(raw?.track),
       tier = raw?.tier;
-    if (
-      !track ||
-      !['standard', 'high', 'lossless'].includes(tier) ||
-      !online
-        .snapshot()
-        .accounts.some((entry) => entry.provider === provider && entry.id === account && entry.state === 'connected') ||
-      online.snapshot().providers.find((entry) => entry.id === provider)?.capabilities.download !== 'authorized'
-    )
-      return { ok: false, code: 'restricted' };
-    const folder = await dialog.showOpenDialog(window, {
-      title: '选择下载并加入曲库的目录',
-      defaultPath: app.getPath('music'),
-      properties: ['openDirectory'],
-    });
-    if (!authorized(event) || folder.canceled || !folder.filePaths[0]) return { ok: false, code: 'cancelled' };
+    if (!track || !VALID_TIERS.includes(tier)) return { ok: false, code: 'invalid' };
     try {
+      online.requireAccess(provider, 'download', account);
+    } catch (error) {
+      return { ok: false, code: error instanceof OnlineError ? error.code : 'provider-failed' };
+    }
+    try {
+      await loadDownloadPrefs();
+      if (!authorized(event)) return { ok: false, code: 'cancelled' };
+      let folder = raw?.useDefault === true ? downloadPrefs.folder : undefined;
+      if (folder) {
+        try {
+          await assertDirectory(folder);
+        } catch {
+          folder = undefined;
+        }
+      }
+      if (!folder) {
+        const picked = await dialog.showOpenDialog(window, {
+          defaultPath: downloadPrefs.folder || app.getPath('music'),
+          properties: ['openDirectory'],
+        });
+        if (picked.canceled || !picked.filePaths[0]) return { ok: false, code: 'cancelled' };
+        folder = picked.filePaths[0];
+      }
+      if (!authorized(event)) return { ok: false, code: 'cancelled' };
+      const task = downloads.add({
+        provider,
+        account,
+        track,
+        tier,
+        region: /^[a-z]{2}$/.test(raw?.region) ? raw.region : undefined,
+        owner: event.sender.id,
+        title: boundedText(raw?.title),
+        conflict: raw?.conflict === 'skip' ? 'skip' : 'keep',
+        folder,
+      });
+      if (raw?.remember === true) {
+        downloadPrefs = { folder, tier };
+        const body = JSON.stringify(downloadPrefs);
+        downloadPrefsWrite = downloadPrefsWrite
+          .catch(() => {})
+          .then(async () => {
+            await assertDirectory(path.dirname(downloadPrefsFile));
+            await replace(downloadPrefsFile, body);
+          });
+        void downloadPrefsWrite.catch(() => console.warn('[online] download preferences unavailable'));
+      }
       return {
         ok: true,
-        task: downloads.add({
-          provider,
-          account,
-          track,
-          tier,
-          owner: event.sender.id,
-          title: boundedText(raw?.title),
-          conflict: raw?.conflict === 'skip' ? 'skip' : 'keep',
-          folder: folder.filePaths[0],
-        }),
+        task,
+        downloadPreference: { hasDirectory: !!downloadPrefs.folder, tier: downloadPrefs.tier },
       };
     } catch (error) {
       return { ok: false, code: error instanceof OnlineError ? error.code : 'download-failed' };
@@ -343,6 +433,7 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
     async close() {
       await downloads.close();
       await snapshotWrites.catch(() => {});
+      await downloadPrefsWrite.catch(() => {});
       if (window && !window.isDestroyed()) stopPreview(window.webContents.id);
       audition.close();
     },

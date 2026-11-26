@@ -81,10 +81,10 @@ async function run() {
       ['netease', '网易云音乐'],
       ['qq', 'QQ 音乐'],
       ['kugou', '酷狗音乐'],
-      ['lyricsflow', 'LyricsFlow'],
+      ['apple', 'Apple Music'],
     ]) {
       await hall.locator('#platform-' + id).click();
-      await hall.getByLabel('歌曲搜索').fill(id === 'lyricsflow' ? 'Bohemian Rhapsody' : 'Bach');
+      await hall.getByLabel('歌曲搜索').fill(id === 'apple' ? 'Bohemian Rhapsody' : 'Bach');
       await hall.getByRole('button', { name: '搜索', exact: true }).click();
       const section = hall.getByRole('region', { name: '在线目录' });
       if (id === 'qq') {
@@ -105,7 +105,15 @@ async function run() {
       console.log('Live catalog:', id, count);
     }
     const snap = await hall.evaluate(() => window.cadenzaHall.read());
-    assert.equal(snap.providers.find((p) => p.id === 'lyricsflow').capabilities.download, 'unavailable');
+    assert.deepEqual(
+      snap.providers.map((p) => p.id),
+      ['netease', 'qq', 'kugou', 'apple'],
+    );
+    assert.equal(snap.providers.find((p) => p.id === 'apple').capabilities.download, 'unavailable');
+    const charts = await hall.evaluate(() => window.cadenzaHall.catalog('qq', 'charts', {}));
+    assert.ok(charts.ok && charts.data.rows.length > 0, JSON.stringify(charts));
+    assert.ok(charts.data.rows.every((row) => row.ref.namespace === 'charts'));
+    console.log('Live QQ charts:', charts.data.rows.length);
     await hall.getByRole('button', { name: '试听', exact: true }).first().click();
     await hall.getByText(/^正在试听/).waitFor({ timeout: 25000 });
     await main.waitForFunction(() => window.__cadenza.api.playback.get().phase === 'paused' && window.hallWave());

@@ -1093,7 +1093,12 @@ async function lyricSources(id) {
     fields.find((field) => field.id === preference.lyricsSource) ||
     (preference.preferLrc && fields.find((field) => field.id === 'sidecar:lrc')) ||
     fields.find((field) => field.format === 'ttml') ||
-    fields.find((field) => !auxiliaryLyricRoles.some((role) => field.id === 'sidecar:' + role));
+    fields.find(
+      (field) =>
+        !auxiliaryLyricRoles.some(
+          (role) => field.id === 'sidecar:' + role || field.id.startsWith('flac:LYRICS_' + role.toUpperCase() + ':'),
+        ),
+    );
   return {
     fields: fields.map((field) => ({ ...field, writable: field.writable && !track.protected })),
     targets: track.protected ? [] : targets,

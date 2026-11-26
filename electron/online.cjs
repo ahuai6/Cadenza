@@ -13,6 +13,7 @@ const capabilities = [
   'lyrics',
   'preview',
   'download',
+  'variants',
   'open',
 ];
 const planned = [
@@ -20,7 +21,6 @@ const planned = [
   { id: 'qq', name: 'QQ Music', label: 'hall.qq' },
   { id: 'kugou', name: 'KuGou', label: 'hall.kugou' },
   { id: 'apple', name: 'Apple Music' },
-  { id: 'lyricsflow', name: 'LyricsFlow' },
 ];
 const aiProviders = [
   { id: 'chatgpt', name: 'ChatGPT', auth: 'oauth' },
@@ -102,7 +102,7 @@ function createOnlineService({ vault, accountFile, catalog = planned } = {}) {
       )
     )
       throw new OnlineError('invalid');
-    providers.set(id, { id, name: descriptor.name, label: descriptor.label });
+    providers.set(id, { id, name: descriptor.name, label: descriptor.label, configuration: descriptor.configuration });
     adapters.set(id, { capabilities: { ...descriptor.capabilities }, operations: { ...operations } });
   }
   const accountKey = (provider, id) => JSON.stringify([provider, id]);
@@ -164,6 +164,7 @@ function createOnlineService({ vault, accountFile, catalog = planned } = {}) {
         id: p.id,
         name: p.name,
         label: p.label,
+        configuration: p.configuration,
         capabilities: Object.fromEntries(
           capabilities.map((cap) => [cap, adapters.get(p.id)?.capabilities[cap] || 'unavailable']),
         ),
@@ -172,14 +173,21 @@ function createOnlineService({ vault, accountFile, catalog = planned } = {}) {
       ai: aiProviders.map((provider) => ({ ...provider, state: 'unavailable' })),
     };
   }
-  // Results stay in main. A future IPC command should project each result into an explicit public DTO.
-  async function invoke({ provider, capability, account, input, owner, lane, signal }) {
+  function requireAccess(provider, capability, account) {
     const adapter = adapters.get(provider);
     const access = adapter && Object.hasOwn(adapter.capabilities, capability) && adapter.capabilities[capability];
     if (!access) throw new OnlineError('unavailable');
-    const scope = account && { domain: 'music', provider, account };
-    if (access === 'authorized' && (!scope || accounts.get(accountKey(provider, account))?.state !== 'connected'))
-      throw new OnlineError('sign-in-required');
+    if (access === 'authorized') {
+      const state = accounts.get(accountKey(provider, account))?.state;
+      if (state !== 'connected') throw new OnlineError(state === 'expired' ? 'expired' : 'sign-in-required');
+    }
+    return access;
+  }
+  // Sensitive adapter results stay in main. Only projected catalog data and task status cross IPC.
+  async function invoke({ provider, capability, account, input, owner, lane, signal }) {
+    const access = requireAccess(provider, capability, account);
+    const adapter = adapters.get(provider);
+    const scope = access === 'authorized' ? { domain: 'music', provider, account } : null;
     if (lane) cancel(owner, lane);
     const cacheable = ['search', 'charts', 'recommendations', 'collection'].includes(capability) && access === 'public';
     const key = cacheable && JSON.stringify([provider, capability, input]);
@@ -232,7 +240,19 @@ function createOnlineService({ vault, accountFile, catalog = planned } = {}) {
   function close() {
     for (const task of tasks) task.controller.abort();
   }
-  return { register, invoke, snapshot, setAccount, connect, disconnect, restoreAccounts, cancel, closeOwner, close };
+  return {
+    register,
+    invoke,
+    requireAccess,
+    snapshot,
+    setAccount,
+    connect,
+    disconnect,
+    restoreAccounts,
+    cancel,
+    closeOwner,
+    close,
+  };
 }
 
 module.exports = { createOnlineService, credentialVault, OnlineError };

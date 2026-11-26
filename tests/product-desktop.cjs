@@ -33,6 +33,10 @@ async function run(ui) {
   initializeProfile(profile, identifyBuild(require('../package.json').version));
   fs.mkdirSync(path.join(profile, 'library'), { recursive: true });
   fs.writeFileSync(
+    path.join(profile, 'library', 'online-download-preferences.json'),
+    JSON.stringify({ folder: music, tier: 'lossless' }),
+  );
+  fs.writeFileSync(
     path.join(profile, 'library', 'db.json'),
     JSON.stringify({
       version: 1,
@@ -190,7 +194,7 @@ async function run(ui) {
     const hall = await hallWindow;
     hall.on('pageerror', (error) => errors.push(error.message));
     await hall.locator('[data-test=music-hall]').waitFor();
-    await hall.getByRole('tab', { name: 'LyricsFlow' }).waitFor();
+    await hall.getByRole('tab', { name: 'Apple Music' }).waitFor();
     assert.deepEqual(
       await hall.evaluate(() => ({
         player: !!window.__cadenza,
@@ -212,6 +216,8 @@ async function run(ui) {
           'catalog',
           'downloadAct',
           'downloadAdd',
+          'downloadReveal',
+          'downloadVariants',
           'downloads',
           'onAppearance',
           'onDownloads',
@@ -225,15 +231,19 @@ async function run(ui) {
       },
     );
     assert.equal(await get(() => window.cadenzaHall), undefined);
+    const hallState = await hall.evaluate(() => window.cadenzaHall.read());
+    assert.deepEqual(hallState.downloadPreference, { hasDirectory: true, tier: 'lossless' });
+    assert.equal(await hall.evaluate(() => window.cadenzaHall.downloadReveal('fictional-task')), false);
+
     assert.equal(app.windows().length, 2);
     const tabs = hall.getByRole('tablist').getByRole('tab');
     await tabs.first().focus();
     await hall.keyboard.press('End');
     assert.equal(await tabs.last().getAttribute('aria-selected'), 'true');
     assert.equal(await tabs.last().evaluate((node) => node === document.activeElement), true);
-    const search = hall.getByRole('searchbox', { name: '歌曲搜索' });
+    const search = hall.getByRole('searchbox', { name: 'Search tracks' });
     await search.waitFor();
-    assert.equal(await hall.getByRole('button', { name: '搜索', exact: true }).isEnabled(), false);
+    assert.equal(await hall.getByRole('button', { name: 'Search', exact: true }).isEnabled(), false);
     assert.equal(
       await hall.locator('[data-test=hall-titlebar]').evaluate((node) => getComputedStyle(node).webkitAppRegion),
       'drag',
@@ -297,7 +307,7 @@ async function run(ui) {
           .setSize(1160, 800);
       });
       await hall.getByRole('button', { name: '发现', exact: true }).click();
-      await hall.getByRole('tabpanel', { name: 'LyricsFlow' }).getByRole('searchbox', { name: '歌曲搜索' }).waitFor();
+      await hall.getByRole('tabpanel', { name: 'Apple Music' }).getByRole('searchbox', { name: '歌曲搜索' }).waitFor();
       await hall
         .locator('[data-turn=in]')
         .last()
@@ -342,7 +352,7 @@ async function run(ui) {
     const next = app.waitForEvent('window');
     await open.click();
     const reopened = await next;
-    await reopened.getByRole('tab', { name: 'LyricsFlow' }).waitFor();
+    await reopened.getByRole('tab', { name: 'Apple Music' }).waitFor();
     assert.deepEqual(errors, []);
     console.log('Pass isolated Electron', ui, layout);
   } finally {

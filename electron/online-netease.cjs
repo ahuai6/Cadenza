@@ -3,6 +3,23 @@ const { OnlineError } = require('./online.cjs');
 const { boundedText, catalogId, publicUrl, request } = require('./online-providers.cjs');
 
 const lyricText = (value) => (typeof value === 'string' && value.length <= 400000 ? value : undefined);
+const lyricTracks = (data) => ({
+  original: lyricText(data.lrc?.lyric),
+  timed: lyricText(data.yrc?.lyric),
+  translation: lyricText(data.tlyric?.lyric),
+  transliteration: lyricText(data.romalrc?.lyric),
+});
+const downloadRates = { standard: 128000, high: 320000, lossless: 999000 };
+function allowedTiers(privilege) {
+  if (!privilege || privilege.st < 0) return [];
+  return Object.entries(downloadRates)
+    .filter(
+      ([tier, bitrate]) =>
+        Number(privilege.dl) >= bitrate ||
+        (tier === 'lossless' && ['lossless', 'hires', 'jyeffect', 'sky'].includes(privilege.downloadMaxBrLevel)),
+    )
+    .map(([tier]) => tier);
+}
 
 const routes = {
   cloudsearch: ['/api/cloudsearch/pc', (x) => ({ s: x.keywords, type: x.type, limit: x.limit, offset: x.offset })],
@@ -154,6 +171,8 @@ function registerNetease(service) {
         account: 'public',
         playlists: 'authorized',
         download: 'authorized',
+        variants: 'authorized',
+        lyrics: 'public',
         open: 'public',
       },
     },
@@ -173,6 +192,13 @@ function registerNetease(service) {
       },
       collection: ({ id, offset }, ctx) => collection(id, offset, ctx),
       account: accounts(service),
+      async lyrics({ id, namespace }, ctx) {
+        if (namespace !== 'songs') throw new OnlineError('invalid');
+        const raw = await call('lyric', { id: idOf(id) }, ctx);
+        const tracks = lyricTracks(raw);
+        if (!tracks.timed && !tracks.original) throw new OnlineError('not-found');
+        return { text: tracks.timed || tracks.original, format: tracks.timed ? 'yrc' : 'lrc', tracks };
+      },
       async playlists({ account, id, offset }, ctx) {
         if (id) return collection(id, offset, ctx);
         const result = await call('user_playlist', { uid: idOf(account), limit: 100, offset }, ctx);
@@ -187,22 +213,17 @@ function registerNetease(service) {
           more: result.more === true,
         };
       },
+      async variants({ id }, ctx) {
+        const data = await call('song_detail', { ids: idOf(id) }, ctx);
+        return allowedTiers(data.privileges?.find((entry) => String(entry.id) === id));
+      },
       async download({ id, tier }, ctx) {
-        const bitrate = { standard: 128000, high: 320000, lossless: 999000 }[tier];
+        const bitrate = downloadRates[tier];
         if (!bitrate) throw new OnlineError('invalid');
         const data = await call('song_detail', { ids: idOf(id) }, ctx);
         const metadata = filtered(data.songs, track).find((item) => item.ref.id === id);
         const privilege = data.privileges?.find((entry) => String(entry.id) === id);
-        if (
-          !metadata?.duration ||
-          !privilege ||
-          privilege.st < 0 ||
-          !(
-            Number(privilege.dl) >= bitrate ||
-            (tier === 'lossless' && ['lossless', 'hires', 'jyeffect', 'sky'].includes(privilege.downloadMaxBrLevel))
-          )
-        )
-          throw new OnlineError('restricted');
+        if (!metadata?.duration || !allowedTiers(privilege).includes(tier)) throw new OnlineError('restricted');
         const answer = await call('song_download_url', { id, br: bitrate }, ctx);
         const media = Array.isArray(answer.data) ? answer.data[0] : answer.data;
         if (
@@ -218,13 +239,14 @@ function registerNetease(service) {
         let lyrics;
         try {
           const text = await call('lyric', { id }, ctx);
-          const original = lyricText(text.lrc?.lyric);
+          const tracks = lyricTracks(text);
+          const original = tracks.original;
           if (original !== undefined) {
             lyrics = {
               text: original,
               auxiliary: {
-                translation: lyricText(text.tlyric?.lyric),
-                transliteration: lyricText(text.romalrc?.lyric),
+                translation: tracks.translation,
+                transliteration: tracks.transliteration,
               },
             };
           }
