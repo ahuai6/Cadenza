@@ -1,5 +1,4 @@
 import { tx } from '../../i18n';
-import { D } from '../bridge';
 import { toggleEditing, useEditing, useEditSwitch } from '../editing';
 import { Icon } from './icons';
 import { usePresence } from './kit';
@@ -24,23 +23,6 @@ export function EditModeButton({ className, compact = false }: { className?: str
     >
       <Icon n="pencil" size={16} />
       {!compact && <span>{tx('edit.mode')}</span>}
-    </button>
-  );
-}
-
-export function MusicHallButton({ className }: { className?: string }) {
-  return (
-    <button
-      type="button"
-      className={className}
-      data-feedback=""
-      data-test="open-hall"
-      aria-label={tx('hall.title')}
-      title={tx('hall.title')}
-      onClick={() => void D?.openMusicHall()}
-    >
-      <Icon n="note" size={16} />
-      <span>{tx('hall.title')}</span>
     </button>
   );
 }

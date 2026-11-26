@@ -207,3 +207,5 @@ npm run build:app
 - Hi-Fi 播放核心独占设备：切回标准输出时要明确 `release`，否则标准输出会静音到它自己放手为止。
 - 画到 WebGL 的 canvas 来源图片必须 `crossOrigin='anonymous'`，否则每帧丢 SecurityError。
 - 软件绘图（测试环境）下看不出性能问题；性能结论只能来自实机。
+
+歌词查询仅返回与本地歌曲匹配的歌词候选。AI 凭据留在主进程；翻译先验证行 ID 和草稿修订，文件提交继续使用已有歌词字段事务。详见 `docs/G55-F.md`。

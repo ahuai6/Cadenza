@@ -43,7 +43,6 @@ export interface Track {
   added: number;
   plays: number;
   last: number;
-  looked: boolean;
   edited: boolean;
   coverSet: boolean;
   /** marked as an instrumental: its own line instead of lyrics, the record theme by default */ instrumental?: boolean;
@@ -96,40 +95,25 @@ export interface SongData {
   unbind?: boolean;
 }
 export interface LyricsFound {
-  id: number;
+  id: string;
+  source: string;
   title: string;
   artist: string;
   album: string;
   duration: number;
-  synced: string;
-  plain: string;
-  instrumental: boolean;
+  synced?: string;
+  plain?: string;
+  translation?: string;
+  transliteration?: string;
+  format: string;
+  precision: 'plain' | 'line' | 'word';
+  warnings: string[];
+  delta: number | null;
 }
-export interface MetaFound {
-  mbid: string;
-  title: string;
-  artist: string;
-  album: string;
-  year: string | null;
-  duration: number | null;
-  genre: string[];
-}
-export interface CoverFound {
-  src: 'itunes' | 'caa';
-  title: string;
-  artist: string;
-  year: string | null;
-  thumb: string;
-  full: string;
-}
-/** The app's settings (settings/schema.ts declares each), and what the desktop adds when it hands them over. */
 export type Settings = SettingValues & { platform?: string; version?: string };
 type Off = () => void;
 export interface DesktopApi {
   setEditing(on: boolean): Promise<boolean>;
-  openMusicHall(): Promise<boolean>;
-  onHallPreview(fn: (request: { token: string; duration: number } | null) => void): Off;
-  hallPreviewStatus(token: string, phase: string, position: number): void;
   saveDialog(o: { defaultPath: string; filters: { name: string; extensions: string[] }[] }): Promise<string | null>;
   openWrite(path: string): Promise<number>;
   write(id: number, data: Uint8Array, pos: number): Promise<void>;
@@ -217,14 +201,12 @@ export interface LibApi {
     target?: 'tag' | 'lrc' | 'ttml',
   ): Promise<{ ok: boolean; target?: 'tag' | 'lrc' | 'ttml'; why?: string }>;
   importLyricsFile(): Promise<string | null>;
+  cancelLyricSearch(): Promise<void>;
   searchLyrics(q: object): Promise<LyricsFound[]>;
-  searchMeta(q: object): Promise<MetaFound[]>;
-  applyMeta(id: string, m: MetaFound): Promise<boolean>;
   clearMeta(id: string, part: 'tags' | 'cover' | 'all'): Promise<boolean>;
   instrumental(id: string, on: boolean): Promise<boolean>;
   editMeta(id: string, f: object): Promise<boolean>;
-  searchCovers(q: object): Promise<CoverFound[]>;
-  setCover(id: string, how: { url?: string; file?: boolean; reset?: boolean }): Promise<boolean>;
+  setCover(id: string, how: { file?: boolean; reset?: boolean }): Promise<boolean>;
   bindMv(id: string): Promise<{ name: string; offset: number } | null>;
   onChanged(f: (v: LibView) => void): Off;
   onProgress(f: (p: ScanProgress) => void): Off;
@@ -252,7 +234,7 @@ export interface BackgroundTasks {
 export interface LyricTarget {
   id: string;
   label: string;
-  format: 'ttml' | 'lrc' | 'either';
+  format: 'ttml' | 'lrc' | 'yrc' | 'krc' | 'either';
 }
 export interface LyricField extends LyricTarget {
   text: string;
@@ -287,8 +269,44 @@ export interface InferApi {
   ): Promise<{ left: Float32Array; right: Float32Array }[]>;
 }
 
+export type AiProvider = 'openai' | 'deepseek' | 'compatible';
+export interface AiEntry {
+  id: string;
+  name: string;
+  provider: AiProvider;
+  base: string;
+  protocol: 'responses' | 'chat';
+  model: string;
+  timeout: number;
+  language: string;
+}
+type AiResult<T> = { ok: true; value: T } | { ok: false; why: string };
+export interface AiTranslationRow {
+  id: string;
+  translation: string;
+}
+interface LyricAiApi {
+  state(): Promise<AiResult<{ entries: AiEntry[]; chatgpt: { connected: boolean; inference: boolean } }>>;
+  signIn(): Promise<AiResult<void>>;
+  cancelSignIn(): Promise<AiResult<void>>;
+  signOut(): Promise<AiResult<void>>;
+  save(entry: Omit<AiEntry, 'id'> & { id?: string; key: string }): Promise<AiResult<AiEntry>>;
+  remove(id: string): Promise<AiResult<void>>;
+  models(id: string): Promise<AiResult<string[]>>;
+  translate(input: {
+    service: string;
+    model: string;
+    language: string;
+    context: string;
+    instructions: string;
+    rows: Array<{ id: string; text: string }>;
+  }): Promise<AiResult<AiTranslationRow[]>>;
+  cancel(): Promise<AiResult<void>>;
+}
+
 const W = (typeof window !== 'undefined' ? window : {}) as any;
 export const D: DesktopApi | null = W.cadenzaDesktop ?? null;
+export const LyricAI: LyricAiApi | null = W.cadenzaLyricAI ?? null;
 export const Lib: LibApi | null = W.cadenzaLib ?? null;
 export const AudioOut: AudioApi | null = W.cadenzaAudio ?? null;
 export const Infer: InferApi | null = W.cadenzaInfer ?? null;

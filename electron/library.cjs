@@ -1,19 +1,20 @@
 // The personal music library, in the main process. It owns everything on disk: the folders the user chose, what is in
 // them (tags, covers, sidecar lyrics), the user's favourites and playlists, each song's own lyric style, the rhythm
-// analysis cache, and lookups of lyrics (LRCLIB), tags (MusicBrainz) and covers. The page only ever sees ids and
+// analysis cache, and the bridge for explicitly requested lyric searches. The page only ever sees ids and
 // cadenza:// URLs, never paths it could ask to read or write on its own; the one file it may write is a song's own .lrc
 // beside the audio.
 //
 // Rhythm analysis runs in the page (the rhythm SDK's worker). This side keeps the queue of songs still to analyse and the
 // cache: each analysis is the SDK's own RhythmAnalysis JSON (gzip), tagged with the SDK version that made it; a newer SDK
 // asks for the songs again.
-const { app, net, nativeImage, dialog, protocol } = require('electron');
+const { app, nativeImage, dialog, protocol } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const fsp = fs.promises;
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { serveFile } = require('./file-response.cjs');
+const { isKrc, decodeKrc, encodeKrc } = require('./krc.cjs');
 const { serveAlac } = require('./alac.cjs');
 const { binPath } = require('./audio.cjs');
 const identity = require('./audio-identity.cjs');
@@ -46,7 +47,6 @@ const PROTECTED = new Set([
   '.m4p',
   '.xm',
 ]);
-const UA = () => `Cadenza/${app.getVersion()} (https://github.com/ahuai6/Cadenza)`;
 
 const root = () => path.join(app.getPath('userData'), 'library');
 const P = {
@@ -151,7 +151,6 @@ function trackView(t) {
     added: t.added,
     plays: t.plays || 0,
     last: t.last || 0,
-    looked: !!o.mbid,
     edited: Object.keys(o).some((k) => k !== 'coverKey' && k !== 'instrumental'),
     coverSet: !!o.coverKey,
     instrumental: !!o.instrumental,
@@ -193,6 +192,11 @@ const sidecar = (p) => {
   for (const e of ['.lrc', '.LRC', '.Lrc']) if (fs.existsSync(b + e)) return b + e;
   return null;
 };
+const wordSidecarFormats = ['yrc', 'krc'];
+const wordSidecar = (file, format) => {
+  const base = file.slice(0, -path.extname(file).length);
+  return [base + '.' + format, base + '.' + format.toUpperCase()].find((candidate) => fs.existsSync(candidate));
+};
 
 /* ---------- covers: kept once per image, with a small copy for grids ---------- */
 async function storeCover(data) {
@@ -225,7 +229,6 @@ const containsPath = (dir, file) => {
   return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
 };
 const identityIssues = new Set();
-const onlineImports = new Map();
 const scanCounters = { directories: 0, tags: 0, fingerprints: 0, analyses: 0, cacheHits: 0 };
 async function walk(dir, out, unavailable, depth = 0) {
   if (depth > 24) {
@@ -443,12 +446,13 @@ const sameMetadata = (a, b) => metadataFields.every((k) => isDeepStrictEqual(a[k
 
 const auxiliaryLyricRoles = ['translation', 'transliteration'];
 const auxiliaryLyricFile = (file, role) => file + '.' + role + '.lrc';
-const onlineLyricFile = (file, format) => file + '.' + format;
+const appendedLyricFile = (file, format) => file + '.' + format;
 async function sidecars(track) {
   const files = [ttmlSidecar(track.path), sidecar(track.path)];
   const companions = [
     ...auxiliaryLyricRoles.map((role) => auxiliaryLyricFile(track.path, role)),
-    ...['ttml', 'lrc', 'yrc'].map((format) => onlineLyricFile(track.path, format)),
+    ...['ttml', 'lrc', 'yrc'].map((format) => appendedLyricFile(track.path, format)),
+    ...wordSidecarFormats.map((format) => wordSidecar(track.path, format)),
   ];
   const stamps = await Promise.all(
     [...files, ...companions].map(async (file) => {
@@ -456,12 +460,13 @@ async function sidecars(track) {
       return info ? identity.revision(info) : '';
     }),
   );
-  const current = (stamps.slice(2).some(Boolean) ? stamps : stamps.slice(0, 2)).join('|');
+  const stampCount = stamps.slice(7).some(Boolean) ? stamps.length : stamps.slice(2, 7).some(Boolean) ? 7 : 2;
+  const current = stamps.slice(0, stampCount).join('|');
   if (track.sidecarStamp !== current) track.lyricsRevision = (track.lyricsRevision || 0) + 1;
   track.sidecarStamp = current;
   [track.ttmlFile, track.lrc] = files.map(Boolean);
   track.ttmlFile ||= !!stamps[4];
-  track.lrc ||= !!(stamps[5] || stamps[6]);
+  track.lrc ||= stamps.slice(5).some(Boolean);
 }
 
 let scanning = false,
@@ -584,11 +589,7 @@ async function scan(retryFailed = false, scopes) {
             }
             const previous = !track.protected && old && identity.validId(old.audioContentId) ? old : null;
             if (!previous) db.tracks[track.id] = track;
-            const imported = onlineImports.get(file);
-            if (imported?.stamp === stamp && !previous) {
-              track.audioContentId = imported.content;
-              onlineImports.delete(file);
-            } else queueIdentity(track, previous);
+            queueIdentity(track, previous);
           }
         } catch {
           // An unreadable path can be reconsidered on the next scan.
@@ -993,6 +994,13 @@ const lyricEdits = new Map();
 const lyricRevision = (text, stamp = '') =>
   crypto.createHash('sha256').update(stamp).update('\0').update(text).digest('hex');
 const lyricFormat = (text) => (isTtmlText(text) ? 'ttml' : 'lrc');
+function documentFormat(text) {
+  text = text.replace(/^\uFEFF/, '');
+  if (isTtmlText(text)) return 'ttml';
+  if (/^\[\d+,\d+\]\(\d+,\d+,\d+\)/m.test(text)) return 'yrc';
+  if (/^\[\d+,\d+\]<\d+,\d+,\d+>/m.test(text)) return 'krc';
+  return 'lrc';
+}
 
 async function lyricSources(id) {
   const track = activeTrack(id);
@@ -1001,15 +1009,16 @@ async function lyricSources(id) {
   const targets = [];
   const errors = [];
   const add = (id, label, text, writable, stamp) =>
-    fields.push({ id, label, text, format: lyricFormat(text), writable, revision: lyricRevision(text, stamp) });
+    fields.push({ id, label, text, format: documentFormat(text), writable, revision: lyricRevision(text, stamp) });
   const base = track.path.slice(0, -path.extname(track.path).length);
   for (const [format, file] of [
     ['ttml', ttmlSidecar(track.path)],
     ['lrc', sidecar(track.path)],
+    ...wordSidecarFormats.map((format) => [format, wordSidecar(track.path, format)]),
   ]) {
     const id = 'sidecar:' + format;
     try {
-      if (file) add(id, path.basename(file), decodeText(await fsp.readFile(file)), true);
+      if (file) add(id, path.basename(file), decodeLyricFile(await fsp.readFile(file)), true);
       else targets.push({ id, label: path.basename(base) + '.' + format, format });
     } catch {
       errors.push(id);
@@ -1023,11 +1032,12 @@ async function lyricSources(id) {
       if (!stat.isFile() || stat.size > 8 * 1024 * 1024) errors.push(source);
       else add(source, path.basename(file), decodeText(await fsp.readFile(file)), true);
     } catch (error) {
-      if (error.code !== 'ENOENT') errors.push(source);
+      if (error.code === 'ENOENT') targets.push({ id: source, label: path.basename(file), format: 'lrc' });
+      else errors.push(source);
     }
   }
   for (const format of ['ttml', 'lrc', 'yrc']) {
-    const file = onlineLyricFile(track.path, format);
+    const file = appendedLyricFile(track.path, format);
     const source = 'sidecar:download-' + format;
     try {
       const stat = await fsp.lstat(file);
@@ -1046,6 +1056,8 @@ async function lyricSources(id) {
       for (const [format, key] of [
         ['ttml', 'TTML'],
         ['lrc', 'LYRICS'],
+        ['yrc', 'YRC'],
+        ['krc', 'KRC'],
       ]) {
         if (!comments.some((field) => field.key.toUpperCase() === key))
           targets.push({ id: 'new:' + format, label: key, format });
@@ -1109,7 +1121,6 @@ async function lyricSources(id) {
   const preference = db.overrides[id] || {};
   const primary =
     fields.find((field) => field.id === preference.lyricsSource) ||
-    (preference.preferLrc && fields.find((field) => field.id === 'sidecar:lrc')) ||
     fields.find((field) => field.format === 'ttml') ||
     fields.find(
       (field) =>
@@ -1172,26 +1183,36 @@ async function applyLyricMutation(id, { source, revision, text } = {}) {
   if ((field && field.revision !== revision) || (!field && revision)) return { ok: false, why: 'changed' };
   if ((!field?.writable && !target) || (text === null && !field)) return { ok: false, why: 'unsupported' };
   const format = field?.format || target.format;
-  if (text !== null && format !== 'either' && !/^(mp4:0|id3:)/.test(source) && lyricFormat(text) !== format)
+  if (text !== null && format !== 'either' && !/^(mp4:0|id3:)/.test(source) && documentFormat(text) !== format)
     return { ok: false, why: 'format' };
   if (source.startsWith('sidecar:')) {
     const base = track.path.slice(0, -path.extname(track.path).length);
     const role = source.slice('sidecar:'.length);
     const file = auxiliaryLyricRoles.includes(role)
       ? auxiliaryLyricFile(track.path, role)
-      : (format === 'ttml' ? ttmlSidecar(track.path) : sidecar(track.path)) || base + '.' + format;
+      : (format === 'ttml'
+          ? ttmlSidecar(track.path)
+          : wordSidecarFormats.includes(role)
+            ? wordSidecar(track.path, role)
+            : role === 'lrc'
+              ? sidecar(track.path)
+              : null) || base + '.' + role;
     const stamp = await fsp.lstat(file).catch((error) => {
       if (error.code !== 'ENOENT') throw error;
     });
     if (stamp && !stamp.isFile()) return { ok: false, why: 'unsupported' };
-    const verified = stamp && lyricRevision(decodeText(await fsp.readFile(file)));
+    const verified = stamp && lyricRevision(decodeLyricFile(await fsp.readFile(file)));
     if (verified !== (revision || undefined) || activeTrack(id) !== track || !(await currentSource(track)))
       return { ok: false, why: 'changed' };
     if (text === null) {
       // Rename instead of deleting outright so the exact original can be recovered.
       await fsp.rename(file, file + '.cadenza-backup-' + crypto.randomBytes(6).toString('hex'));
     } else {
-      await writeLyricSidecar(file, format === 'lrc' ? '\ufeff' + text : text, stamp);
+      await writeLyricSidecar(
+        file,
+        format === 'krc' ? encodeKrc(text) : format === 'lrc' ? '\ufeff' + text : text,
+        stamp,
+      );
     }
     await sidecars(track);
   } else {
@@ -1380,6 +1401,7 @@ async function writeTagLyrics(track, text, source) {
   return 'busy';
 }
 // .lrc files come in UTF-8 (with or without a BOM), UTF-16, or GBK/Big5 from older tools
+const decodeLyricFile = (bytes) => (isKrc(bytes) ? decodeKrc(bytes) : decodeText(bytes));
 function decodeText(b) {
   if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b.subarray(2));
   if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
@@ -1397,166 +1419,6 @@ function decodeText(b) {
 }
 const lrcTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}`;
 
-/* ---------- online: lyrics from LRCLIB, tags from MusicBrainz, covers from iTunes / Cover Art Archive ---------- */
-// one request, with a time limit; network errors, timeouts and busy answers (5xx, 429) are tried again after a pause
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function getJSON(url, { tries = 3, timeout = 12000 } = {}) {
-  let last = null;
-  for (let k = 0; k < tries; k++) {
-    if (k) await sleep(700 * k);
-    const ac = new AbortController(),
-      tm = setTimeout(() => ac.abort(), timeout);
-    try {
-      const r = await net.fetch(url, {
-        headers: { 'User-Agent': UA(), Accept: 'application/json' },
-        signal: ac.signal,
-      });
-      if (r.ok) return await r.json();
-      last = Object.assign(new Error('http ' + r.status), { status: r.status });
-      if (r.status < 500 && r.status !== 429) throw last; // a real answer (not found, bad request): final
-    } catch (e) {
-      if (e.status && e.status < 500 && e.status !== 429) throw e;
-      last = ac.signal.aborted ? Object.assign(new Error('timeout'), { kind: 'timeout' }) : e;
-    } finally {
-      clearTimeout(tm);
-    }
-  }
-  throw last;
-}
-// lyrics: the exact match first, then a search by title and artist, then a free-text search; results merged, synced
-// lyrics and the closest length first
-async function searchLyrics(q) {
-  const seen = new Map();
-  let err = null;
-  const add = (list) => {
-    for (const x of [].concat(list || [])) if (x && x.id && !seen.has(x.id)) seen.set(x.id, x);
-  };
-  const tryGet = async (u) => {
-    try {
-      add(await getJSON(u.toString()));
-    } catch (e) {
-      if (e.status !== 404) err = e;
-    }
-  };
-  if (q.title && q.artist && q.album && q.duration) {
-    const u = new URL('https://lrclib.net/api/get');
-    u.searchParams.set('track_name', q.title);
-    u.searchParams.set('artist_name', q.artist);
-    u.searchParams.set('album_name', q.album);
-    u.searchParams.set('duration', Math.round(+q.duration));
-    await tryGet(u);
-  }
-  if (q.title) {
-    const u = new URL('https://lrclib.net/api/search');
-    u.searchParams.set('track_name', q.title);
-    if (q.artist) u.searchParams.set('artist_name', q.artist);
-    await tryGet(u);
-  }
-  if (seen.size < 3) {
-    const u = new URL('https://lrclib.net/api/search');
-    u.searchParams.set('q', [q.title, q.artist].filter(Boolean).join(' ') || q.q || '');
-    if (u.searchParams.get('q')) await tryGet(u);
-  }
-  if (!seen.size && err) throw err;
-  const d = +q.duration || 0;
-  return [...seen.values()]
-    .map((x) => ({
-      id: x.id,
-      title: x.trackName,
-      artist: x.artistName,
-      album: x.albumName,
-      duration: x.duration,
-      synced: x.syncedLyrics || '',
-      plain: x.plainLyrics || '',
-      instrumental: !!x.instrumental,
-    }))
-    .sort((a, b) => !!b.synced - !!a.synced || (d ? Math.abs(a.duration - d) - Math.abs(b.duration - d) : 0))
-    .slice(0, 20);
-}
-// MusicBrainz asks for at most one request a second from each application
-let mbLast = 0;
-async function mb(url) {
-  for (let k = 0; k < 4; k++) {
-    const w = mbLast + 1100 - Date.now();
-    if (w > 0) await sleep(w);
-    mbLast = Date.now();
-    try {
-      return await getJSON(url, { tries: 1 });
-    } catch (e) {
-      if (e.status !== 503 && e.status !== 429) throw e;
-      await sleep(1500 * (k + 1));
-    }
-  }
-  throw new Error('busy');
-}
-const esc = (s) => String(s).replace(/(["\\])/g, '\\$1');
-async function searchMeta(q) {
-  const parts = [];
-  if (q.title) parts.push(`recording:"${esc(q.title)}"`);
-  if (q.artist) parts.push(`artist:"${esc(q.artist)}"`);
-  if (q.album) parts.push(`release:"${esc(q.album)}"`);
-  const r = await mb(
-    `https://musicbrainz.org/ws/2/recording?fmt=json&limit=12&query=${encodeURIComponent(parts.join(' AND ') || q.q || '')}`,
-  );
-  return (r.recordings || []).map((x) => {
-    const rel = (x.releases || [])[0] || {};
-    return {
-      mbid: x.id,
-      title: x.title,
-      artist: (x['artist-credit'] || []).map((a) => a.name + (a.joinphrase || '')).join(''),
-      album: rel.title || '',
-      release: rel.id || null,
-      year: (rel.date || x['first-release-date'] || '').slice(0, 4) || null,
-      duration: x.length ? x.length / 1000 : null,
-      score: x.score,
-      genre: (x.tags || [])
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 3)
-        .map((t) => t.name),
-    };
-  });
-}
-// apply a chosen match: its tags as an override in the library (the audio file is never rewritten)
-async function applyMeta(id, m) {
-  const t = activeTrack(id);
-  if (!t) return false;
-  const rev = t.metadataRevision || 0;
-  const o = { ...(db.overrides[id] || {}) };
-  const applied = ['title', 'artist', 'album', 'year'].filter((k) => m[k]);
-  for (const k of applied) o[k] = m[k];
-  if (m.genre && m.genre.length) {
-    o.genre = m.genre;
-    applied.push('genre');
-  }
-  o.mbid = m.mbid;
-  if (m.mbid) {
-    try {
-      const g = await mb(`https://musicbrainz.org/ws/2/recording/${m.mbid}?fmt=json&inc=genres`);
-      if (g.genres && g.genres.length) {
-        o.genre = g.genres
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 3)
-          .map((x) => x.name);
-        applied.push('genre');
-      }
-    } catch (e) {
-      /* tags without genres */
-    }
-  }
-  if (activeTrack(id) !== t || (t.metadataRevision || 0) !== rev) return false;
-  db.overrides[id] = o;
-  if (m.mbid)
-    recordFieldOrigins(id, o, applied, {
-      provider: 'musicbrainz',
-      namespace: 'recording',
-      id: String(m.mbid),
-      access: { kind: 'public' },
-      availability: {},
-    });
-  t.metadataRevision = (t.metadataRevision || 0) + 1;
-  changed();
-  return true;
-}
 // the user's own edits: a field left empty goes back to what the file says
 const EDITABLE = ['title', 'artist', 'album', 'albumArtist', 'year', 'genre', 'track', 'disc'];
 function recordFieldOrigins(id, fields, keys, source) {
@@ -1590,7 +1452,6 @@ function editMeta(id, f) {
     if (none) delete o[k];
     else o[k] = v;
   }
-  delete o.mbid;
   if (activeTrack(id) !== t) return false;
   db.overrides[id] = o;
   recordFieldOrigins(
@@ -1603,106 +1464,14 @@ function editMeta(id, f) {
   changed();
   return true;
 }
-// covers, searched on their own; thumbnails are fetched here and handed to the page as data, so the page never loads
-// anything from the network itself
-const COVER_HOSTS = /^https:\/\/([a-z0-9-]+\.)*(mzstatic\.com|coverartarchive\.org|archive\.org)\//i;
-async function fetchImage(url, timeout = 10000) {
-  if (!COVER_HOSTS.test(url)) throw new Error('host');
-  const ac = new AbortController(),
-    tm = setTimeout(() => ac.abort(), timeout);
-  try {
-    const r = await net.fetch(url, { headers: { 'User-Agent': UA() }, signal: ac.signal });
-    if (!r.ok) throw Object.assign(new Error('http ' + r.status), { status: r.status });
-    const type = r.headers.get('content-type') || 'image/jpeg';
-    if (!/^image\//.test(type)) throw new Error('type');
-    return { data: Buffer.from(await r.arrayBuffer()), type };
-  } finally {
-    clearTimeout(tm);
-  }
-}
-async function searchCovers(q) {
-  const term = [q.album || q.title, q.artist].filter(Boolean).join(' ').trim();
-  if (!term) return [];
-  const out = [];
-  // iTunes answers per storefront and turns busy clients away (403) for a moment: a few storefronts in turn, with a pause
-  const itunes = (async () => {
-    let r = null;
-    for (const [i, c] of [q.country || 'TW', 'HK', 'US'].entries()) {
-      if (i) await sleep(500);
-      const u = new URL('https://itunes.apple.com/search');
-      u.searchParams.set('term', term);
-      u.searchParams.set('entity', 'album');
-      u.searchParams.set('limit', '12');
-      u.searchParams.set('country', c);
-      try {
-        r = await getJSON(u.toString(), { tries: 1 });
-      } catch (e) {
-        if (e.status === 403) {
-          await sleep(900);
-          try {
-            r = await getJSON(u.toString(), { tries: 1 });
-          } catch (e2) {
-            r = null;
-          }
-        }
-      }
-      if (r && r.results && r.results.length) break;
-    }
-    for (const x of (r && r.results) || [])
-      if (x.artworkUrl100)
-        out.push({
-          src: 'itunes',
-          title: x.collectionName,
-          artist: x.artistName,
-          year: (x.releaseDate || '').slice(0, 4) || null,
-          thumb: x.artworkUrl100.replace(/\/\d+x\d+bb\./, '/300x300bb.'),
-          full: x.artworkUrl100.replace(/\/\d+x\d+bb\./, '/1200x1200bb.'),
-        });
-  })().catch(() => {});
-  const caa = (async () => {
-    const parts = [];
-    if (q.album || q.title) parts.push(`releasegroup:"${esc(q.album || q.title)}"`);
-    if (q.artist) parts.push(`artist:"${esc(q.artist)}"`);
-    const r = await mb(
-      `https://musicbrainz.org/ws/2/release-group?fmt=json&limit=8&query=${encodeURIComponent(parts.join(' AND '))}`,
-    );
-    for (const g of r['release-groups'] || [])
-      out.push({
-        src: 'caa',
-        title: g.title,
-        artist: (g['artist-credit'] || []).map((a) => a.name + (a.joinphrase || '')).join(''),
-        year: (g['first-release-date'] || '').slice(0, 4) || null,
-        thumb: `https://coverartarchive.org/release-group/${g.id}/front-250`,
-        full: `https://coverartarchive.org/release-group/${g.id}/front-1200`,
-      });
-  })().catch(() => {});
-  await Promise.all([itunes, caa]);
-  const got = await Promise.all(
-    out.map(async (c) => {
-      try {
-        const im = await fetchImage(c.thumb, 9000);
-        return { ...c, thumb: `data:${im.type};base64,${im.data.toString('base64')}` };
-      } catch (e) {
-        return null;
-      }
-    }),
-  );
-  return got.filter(Boolean).slice(0, 24);
-}
-// set a song's cover: a chosen search result, an image file the user picks, or back to the file's own
+// Apply a locally selected cover or restore the embedded image.
 async function setCover(id, how, getWin, canEdit) {
   const t = activeTrack(id);
   if (!t) return false;
   const rev = t.metadataRevision || 0;
   const o = { ...(db.overrides[id] || {}) };
   if (how && how.reset) delete o.coverKey;
-  else if (how && how.url) {
-    const im = await fetchImage(how.url, 20000).catch(async (e) => {
-      if (/front-1200$/.test(how.url)) return fetchImage(how.url.replace(/front-1200$/, 'front'), 20000);
-      throw e;
-    });
-    o.coverKey = await storeCover(im.data);
-  } else if (how && how.file) {
+  else if (how && how.file) {
     const r = await dialog.showOpenDialog(getWin(), {
       properties: ['openFile'],
       filters: [{ name: 'Image', extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'] }],
@@ -1734,11 +1503,12 @@ function resetMeta(id, part) {
   const t = activeTrack(id);
   if (!t) return false;
   const o = { ...(db.overrides[id] || {}) };
-  // (marking a song as an instrumental is not one of its tags: resetting them keeps it)
+  // Music metadata changes preserve the independent lyrics selection and instrumental flag.
   if (part === 'cover') delete o.coverKey;
-  else if (part === 'tags') {
-    for (const k of Object.keys(o)) if (k !== 'coverKey' && k !== 'instrumental' && k !== 'preferLrc') delete o[k];
-  } else for (const k of Object.keys(o)) if (k !== 'instrumental' && k !== 'preferLrc') delete o[k];
+  else {
+    const retained = new Set(['lyricsSource', 'instrumental', ...(part === 'tags' ? ['coverKey'] : [])]);
+    for (const key of Object.keys(o)) if (!retained.has(key)) delete o[key];
+  }
   if (Object.keys(o).length) db.overrides[id] = o;
   else delete db.overrides[id];
   recordFieldOrigins(
@@ -1780,7 +1550,6 @@ function registerProtocol() {
       const u = new URL(req.url),
         [kind, raw] = [u.hostname, decodeURIComponent(u.pathname.slice(1))],
         key = raw.replace(/[^a-f0-9]/g, '');
-      if (kind === 'preview') return require('./online-preview.cjs').serve(raw, req);
       if (kind === 'thumb' || kind === 'cover') {
         const p = kind === 'thumb' ? path.join(P.thumbs(), key + '.jpg') : path.join(P.covers(), key + '.img');
         if (kind === 'thumb' && !fs.existsSync(p))
@@ -1993,7 +1762,8 @@ function register(ipcMain, getWin, canEdit) {
   );
   ipcMain.handle('lib:exportLyrics', async (event, id, text) => {
     if (!canEdit(event) || typeof text !== 'string' || Buffer.byteLength(text) > 8 * 1024 * 1024) return false;
-    const format = lyricFormat(text);
+    const native = documentFormat(text);
+    const format = native === 'lrc' && !/\[\d+:\d+/.test(text) ? 'txt' : native;
     const result = await dialog.showSaveDialog(getWin(), {
       defaultPath: 'lyrics.' + format,
       filters: [{ name: format.toUpperCase(), extensions: [format] }],
@@ -2014,7 +1784,7 @@ function register(ipcMain, getWin, canEdit) {
       if (error.code !== 'ENOENT') throw error;
     });
     if (expected && !expected.isFile()) return false;
-    await writeLyricSidecar(file, text, expected);
+    await writeLyricSidecar(file, format === 'krc' ? encodeKrc(text) : text, expected);
     return true;
   });
   ipcMain.handle('lib:writeLyrics', (event, id, text, target) =>
@@ -2022,13 +1792,25 @@ function register(ipcMain, getWin, canEdit) {
       ? writeLyrics(id, text, target === 'tag' || target === 'ttml' ? target : 'lrc')
       : { ok: false, why: 'editing-disabled' },
   );
-  ipcMain.handle('lib:searchLyrics', (_e, q) => searchLyrics(q));
-  ipcMain.handle('lib:searchMeta', (_e, q) => searchMeta(q));
-  ipcMain.handle('lib:applyMeta', (event, id, m) => canEdit(event) && applyMeta(id, m));
+  const lyricSearch = require('./lyric-service.cjs').lyricService((...args) => fetch(...args));
+  let lyricRequest;
+  ipcMain.handle('lib:cancelLyricSearch', (event) => {
+    if (event.sender === getWin()?.webContents && event.senderFrame === event.sender.mainFrame) lyricRequest?.abort();
+  });
+  ipcMain.handle('lib:searchLyrics', async (event, q) => {
+    if (event.sender !== getWin()?.webContents || event.senderFrame !== event.sender.mainFrame) return [];
+    lyricRequest?.abort();
+    const request = new AbortController();
+    lyricRequest = request;
+    try {
+      return await lyricSearch(q, request.signal);
+    } finally {
+      if (lyricRequest === request) lyricRequest = undefined;
+    }
+  });
   ipcMain.handle('lib:clearMeta', (event, id, part) => canEdit(event) && resetMeta(id, part));
   ipcMain.handle('lib:instrumental', (event, id, on) => canEdit(event) && setInstrumental(id, !!on));
   ipcMain.handle('lib:editMeta', (event, id, f) => canEdit(event) && editMeta(id, f));
-  ipcMain.handle('lib:searchCovers', (_e, q) => searchCovers(q || {}));
   ipcMain.handle('lib:setCover', (event, id, how) => canEdit(event) && setCover(id, how, getWin, () => canEdit(event)));
   ipcMain.handle('lib:bindMv', async (event, id) => {
     if (!canEdit(event) || !activeTrack(id)) return null;
@@ -2042,13 +1824,15 @@ function register(ipcMain, getWin, canEdit) {
     await setSong(id, s, true);
     return { name: s.mv.name, offset: s.mv.offset };
   });
-  ipcMain.handle('lib:importLyricsFile', async () => {
+  ipcMain.handle('lib:importLyricsFile', async (event) => {
+    if (!canEdit(event)) return null;
     const r = await dialog.showOpenDialog(getWin(), {
       properties: ['openFile'],
-      filters: [{ name: 'Lyrics', extensions: ['lrc', 'txt'] }],
+      filters: [{ name: 'Lyrics', extensions: ['lrc', 'ttml', 'yrc', 'krc', 'txt'] }],
     });
-    if (r.canceled || !r.filePaths[0]) return null;
-    return decodeText(await fsp.readFile(r.filePaths[0]));
+    if (r.canceled || !r.filePaths[0] || !canEdit(event) || (await fsp.stat(r.filePaths[0])).size > 8 * 1024 * 1024)
+      return null;
+    return decodeLyricFile(await fsp.readFile(r.filePaths[0]));
   });
 }
 
@@ -2070,60 +1854,6 @@ const pathOf = async (id) => {
   if (t.sourceStamp && (!(await currentSource(t)) || activeTrack(id) !== t)) return null;
   return t.path;
 };
-async function writeOnlineSidecars({ file, auxiliary, external }) {
-  const targets = auxiliaryLyricRoles.map((role) => [auxiliaryLyricFile(file, role), auxiliary?.[role]]);
-  if (['ttml', 'lrc', 'yrc'].includes(external?.format))
-    targets.push([onlineLyricFile(file, external.format), external.text]);
-  for (const [companion, text] of targets) {
-    if (typeof text !== 'string' || !text) continue;
-    try {
-      await writeLyricSidecar(companion, text);
-    } catch (error) {
-      if (
-        error.code !== 'EEXIST' ||
-        !(await fsp.lstat(companion)).isFile() ||
-        (await fsp.readFile(companion, 'utf8')) !== text
-      )
-        throw error;
-    }
-  }
-}
-async function importOnline({ file, ref, tier, detected, content, auxiliary, external }) {
-  if (!db || stopping || !identity.validId(content)) throw new Error('library unavailable');
-  const dir = path.dirname(file);
-  await assertDirectory(dir);
-  const stat = await fsp.lstat(file);
-  if (!stat.isFile()) throw new Error('download is unavailable');
-  await writeOnlineSidecars({ file, auxiliary, external });
-  const stamp = identity.revision(stat);
-  onlineImports.set(file, { stamp, content });
-  try {
-    if (!db.folders.some((folder) => containsPath(folder, file))) db.folders.push(dir);
-    await scan(false, [dir]);
-    for (let attempt = 0; attempt < 100 && !stopping; attempt++) {
-      const track = Object.values(db.tracks).find(
-        (item) => !item.detached && item.path === file && item.sourceStamp === stamp,
-      );
-      if (track?.audioContentId === content && (await currentSource(track))) {
-        const variantId = [ref.provider, ref.namespace, ref.id, tier, content.slice(-64)].join(':');
-        if (!db.mediaVariants.some((variant) => variant.id === variantId && variant.content === content)) {
-          db.mediaVariants.push({ id: variantId, track: ref, tier, detected, content, status: 'available' });
-        }
-        if (!db.sourceLinks.some((link) => link.track === track.id && link.variantId === variantId)) {
-          db.sourceLinks.push({ track: track.id, remote: ref, variantId, verifiedContent: content });
-        }
-        changed(true);
-        await flush();
-        return track.id;
-      }
-      if (track?.audioContentId && track.audioContentId !== content) break;
-      await pause(70);
-    }
-    throw new Error('download verified but import still unavailable');
-  } finally {
-    onlineImports.delete(file);
-  }
-}
 async function close() {
   stopping = true;
   clearTimeout(identityTimer);
@@ -2141,8 +1871,6 @@ module.exports = {
   start,
   close,
   pathOf,
-  importOnline,
-  writeOnlineSidecars,
   analysisSettingsChanged: () => {
     if (db && !stopping) send('lib:wake');
   },

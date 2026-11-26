@@ -25,10 +25,7 @@
     "models": "node scripts/models.mjs",
     "test:neural": "node tests/neural.cjs",
     "dist:win": "npm run build:app && npm run build:native && node scripts/models.mjs && electron-builder --win --x64",
-    "fonts:coverage": "node scripts/font-coverage.mjs",
-    "online:verify": "node scripts/online-upstream.mjs && node --test tests/online.cjs",
-    "online:upstream": "node scripts/online-upstream.mjs --check-remote",
-    "prebuild:app": "npm run online:verify"
+    "fonts:coverage": "node scripts/font-coverage.mjs"
   },
   "build": {
     "appId": "app.cadenza.desktop",
@@ -110,11 +107,9 @@
   "dependencies": {
     "@chenglou/pretext": "0.0.9",
     "@paper-design/shaders": "0.0.80",
-    "@sansenjian/qq-music-api": "2.6.0",
     "music-metadata": "12.3.2",
     "node-taglib-sharp": "6.0.3",
-    "onnxruntime-node": "1.31.1",
-    "qrcode": "1.5.4"
+    "onnxruntime-node": "1.31.1"
   },
   "devDependencies": {
     "@fontsource-variable/caveat": "^5.3.0",

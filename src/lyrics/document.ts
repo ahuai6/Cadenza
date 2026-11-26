@@ -1,4 +1,4 @@
-import { parse } from './parse';
+import { parse, parseLyrics } from './parse';
 import { ttmlTime } from './ttml';
 
 const TT = 'http://www.w3.org/ns/ttml';
@@ -235,7 +235,7 @@ function similarity(a: string, b: string) {
     y = bigrams(b);
   return (2 * [...x].filter((gram) => y.has(gram)).length) / (x.size + y.size);
 }
-export function translationPlan(ttml: string, enhancedLrc: string) {
+export function translationPlan(ttml: string, original: string, auxiliary?: string) {
   const doc = openTtml(ttml);
   const anchors = doc
     ? paragraphs(doc).map((node) => ({
@@ -250,7 +250,25 @@ export function translationPlan(ttml: string, enhancedLrc: string) {
     const key = normalized(anchor.text);
     if (key) indices.set(key, [...(indices.get(key) || []), index]);
   });
-  const lines = parse(enhancedLrc).lines;
+  const lines = (auxiliary === undefined ? parse(original) : parseLyrics(original)).lines;
+  if (auxiliary !== undefined) {
+    const translations = parseLyrics(auxiliary).lines;
+    function uniqueNear(rows: typeof lines, time: number) {
+      let low = 0;
+      let high = rows.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (rows[mid].t < time - 0.12) low = mid + 1;
+        else high = mid;
+      }
+      return rows[low]?.t <= time + 0.12 && !(rows[low + 1]?.t <= time + 0.12) ? rows[low] : null;
+    }
+    for (const line of lines) {
+      const candidate = uniqueNear(translations, line.t);
+      // Several close or simultaneous anchors require manual resolution.
+      line.subs = candidate && uniqueNear(lines, candidate.t) === line ? [candidate.text, ...candidate.subs] : [];
+    }
+  }
   const offsets = lines
     .flatMap((line) => {
       const hits = indices.get(normalized(line.text));
@@ -297,12 +315,13 @@ export function translationPlan(ttml: string, enhancedLrc: string) {
     })),
   };
 }
-/** Add only absent entries to the requested language track, preserving other tracks and nodes. */
+/** Add absent entries and optionally replace plain text in the requested language track. */
 export function addTranslations(
   text: string,
   language: string,
   matches: { row: number | null; translation: string }[],
   kind: 'translation' | 'transliteration' = 'translation',
+  replacePlain = false,
 ) {
   const doc = openTtml(text);
   if (!doc || !/^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/i.test(language)) return null;
@@ -320,8 +339,9 @@ export function addTranslations(
   const head = ensure(root, 'head', root.namespaceURI);
   const metadata = ensure(head, 'iTunesMetadata', ITUNES);
   const translations = ensure(metadata, kind === 'translation' ? 'translations' : 'transliterations', ITUNES);
+  const normalizedLanguage = language.toLowerCase();
   let lane = Array.from(translations.children).find(
-    (item) => item.localName === kind && item.getAttributeNS(XML, 'lang') === language,
+    (item) => item.localName === kind && item.getAttributeNS(XML, 'lang')?.toLowerCase() === normalizedLanguage,
   );
   if (!lane) {
     lane = doc.createElementNS(ITUNES, kind);
@@ -345,6 +365,27 @@ export function addTranslations(
   for (const [row, reasons] of merged) {
     const translation = reasons.join('\n');
     const p = body[row];
+    const inline = elements(p, 'span').filter(
+      (node) =>
+        (kind === 'translation'
+          ? role(node) === 'x-translation'
+          : ['x-roman', 'x-reading', 'x-transliteration'].includes(role(node) || '')) &&
+        node.getAttributeNS(XML, 'lang')?.toLowerCase() === normalizedLanguage,
+    );
+    if (inline.length) {
+      const [existing] = inline;
+      if (
+        inline.length === 1 &&
+        replacePlain &&
+        !existing.childElementCount &&
+        Array.from(existing.childNodes).every((node) => node.nodeType === Node.TEXT_NODE) &&
+        existing.textContent !== translation
+      ) {
+        existing.textContent = translation;
+        added++;
+      }
+      continue;
+    }
     let key = attr(p, 'key');
     if (key && keyCounts.get(key)! > 1) continue;
     if (!key) {
@@ -355,7 +396,19 @@ export function addTranslations(
       keyCounts.set(key, 1);
       p.setAttributeNS(ITUNES, 'itunes:key', key);
     }
-    if (Array.from(lane.children).some((item) => item.getAttribute('for') === key)) continue;
+    const existing = Array.from(lane.children).find((item) => item.getAttribute('for') === key);
+    if (existing) {
+      if (
+        replacePlain &&
+        !existing.childElementCount &&
+        Array.from(existing.childNodes).every((node) => node.nodeType === Node.TEXT_NODE) &&
+        existing.textContent !== translation
+      ) {
+        existing.textContent = translation;
+        added++;
+      }
+      continue;
+    }
     const node = doc.createElementNS(ITUNES, 'text');
     node.setAttribute('for', key);
     node.textContent = translation;

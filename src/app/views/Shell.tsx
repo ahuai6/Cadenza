@@ -21,7 +21,7 @@ import { setHost } from '../commands';
 import { Guard } from '../ui/Guard';
 import { back, openNp, refs, refreshSpread } from '../layers';
 import { MiniLyrics } from '../ui/MiniLyrics';
-import { EditModeButton, MusicHallButton } from '../ui/EditModeButton';
+import { EditModeButton } from '../ui/EditModeButton';
 import s from './Shell.module.css';
 
 function resolveTheme(t: string) {
@@ -213,7 +213,6 @@ function TitleBar() {
       </nav>
       <div className={s.tbEnd}>
         <BackgroundActivity className={s.busy} />
-        <MusicHallButton className={s.hallEntry} />
         <EditModeButton className={s.modeEntry} />
         <button
           type="button"

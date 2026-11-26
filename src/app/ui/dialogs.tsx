@@ -3,9 +3,9 @@
 // adds dialogs of its own with `addDialogs` (views/Modals.tsx: playlists, MV, export, the play page's settings).
 import { useEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
-import { Lib, type Track, type MetaFound, type CoverFound } from '../bridge';
-import { ui, lib, useStore, toast, fmtTime } from '../state';
-import { Button, IconButton, Seg, Cover, Badge, usePresence } from './kit';
+import { Lib, type Track } from '../bridge';
+import { ui, lib, useStore, toast } from '../state';
+import { Button, IconButton, Seg, Cover, usePresence } from './kit';
 import { canEdit, editTask, useEditing, useEditingDraft } from '../editing';
 import { EditControls, EditModeButton } from './EditModeButton';
 import s from './dialogs.module.css';
@@ -185,11 +185,10 @@ function TextModal({ m }: { m: { title: string; label: string; value: string } }
   );
 }
 
-// a song's information: edit it by hand, take tags from MusicBrainz, or find a cover, each on its own. Everything is kept
-// in the library; the audio file is never rewritten, and every part can go back to what the file says
+// Edits and cover overrides use the local library.
 function MetaModal({ m }: { m: { id: string; tab?: string } }) {
   const t = useStore(lib, (x) => x.tracks.find((y) => y.id === m.id)),
-    [tab, setTab] = useState(m.tab || 'edit');
+    [tab, setTab] = useState(m.tab === 'cover' ? 'cover' : 'edit');
   if (!t) return null;
   return (
     <>
@@ -208,13 +207,11 @@ function MetaModal({ m }: { m: { id: string; tab?: string } }) {
           onChange={setTab}
           options={[
             ['edit', tx('s.meta.edit'), 'lyrics'],
-            ['tags', tx('s.meta.tags'), 'tag'],
             ['cover', tx('s.meta.cover'), 'image'],
           ]}
         />
       </div>
       {tab === 'edit' && <EditTab key={t.id} t={t} />}
-      {tab === 'tags' && <TagsTab t={t} />}
       {tab === 'cover' && <CoverTab t={t} />}
     </>
   );
@@ -298,180 +295,39 @@ function EditTab({ t }: { t: Track }) {
     </form>
   );
 }
-function TagsTab({ t }: { t: Track }) {
-  const [q, setQ] = useState({ title: t.title, artist: t.artist, album: t.album }),
-    [res, setRes] = useState<MetaFound[] | null>(null),
-    [busy, setBusy] = useState(false),
-    [err, setErr] = useState('');
-  const search = async () => {
-    setBusy(true);
-    setErr('');
-    try {
-      setRes(await Lib!.searchMeta(q));
-    } catch {
-      setErr(tx('s.netFail'));
-    }
-    setBusy(false);
-  };
-  useEffect(() => {
-    search();
-  }, []);
-  const apply = async (r: MetaFound) => {
+function CoverTab({ t }: { t: Track }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  async function setCover(how: { file?: boolean; reset?: boolean }) {
     if (!canEdit() || busy) return;
     setBusy(true);
+    setError(false);
     try {
-      if (!(await editTask(() => Lib!.applyMeta(t.id, r)))) throw new Error('metadata write');
-      toast(tx('s.meta.saved'));
-      close(true);
-    } catch {
-      setErr(tx('edit.saveFailed'));
-      setBusy(false);
-    }
-  };
-  return (
-    <>
-      <p className={s.help}>{tx('s.lookupHelp')}</p>
-      <form
-        className={s.q}
-        onSubmit={(e) => {
-          e.preventDefault();
-          search();
-        }}
-      >
-        <input
-          type="text"
-          value={q.title}
-          placeholder={tx('s.col.title')}
-          onChange={(e) => setQ({ ...q, title: e.target.value })}
-        />
-        <input
-          type="text"
-          value={q.artist}
-          placeholder={tx('s.artists')}
-          onChange={(e) => setQ({ ...q, artist: e.target.value })}
-        />
-        <input
-          type="text"
-          value={q.album}
-          placeholder={tx('s.col.album')}
-          onChange={(e) => setQ({ ...q, album: e.target.value })}
-        />
-        <Button kind="primary" type="submit" icon="search" disabled={busy}>
-          {tx('s.searchBtn')}
-        </Button>
-      </form>
-      <div className={s.results}>
-        {busy && !res && <p className="muted">{tx('s.searching')}</p>}
-        {err && <p className="muted">{err}</p>}
-        {res && !res.length && <p className="muted">{tx('s.empty.results')}</p>}
-        {res &&
-          res.map((r) => (
-            <button key={r.mbid} type="button" className={s.result} disabled={busy} onClick={() => apply(r)}>
-              <span>
-                <b>{r.title}</b>
-                <small>{[r.artist, r.album, r.year].filter(Boolean).join(' · ')}</small>
-              </span>
-              <span>
-                {r.genre && r.genre.length ? <Badge>{r.genre.join(', ')}</Badge> : null}{' '}
-                {r.duration ? <small className="muted">{fmtTime(r.duration)}</small> : null}
-              </span>
-            </button>
-          ))}
-      </div>
-    </>
-  );
-}
-function CoverTab({ t }: { t: Track }) {
-  const [q, setQ] = useState({ album: t.album || t.title, artist: t.artist }),
-    [res, setRes] = useState<CoverFound[] | null>(null);
-  const [busy, setBusy] = useState(false),
-    [err, setErr] = useState(''),
-    [picking, setPicking] = useState<string | null>(null);
-  const search = async () => {
-    setBusy(true);
-    setErr('');
-    setRes(null);
-    try {
-      setRes(await Lib!.searchCovers(q));
-    } catch {
-      setErr(tx('s.netFail'));
-    }
-    setBusy(false);
-  };
-  useEffect(() => {
-    search();
-  }, []);
-  const use = async (how: { url?: string; file?: boolean; reset?: boolean }) => {
-    if (!canEdit() || picking) return;
-    setPicking(how.url || 'file');
-    try {
-      const ok = await editTask(() => Lib!.setCover(t.id, how));
-      if (ok) {
+      if (await editTask(() => Lib!.setCover(t.id, how))) {
         toast(tx('s.meta.coverSet'));
         close(true);
       }
     } catch {
-      setErr(tx('s.netFail'));
+      setError(true);
+    } finally {
+      setBusy(false);
     }
-    setPicking(null);
-  };
+  }
   return (
     <>
-      <p className={s.help}>{tx('s.meta.coverHelp')}</p>
-      <form
-        className={s.q}
-        data-n="2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          search();
-        }}
-      >
-        <input
-          type="text"
-          value={q.album}
-          placeholder={tx('s.col.album')}
-          onChange={(e) => setQ({ ...q, album: e.target.value })}
-        />
-        <input
-          type="text"
-          value={q.artist}
-          placeholder={tx('s.artists')}
-          onChange={(e) => setQ({ ...q, artist: e.target.value })}
-        />
-        <Button kind="primary" type="submit" icon="search" disabled={busy}>
-          {tx('s.searchBtn')}
-        </Button>
-      </form>
-      <div className={s.covers}>
-        {busy && <p className="muted">{tx('s.searching')}</p>}
-        {err && <p className="muted">{err}</p>}
-        {res && !res.length && <p className="muted">{tx('s.meta.noCovers')}</p>}
-        {res &&
-          res.map((c, i) => (
-            <button
-              key={i}
-              type="button"
-              className={s.coverPick}
-              disabled={!!picking}
-              data-busy={picking === c.full}
-              onClick={() => use({ url: c.full })}
-              title={[c.title, c.artist, c.year].filter(Boolean).join(' · ')}
-            >
-              <img src={c.thumb} alt="" draggable={false} />
-              <b>{c.title}</b>
-              <small>{[c.artist, c.year].filter(Boolean).join(' · ')}</small>
-              <Badge>{c.src === 'itunes' ? 'iTunes' : 'Cover Art Archive'}</Badge>
-            </button>
-          ))}
-      </div>
+      {error && (
+        <p role="alert" className={s.help}>
+          {tx('edit.saveFailed')}
+        </p>
+      )}
       <footer className={s.foot}>
         {t.coverSet && (
-          <Button kind="ghost" onClick={() => use({ reset: true })}>
+          <Button kind="ghost" disabled={busy} onClick={() => void setCover({ reset: true })}>
             {tx('s.meta.resetCover')}
           </Button>
         )}
         <span className="grow" />
-        <Button icon="folder" disabled={!!picking} onClick={() => use({ file: true })}>
+        <Button icon="folder" disabled={busy} onClick={() => void setCover({ file: true })}>
           {tx('s.meta.fromFile')}
         </Button>
       </footer>

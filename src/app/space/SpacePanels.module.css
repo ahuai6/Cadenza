@@ -422,9 +422,6 @@
     max-height: min(54dvh, 550px);
   }
 }
-.hallEntry span {
-  display: none;
-}
 .modeEntry[aria-pressed='true'] {
   color: var(--on-pick);
   background: var(--pick);

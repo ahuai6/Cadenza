@@ -59,7 +59,7 @@ function lyricFields(comments) {
   return comments.flatMap((item, index) => {
     const key = keyOf(item);
     const canonical = key.toUpperCase();
-    if (!/^(TTML|YRC|LYRICS?|UNSYNCEDLYRICS|LYRICS_TRANSLATION|LYRICS_TRANSLITERATION)$/.test(canonical)) return [];
+    if (!/^(TTML|YRC|KRC|LYRICS?|UNSYNCEDLYRICS|LYRICS_TRANSLATION|LYRICS_TRANSLITERATION)$/.test(canonical)) return [];
     const i = occurrence.get(canonical) || 0;
     occurrence.set(canonical, i + 1);
     return [{ id: 'flac:' + canonical + ':' + i, key, index }];
@@ -109,6 +109,7 @@ async function writeFields(file, destination, edits) {
       const key = {
         'new:ttml': 'TTML',
         'new:yrc': 'YRC',
+        'new:krc': 'KRC',
         'new:lrc': 'LYRICS',
         'new:translation': 'LYRICS_TRANSLATION',
         'new:transliteration': 'LYRICS_TRANSLITERATION',

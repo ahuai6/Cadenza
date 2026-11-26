@@ -62,16 +62,85 @@ const inferHost = require('./inferHost.cjs');
 protocol.registerSchemesAsPrivileged([library.scheme]);
 
 const desk = require('./desk.cjs');
-const { createOnlineService, credentialVault } = require('./online.cjs');
-const { registerPublicProviders } = require('./online-providers.cjs');
-const { registerNetease } = require('./online-netease.cjs');
-const { musicHall } = require('./music-hall.cjs');
+const { cleanRetiredMusic } = require('./cleanup-retired-music.cjs');
 const fromMain = (event) =>
   !!win && !win.isDestroyed() && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame;
 let editing = false;
+const { credentialVault } = require('./credential-vault.cjs');
+const { chatgptAuth } = require('./chatgpt-auth.cjs');
+const { aiLyrics } = require('./ai-lyrics.cjs');
+const aiRoot = path.join(app.getPath('userData'), 'library');
+const vault = credentialVault(path.join(aiRoot, 'credentials'), safeStorage);
+const chatgpt = chatgptAuth(vault, (url) => shell.openExternal(url));
+const translation = aiLyrics(aiRoot, vault, chatgpt, (...args) => fetch(...args));
+const aiOperations = {
+  state: () => translation.state(),
+  signIn: () => chatgpt.signIn(),
+  cancelSignIn: () => chatgpt.cancel(),
+  signOut: () => chatgpt.signOut(),
+  save: (_sender, input) => translation.save(input),
+  remove: (_sender, id) => translation.remove(id),
+  models: (_sender, id) => translation.models(id),
+  translate: (sender, input) => translation.translate(sender, input),
+  cancel: (sender) => translation.cancel(sender),
+};
+const aiErrors = new Set([
+  'address',
+  'authorization',
+  'canceled',
+  'configuration',
+  'credential',
+  'identity',
+  'incomplete',
+  'input',
+  'invalid-result',
+  'model',
+  'model-list',
+  'new-key',
+  'not-found',
+  'permission',
+  'plan-access',
+  'quota',
+  'rate-limit',
+  'request',
+  'result-size',
+  'revocation-failed',
+  'service',
+  'sign-in-required',
+  'storage',
+  'storage-unavailable',
+  'stream-format',
+  'timeout',
+]);
+for (const [name, operation] of Object.entries(aiOperations)) {
+  ipcMain.handle('lyrics-ai:' + name, async (event, input) => {
+    if (!fromMain(event) || (!editing && !['cancel', 'cancelSignIn'].includes(name)))
+      return { ok: false, why: 'editing-disabled' };
+    try {
+      const value = await operation(event.sender, input);
+      if (!editing && !['cancel', 'cancelSignIn'].includes(name)) return { ok: false, why: 'editing-disabled' };
+      return { ok: true, value };
+    } catch (error) {
+      return {
+        ok: false,
+        why: aiErrors.has(error?.code)
+          ? error.code
+          : error?.name === 'AbortError'
+            ? 'canceled'
+            : error?.name === 'TimeoutError'
+              ? 'timeout'
+              : 'network',
+      };
+    }
+  });
+}
 ipcMain.handle('editing:set', (event, on) => {
   if (!fromMain(event) || typeof on !== 'boolean') return false;
   editing = on;
+  if (!on) {
+    translation.cancel(event.sender);
+    chatgpt.cancel();
+  }
   return true;
 });
 let win = null,
@@ -95,26 +164,6 @@ try {
 } catch (e) {
   /* first run */
 }
-const online = createOnlineService({
-  accountFile: path.join(app.getPath('userData'), 'library', 'online-accounts.json'),
-  vault: credentialVault(path.join(app.getPath('userData'), 'library', 'credentials'), safeStorage),
-});
-registerPublicProviders(online, process.env.CADENZA_APPLE_DEVELOPER_TOKEN);
-registerNetease(online);
-const hall = musicHall({
-  online,
-  getPlayer: () => win,
-  library,
-  nativeBin: audio.binPath,
-  fromMain,
-  asset: (file) => asset(file),
-  preferences: () => ({
-    theme: explicitLook.theme ?? 'light',
-    tone: explicitLook.tone ?? 'white',
-    lang: settings.lang,
-    uiFont: settings.uiFont,
-  }),
-});
 function applySettings() {
   nativeTheme.themeSource = settings.theme === 'light' || settings.theme === 'dark' ? settings.theme : 'system';
   if (!isolatedProfile && process.platform !== 'linux')
@@ -233,6 +282,11 @@ function createWindow() {
       e.preventDefault();
       win.hide();
     }
+  });
+  const contents = win.webContents;
+  contents.once('destroyed', () => {
+    translation.cancel(contents);
+    chatgpt.cancel();
   });
   win.on('closed', () => {
     win = null;
@@ -388,7 +442,6 @@ function saveSettings(patch) {
   desk.sync();
   // (the page hears of every change, wherever it was made: the desktop lyrics' own buttons, another window)
   if (win && !win.isDestroyed()) win.webContents.send('settings:pushed', { ...settings });
-  if (['theme', 'tone', 'lang', 'uiFont'].some((key) => Object.hasOwn(patch || {}, key))) hall.appearanceChanged();
 }
 ipcMain.handle('settings:set', (_e, patch) => {
   if (!editing || !fromMain(_e)) {
@@ -456,13 +509,14 @@ app
   .whenReady()
   .then(async () => {
     applySettings();
+    if ((await cleanRetiredMusic(app.getPath('userData'))).length)
+      console.warn('[profile] retired local data cleanup will be retried');
     await library.start(
       ipcMain,
       () => win,
       settings,
       (event) => editing && fromMain(event),
     );
-    await online.restoreAccounts();
     hifi = audio.start(ipcMain, () => win, settings, library);
     infer = inferHost.start(ipcMain, () => win, settings);
     createWindow();
@@ -492,10 +546,8 @@ app.on('before-quit', (event) => {
   if (libraryClosing) return;
   libraryClosing = true;
   quitting = true;
-  online.close();
-  void hall
+  void library
     .close()
-    .then(() => library.close())
     .catch((error) => console.error('[library close]', error))
     .finally(() => {
       libraryClosed = true;

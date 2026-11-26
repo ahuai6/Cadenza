@@ -1,6 +1,6 @@
 # G4R 工程复审记录
 
-基准为 `25c26b9c560a36ee2d4df321614bf96c36c4f475`（G3）和 `9fd09b1084018f431f6ba6908862372c6ebd2c8e`（G4）。版本保持 `4.0.0-alpha.4`。使用 Windows 本机、隔离曲库和受控音频。在线研究另见 [G5/G5.5 设计](ONLINE-RESEARCH.md)。
+基准为 `25c26b9c560a36ee2d4df321614bf96c36c4f475`（G3）和 `9fd09b1084018f431f6ba6908862372c6ebd2c8e`（G4）。版本保持 `4.0.0-alpha.4`。使用 Windows 本机、隔离曲库和受控音频。
 
 ## A. WASAPI 时钟、设备与数字精度
 

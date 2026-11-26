@@ -1,12 +1,11 @@
 # 测试
 
-当前音乐厅公开能力、Apple MusicKit 配置、下载范围与标签设置见 [G5.5-BR2](G55-BR2.md)。
 
-G5.5-BR 增加 Apple Music 官方与回退隔离、四平台界面、QQ SDK 榜单、FLAC 内嵌译文与账号权限查询验证。运行 `npm run online:verify` 后，用隔离资料的 `tests/hall-live-desktop.cjs` 和 `tests/hall-download-desktop.cjs` 分别验证公网与本地数据路径。 [验证边界](G55-BR.md)
 
-## G5.5-A 编辑模式与音乐厅
+## G5.5：产品收束与编辑模式
 
-- `npm run build:app` 后，在 Windows 运行 `node tests/product-desktop.cjs`。分别启动隔离的经典和空间配置，测试默认权限、直接 IPC 拦截、快捷键、草稿恢复、歌曲时间设置写回、日常预设选择，以及音频请求与视觉 Session 在切换中连续。验证窗口单实例、打开关闭、标题栏拖动区、最小化恢复、最大化、640×480 下的滚动和焦点、已保存主题及实时外观同步。截图输出到测试临时目录。设置 `CADENZA_NATIVE_WINDOW_DRAG=1` 时，还在音乐厅拥有系统前台焦点的情况下验证物理窗口位置移动。
+- `npm run build:app` 后，在 Windows 运行 `node tests/product-desktop.cjs`。隔离的经典和空间配置验证默认编辑权限、IPC 拦截、快捷键、草稿恢复、歌曲设置写回、日常预设以及播放与视觉生命周期。另查主窗接口和窗口数量。
+- `node --test tests/lyric-services.cjs` 验证歌词服务、AI 流式结果、OAuth 回调、历史资料范围和安全存储事务。结合 `node tests/lyrics-desktop.cjs` 验证原歌词和音频字段完整性。 [服务范围与验证边界](G55-F.md)
 - `node --test tests/online.cjs` 使用模拟适配器覆盖能力、账号作用域、敏感字段投影、窗口关闭后的任务生命周期和密钥存储失败。Electron 专项测试使用合成值验证 Windows 的实际凭据加密。G5.5-A 不使用真实平台凭据或购买、下载请求。
 - 曲库故障注入在 `tests/identity-desktop.cjs`。一次暂时失败自动恢复，连续三次失败后手动重新扫描或重启恢复相同条目，未验证期间拒绝分析写入。ALAC 及其他原有链路使用 `tests/alac-desktop.cjs` 回归。
 
@@ -236,6 +235,6 @@ node tests/folia-bg-compare.cjs <checkout> <输出>                             
 
 运行 `node tests/lyrics-desktop.cjs` 验证 Windows Electron 的 TTML 编辑、增强 LRC 迁移、明确的字段保存与删除、草稿恢复和后台活动状态。夹具同步覆盖 FLAC、MP3、Ogg Vorbis 与 Opus。真实文件通过可选环境变量传入，只读原件和编辑隔离副本。字段矩阵、命令和数据采集口径见 [G5.5-R](G55-R.md)。
 
-## G5.5-B 音频交接与音乐厅
+## G5.5-B 本地音频交接
 
-新增双向交接、真实公开目录、试听和合成下载端到端验证。音频图内频谱、原生模拟 PCM、WASAPI 共享或独占状态及物理端点分开记录。另见 [G5.5-B 验证入口与能力范围](G55-B.md)。
+运行 `node tests/output-handoff-desktop.cjs` 检查双向交接。添加 `--real` 使用 Windows 默认设备。普通图内频谱、原生模拟 PCM、WASAPI 模式和物理端点分别记录。 [交接证据](parts/engine.md#g55-b-本地输出交接)

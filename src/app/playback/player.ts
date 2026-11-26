@@ -36,7 +36,6 @@ import {
 import { PlaybackCoordinator, weightedPick, type PlaybackRequest, type Phase, type Mode } from './coordinator';
 import { prepareOutput, preload, keepPreload, clearPreload, type PreparedOutput } from './outputs';
 import { decodeFile } from './pcm';
-import { MediaOutput } from './media-output';
 import { beforeEditingExit, canEdit, editTask } from '../editing';
 import { applyExistingPreset, type PresetChoice } from '../preset-choice';
 export type { Mode } from './coordinator';
@@ -109,7 +108,6 @@ export async function wholeRhythm() {
 }
 
 let prepared: PreparedOutput | null = null;
-let auditionOutput: MediaOutput | null = null;
 let visualRequest: PlaybackRequest | null = null;
 let trace: ReturnType<typeof traceBegin> | null = null;
 let preloadTimer: ReturnType<typeof setTimeout> | undefined;
@@ -224,7 +222,7 @@ engine.followTransport({
   pause: () => transport.pause(),
   toggle,
   seek: seekFile,
-  gain: () => (auditionOutput ? auditionOutput.syncGain() : prepared?.syncGain()),
+  gain: () => prepared?.syncGain(),
 });
 transport.subscribe((s, previous) => {
   const changedQueue = s.queue !== previous.queue;
@@ -275,61 +273,6 @@ transport.subscribe((s, previous) => {
 });
 let lastPlayedEntry = 0;
 let lastPlayedGeneration = 0;
-D?.onHallPreview((request) => {
-  if (!request) {
-    transport.endPreview(true);
-    return;
-  }
-  const { token } = request;
-  const publish = (phase: string) => D?.hallPreviewStatus(token, phase, transport.previewTime());
-  let timer: ReturnType<typeof setInterval> | undefined;
-  publish('buffering');
-  void transport.preview(
-    async (signal) => {
-      prepared = null;
-      clearTimeout(preloadTimer);
-      clearPreload();
-      if (audioConfig) await audioConfig;
-      signal.throwIfAborted();
-      await hifiRelease();
-      signal.throwIfAborted();
-      await engine.clock.outputDevice(false);
-      signal.throwIfAborted();
-      const media = new MediaOutput(
-        'cadenza://preview/' + token,
-        engine.clock,
-        () => (engine.muted ? 0 : Math.min(engine.volume, 1)),
-        false,
-      );
-      auditionOutput = media;
-      const close = () => {
-        media.close();
-        if (auditionOutput === media) auditionOutput = null;
-      };
-      signal.addEventListener('abort', close, { once: true });
-      try {
-        await media.ready;
-      } catch (error) {
-        close();
-        throw error;
-      }
-      return {
-        route: 'std',
-        duration: media.duration,
-        start: (at, notify) => media.start(at, notify),
-        stop: close,
-        pause: () => media.pause(),
-        time: media.time,
-      };
-    },
-    (event) => {
-      clearInterval(timer);
-      if (event === 'running') timer = setInterval(() => publish('playing'), 250);
-      publish(event === 'running' ? 'playing' : typeof event === 'string' ? event : 'error');
-    },
-  );
-});
-
 function schedulePreload() {
   clearTimeout(preloadTimer);
   const { candidate, target, route, generation, phase, album } = transport.get();

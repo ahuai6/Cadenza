@@ -27,11 +27,8 @@ const empty = () => ({
   favorites: [],
   playlists: [],
   overrides: {},
-  derived: {},
-  sourceLinks: [],
-  mediaVariants: [],
-  recordingMatches: [],
   fieldOrigins: {},
+  derived: {},
 });
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -63,13 +60,19 @@ async function openLibrary(file) {
     !Array.isArray(data.folders) ||
     !Array.isArray(data.favorites) ||
     !record(data.overrides) ||
-    !record(data.derived) ||
     !record(data.fieldOrigins) ||
-    !Array.isArray(data.sourceLinks) ||
-    !Array.isArray(data.mediaVariants) ||
-    !Array.isArray(data.recordingMatches)
+    !record(data.derived)
   ) {
     throw new Error('invalid or unsupported Cadenza library index');
+  }
+  const obsoleteFields = ['sourceLinks', 'mediaVariants', 'recordingMatches'];
+  let migrated = obsoleteFields.some((key) => Object.hasOwn(data, key));
+  for (const key of obsoleteFields) delete data[key];
+  for (const override of Object.values(data.overrides)) {
+    if (!record(override) || !Object.hasOwn(override, 'preferLrc')) continue;
+    if (override.preferLrc === true && !override.lyricsSource) override.lyricsSource = 'sidecar:lrc';
+    delete override.preferLrc;
+    migrated = true;
   }
   if (data.version === 1) {
     // Keep the original index and legacy rhythm blobs for recovery. A sampled key cannot attest to a blob's input.
@@ -84,8 +87,8 @@ async function openLibrary(file) {
       for (const key of ['ak', 'analyzed', 'ok', 'failed', 'failWhy', 'loudness', 'loudFailed']) delete t[key];
     }
     data.version = 2;
-    await replace(file, JSON.stringify(data));
   }
+  if (prior.version === 1 || migrated) await replace(file, JSON.stringify(data));
   return data;
 }
 

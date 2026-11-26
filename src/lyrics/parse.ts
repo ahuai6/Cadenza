@@ -361,7 +361,8 @@ export function parse(src: string, off = 0, len = Infinity): Parsed {
 /** Lyrics in either format: TTML when the text is TTML, else LRC (or plain lines). */
 import { isTtml, parseTtml } from './ttml';
 const yrcLine = /^\[(\d+),(\d+)\](?=\(\d+,\d+,\d+\))/;
-function yrcForPlayback(src: string): string {
+const krcLine = /^\[(\d+),(\d+)\](?=<\d+,\d+,\d+>)/;
+function wordLyricsForPlayback(src: string, relative: boolean): string {
   const stamp = (ms: number) =>
     Math.floor(ms / 60000) +
     ':' +
@@ -371,15 +372,17 @@ function yrcForPlayback(src: string): string {
   return src
     .split(/\r?\n/)
     .map((line) => {
-      const match = yrcLine.exec(line);
+      const match = (relative ? krcLine : yrcLine).exec(line);
       if (!match) return line;
       const start = Number(match[1]);
       const words = line
         .slice(match[0].length)
         .replace(
-          /\((\d+),(\d+),\d+\)(.*?)(?=\(\d+,\d+,\d+\)|$)/g,
-          (_, begin, duration, text) =>
-            '<' + stamp(Number(begin)) + '>' + text + '<' + stamp(Number(begin) + Number(duration)) + '>',
+          relative ? /<(\d+),(\d+),\d+>(.*?)(?=<\d+,\d+,\d+>|$)/g : /\((\d+),(\d+),\d+\)(.*?)(?=\(\d+,\d+,\d+\)|$)/g,
+          (_, begin, duration, text) => {
+            const time = Number(begin) + (relative ? start : 0);
+            return '<' + stamp(time) + '>' + text + '<' + stamp(time + Number(duration)) + '>';
+          },
         );
       return '[' + stamp(start) + ']' + words;
     })
@@ -387,5 +390,8 @@ function yrcForPlayback(src: string): string {
 }
 export function parseLyrics(src: string, off = 0, len = Infinity): Parsed {
   if (isTtml(src)) return parseTtml(src, off, len);
-  return parse(/^\[\d+,\d+\]\(\d+,\d+,\d+\)/m.test(src) ? yrcForPlayback(src) : src, off, len);
+  src = src.replace(/^\uFEFF/, '');
+  if (/^\[\d+,\d+\]\(\d+,\d+,\d+\)/m.test(src)) return parse(wordLyricsForPlayback(src, false), off, len);
+  if (/^\[\d+,\d+\]<\d+,\d+,\d+>/m.test(src)) return parse(wordLyricsForPlayback(src, true), off, len);
+  return parse(src, off, len);
 }

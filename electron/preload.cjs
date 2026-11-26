@@ -22,9 +22,6 @@ contextBridge.exposeInMainWorld('cadenzaDesktop', {
   settings: () => L('settings:get'),
   setSettings: (patch) => L('settings:set', patch),
   setEditing: (on) => L('editing:set', on),
-  openMusicHall: () => L('hall:open'),
-  onHallPreview: on('hall:preview-request'),
-  hallPreviewStatus: (token, phase, position) => ipcRenderer.send('hall:preview-status', token, phase, position),
   relaunch: () => L('app:relaunch'),
   playing: (on) => L('win:playing', on),
   onSettings: on('settings:pushed'),
@@ -67,13 +64,11 @@ contextBridge.exposeInMainWorld('cadenzaLib', {
   exportLyrics: (id, text) => L('lib:exportLyrics', id, text),
   writeLyrics: (id, t, target) => L('lib:writeLyrics', id, t, target),
   importLyricsFile: () => L('lib:importLyricsFile'),
+  cancelLyricSearch: () => L('lib:cancelLyricSearch'),
   searchLyrics: (q) => L('lib:searchLyrics', q),
-  searchMeta: (q) => L('lib:searchMeta', q),
-  applyMeta: (id, m) => L('lib:applyMeta', id, m),
   clearMeta: (id, part) => L('lib:clearMeta', id, part),
   instrumental: (id, on) => L('lib:instrumental', id, on),
   editMeta: (id, f) => L('lib:editMeta', id, f),
-  searchCovers: (q) => L('lib:searchCovers', q),
   setCover: (id, how) => L('lib:setCover', id, how),
   bindMv: (id) => L('lib:bindMv', id),
   onChanged: on('lib:changed'),
@@ -92,4 +87,17 @@ contextBridge.exposeInMainWorld('cadenzaAudio', {
   state: () => L('audio:state'),
   cmd: (o) => L('audio:cmd', o),
   onEvent: on('audio:ev'),
+});
+
+const ai = (action, input) => ipcRenderer.invoke('lyrics-ai:' + action, input);
+contextBridge.exposeInMainWorld('cadenzaLyricAI', {
+  state: () => ai('state'),
+  signIn: () => ai('signIn'),
+  cancelSignIn: () => ai('cancelSignIn'),
+  signOut: () => ai('signOut'),
+  save: (input) => ai('save', input),
+  remove: (id) => ai('remove', id),
+  models: (id) => ai('models', id),
+  translate: (input) => ai('translate', input),
+  cancel: () => ai('cancel'),
 });

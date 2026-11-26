@@ -28,8 +28,8 @@
 | 发布、依赖、数据兼容、环境的坑、已知的债 | [`MAINTENANCE.md`](MAINTENANCE.md) |
 | G4 复审、ALAC 音频和内嵌歌词兼容 | [`G4R.md`](G4R.md) |
 | G5 曲库索引迁移、音频身份与缓存 | [`IDENTITY.md`](IDENTITY.md) |
-| G5/G5.5 在线音乐研究、数据与模块边界 | [`ONLINE-RESEARCH.md`](ONLINE-RESEARCH.md) |
-| 日常、编辑模式、独立音乐厅与空间玩法 | [`PRODUCT.md`](PRODUCT.md) |
+| G5.5-F 歌词服务、AI 与资料清理 | [`G55-F.md`](G55-F.md) |
+| 日常、编辑模式、歌词辅助与空间玩法 | [`PRODUCT.md`](PRODUCT.md) |
 | 每一版改了什么（写给用户） | [`RELEASE.md`](RELEASE.md) |
 
 ## 其他

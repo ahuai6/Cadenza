@@ -139,7 +139,8 @@ test('index migration is atomic, retains unresolved user records, and resumes fr
   const next = await openLibrary(file);
   assert.equal(next.version, 2);
   assert.deepEqual(next.tracks.aa, { id: 'aa', plays: 6 });
-  for (const key of ['favorites', 'overrides', 'playlists']) assert.deepEqual(next[key], original[key]);
+  for (const key of ['favorites', 'playlists']) assert.deepEqual(next[key], original[key]);
+  assert.deepEqual(next.overrides, { aa: { lyricsSource: 'sidecar:lrc' } });
   assert.deepEqual(await openLibrary(file), next);
   assert.equal(await fs.readFile(path.join(scratch, 'db.v1.json'), 'utf8'), body);
   assert.equal(await replace(file, 'bad', () => false), false);

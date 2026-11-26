@@ -61,14 +61,12 @@ function standIns() {
     added: 0,
     plays: 0,
     last: 0,
-    looked: true,
     edited: false,
     coverSet: false,
     tags: {},
   }));
   window.cadenzaDesktop = {
     setEditing: async () => true,
-    openMusicHall: async () => true,
     settings: async () => st,
     setSettings: async (x) => Object.assign(st, x),
     relaunch: async () => {},
@@ -158,11 +156,22 @@ const SONG = `(() => {
     Math.hypot(framed[0] - walked[0], framed[2] - walked[2]) > 10 && (await eye()).join() === walked.join(),
     JSON.stringify([walked, framed]),
   );
+  await p.waitForSelector('#win-btns [data-test=edit-mode]');
+  const windowControls = await p.evaluate(() => ({
+    actions: Array.from(
+      document.querySelectorAll('#win-btns [data-window-action]'),
+      (button) => button.dataset.windowAction,
+    ),
+    editing: document.querySelector('#win-btns [data-test=edit-mode]')?.getAttribute('aria-pressed'),
+    retired: !!document.querySelector('#win-btns [data-test=open-hall]'),
+  }));
   ok(
-    'window buttons: minimise, maximise, full screen, close, plus the music hall and editing entry points',
-    (await p.$$('#win-btns button:not([data-test])')).length === 4 &&
-      (await p.$$('#win-btns [data-test=open-hall]')).length === 1 &&
-      (await p.$('#win-btns [data-test=edit-mode][aria-pressed=false]')) !== null,
+    'window buttons: minimise, maximise, full screen, close, plus the editing entry points',
+    ['min', 'max', 'full', 'close'].every((action) => windowControls.actions.includes(action)) &&
+      windowControls.actions.length === 4 &&
+      windowControls.editing === 'false' &&
+      !windowControls.retired,
+    JSON.stringify(windowControls),
   );
   const glass = await p.evaluate(() => {
     const style = (selector) => getComputedStyle(document.querySelector(selector));
@@ -277,7 +286,7 @@ const SONG = `(() => {
   await p.click('[data-test="space-detail"] button:has-text("加入播放佇列")');
   await wait(200);
   // (the notice keeps its words after it fades: on a slow machine the click alone can outlast it)
-  const said = await p.$eval('[role="status"]', (e) => e.textContent);
+  const said = await p.$eval('[role="status"][data-on]', (e) => e.textContent);
   ok('commands: a card adds its songs to the queue, and says so', /\d+ 首加入播放佇列/.test(said), said);
   await p.evaluate(() => __cad.stand(0, -40, 0, 0));
   const left = await p.waitForSelector('[data-test="space-detail"]', { state: 'detached', timeout: 10000 }).then(

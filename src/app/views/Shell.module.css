@@ -118,7 +118,6 @@
   gap: 4px;
   flex: none;
 }
-.hallEntry,
 .modeEntry {
   display: inline-flex;
   align-items: center;
@@ -128,7 +127,6 @@
   border-radius: var(--r-2);
   white-space: nowrap;
 }
-.hallEntry:hover,
 .modeEntry:hover {
   background: var(--hover);
 }
@@ -224,7 +222,6 @@
 .brand,
 .places,
 .round,
-.hallEntry,
 .modeEntry,
 .spreadAction,
 .busy {
@@ -234,8 +231,8 @@
     background-color var(--t-fast) var(--ease),
     visibility 0s;
 }
-:global(html[data-fxbar='true']) .shell :is(.brand, .places, .round, .hallEntry, .modeEntry, .spreadAction, .busy),
-.shell[data-layer='fx'] :is(.brand, .places, .round, .hallEntry, .modeEntry, .spreadAction, .busy) {
+:global(html[data-fxbar='true']) .shell :is(.brand, .places, .round, .modeEntry, .spreadAction, .busy),
+.shell[data-layer='fx'] :is(.brand, .places, .round, .modeEntry, .spreadAction, .busy) {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;

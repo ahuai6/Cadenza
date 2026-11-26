@@ -11,6 +11,12 @@ let draftTimer = 0;
 let draftError = false;
 const persistentDraft = (key: string) => key.startsWith('lyric-source:');
 const draftPrefix = 'cadenza-draft-v1:';
+export function stageNewLyricDraft(key: string, value: string) {
+  if (!canEdit() || !persistentDraft(key) || draftValue(key, () => null) !== null) return false;
+  drafts.set(key, value);
+  stageDraft(key, value);
+  return true;
+}
 function flushDrafts() {
   clearTimeout(draftTimer);
   draftTimer = 0;

@@ -77,8 +77,8 @@ function init(profile, ui = 'space') {
 }
 async function launch(profile) {
   const app = await _electron.launch({
-    executablePath: require('electron'),
-    args: [root, '--no-sandbox'],
+    executablePath: process.env.CADENZA_TEST_EXE || require('electron'),
+    args: process.env.CADENZA_TEST_EXE ? [] : [root, '--no-sandbox'],
     env: { ...process.env, CADENZA_USER_DATA: profile },
   });
   const win = await app.firstWindow();
@@ -183,6 +183,7 @@ async function quiet(win) {
     );
     assert.equal(original.primary, original.fields[0].id);
     assert.equal((await mutate(win, track.id, { source: original.primary, text: 'blocked' })).why, 'editing-disabled');
+    assert.equal((await win.evaluate(() => window.cadenzaLyricAI.state())).why, 'editing-disabled');
     await activate(win, track);
     await setEditing(win, true);
     await win.locator('#p-extra button').first().click();
@@ -220,6 +221,68 @@ async function quiet(win) {
     assert.match(written.text, />michi<\//);
     assert.equal(saved.fields.find((field) => field.label === 'LYRICS').text, enhanced);
     assert.equal((await waitFile(win, 'combined.flac')).audioContentId, track.audioContentId);
+    await run.app.evaluate(() => {
+      const upstream = globalThis.fetch;
+      globalThis.fetch = async (url, options) => {
+        if (String(url) === 'https://fixture.invalid/v1/models')
+          return Response.json({ data: [{ id: 'fixture-model' }] });
+        if (String(url) === 'https://fixture.invalid/v1/chat/completions') {
+          const data = JSON.parse(JSON.parse(options.body).messages[1].content);
+          const content = JSON.stringify({ rows: data.rows.map(({ id }) => ({ id, translation: 'Offline ' + id })) });
+          const parts = [{ choices: [{ delta: { content } }] }, { choices: [{ finish_reason: 'stop' }] }];
+          return new Response(
+            parts.map((value) => 'data: ' + JSON.stringify(value) + '\n\n').join('') + 'data: [DONE]\n\n',
+            {
+              headers: { 'Content-Type': 'text/event-stream' },
+            },
+          );
+        }
+        return upstream(url, options);
+      };
+    });
+    const ai = panel.locator('[data-test=lyric-ai]');
+    await panel
+      .locator('summary')
+      .filter({ hasText: /^AI 歌词翻译$/ })
+      .click();
+    await ai.getByText('服务与授权设置', { exact: true }).click();
+    const apiSettings = ai.locator('fieldset');
+    await win.screenshot({ path: path.join(scratch, 'ai-settings-before-setup.png') });
+    await apiSettings.locator('select').nth(1).selectOption('compatible');
+    await apiSettings.getByLabel('名称', { exact: true }).fill('Isolated AI fixture');
+    await apiSettings.getByLabel('Base URL', { exact: true }).fill('https://fixture.invalid/v1');
+    await apiSettings.getByLabel('API Key', { exact: true }).fill('isolated-key');
+    await apiSettings.getByLabel('模型', { exact: true }).fill('fixture-model');
+    await apiSettings.getByLabel('目标语言（语言代码）', { exact: true }).fill('es');
+    await apiSettings.getByRole('button', { name: '保存设置' }).click();
+    await ai.getByText('服务与授权设置', { exact: true }).click();
+    await ai
+      .locator('select:has(option[value=chatgpt])')
+      .locator('option')
+      .filter({ hasText: 'Isolated AI fixture' })
+      .waitFor({ state: 'attached' });
+    await ai.getByRole('button', { name: '测试连接并获取模型' }).click();
+    await ai.getByText('连接成功', { exact: true }).waitFor();
+    await win.screenshot({ path: path.join(scratch, 'ai-translation-editor.png') });
+    const beforeAi = hash(file);
+    await ai.getByRole('button', { name: '生成译文' }).click();
+    await ai.locator('input[value="Offline line-0"]').waitFor();
+    assert.equal(hash(file), beforeAi);
+    await ai.locator('input[value="Offline line-0"]').fill('Reviewed first line');
+    await ai.getByRole('button', { name: '应用到草稿' }).click();
+    assert.equal(hash(file), beforeAi);
+    await panel.getByRole('button', { name: '写入 TTML', exact: true }).click();
+    await win.waitForFunction(
+      async (id) =>
+        (await window.cadenzaLib.lyricSources(id)).fields.some((row) => row.text.includes('Reviewed first line')),
+      track.id,
+    );
+    const currentTtml = (await source(win, track.id)).fields.find((field) => field.label === 'TTML').text;
+    assert.match(currentTtml, /xml:lang="es"/);
+    assert.match(currentTtml, /begin="1s" end="1.7s">First!/);
+    assert.match(currentTtml, /Translation two/);
+    assert.match(currentTtml, />michi<\//);
+    assert.equal((await waitFile(win, 'combined.flac')).audioContentId, track.audioContentId);
     assert.equal(
       (await mutate(win, track.id, { source: original.primary, revision: original.fields[0].revision, text: ttml }))
         .why,
@@ -233,7 +296,7 @@ async function quiet(win) {
     }, copy);
     await panel.getByRole('button', { name: '独立导出', exact: true }).click();
     await panel.getByText('已独立导出。', { exact: true }).waitFor();
-    assert.equal(fs.readFileSync(copy, 'utf8'), written.text);
+    assert.equal(fs.readFileSync(copy, 'utf8'), currentTtml);
     assert.equal(hash(file), digest);
 
     const chooser = panel.getByLabel('歌词来源');
@@ -253,6 +316,29 @@ async function quiet(win) {
     await area.press('Control+z');
     assert.equal(await area.inputValue(), enhanced);
     await area.press('Control+y');
+    assert.equal(await area.inputValue(), enhanced.replaceAll('Translation', 'Localized'));
+
+    await ai.locator(':scope > summary').click();
+    const service = ai.locator('select:has(option[value=chatgpt])');
+    const fixtureService = service.locator('option').filter({ hasText: 'Isolated AI fixture' });
+    await fixtureService.waitFor({ state: 'attached' });
+    await service.selectOption(await fixtureService.getAttribute('value'));
+    await ai.getByRole('button', { name: '生成译文' }).click();
+    await ai.locator('input[value="Offline line-0"]').waitFor();
+    await ai.getByRole('button', { name: '应用到草稿' }).click();
+    await win.waitForFunction(
+      () => document.querySelector('select[aria-label="歌词来源"]')?.value === 'sidecar:translation',
+    );
+    const translatedFile = file + '.translation.lrc';
+    assert.equal(fs.existsSync(translatedFile), false);
+    await panel.getByRole('button', { name: /写入 .*translation\.lrc/ }).click();
+    await win.waitForFunction(
+      async (id) => (await window.cadenzaLib.lyricSources(id)).fields.some((row) => row.id === 'sidecar:translation'),
+      track.id,
+    );
+    assert.match(fs.readFileSync(translatedFile, 'utf8'), /Offline line-0/);
+    assert.equal(hash(file), digest);
+    await chooser.selectOption(saved.fields.find((field) => field.label === 'LYRICS').id);
     assert.equal(await area.inputValue(), enhanced.replaceAll('Translation', 'Localized'));
 
     const denied = path.join(scratch, 'music', 'combined.flac');

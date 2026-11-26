@@ -26,7 +26,7 @@ import {
 import { ts } from './i18n';
 
 import { useOutsideClose } from '../ui/outside';
-import { EditModeButton, MusicHallButton } from '../ui/EditModeButton';
+import { EditModeButton } from '../ui/EditModeButton';
 import { useEditing } from '../editing';
 import s from './SpacePanels.module.css';
 
@@ -107,6 +107,7 @@ export function WinButtons({ host }: { host: HTMLElement | null }) {
       className={s.wb + (close ? ' ' + s.wclose : '')}
       title={label}
       aria-label={label}
+      data-window-action={op}
       onClick={() => D?.win(op)}
     >
       <Icon n={n} size={15} />
@@ -115,7 +116,6 @@ export function WinButtons({ host }: { host: HTMLElement | null }) {
   return createPortal(
     <>
       <BackgroundActivity />
-      <MusicHallButton className={s.wb + ' ' + s.hallEntry} />
       <EditModeButton className={s.wb + ' ' + s.modeEntry} compact />
       {!st.full && b('min', tx('s.min'), 'min')}
       {!st.full && b(st.max ? 'restore' : 'max', tx(st.max ? 's.restore' : 's.max'), 'max')}

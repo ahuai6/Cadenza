@@ -15,10 +15,11 @@ import {
   isTtml,
 } from '../../engine';
 import { tx } from '../../i18n';
-import { Lib, type LyricField, type LyricSources, type LyricTarget } from '../bridge';
-import { canEdit, useEditing, useEditingDraft } from '../editing';
+import { Lib, LyricAI, type LyricField, type LyricSources, type LyricTarget } from '../bridge';
+import { canEdit, stageNewLyricDraft, useEditing, useEditingDraft } from '../editing';
 import { commitLyricField, previewLyrics, resetLyricPreview, switchLyricSource } from '../playback/player';
 import { lib, trackOf, useStore } from '../state';
+import { AiLyricTranslation } from './AiLyricTranslation';
 import { LyricTextEditor } from './LyricTextEditor';
 import { Button, Note, Row } from './kit';
 import s from './LyricSources.module.css';
@@ -105,6 +106,16 @@ export function LyricSourcesEditor({ id }: { id: string }) {
           fields={data.fields}
           busy={busy}
           setBusy={setBusy}
+          stageTranslation={
+            data.targets.some((item) => item.id === 'sidecar:translation') && field && !field.id.includes('translation')
+              ? (value) => {
+                  if (!stageNewLyricDraft('lyric-source:' + id + ':sidecar:translation:new', value)) return false;
+                  choose('sidecar:translation');
+                  notice(tx('lyricAi.applied'));
+                  return true;
+                }
+              : undefined
+          }
           saved={async () => {
             await reload();
             notice('已保存到所选来源。');
@@ -221,7 +232,15 @@ function LyricSourcePreview({ id, field, fields }: { id: string; field: LyricFie
     </details>
   );
 }
-function LyricLookup({ id, useDraft }: { id: string; useDraft?: (value: string) => void }) {
+function LyricLookup({
+  id,
+  useDraft,
+  matchTrack,
+}: {
+  id: string;
+  useDraft?: (value: string) => void;
+  matchTrack?: (original: string, auxiliary: string, kind: 'translation' | 'transliteration') => void;
+}) {
   const track = trackOf(id);
   const [title, setTitle] = useState(track?.title ?? '');
   const [artist, setArtist] = useState(track?.artist ?? '');
@@ -232,52 +251,107 @@ function LyricLookup({ id, useDraft }: { id: string; useDraft?: (value: string) 
   useEffect(
     () => () => {
       request.current++;
+      void Lib?.cancelLyricSearch();
     },
     [],
   );
   return (
     <details>
       <summary>搜索歌词</summary>
-      <Row>
-        <label>
-          标题 <input value={title} onChange={(event) => setTitle(event.target.value)} />
-        </label>
-        <label>
-          歌手 <input value={artist} onChange={(event) => setArtist(event.target.value)} />
-        </label>
-        <Button
-          size="sm"
-          disabled={busy || !title.trim()}
-          onClick={async () => {
-            const run = ++request.current;
-            setBusy(true);
-            setResult([]);
-            setNote('');
-            try {
-              const items = await Lib!.searchLyrics({ title, artist, album: track?.album, duration: track?.duration });
-              if (run === request.current) {
-                setResult(items);
-                setNote(items.length ? '' : '未找到歌词。');
-              }
-            } catch {
-              if (run === request.current) setNote('歌词查询失败。');
-            } finally {
-              if (run === request.current) setBusy(false);
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (busy || !title.trim()) return;
+          const run = ++request.current;
+          setBusy(true);
+          setResult([]);
+          setNote('');
+          try {
+            const items = await Lib!.searchLyrics({
+              title,
+              artist,
+              album: track?.album,
+              duration: track?.duration,
+              isrc: track?.isrc?.[0],
+            });
+            if (run === request.current) {
+              setResult(items);
+              setNote(items.length ? '' : '未找到歌词。');
             }
-          }}
-        >
-          {busy ? '查询中' : '查询'}
-        </Button>
-      </Row>
+          } catch {
+            if (run === request.current) setNote('歌词查询失败。');
+          } finally {
+            if (run === request.current) setBusy(false);
+          }
+        }}
+      >
+        <Row>
+          <label>
+            标题 <input value={title} onChange={(event) => setTitle(event.target.value)} />
+          </label>
+          <label>
+            歌手 <input value={artist} onChange={(event) => setArtist(event.target.value)} />
+          </label>
+          <Button size="sm" disabled={busy || !title.trim()} type="submit">
+            {busy ? '查询中' : '查询'}
+          </Button>
+          {busy && (
+            <Button
+              size="sm"
+              onClick={() => {
+                request.current++;
+                void Lib!.cancelLyricSearch();
+                setBusy(false);
+              }}
+            >
+              {tx('lyricAi.cancel')}
+            </Button>
+          )}
+        </Row>
+      </form>
       {result.map((item) => {
         const text = item.synced || item.plain;
         return (
           text && (
             <details key={item.id}>
               <summary>
-                {item.title} · {item.artist}
+                {item.title} / {item.artist} / {item.source} / {item.format.toUpperCase()} /{' '}
+                {tx('lyricLookup.' + item.precision)}
               </summary>
-              <pre className={s.preview}>{text.split('\n').slice(0, 8).join('\n')}</pre>
+              <Note>
+                {[
+                  item.album,
+                  item.duration > 0 ? Math.round(item.duration) + ' s' : '',
+                  ...item.warnings.map((warning) => tx('lyricLookup.' + warning)),
+                ]
+                  .filter(Boolean)
+                  .join(' / ')}
+              </Note>
+              <pre className={s.preview}>{text}</pre>
+              {(
+                [
+                  ['translation', item.translation],
+                  ['transliteration', item.transliteration],
+                ] as const
+              ).map(
+                ([kind, value]) =>
+                  value && (
+                    <details key={kind}>
+                      <summary>{tx('lyricLookup.' + kind)}</summary>
+                      <pre className={s.preview}>{value}</pre>
+                      {matchTrack && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (canEdit()) matchTrack(text, value, kind);
+                          }}
+                        >
+                          {tx('lyricLookup.matchTrack')}
+                        </Button>
+                      )}
+                    </details>
+                  ),
+              )}
               <Row>
                 <Button
                   size="sm"
@@ -329,6 +403,7 @@ function LyricDraft({
   busy,
   setBusy,
   saved,
+  stageTranslation,
 }: {
   id: string;
   target: LyricTarget;
@@ -337,6 +412,7 @@ function LyricDraft({
   busy: boolean;
   setBusy: (value: boolean) => void;
   saved: () => Promise<void>;
+  stageTranslation?: (value: string) => boolean;
 }) {
   const original = field?.text ?? (target.format === 'ttml' ? emptyTtml : '');
   const [text, setText, clear] = useEditingDraft(
@@ -363,6 +439,8 @@ function LyricDraft({
   const [redo, setRedo] = useState<string[]>([]);
   const [message, notice] = useState('');
   const [reference, setReference] = useState('');
+  const [remoteReference, setRemoteReference] = useState<{ original: string; auxiliary: string } | null>(null);
+  const matchDetails = useRef<HTMLDetailsElement>(null);
   const [language, setLanguage] = useState('zh-Hans');
   const [plan, setPlan] = useState<ReturnType<typeof translationPlan> | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -479,7 +557,33 @@ function LyricDraft({
           独立导出
         </Button>
       </Row>
-      <LyricLookup id={id} useDraft={update} />
+      <LyricLookup
+        id={id}
+        useDraft={update}
+        matchTrack={
+          ttml && writable
+            ? (original, auxiliary, kind) => {
+                setRemoteReference({ original, auxiliary });
+                setReference('@online');
+                setRole(kind);
+                setPlan(translationPlan(text, original, auxiliary));
+                requestAnimationFrame(() => {
+                  if (!matchDetails.current) return;
+                  matchDetails.current.open = true;
+                  matchDetails.current.querySelector('summary')?.focus();
+                });
+              }
+            : undefined
+        }
+      />
+      {(ttml || stageTranslation) && writable && LyricAI && (
+        <AiLyricTranslation
+          text={text}
+          context={[trackOf(id)?.title, trackOf(id)?.artist, trackOf(id)?.album].filter(Boolean).join(' / ')}
+          apply={update}
+          stageAuxiliary={stageTranslation}
+        />
+      )}
       {timed && ttml ? (
         <div className={s.editor}>
           <Note>每行对应原文的一段。选中有多个逐字锚点的文本时，请返回按行视图分别修改。</Note>
@@ -728,8 +832,8 @@ function LyricDraft({
       ) : (
         <LyricTextEditor value={text} update={update} xml={ttml || target.format === 'ttml'} />
       )}
-      {ttml && fields.some((f) => f.format === 'lrc') && (
-        <details>
+      {ttml && (remoteReference || fields.some((f) => f.format === 'lrc')) && (
+        <details ref={matchDetails}>
           <summary>从增强 LRC 迁移译文</summary>
           <Row>
             <label>
@@ -742,6 +846,7 @@ function LyricDraft({
                 }}
               >
                 <option value="">选择来源</option>
+                {remoteReference && <option value="@online">{tx('lyricLookup.onlineReference')}</option>}
                 {fields
                   .filter((f) => f.format === 'lrc')
                   .map((f) => (
@@ -761,7 +866,13 @@ function LyricDraft({
             <Button
               size="sm"
               disabled={!reference}
-              onClick={() => setPlan(translationPlan(text, fields.find((f) => f.id === reference)?.text ?? ''))}
+              onClick={() =>
+                setPlan(
+                  reference === '@online' && remoteReference
+                    ? translationPlan(text, remoteReference.original, remoteReference.auxiliary)
+                    : translationPlan(text, fields.find((f) => f.id === reference)?.text ?? ''),
+                )
+              }
             >
               生成匹配预览
             </Button>

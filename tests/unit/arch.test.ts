@@ -46,18 +46,6 @@ describe('architecture', () => {
     expect([...layers].filter((layer) => !(layer in ALLOWED))).toEqual([]);
   });
 
-  it('keeps the music hall route free of the local player and its library boot', () => {
-    const entry = 'src/app/views/hall/MusicHall.tsx';
-    const reachable = new Set<string>([entry]);
-    for (const module of reachable) {
-      for (const edge of edges) if (!edge.typeOnly && edge.from === module) reachable.add(edge.to);
-    }
-    expect(edges.some((edge) => !edge.typeOnly && edge.from === 'src/app/main.tsx' && edge.to === entry)).toBe(true);
-    expect(
-      [...reachable].filter((file) => /^(src\/app\/(actions|playback|workshop)\/|src\/engine\/)/.test(file)),
-    ).toEqual([]);
-  });
-
   it('does not add runtime cycle edges to the 3.6.0 graph', () => {
     const baseline = new Set([
       // G9: shared controls and album presentation still reach across sibling views.

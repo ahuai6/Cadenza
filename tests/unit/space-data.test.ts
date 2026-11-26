@@ -34,7 +34,6 @@ const track = (id: string, title: string, album: string, artist = 'A', cover: st
   added: 0,
   plays: 0,
   last: 0,
-  looked: false,
   edited: false,
   coverSet: false,
   tags: { title, artist, album, albumArtist: '', year: 2020, genre: [], track: null, disc: null },
