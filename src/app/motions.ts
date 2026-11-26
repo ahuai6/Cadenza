@@ -3,6 +3,7 @@
 import { createStore } from '../core/emitter';
 import { motionPart, type SavedMotion, type Style } from '../theme/style';
 import { remember, keep, useStore } from './state';
+import { canEdit } from './editing';
 
 export interface SavedMotionEntry {
   id: string;
@@ -13,7 +14,8 @@ export const motions = createStore({ list: remember<SavedMotionEntry[]>('motions
 const persist = () => keep('motions', motions.get().list);
 export const useMotions = () => useStore(motions, (x) => x.list);
 /** Save a style's motion under a name: over the saved style it came from, or as a new one. Returns its id. */
-export function saveMotion(st: Style, name: string, asNew: boolean): string {
+export function saveMotion(st: Style, name: string, asNew: boolean): string | null {
+  if (!canEdit()) return null;
   const list = motions.get().list.slice(),
     id = !asNew && st.motionId && list.some((m) => m.id === st.motionId) ? st.motionId : 'm' + Date.now().toString(36);
   const entry = { id, name, motion: motionPart(st) };
@@ -25,6 +27,7 @@ export function saveMotion(st: Style, name: string, asNew: boolean): string {
   return id;
 }
 export function deleteMotion(id: string) {
+  if (!canEdit()) return;
   motions.set({ list: motions.get().list.filter((m) => m.id !== id) });
   persist();
 }

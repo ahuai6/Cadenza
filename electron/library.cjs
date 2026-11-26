@@ -299,7 +299,9 @@ async function readTags(p) {
 }
 // Pending discoveries need only one stat snapshot. Full verification runs separately from the scan and the player.
 const pending = new Map();
+const identityRetryDelays = [250, 1250];
 let activeIdentity = null,
+  identityTimer = null,
   indexing = false,
   stopping = false;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -311,14 +313,29 @@ function queueIdentity(track, previous) {
   if (queued?.stamp === stamp) return;
   if (activeIdentity?.track.path === track.path && activeIdentity.stamp === stamp) return;
   if (activeIdentity?.track.path === track.path) activeIdentity.controller.abort();
-  pending.set(track.path, { track, previous, stamp });
+  pending.set(track.path, { track, previous, stamp, attempts: 0, readyAt: 0 });
 }
 async function indexAudio() {
   if (indexing) return;
+  clearTimeout(identityTimer);
+  identityTimer = null;
   indexing = true;
   try {
     while (!stopping && pending.size) {
-      const [file, entry] = pending.entries().next().value;
+      const first = pending.entries().next().value;
+      const now = Date.now();
+      let next = first;
+      if (first[1].readyAt > now) {
+        for (const candidate of pending) {
+          if (candidate[1].readyAt < next[1].readyAt) next = candidate;
+          if (next[1].readyAt <= now) break;
+        }
+      }
+      const [file, entry] = next;
+      if (entry.readyAt > now) {
+        identityTimer = setTimeout(runIdentityIndex, entry.readyAt - now);
+        break;
+      }
       pending.delete(file);
       const { track, previous, stamp } = entry;
       const controller = new AbortController();
@@ -328,19 +345,23 @@ async function indexAudio() {
         content = await identity.fingerprint(binPath(), file, stamp, controller.signal);
       } catch {
         // A corrupt or unsupported file can still use the ordinary output. It has no reusable analysis identity.
-      } finally {
-        activeIdentity = null;
       }
       const current = await fsp.stat(file).catch(() => null);
+      activeIdentity = null;
       if (
         stopping ||
         controller.signal.aborted ||
         pending.has(file) ||
         track.sourceStamp !== stamp ||
-        !current ||
-        identity.revision(current) !== stamp
+        (current && identity.revision(current) !== stamp)
       )
         continue;
+      if ((!current || !content) && entry.attempts < identityRetryDelays.length) {
+        entry.readyAt = Date.now() + identityRetryDelays[entry.attempts++];
+        pending.set(file, entry);
+        continue;
+      }
+      if (!current) continue;
       if (previous) {
         if (
           db.tracks[previous.id] === previous &&
@@ -368,6 +389,10 @@ async function indexAudio() {
   } finally {
     indexing = false;
   }
+}
+
+function runIdentityIndex() {
+  void indexAudio().catch((error) => console.error('[audio identity]', error));
 }
 
 const metadataFields = [
@@ -404,9 +429,11 @@ async function sidecars(track) {
 }
 
 let scanning = false,
-  rescan = false;
-async function scan() {
+  rescan = false,
+  retryIdentity = false;
+async function scan(retryFailed = false) {
   if (stopping) return;
+  retryIdentity ||= retryFailed;
   if (scanning) {
     rescan = true;
     return;
@@ -415,6 +442,8 @@ async function scan() {
   try {
     do {
       rescan = false;
+      const retry = retryIdentity;
+      retryIdentity = false;
       const files = [];
       for (const folder of db.folders) await walk(folder, files);
       const seen = new Set(files);
@@ -460,7 +489,7 @@ async function scan() {
                 Object.assign(old, tags);
               }
             }
-            if (!identity.validId(old.audioContentId) && !old.identityError) queueIdentity(old);
+            if (!identity.validId(old.audioContentId) && (retry || !old.identityError)) queueIdentity(old);
           } else {
             // Keep an old entry and all its user data quarantined until bytes confirm a safe association.
             if (old) old.detached = old.path === file ? 'changed' : 'missing';
@@ -506,7 +535,7 @@ async function scan() {
       changed();
       send('lib:progress', { phase: 'idle', done: seen.size, total: seen.size });
       send('lib:wake');
-      void indexAudio().catch((error) => console.error('[audio identity]', error));
+      runIdentityIndex();
     } while (rescan);
   } finally {
     scanning = false;
@@ -528,7 +557,7 @@ async function indexExisting() {
     }
     t.fileKey = identity.fileKey(st);
     t.sourceStamp = identity.revision(st);
-    if (!identity.validId(t.audioContentId) && !t.identityError) queueIdentity(t);
+    if (!identity.validId(t.audioContentId)) queueIdentity(t);
   }
   changed();
   await indexAudio();
@@ -803,7 +832,7 @@ async function setSong(id, data, fromDialog) {
     };
     delete data.unbind;
   }
-  await fsp.writeFile(songFile(id), JSON.stringify(data));
+  await replace(songFile(id), JSON.stringify(data));
   return true;
 }
 
@@ -896,7 +925,7 @@ async function writeLyrics(id, text, target = 'lrc') {
     if (!t.audioContentId) {
       delete t.identityError;
       queueIdentity(t);
-      void indexAudio().catch((error) => console.error('[audio identity]', error));
+      runIdentityIndex();
     }
     const preference = { ...o };
     if (!ttml && ttmlSidecar(t.path)) preference.preferLrc = true;
@@ -1310,7 +1339,7 @@ async function searchCovers(q) {
   return got.filter(Boolean).slice(0, 24);
 }
 // set a song's cover: a chosen search result, an image file the user picks, or back to the file's own
-async function setCover(id, how, getWin) {
+async function setCover(id, how, getWin, canEdit) {
   const t = activeTrack(id);
   if (!t) return false;
   const rev = t.metadataRevision || 0;
@@ -1331,7 +1360,7 @@ async function setCover(id, how, getWin) {
     o.coverKey = await storeCover(await fsp.readFile(r.filePaths[0]));
   } else return false;
   if (!o.coverKey) delete o.coverKey;
-  if (activeTrack(id) !== t || (t.metadataRevision || 0) !== rev) return false;
+  if (!canEdit() || activeTrack(id) !== t || (t.metadataRevision || 0) !== rev) return false;
   db.overrides[id] = o;
   recordFieldOrigins(id, o, ['coverKey'], 'manual');
   t.metadataRevision = (t.metadataRevision || 0) + 1;
@@ -1454,7 +1483,7 @@ function registerProtocol() {
 }
 
 /* ---------- the page's requests ---------- */
-function register(ipcMain, getWin) {
+function register(ipcMain, getWin, canEdit) {
   send = (ch, data) => {
     const w = getWin();
     if (w && !w.isDestroyed()) w.webContents.send(ch, data);
@@ -1506,7 +1535,7 @@ function register(ipcMain, getWin) {
     return view();
   });
   ipcMain.handle('lib:rescan', () => {
-    scan();
+    scan(true);
     return true;
   });
   ipcMain.handle('lib:favorite', (_e, id, on) => {
@@ -1602,26 +1631,28 @@ function register(ipcMain, getWin) {
     if (s && s.mv) s.mv = { name: s.mv.name, offset: s.mv.offset || 0 };
     return s;
   });
-  ipcMain.handle('lib:setSong', (_e, id, d) => setSong(id, d));
+  ipcMain.handle('lib:setSong', (event, id, d) => canEdit(event) && setSong(id, d));
   ipcMain.handle('lib:lyrics', (_e, id) => readLyrics(id));
-  ipcMain.handle('lib:writeLyrics', (_e, id, text, target) =>
-    writeLyrics(id, text, target === 'tag' || target === 'ttml' ? target : 'lrc'),
+  ipcMain.handle('lib:writeLyrics', (event, id, text, target) =>
+    canEdit(event)
+      ? writeLyrics(id, text, target === 'tag' || target === 'ttml' ? target : 'lrc')
+      : { ok: false, why: 'editing-disabled' },
   );
   ipcMain.handle('lib:searchLyrics', (_e, q) => searchLyrics(q));
   ipcMain.handle('lib:searchMeta', (_e, q) => searchMeta(q));
-  ipcMain.handle('lib:applyMeta', (_e, id, m) => applyMeta(id, m));
-  ipcMain.handle('lib:clearMeta', (_e, id, part) => resetMeta(id, part));
-  ipcMain.handle('lib:instrumental', (_e, id, on) => setInstrumental(id, !!on));
-  ipcMain.handle('lib:editMeta', (_e, id, f) => editMeta(id, f));
+  ipcMain.handle('lib:applyMeta', (event, id, m) => canEdit(event) && applyMeta(id, m));
+  ipcMain.handle('lib:clearMeta', (event, id, part) => canEdit(event) && resetMeta(id, part));
+  ipcMain.handle('lib:instrumental', (event, id, on) => canEdit(event) && setInstrumental(id, !!on));
+  ipcMain.handle('lib:editMeta', (event, id, f) => canEdit(event) && editMeta(id, f));
   ipcMain.handle('lib:searchCovers', (_e, q) => searchCovers(q || {}));
-  ipcMain.handle('lib:setCover', (_e, id, how) => setCover(id, how, getWin));
-  ipcMain.handle('lib:bindMv', async (_e, id) => {
-    if (!activeTrack(id)) return null;
+  ipcMain.handle('lib:setCover', (event, id, how) => canEdit(event) && setCover(id, how, getWin, () => canEdit(event)));
+  ipcMain.handle('lib:bindMv', async (event, id) => {
+    if (!canEdit(event) || !activeTrack(id)) return null;
     const r = await dialog.showOpenDialog(getWin(), {
       properties: ['openFile'],
       filters: [{ name: 'Video', extensions: ['mp4', 'm4v', 'webm', 'mov', 'mkv'] }],
     });
-    if (r.canceled || !r.filePaths[0]) return null;
+    if (r.canceled || !r.filePaths[0] || !canEdit(event)) return null;
     const s = (await getSong(id)) || {};
     s.mv = { path: r.filePaths[0], name: path.basename(r.filePaths[0]), offset: s.mv?.offset || 0 };
     await setSong(id, s, true);
@@ -1637,11 +1668,11 @@ function register(ipcMain, getWin) {
   });
 }
 
-async function start(ipcMain, getWin, settings) {
+async function start(ipcMain, getWin, settings, canEdit) {
   preferences = settings;
   await load();
   registerProtocol();
-  register(ipcMain, getWin);
+  register(ipcMain, getWin, canEdit);
   watchAll();
   setTimeout(() => {
     const work = settings.scanOnLaunch !== false && db.folders.length ? scan() : indexExisting();
@@ -1657,6 +1688,7 @@ const pathOf = async (id) => {
 };
 async function close() {
   stopping = true;
+  clearTimeout(identityTimer);
   clearTimeout(watchTm);
   clearTimeout(changeTm);
   pending.clear();

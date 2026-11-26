@@ -315,6 +315,8 @@ async function run(route, crash = false) {
       await run((id) => window.__cadenza.api.playIds([id], 0), q[4]);
       await target(4);
       await wait((id) => window.__cadenza.player.get().session?.spec.key === id, q[4]);
+      await win.keyboard.press('Control+Shift+E');
+      await win.locator('[data-test=titlebar] [data-test=edit-mode][aria-pressed=true]').waitFor({ state: 'attached' });
       await app.evaluate(({ ipcMain }) => {
         ipcMain.removeHandler('lib:writeLyrics');
         ipcMain.handle(

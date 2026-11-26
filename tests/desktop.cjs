@@ -16,6 +16,13 @@ let failed = 0;
 // the song panel's 外觀與風格 page, with its Advanced open (the knobs, one's own styles and the effects are under it)
 // the look & style page, on one of its four tabs (3.5.0: 外觀 / 風格 / 進階 / 特效)
 async function openStyle(sp, page = '外觀') {
+  await openSongPanel(sp);
+  await sp.getByRole('tab', { name: '外觀與風格', exact: true }).click();
+  await new Promise((r) => setTimeout(r, 300));
+  await sp.getByRole('tab', { name: page, exact: true }).click();
+  await new Promise((r) => setTimeout(r, 300));
+}
+async function openSongPanel(sp) {
   // The effect panel can retract while a screenshot or style transition is in progress.
   const win = sp.page(),
     { width, height } = win.viewportSize();
@@ -33,10 +40,6 @@ async function openStyle(sp, page = '外觀') {
     { timeout: 2500 },
   );
   await win.mouse.move(width - 170, height / 2);
-  await sp.getByRole('tab', { name: '外觀與風格', exact: true }).click();
-  await new Promise((r) => setTimeout(r, 300));
-  await sp.getByRole('tab', { name: page, exact: true }).click();
-  await new Promise((r) => setTimeout(r, 300));
 }
 const ok = (name, pass, detail) => {
   if (!pass) failed++;
@@ -90,6 +93,8 @@ const ok = (name, pass, detail) => {
   const W = (ms) => win.waitForTimeout(ms);
   const expand = () => win.locator('[data-test=dock-cover]').locator('..').click();
   const C = (f, a) => win.evaluate(f, a);
+  await win.locator('[data-test=titlebar] [data-test=edit-mode]').click();
+  await win.locator('[data-test=titlebar] [data-test=edit-mode][aria-pressed=true]').waitFor();
   const layerIs = (l, ms = 8000) =>
     win
       .waitForFunction(
@@ -805,6 +810,7 @@ const ok = (name, pass, detail) => {
     await C(() => document.querySelector('[data-test=song-panel]').dataset.open === 'true'),
   );
   await openStyle(win.locator('[data-test=song-panel]'));
+  await C(() => window.__cadenza.api.editSong((s) => s.makeCustom()));
   await shot('fx-panel-bg');
   {
     const sp = win.locator('[data-test=song-panel]'),
@@ -1060,6 +1066,7 @@ const ok = (name, pass, detail) => {
       JSON.stringify(r),
     );
   }
+  await openSongPanel(win.locator('[data-test=song-panel]'));
   await win.locator('[data-test=song-panel]').getByRole('tab', { name: '歌詞' }).click();
   await W(300);
   await shot('fx-panel-lyrics');
@@ -1120,7 +1127,12 @@ const ok = (name, pass, detail) => {
     await C(() => document.activeElement.blur());
   }
   await openStyle(win.locator('[data-test=song-panel]'), '風格');
-  await C(() => window.__cadenza.api.editSong((s) => s.setKnob('energy', 1.6)));
+  await C(() =>
+    window.__cadenza.api.editSong((s) => {
+      if (!s.custom) s.makeCustom();
+      s.setKnob('energy', 1.6);
+    }),
+  );
   await W(1000);
   const saved = await C(
     (id) =>

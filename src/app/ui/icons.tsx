@@ -318,6 +318,9 @@ const ICONS: Record<string, { fill?: boolean; d: ReactNode }> = {
       </>
     ),
   },
+  pencil: {
+    d: P('M14.7 5.6l3.7 3.7M4.7 19.3l1-4.8L15.9 4.3a1.5 1.5 0 0 1 2.1 0L19.7 6a1.5 1.5 0 0 1 0 2.1L9.5 18.3l-4.8 1Z'),
+  },
   trash: { d: P('M5 7h14M10 4.5h4M7 7l.8 11.2a2 2 0 0 0 2 1.8h4.4a2 2 0 0 0 2-1.8L17 7') },
   alert: {
     d: (

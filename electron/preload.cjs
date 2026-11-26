@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('cadenzaDesktop', {
   onMedia: on('media'),
   settings: () => L('settings:get'),
   setSettings: (patch) => L('settings:set', patch),
+  setEditing: (on) => L('editing:set', on),
+  openMusicHall: () => L('hall:open'),
   relaunch: () => L('app:relaunch'),
   playing: (on) => L('win:playing', on),
   onSettings: on('settings:pushed'),

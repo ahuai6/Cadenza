@@ -14,8 +14,10 @@ import { engine } from '../playback/stage';
 import {
   player,
   editSong,
+  chooseSongPreset,
   saveSong,
   useLyrics,
+  setLyricOffset,
   setMvOn,
   unbindMv,
   spacedLines,
@@ -34,6 +36,8 @@ import { setSettings } from '../actions/settings';
 import s from './Effect.module.css';
 import { PerfHud } from './PerfHud';
 import { isTtml } from '../../engine';
+import { canEdit, useEditing, useEditingDraft } from '../editing';
+import { EditControls, EditModeButton } from '../ui/EditModeButton';
 
 const IDLE_MS = 2600;
 export function EffectView() {
@@ -157,8 +161,11 @@ export function EffectView() {
             disabled={!hasLyrics}
           />
           <QueueButton />
-          <AspectPick />
+          <EditControls inline>
+            <AspectPick />
+          </EditControls>
           <MvButton />
+          <EditModeButton className={s.editMode} compact />
           <IconButton n="sliders" label={tx('s.panel.song')} pressed={panel} onClick={() => setPanel((v) => !v)} />
           <IconButton
             n={full ? 'unfull' : 'full'}
@@ -181,7 +188,9 @@ function AspectPick() {
       label={tx('aspect')}
       value={fxAspect()}
       options={FX_ASPECTS.map((a) => [a, a])}
-      onChange={setFxAspect}
+      onChange={(value) => {
+        if (canEdit()) setFxAspect(value);
+      }}
     />
   );
 }
@@ -194,13 +203,13 @@ function MvButton() {
   };
   const menu = (e: React.MouseEvent) =>
     openMenu(e, [
-      { label: tx('s.mvChange'), icon: 'mv', run: () => askMv() },
-      mv.bound && { label: tx('s.mvOffset'), icon: 'refresh', run: () => askMvOffset() },
+      canEdit() && { label: tx('s.mvChange'), icon: 'mv', run: () => askMv() },
+      canEdit() && mv.bound && { label: tx('s.mvOffset'), icon: 'refresh', run: () => askMvOffset() },
       mv.bound && mv.on && { label: tx('s.mvOff'), icon: 'close', run: () => setMvOn(false) },
-      mv.bound && '-',
-      mv.bound && { label: tx('s.mvUnbind'), icon: 'trash', danger: true, run: () => unbindMv() },
+      canEdit() && mv.bound && '-',
+      canEdit() && mv.bound && { label: tx('s.mvUnbind'), icon: 'trash', danger: true, run: () => unbindMv() },
     ]);
-  return (
+  const button = (
     <Button
       glass
       className={s.mvb}
@@ -213,6 +222,7 @@ function MvButton() {
       MV
     </Button>
   );
+  return mv.bound ? button : <EditControls inline>{button}</EditControls>;
 }
 
 /* ---------- this song's settings ---------- */
@@ -246,6 +256,7 @@ const TABS: [string, string, string][] = [
   ['export', 's.sec.export', 'download'],
 ]; // (the ending's card follows the song's own details, like its title)
 function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const editing = useEditing();
   useStore(player, (x) => x.rev);
   const session = useStore(player, (x) => x.session)!,
     song = useStore(player, (x) => x.song),
@@ -253,10 +264,6 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [tab, setTab] = useState('style'),
     el = useRef<HTMLElement>(null),
     leaveTm = useRef(0);
-  // a song's panel always edits the song's own copy: a preset becomes a custom theme bound to the song when it opens
-  useEffect(() => {
-    if (open && !session.custom && !locked) editSong((x) => x.makeCustom());
-  }, [open, locked, session]);
   // An input method's candidate window (Zhuyin, Pinyin, Japanese, Korean…) is a window of its own: while it is up the
   // page sees the pointer leave. So the panel never closes while one of its fields is focused or being composed in, or
   // while the window has lost focus; it closes once the pointer has been outside it for a moment with nothing typed.
@@ -282,7 +289,7 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
     }, 600);
   }; // (nor while a colour picker of its is open: its eyedropper roams the whole screen)
   useEffect(() => () => clearTimeout(leaveTm.current), []);
-  const props = { s: session, edit: editSong, ctx: 'song' as const };
+  const props = { s: session, edit: editSong, choose: chooseSongPreset, ctx: 'song' as const };
   // (the panel is tinted by the song's own dark, as the play page is)
   const tone = useMemo(() => {
     const A = session.ambient;
@@ -346,17 +353,19 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
           <b className={s.ptitle}>{tx(TABS.find((x) => x[0] === tab)![1])}</b>
           <small>{tx('s.panel.bound')}</small>
         </div>
-        <IconButton
-          n={locked ? 'lock' : 'unlock'}
-          pressed={locked}
-          label={tx(locked ? 's.locked' : 's.lock')}
-          onClick={() => {
-            if (!locked) saveSong({ locked: true });
-          }}
-          onDoubleClick={() => {
-            if (locked) saveSong({ locked: false });
-          }}
-        />
+        {editing && (
+          <IconButton
+            n={locked ? 'lock' : 'unlock'}
+            pressed={locked}
+            label={tx(locked ? 's.locked' : 's.lock')}
+            onClick={() => {
+              if (!locked) saveSong({ locked: true });
+            }}
+            onDoubleClick={() => {
+              if (locked) saveSong({ locked: false });
+            }}
+          />
+        )}
       </header>
       <div className={s.pbody} data-locked={locked}>
         {tab === 'style' && <StylePage {...props} media={<MvPane />} />}
@@ -369,7 +378,7 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
             aspect={{ value: fxAspect(), options: FX_ASPECTS, set: setFxAspect }}
           />
         )}
-        {locked && (
+        {editing && locked && tab !== 'export' && (
           <div className={s.lockCover} onDoubleClick={() => saveSong({ locked: false })}>
             <Icon n="lock" size={22} />
             <span>{tx('s.locked')}</span>
@@ -382,10 +391,11 @@ function SongPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
 /** The song's word breaks: its lines as they are spaced now, editable, back to the segmenter's in one go. */
 function SpacingEditor() {
   const doc = useStore(player, (x) => x.session?.doc),
-    [text, setText] = useState(() => spacedLines().join('\n')),
+    id = useStore(player, (x) => x.shownId),
     [msg, setMsg] = useState('');
+  const [text, setText, clearDraft, sync] = useEditingDraft('spacing:' + id, () => spacedLines().join('\n'));
   useEffect(() => {
-    setText(spacedLines().join('\n'));
+    sync(spacedLines().join('\n'));
   }, [doc]); // (a new song or new lyrics, not every repaint)
   return (
     <div style={{ display: 'grid', gap: 8, padding: '0 0 14px' }}>
@@ -397,7 +407,8 @@ function SpacingEditor() {
           kind="primary"
           size="sm"
           onClick={async () => {
-            await saveSpacing(text.split('\n'));
+            if (!(await saveSpacing(text.split('\n')))) return;
+            clearDraft();
             setMsg(tx('s.lyr.spacingSaved'));
           }}
         >
@@ -406,8 +417,8 @@ function SpacingEditor() {
         <Button
           size="sm"
           onClick={async () => {
-            await saveSpacing(null);
-            setText(spacedLines().join('\n'));
+            if (!(await saveSpacing(null))) return;
+            clearDraft();
             setMsg(tx('s.lyr.spacingRestored'));
           }}
         >
@@ -419,23 +430,34 @@ function SpacingEditor() {
   );
 }
 export function LyricsTab() {
+  const editing = useEditing();
+  return (
+    <>
+      {!editing && <Note>{tx('edit.required')}</Note>}
+      <EditControls>
+        <LyricsEditor />
+      </EditControls>
+    </>
+  );
+}
+function LyricsEditor() {
   const p = useStore(player),
     t = trackOf(p.shownId),
     session = p.session!,
     target = useStore(settings, (x) => x.lyricsTarget) === 'lrc' ? 'lrc' : 'tag';
-  const [text, setText] = useState(() => session.spec.lyrics || ''),
-    [msg, setMsg] = useState('');
+  const [text, setText, clearDraft, sync] = useEditingDraft('lyrics:' + p.shownId, () => session.spec.lyrics || '');
+  const [msg, setMsg] = useState('');
   const [q, setQ] = useState({ title: t ? t.title : '', artist: t ? t.artist : '' }),
     [res, setRes] = useState<Awaited<ReturnType<NonNullable<typeof Lib>['searchLyrics']>> | null>(null);
   const [busy, setBusy] = useState(false),
     [pick, setPick] = useState<number | null>(null),
     ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    setText(player.get().session?.spec.lyrics || '');
-  }, [p.shownId]);
+    sync(player.get().session?.spec.lyrics || '');
+  }, [p.shownId, session.spec.lyrics]);
   const use = async (src: string, edit = false) => {
     const ok = await useLyrics(src, { edit });
-    setText(src);
+    if (ok) clearDraft(src);
     setMsg(tx(ok ? 's.lyr.saved' : 'load.none'));
   };
   const search = async () => {
@@ -473,6 +495,11 @@ export function LyricsTab() {
           <Button kind="primary" size="sm" onClick={() => use(text, true)}>
             {tx(xml ? 's.save' : 's.lyr.saveLrc')}
           </Button>
+          {text !== session.spec.lyrics && (
+            <Button size="sm" kind="ghost" onClick={() => clearDraft()}>
+              {tx('edit.discard')}
+            </Button>
+          )}
           <Dropdown
             className={s.target}
             label={tx('s.lyr.target')}
@@ -501,7 +528,7 @@ export function LyricsTab() {
           step={10}
           value={session.spec.lshift || 0}
           format={(v) => `${v > 0 ? '+' : ''}${Math.round(v)}`}
-          onCommit={(v) => editSong((x) => x.setTiming({ lshift: v }))}
+          onCommit={setLyricOffset}
         />
       </div>
       {p.hasLyrics && <SpacingEditor />}

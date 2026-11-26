@@ -11,6 +11,8 @@ import { tx } from '../../i18n';
 import { remember, keep } from '../state';
 import { audioContext, sessionEnv } from '../playback/stage';
 import { Lib } from '../bridge';
+import { canEdit, editTask } from '../editing';
+import { applyExistingPreset, type PresetChoice } from '../preset-choice';
 
 export interface Project {
   app: 'cadenza';
@@ -51,6 +53,7 @@ engine.loop = true;
 export const ws = createStore({
   session: null as Session | null,
   rev: 0,
+  projectId: 0,
   audioName: '',
   analyzing: false,
   video: { name: '', start: '', loop: true },
@@ -58,6 +61,7 @@ export const ws = createStore({
 });
 let cover: Project['cover'] = null,
   pending: Incoming | null = null,
+  projectSequence = 0,
   saveTm = 0;
 const bump = () => ws.set({ rev: ws.get().rev + 1 });
 engine.on('change', bump);
@@ -90,9 +94,16 @@ export function projectData(): Project | null {
 }
 /** Change the project's session and keep the change. */
 export function edit(fn: (s: Session) => unknown) {
+  if (!canEdit()) return;
+  change(fn);
+}
+export function chooseWorkshopPreset(choice: PresetChoice) {
+  change((session) => applyExistingPreset(session, choice));
+}
+function change(fn: (s: Session) => unknown) {
   const s = ws.get().session;
   if (!s) return;
-  fn(s);
+  if (fn(s) === false) return;
   engine.invalidate();
   bump();
   persist();
@@ -104,6 +115,7 @@ async function openProject(
   analysis: RhythmAnalysis | null = null,
   name = '',
 ) {
+  const projectId = ++projectSequence;
   cover = p.cover || null;
   const s = await Session.open(
     {
@@ -124,7 +136,7 @@ async function openProject(
   );
   s.style.aspect ||= '16:9';
   engine.show(s, { play: false });
-  ws.set({ session: s, audioName: buffer ? name : '' });
+  ws.set({ session: s, projectId, audioName: buffer ? name : '' });
   bump();
   return s;
 }
@@ -147,17 +159,21 @@ export async function start() {
 }
 /** A library song becomes the workshop's next project (16:9), free to change without touching the song. */
 export function queueImport(x: Incoming) {
+  if (!canEdit()) return;
   pending = x;
   ws.set({ session: null });
 }
 
 /* ---------- the project's parts ---------- */
-export async function applyLyrics(text: string, bpm: string | number) {
+export const applyLyrics = (text: string, bpm: string | number) =>
+  canEdit() ? editTask(() => applyProjectLyrics(text, bpm)) : Promise.resolve(false);
+async function applyProjectLyrics(text: string, bpm: string | number) {
+  const s = ws.get().session;
+  if (!s) return false;
   edit((s) => {
     s.setLyrics(text);
     s.setTiming({ bpm: Math.max(40, Math.min(240, +bpm || 120)) });
   });
-  const s = ws.get().session!;
   await s.flush();
   ws.set({
     status: {
@@ -174,12 +190,15 @@ export async function applyLyrics(text: string, bpm: string | number) {
     },
   });
   bump();
+  return true;
 }
-export async function resetDemo() {
+export const resetDemo = () => (canEdit() ? editTask(resetProject) : Promise.resolve());
+async function resetProject() {
   await openProject(fresh());
   persist();
 }
-export async function importAudio(f?: File) {
+export const importAudio = (file?: File) => (canEdit() ? editTask(() => importProjectAudio(file)) : Promise.resolve());
+async function importProjectAudio(f?: File) {
   const st = () => ws.get().status;
   const previousAudio = st().audio;
   let ticket: Awaited<ReturnType<NonNullable<typeof Lib>['openWorkshopAudio']>> = null;
@@ -217,10 +236,12 @@ export async function importAudio(f?: File) {
   }
 }
 export function clearAudio() {
+  if (!canEdit()) return;
   edit((s) => s.setAudio(null, null));
   ws.set({ audioName: '', status: { ...ws.get().status, audio: '' } });
 }
-export async function importCover(f: File) {
+export const importCover = (file: File) => (canEdit() ? editTask(() => importProjectCover(file)) : Promise.resolve());
+async function importProjectCover(f: File) {
   const data = await new Promise<string>((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(String(r.result));
@@ -235,6 +256,7 @@ export async function importCover(f: File) {
   ws.set({ status: { ...ws.get().status, cover: tx('cv.using', { name: f.name }) } });
 }
 export async function clearCover() {
+  if (!canEdit()) return;
   cover = null;
   const s = ws.get().session;
   if (!s) return;
@@ -242,7 +264,8 @@ export async function clearCover() {
   edit(() => {});
   ws.set({ status: { ...ws.get().status, cover: '' } });
 }
-export async function importVideo(f: File) {
+export const importVideo = (file: File) => (canEdit() ? editTask(() => importProjectVideo(file)) : Promise.resolve());
+async function importProjectVideo(f: File) {
   const ok = await engine.video.open(URL.createObjectURL(f), f, f.name);
   ws.set({
     video: { ...ws.get().video, name: ok ? f.name : '' },
@@ -260,16 +283,20 @@ export async function importVideo(f: File) {
     });
 }
 export function clearVideo() {
+  if (!canEdit()) return;
   engine.video.close();
   ws.set({ video: { ...ws.get().video, name: '' }, status: { ...ws.get().status, video: '' } });
   engine.invalidate();
 }
 export function setVideoOpt(k: 'start' | 'loop', v: string | boolean) {
+  if (!canEdit()) return;
   (engine.video as any)[k] = v;
   ws.set({ video: { ...ws.get().video, [k]: v } });
   engine.invalidate();
 }
-export async function importProject(f: File) {
+export const importProject = (file: File) =>
+  canEdit() ? editTask(() => openImportedProject(file)) : Promise.resolve();
+async function openImportedProject(f: File) {
   const p = JSON.parse(await f.text()) as Project;
   if (!p || typeof p !== 'object' || typeof p.lyrics !== 'string') throw new Error('bad');
   const s = ws.get().session,

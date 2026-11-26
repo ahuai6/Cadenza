@@ -93,7 +93,7 @@ gh api repos/ahuai6/Cadenza/releases/latest --jq '.tag_name+" "+(.assets|map(.na
 
 ### 当前曲库格式
 
-- 当前节奏分析按曲目 ID 保存，曲库扫描用抽样的 `audioKey` 判断音频关系。分析数据有 `RHYTHM_VERSION`，提高版本可以使旧分析过期。完整音频身份与独立缓存登记属于后续 G5。
+- 节奏分析使用验证后的音频内容身份、`RHYTHM_VERSION` 和分析参数。曲库条目及其用户记录另有独立 ID。G5.5-A 的后台重试耗尽后，可通过重新扫描或重启再次验证同一文件。 [内容身份](IDENTITY.md)
 - 每首歌的风格与外观存在用户数据里；`theme/style.ts` 的规范化会把旧格式转成新格式（例如 3.5.0 起镜头 id 是字符串、新增 `transFx`）。**新增字段一律可省略、有默认值**，不要让旧数据读不进来。
 - 「我的风格」（`app/motions.ts`）存的是 `motionPart` 的字段；新增属于动态的字段时，也要加进 `motionPart` 与 `withSavedMotion`。
 - 用户可在设置里「清除临时数据」与「清除所有数据」；两者的说明不写「缓存」（见 `COPY.md`）。

@@ -14,6 +14,7 @@ const {
   globalShortcut,
   protocol,
   screen,
+  safeStorage,
 } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -61,6 +62,16 @@ const inferHost = require('./inferHost.cjs');
 protocol.registerSchemesAsPrivileged([library.scheme]);
 
 const desk = require('./desk.cjs');
+const { createOnlineService, credentialVault } = require('./online.cjs');
+const { musicHall } = require('./music-hall.cjs');
+const fromMain = (event) =>
+  !!win && !win.isDestroyed() && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame;
+let editing = false;
+ipcMain.handle('editing:set', (event, on) => {
+  if (!fromMain(event) || typeof on !== 'boolean') return false;
+  editing = on;
+  return true;
+});
 let win = null,
   tray = null,
   quitting = false,
@@ -75,11 +86,27 @@ const SETTINGS = () => path.join(app.getPath('userData'), 'settings.json');
 // (every setting is declared in src/app/settings/schema.ts; this file is generated from it: npm run gen:settings)
 const DEFAULTS = require('./settings.defaults.json');
 let settings = { ...DEFAULTS };
+let explicitLook = {};
 try {
-  settings = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS(), 'utf8')) };
+  explicitLook = JSON.parse(fs.readFileSync(SETTINGS(), 'utf8')) || {};
+  settings = { ...DEFAULTS, ...explicitLook };
 } catch (e) {
   /* first run */
 }
+const online = createOnlineService({
+  vault: credentialVault(path.join(app.getPath('userData'), 'library', 'credentials'), safeStorage),
+});
+const hall = musicHall({
+  online,
+  fromMain,
+  asset: (file) => asset(file),
+  preferences: () => ({
+    theme: explicitLook.theme ?? 'light',
+    tone: explicitLook.tone ?? 'white',
+    lang: settings.lang,
+    uiFont: settings.uiFont,
+  }),
+});
 function applySettings() {
   nativeTheme.themeSource = settings.theme === 'light' || settings.theme === 'dark' ? settings.theme : 'system';
   if (!isolatedProfile && process.platform !== 'linux')
@@ -128,6 +155,7 @@ function showWin() {
 }
 
 function createWindow() {
+  editing = false;
   win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -163,6 +191,9 @@ function createWindow() {
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.on('did-start-loading', () => {
+    editing = false;
+  });
   // on Windows isFullScreen() can still report the old state while its own event fires: each event says what it means,
   // and the state is read again once the window has settled
   const send = (o = {}) =>
@@ -334,9 +365,12 @@ ipcMain.handle('lib:resetAll', () => {
 });
 ipcMain.handle('settings:get', () => ({ ...settings, platform: process.platform, version: app.getVersion() }));
 function saveSettings(patch) {
+  for (const key of ['theme', 'tone']) if (Object.hasOwn(patch || {}, key)) explicitLook[key] = patch[key];
   for (const k of Object.keys(patch || {})) if (k in DEFAULTS) settings[k] = patch[k];
   try {
-    fs.writeFileSync(SETTINGS(), JSON.stringify(settings));
+    const saved = { ...settings };
+    for (const key of ['theme', 'tone']) if (!Object.hasOwn(explicitLook, key)) delete saved[key];
+    fs.writeFileSync(SETTINGS(), JSON.stringify(saved));
   } catch (e) {
     /* read-only profile */
   }
@@ -344,8 +378,13 @@ function saveSettings(patch) {
   desk.sync();
   // (the page hears of every change, wherever it was made: the desktop lyrics' own buttons, another window)
   if (win && !win.isDestroyed()) win.webContents.send('settings:pushed', { ...settings });
+  if (['theme', 'tone', 'lang', 'uiFont'].some((key) => Object.hasOwn(patch || {}, key))) hall.appearanceChanged();
 }
 ipcMain.handle('settings:set', (_e, patch) => {
+  if (!editing || !fromMain(_e)) {
+    patch = { ...patch };
+    for (const key of ['mvDark', 'mvBlur', 'mvDesat', 'mvFit']) delete patch[key];
+  }
   saveSettings(patch);
   if (win) win.setBackgroundColor(bgColor());
   if (hifi && ['audioOut', 'audioMode', 'audioDevice'].some((k) => k in (patch || {}))) hifi.apply();
@@ -407,7 +446,12 @@ app
   .whenReady()
   .then(async () => {
     applySettings();
-    await library.start(ipcMain, () => win, settings);
+    await library.start(
+      ipcMain,
+      () => win,
+      settings,
+      (event) => editing && fromMain(event),
+    );
     hifi = audio.start(ipcMain, () => win, settings, library);
     infer = inferHost.start(ipcMain, () => win, settings);
     createWindow();
@@ -437,6 +481,7 @@ app.on('before-quit', (event) => {
   if (libraryClosing) return;
   libraryClosing = true;
   quitting = true;
+  online.close();
   void library
     .close()
     .catch((error) => console.error('[library close]', error))

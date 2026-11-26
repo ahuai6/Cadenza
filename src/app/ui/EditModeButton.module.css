@@ -1,0 +1,36 @@
+.fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--t-med) var(--ease),
+    opacity var(--t-med) var(--ease);
+}
+.fold > div {
+  min-block-size: 0;
+  overflow: clip;
+  padding-inline: 4px;
+  margin-inline: -4px;
+}
+.fold[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.fold[data-inline] {
+  grid-template-rows: auto;
+  grid-template-columns: 0fr;
+  transition-property: grid-template-columns, opacity;
+}
+.fold[data-inline] > div {
+  min-inline-size: 0;
+  margin-inline: 0;
+  padding-inline: 0;
+}
+.fold[data-inline][data-open='true'] {
+  grid-template-columns: 1fr;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fold {
+    transition: none;
+  }
+}

@@ -2,7 +2,7 @@
 // Session through `edit`, so the session replans what a change affects and the caller keeps the change (bound to the
 // song, or in the workshop's project). The effect list is built from the effect registry: a new effect module with a
 // parameter schema shows up here with its own controls, without touching this file.
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
@@ -26,6 +26,9 @@ import { FontPicker } from '../ui/fonts';
 import { useThemes, saveTheme, deleteTheme } from '../themes';
 import { useMotions, saveMotion, deleteMotion } from '../motions';
 import { pauseAnalysis } from '../playback/analysis';
+import { canEdit, useEditing, useEditingDraft } from '../editing';
+import { EditControls } from '../ui/EditModeButton';
+import type { PresetChoice } from '../preset-choice';
 import s from './panes.module.css';
 
 export type Edit = (fn: (s: Session) => unknown) => void;
@@ -33,6 +36,8 @@ export interface PaneProps {
   s: Session;
   edit: Edit;
   ctx: 'song' | 'workshop';
+  choose?: (choice: PresetChoice) => void;
+  draftKey?: string;
 }
 export const BG_STYLES = [
   'cover',
@@ -84,22 +89,18 @@ const LOOK_ICON: Record<string, string> = {
   video: 'film',
 };
 /** The presets, the saved custom themes, and the theme being edited (save, save as, delete). */
-export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
+export function ThemePane({ s: ss, edit, ctx, choose, draftKey = ss.spec.key }: PaneProps) {
   const st = ss.style,
     custom = st.preset === 'custom',
-    saved = useThemes(),
-    [name, setName] = useState(st.name || '');
-  useEffect(() => {
-    setName(st.name || '');
-  }, [st.id, st.name]);
+    saved = useThemes();
+  const [name, setName, clearName] = useEditingDraft(
+    'theme-name:' + draftKey + ':' + (st.id || ''),
+    () => st.name || '',
+  );
+  const editing = useEditing();
   const isSaved = custom && !!st.id && saved.some((t) => t.id === st.id);
   const presets = ctx === 'song' ? ['cover', 'vinyl', 'liquid', 'gothic'] : Object.keys(PRESETS);
   // a look keeps the motion style and the knobs (a custom theme); a locked preset in the workshop is taken whole
-  const usePreset = (k: string) =>
-    edit((x) => {
-      if (x.custom) x.applyLook(k);
-      else x.applyPreset(k);
-    });
   const resetCover = () =>
     edit((x) => {
       x.resetStyle();
@@ -108,6 +109,8 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
   const save = (asNew: boolean) => {
     const n = name.trim() || tx('th.untitled'),
       id = saveTheme(st, n, asNew);
+    if (!id) return;
+    clearName(n);
     edit((x) => {
       x.style.id = id;
       x.style.name = n;
@@ -124,7 +127,7 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
             type="button"
             className={s.preset}
             aria-pressed={custom ? st.from === k && !st.id && !st.edited : st.preset === k}
-            onClick={() => usePreset(k)}
+            onClick={() => choose?.({ kind: 'look', id: k })}
           >
             {/* (a look is known by its mark, not by colours: every look takes its colours from the cover) */}
             <span className={s.lookIcon} aria-hidden="true">
@@ -139,72 +142,82 @@ export function ThemePane({ s: ss, edit, ctx }: PaneProps) {
             type="button"
             className={s.preset}
             aria-pressed={custom && st.id === t.id}
-            onClick={() => edit((x) => x.applyTheme({ ...(t.style as object), id: t.id, name: t.name }))}
+            onClick={() => choose?.({ kind: 'theme', id: t.id })}
           >
             <ThemeMark st={t.style as Style} />
             <span>{t.name}</span>
           </button>
         ))}
-        {custom && !isSaved && st.edited && (
+        {editing && custom && !isSaved && st.edited && (
           <button type="button" className={s.preset} aria-pressed="true">
             <ThemeMark st={st} />
             <span>{tx('th.unsaved')}</span>
           </button>
         )}
       </div>
-      {!custom && (
-        <Row>
-          <Button size="sm" onClick={() => edit((x) => x.makeCustom())}>
-            {tx('th.from')}
-          </Button>
-        </Row>
-      )}
-      {custom && (
-        <>
-          <TextField label={tx('th.name')} value={name} placeholder={tx('th.untitled')} onCommit={setName} />
+      <EditControls>
+        {!custom && (
           <Row>
-            <Button kind="primary" size="sm" onClick={() => save(false)}>
-              {tx('th.save')}
+            <Button size="sm" onClick={() => edit((x) => x.makeCustom())}>
+              {tx('th.from')}
             </Button>
-            {isSaved && (
-              <Button size="sm" onClick={() => save(true)}>
-                {tx('th.saveAs')}
-              </Button>
-            )}
-            {isSaved && (
-              <Button
-                kind="ghost"
-                size="sm"
-                onClick={() => {
-                  const n = st.name || '';
-                  deleteTheme(st.id!);
-                  edit((x) => {
-                    x.style.id = null;
-                    x.style.name = '';
-                  });
-                  toast(tx('th.deleted', { name: n }));
-                }}
-              >
-                {tx('th.del')}
-              </Button>
-            )}
           </Row>
-        </>
-      )}
-      {ctx === 'song' && (
-        <Row>
-          <Button
-            kind="ghost"
-            size="sm"
-            onClick={() => {
-              resetCover();
-              toast(tx('s.resetCover'));
-            }}
-          >
-            {tx('s.resetCover')}
-          </Button>
-        </Row>
-      )}
+        )}
+        {custom && (
+          <>
+            <TextField
+              label={tx('th.name')}
+              value={name}
+              placeholder={tx('th.untitled')}
+              onCommit={setName}
+              onInputChange={setName}
+            />
+            <Row>
+              <Button kind="primary" size="sm" onClick={() => save(false)}>
+                {tx('th.save')}
+              </Button>
+              {isSaved && (
+                <Button size="sm" onClick={() => save(true)}>
+                  {tx('th.saveAs')}
+                </Button>
+              )}
+              {isSaved && (
+                <Button
+                  kind="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (!canEdit()) return;
+                    const n = st.name || '';
+                    deleteTheme(st.id!);
+                    clearName('');
+                    edit((x) => {
+                      x.style.id = null;
+                      x.style.name = '';
+                    });
+                    toast(tx('th.deleted', { name: n }));
+                  }}
+                >
+                  {tx('th.del')}
+                </Button>
+              )}
+            </Row>
+          </>
+        )}
+        {ctx === 'song' && (
+          <Row>
+            <Button
+              kind="ghost"
+              size="sm"
+              onClick={() => {
+                resetCover();
+                toast(tx('s.resetCover'));
+              }}
+            >
+              {tx('s.resetCover')}
+            </Button>
+          </Row>
+        )}
+      </EditControls>
     </Section>
   );
 }
@@ -399,7 +412,13 @@ const knob = (edit: Edit, k: string) => ({
 /** The motion style (風格) with the one that fits this song marked, five knobs to tune it, and everything in detail
  *  under 進階 (the camera, lyric type, entrance, exit and the detailed knobs the five multiply). */
 /** part: 'tiles' — only the motion styles to pick from (the simple page); 'rest' — everything else (its Advanced) */
-export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' | 'rest' }) {
+export function MotionPane({
+  s: ss,
+  edit,
+  choose,
+  part,
+  draftKey = ss.spec.key,
+}: PaneProps & { part?: 'tiles' | 'rest' }) {
   const st = ss.style,
     custom = st.preset === 'custom',
     set = (k: string, v: unknown) => edit((x) => x.setStyle(k, v));
@@ -407,18 +426,16 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
     rec = ss.recommended,
     name = (id: string) => tx('mo.' + id),
     mine = useMotions();
-  const own = st.motionId ? mine.find((m) => m.id === st.motionId) : undefined,
-    [mName, setMName] = useState(st.motionName || '');
-  useEffect(() => {
-    setMName(st.motionName || '');
-  }, [st.motionId, st.motionName]);
-  const pick = (v: string) => {
-    const m = v.startsWith('u:') ? mine.find((e) => 'u:' + e.id === v) : undefined;
-    edit((x) => (m ? x.applySavedMotion(m.motion, m.id, m.name) : x.applyMotion(v)));
-  };
+  const own = st.motionId ? mine.find((m) => m.id === st.motionId) : undefined;
+  const [mName, setMName, clearName] = useEditingDraft(
+    'motion-name:' + draftKey + ':' + (st.motionId || ''),
+    () => st.motionName || '',
+  );
   const saveMine = (asNew: boolean) => {
     const n = mName.trim() || tx('mo.untitled'),
       id = saveMotion(st, n, asNew);
+    if (!id) return;
+    clearName(n);
     edit((x) => {
       x.style.motionId = id;
       x.style.motionName = n;
@@ -426,8 +443,9 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
     toast(tx('mo.saved', { name: n }));
   };
   const delMine = () => {
-    if (!own) return;
+    if (!canEdit() || !own) return;
     deleteMotion(own.id);
+    clearName('');
     edit((x) => {
       x.style.motionId = null;
       x.style.motionName = '';
@@ -453,8 +471,7 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
     });
   return (
     <>
-      {!custom && part !== 'rest' && <Note>{tx('th.locked')}</Note>}
-      <fieldset disabled={!custom} className={s.set}>
+      <fieldset disabled={part === 'rest' && !custom} className={s.set}>
         {part !== 'rest' && (
           <Section title={tx('mo.builtin')} note={tx('mo.help')}>
             <div className={s.motions} role="radiogroup" aria-label={tx('mo.style')}>
@@ -465,7 +482,7 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
                   role="radio"
                   className={s.motion}
                   aria-checked={!own && cur === id}
-                  onClick={() => pick(id)}
+                  onClick={() => choose?.({ kind: 'motion', id })}
                 >
                   <MotionGlyph id={id} />
                   <span>
@@ -492,7 +509,7 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
                     role="radio"
                     className={s.motion + ' ' + s.mine}
                     aria-checked={own?.id === m.id}
-                    onClick={() => pick('u:' + m.id)}
+                    onClick={() => choose?.({ kind: 'saved-motion', id: m.id })}
                   >
                     <span>{m.name}</span>
                     <small>{tx('mo.basedOn', { name: name(m.motion.base) })}</small>
@@ -500,22 +517,30 @@ export function MotionPane({ s: ss, edit, part }: PaneProps & { part?: 'tiles' |
                 ))}
               </div>
             )}
-            <TextField label={tx('mo.name')} value={mName} placeholder={tx('mo.untitled')} onCommit={setMName} />
-            <Row>
-              <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>
-                {tx(own ? 'mo.save' : 'mo.saveNew')}
-              </Button>
-              {own && (
-                <Button size="sm" onClick={() => saveMine(true)}>
-                  {tx('mo.saveAs')}
+            <EditControls>
+              <TextField
+                label={tx('mo.name')}
+                value={mName}
+                placeholder={tx('mo.untitled')}
+                onCommit={setMName}
+                onInputChange={setMName}
+              />
+              <Row>
+                <Button kind="primary" size="sm" onClick={() => saveMine(!own)}>
+                  {tx(own ? 'mo.save' : 'mo.saveNew')}
                 </Button>
-              )}
-              {own && (
-                <Button kind="ghost" size="sm" onClick={delMine}>
-                  {tx('mo.del')}
-                </Button>
-              )}
-            </Row>
+                {own && (
+                  <Button size="sm" onClick={() => saveMine(true)}>
+                    {tx('mo.saveAs')}
+                  </Button>
+                )}
+                {own && (
+                  <Button kind="ghost" size="sm" onClick={delMine}>
+                    {tx('mo.del')}
+                  </Button>
+                )}
+              </Row>
+            </EditControls>
           </Section>
         )}
         {part !== 'tiles' && (
@@ -655,6 +680,7 @@ const PAGE_TABS = ['look', 'style', 'adv', 'fx'] as const;
 type PageTab = (typeof PAGE_TABS)[number];
 let lastTab: PageTab = 'look';
 export function StylePage({ media, ...p }: PaneProps & { media?: React.ReactNode }) {
+  const editing = useEditing();
   const [tab, setTab0] = useState<PageTab>(lastTab),
     setTab = (t: PageTab) => setTab0((lastTab = t));
   return (
@@ -670,13 +696,25 @@ export function StylePage({ media, ...p }: PaneProps & { media?: React.ReactNode
       {tab === 'look' && (
         <>
           <ThemePane {...p} />
-          <LookPane {...p} media={media} />
-          <TextPane {...p} />
+          <EditControls>
+            <LookPane {...p} media={media} />
+            <TextPane {...p} />
+          </EditControls>
         </>
       )}
       {tab === 'style' && <MotionPane {...p} part="tiles" />}
-      {tab === 'adv' && <MotionPane {...p} part="rest" />}
-      {tab === 'fx' && <EffectsPane {...p} />}
+      {(tab === 'adv' || tab === 'fx') && !editing && <Note>{tx('edit.required')}</Note>}
+      <EditControls>
+        {(tab === 'adv' || tab === 'fx') && !p.s.custom && (
+          <Row>
+            <Button size="sm" onClick={() => p.edit((session) => session.makeCustom())}>
+              {tx('th.from')}
+            </Button>
+          </Row>
+        )}
+        {tab === 'adv' && <MotionPane {...p} part="rest" />}
+        {tab === 'fx' && <EffectsPane {...p} />}
+      </EditControls>
     </>
   );
 }

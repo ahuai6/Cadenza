@@ -9,7 +9,7 @@ import { hifi, refresh as hifiRefresh } from '../playback/hifi';
 import { setSettings } from '../actions/settings';
 import { Lib, D } from '../bridge';
 import { Icon } from '../ui/icons';
-import { Seg, Cover, usePresence } from '../ui/kit';
+import { Seg, Cover, Turn, usePresence } from '../ui/kit';
 import { NpLyrics } from '../ui/NpLyrics';
 import {
   player,
@@ -26,6 +26,8 @@ import { ts } from './i18n';
 
 // (TTML is edited as LRC, and written back as TTML: player.ts useLyrics)
 import { useOutsideClose } from '../ui/outside';
+import { EditModeButton, MusicHallButton } from '../ui/EditModeButton';
+import { useEditing, useEditingDraft } from '../editing';
 import s from './SpacePanels.module.css';
 
 export type Panel = 'lyrics' | 'queue' | null;
@@ -112,6 +114,8 @@ export function WinButtons({ host }: { host: HTMLElement | null }) {
   );
   return createPortal(
     <>
+      <MusicHallButton className={s.wb + ' ' + s.hallEntry} />
+      <EditModeButton className={s.wb + ' ' + s.modeEntry} compact />
       {!st.full && b('min', tx('s.min'), 'min')}
       {!st.full && b(st.max ? 'restore' : 'max', tx(st.max ? 's.restore' : 's.max'), 'max')}
       {b(st.full ? 'unfull' : 'full', tx(st.full ? 's.unfullscreen' : 's.fullscreen'), 'full')}
@@ -171,16 +175,22 @@ function Lyrics({
   shownId: string | null;
 }) {
   const text = useStore(player, (x) => x.lyrics?.text || ''),
-    [edit, setEdit] = useState<string | null>(null),
+    editing = useEditing(),
+    [editor, setEditor] = useState(false),
     [busy, setBusy] = useState(false);
+  const [draft, update, clearDraft, sync] = useEditingDraft('lyrics:' + shownId, () => text);
+  const showEditor = editing && (editor || !hasLyrics);
   useEffect(() => {
-    if (!hasLyrics && edit == null) setEdit(text);
-  }, [hasLyrics]);
+    sync(text);
+  }, [text]);
   const save = async () => {
-    if (edit == null) return;
+    if (!showEditor || busy) return;
     setBusy(true);
     try {
-      if (await useLyrics(edit, { edit: true })) setEdit(null);
+      if (await useLyrics(draft, { edit: true })) {
+        clearDraft(draft);
+        setEditor(false);
+      }
     } finally {
       setBusy(false);
     }
@@ -197,9 +207,9 @@ function Lyrics({
       inert={closing}
     >
       <header className={s.head}>
-        <b>{edit != null ? ts('lyr.edit') : tx('s.lyricList')}</b>
-        {edit == null && (
-          <button type="button" className={s.clear} onClick={() => setEdit(text)}>
+        <b>{showEditor ? ts('lyr.edit') : tx('s.lyricList')}</b>
+        {editing && !showEditor && (
+          <button type="button" className={s.clear} onClick={() => setEditor(true)}>
             {ts('lyr.edit')}
           </button>
         )}
@@ -207,31 +217,40 @@ function Lyrics({
           ✕
         </button>
       </header>
-      {edit != null ? (
-        <div className={s.editor}>
-          <textarea
-            value={edit}
-            onChange={(e) => setEdit(e.target.value)}
-            spellCheck={false}
-            aria-label={ts('lyr.edit')}
-            placeholder={ts('lyr.placeholder')}
-          />
-          <div className={s.actions}>
-            <button type="button" className={s.solid} disabled={busy} onClick={save}>
-              {tx('s.save')}
-            </button>
-            <button type="button" className={s.ghost} onClick={() => setEdit(null)} disabled={!hasLyrics}>
-              {tx('s.cancel')}
-            </button>
+      <Turn k={showEditor ? 'editor' : 'reading'} boxClassName={s.lyricSurface} className={s.lyricContent}>
+        {showEditor ? (
+          <div className={s.editor}>
+            <textarea
+              value={draft}
+              onChange={(e) => update(e.target.value)}
+              spellCheck={false}
+              aria-label={ts('lyr.edit')}
+              placeholder={ts('lyr.placeholder')}
+            />
+            <div className={s.actions}>
+              <button type="button" className={s.solid} disabled={busy} onClick={save}>
+                {tx('s.save')}
+              </button>
+              <button
+                type="button"
+                className={s.ghost}
+                onClick={() => {
+                  clearDraft(text);
+                  setEditor(false);
+                }}
+              >
+                {tx('s.cancel')}
+              </button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className={s.lyrBox}>
-          {hasLyrics && session ? (
-            <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live compact />
-          ) : null}
-        </div>
-      )}
+        ) : (
+          <div className={s.lyrBox}>
+            {hasLyrics && session ? (
+              <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live compact />
+            ) : null}
+          </div>
+        )}
+      </Turn>
     </section>
   );
 }

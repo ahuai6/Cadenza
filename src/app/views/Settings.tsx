@@ -13,6 +13,8 @@ import { askConfirm } from './Modals';
 import { readAllRhythmsAgain, clearStoredData, resetEverything } from '../actions/data';
 import type { SettingKey } from '../settings/schema';
 import { SettingField as SharedField } from '../ui/SettingField';
+import { useEditing } from '../editing';
+import { EditControls } from '../ui/EditModeButton';
 import s from './Settings.module.css';
 
 const pc = (v: number | string) => Math.round(+v * 100) + '%';
@@ -20,36 +22,40 @@ const pc = (v: number | string) => Math.round(+v * 100) + '%';
 export function MvLook() {
   const st = useStore(settings),
     set = setSettings;
+  const editing = useEditing();
   return (
     <>
-      <Slider
-        label={tx('vd.dark')}
-        min={0}
-        max={0.9}
-        step={0.01}
-        value={st.mvDark ?? 0.34}
-        format={pc}
-        onChange={(v) => set({ mvDark: +v })}
-      />
-      <Slider
-        label={tx('vd.blur')}
-        min={0}
-        max={1}
-        step={0.01}
-        value={st.mvBlur ?? 0.12}
-        format={pc}
-        onChange={(v) => set({ mvBlur: +v })}
-      />
-      <Slider
-        label={tx('vd.desat')}
-        min={0}
-        max={1}
-        step={0.01}
-        value={st.mvDesat ?? 0}
-        format={pc}
-        onChange={(v) => set({ mvDesat: +v })}
-      />
-      <Toggle label={tx('vd.fit')} help={tx('vd.fitHelp')} on={!!st.mvFit} set={(v) => set({ mvFit: v })} />
+      {!editing && <Note>{tx('edit.required')}</Note>}
+      <EditControls>
+        <Slider
+          label={tx('vd.dark')}
+          min={0}
+          max={0.9}
+          step={0.01}
+          value={st.mvDark ?? 0.34}
+          format={pc}
+          onChange={(v) => set({ mvDark: +v })}
+        />
+        <Slider
+          label={tx('vd.blur')}
+          min={0}
+          max={1}
+          step={0.01}
+          value={st.mvBlur ?? 0.12}
+          format={pc}
+          onChange={(v) => set({ mvBlur: +v })}
+        />
+        <Slider
+          label={tx('vd.desat')}
+          min={0}
+          max={1}
+          step={0.01}
+          value={st.mvDesat ?? 0}
+          format={pc}
+          onChange={(v) => set({ mvDesat: +v })}
+        />
+        <Toggle label={tx('vd.fit')} help={tx('vd.fitHelp')} on={!!st.mvFit} set={(v) => set({ mvFit: v })} />
+      </EditControls>
     </>
   );
 }

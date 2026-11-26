@@ -6,6 +6,7 @@
 // use says what it can do (`setHost`); an action whose need it cannot meet does not apply there.
 import type { Track } from '../bridge';
 import type { MenuItem } from '../state';
+import { canEdit } from '../editing';
 
 /** What an action is taken on. */
 export type Target =
@@ -37,6 +38,7 @@ export interface Command<K extends Kind = Kind> {
   section: 'play' | 'collect' | 'make' | 'remove';
   icon: string;
   danger?: boolean;
+  editing?: true;
   label(t: Of<K>): string;
   /** does it apply to this, in this interface? (always, if not said) */
   when?(t: Of<K>, h: Host): boolean;
@@ -54,7 +56,10 @@ export function define<K extends Kind>(c: Command<K>) {
 /** The commands that apply to a target, in order. */
 export function commandsFor(t: Target): Command[] {
   return SECTIONS.flatMap((s) =>
-    all.filter((c) => c.on === t.kind && c.section === s && (c.when ? c.when(t as never, host) : true)),
+    all.filter(
+      (c) =>
+        c.on === t.kind && c.section === s && (!c.editing || canEdit()) && (c.when ? c.when(t as never, host) : true),
+    ),
   );
 }
 /** Whether one command applies to a target (a button shows or hides by it). */
@@ -82,7 +87,7 @@ export function menuFor(t: Target): (MenuItem | '-')[] {
       label: c.label(t as never),
       icon: c.icon,
       danger: c.danger,
-      ...(c.sub ? { sub: c.sub(t as never, host) } : { run: () => void c.run?.(t as never, host) }),
+      ...(c.sub ? { sub: c.sub(t as never, host) } : { run: () => void run(c.id, t) }),
     });
   }
   return out;

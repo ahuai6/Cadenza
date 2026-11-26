@@ -112,6 +112,8 @@ async function run() {
   });
   try {
     const win = await app.firstWindow();
+    await win.locator('[data-test=titlebar] [data-test=edit-mode]').click();
+    await win.locator('[data-test=titlebar] [data-test=edit-mode][aria-pressed=true]').waitFor();
     const errors = [];
     win.on('pageerror', (error) => errors.push(error.message));
     const wait = (test, arg, timeout = 25000) => win.waitForFunction(test, arg, { timeout });

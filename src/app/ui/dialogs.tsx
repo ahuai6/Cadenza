@@ -6,10 +6,14 @@ import { tx } from '../../i18n';
 import { Lib, type Track, type MetaFound, type CoverFound } from '../bridge';
 import { ui, lib, useStore, toast, fmtTime } from '../state';
 import { Button, IconButton, Seg, Cover, Badge, usePresence } from './kit';
+import { canEdit, editTask, useEditing, useEditingDraft } from '../editing';
+import { EditControls, EditModeButton } from './EditModeButton';
 import s from './dialogs.module.css';
 
 let resolver: ((v: unknown) => void) | null = null;
+const editDialogs = new Set(['meta', 'mv', 'mvOffset']);
 export function openDialog<T>(modal: { kind: string; [k: string]: unknown }): Promise<T | null> {
+  if (editDialogs.has(modal.kind) && !canEdit()) return Promise.resolve(null);
   resolver?.(null);
   return new Promise((res) => {
     resolver = res as (v: unknown) => void;
@@ -104,9 +108,26 @@ export function ModalHost() {
           }
         }}
       >
-        <Body m={cur} />
+        {editDialogs.has(cur.kind) ? <EditDialogBody Body={Body} m={cur} /> : <Body m={cur} />}
       </div>
     </div>
+  );
+}
+function EditDialogBody({ Body, m }: { Body: Body; m: Record<string, unknown> }) {
+  const editing = useEditing();
+  return (
+    <>
+      <EditControls>
+        <Body m={m} />
+      </EditControls>
+      {!editing && (
+        <>
+          <DialogHead title={tx('edit.mode')} />
+          <p className={s.help}>{tx('edit.required')}</p>
+          <EditModeButton />
+        </>
+      )}
+    </>
   );
 }
 export const DialogHead = ({ title }: { title: string }) => (
@@ -192,7 +213,7 @@ function MetaModal({ m }: { m: { id: string; tab?: string } }) {
           ]}
         />
       </div>
-      {tab === 'edit' && <EditTab t={t} />}
+      {tab === 'edit' && <EditTab key={t.id} t={t} />}
       {tab === 'tags' && <TagsTab t={t} />}
       {tab === 'cover' && <CoverTab t={t} />}
     </>
@@ -210,15 +231,22 @@ const FIELDS: [keyof Track['tags'], string, number][] = [
 ];
 const asText = (v: unknown) => (Array.isArray(v) ? v.join(', ') : v == null ? '' : String(v));
 function EditTab({ t }: { t: Track }) {
-  const [f, setF] = useState(
-    () => Object.fromEntries(FIELDS.map(([k]) => [k, asText((t as any)[k])])) as Record<string, string>,
+  const [f, setF, clearDraft] = useEditingDraft(
+    'meta:' + t.id,
+    () => Object.fromEntries(FIELDS.map(([k]) => [k, asText(t[k])])) as Record<string, string>,
   );
   const [busy, setBusy] = useState(false);
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit() || busy) return;
     setBusy(true);
-    await Lib!.editMeta(t.id, f);
+    const saved = await editTask(() => Lib!.editMeta(t.id, f)).catch(() => false);
     setBusy(false);
+    if (!saved) {
+      toast(tx('edit.saveFailed'));
+      return;
+    }
+    clearDraft(f);
     toast(tx('s.meta.saved'));
     close(true);
   };
@@ -244,7 +272,8 @@ function EditTab({ t }: { t: Track }) {
           <Button
             kind="ghost"
             onClick={async () => {
-              await Lib!.clearMeta(t.id, 'tags');
+              if (!canEdit() || !(await editTask(() => Lib!.clearMeta(t.id, 'tags')))) return;
+              clearDraft();
               toast(tx('s.meta.restored'));
               close(true);
             }}
@@ -253,7 +282,13 @@ function EditTab({ t }: { t: Track }) {
           </Button>
         )}
         <span className="grow" />
-        <Button kind="ghost" onClick={() => close(null)}>
+        <Button
+          kind="ghost"
+          onClick={() => {
+            clearDraft();
+            close(null);
+          }}
+        >
           {tx('s.cancel')}
         </Button>
         <Button kind="primary" type="submit" disabled={busy}>
@@ -282,13 +317,14 @@ function TagsTab({ t }: { t: Track }) {
     search();
   }, []);
   const apply = async (r: MetaFound) => {
+    if (!canEdit() || busy) return;
     setBusy(true);
     try {
-      await Lib!.applyMeta(t.id, r);
+      if (!(await editTask(() => Lib!.applyMeta(t.id, r)))) throw new Error('metadata write');
       toast(tx('s.meta.saved'));
       close(true);
     } catch {
-      setErr(tx('s.netFail'));
+      setErr(tx('edit.saveFailed'));
       setBusy(false);
     }
   };
@@ -366,9 +402,10 @@ function CoverTab({ t }: { t: Track }) {
     search();
   }, []);
   const use = async (how: { url?: string; file?: boolean; reset?: boolean }) => {
+    if (!canEdit() || picking) return;
     setPicking(how.url || 'file');
     try {
-      const ok = await Lib!.setCover(t.id, how);
+      const ok = await editTask(() => Lib!.setCover(t.id, how));
       if (ok) {
         toast(tx('s.meta.coverSet'));
         close(true);

@@ -72,6 +72,15 @@
   min-height: 0;
   mask-image: var(--reading-fade);
 }
+.lyricSurface {
+  flex: 1;
+  min-height: 0;
+}
+.lyricContent {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .modes {
   display: flex;
   flex-direction: column;
@@ -424,4 +433,11 @@
     bottom: calc(var(--space-bottom) + 122px);
     max-height: min(54dvh, 550px);
   }
+}
+.hallEntry span {
+  display: none;
+}
+.modeEntry[aria-pressed='true'] {
+  color: var(--on-pick);
+  background: var(--pick);
 }

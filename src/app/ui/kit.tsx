@@ -31,7 +31,7 @@ export function splitNote(label: string): [string, string] {
   return m && m[2].replace(/\s/g, '').length >= 7 ? [m[1], m[2]] : [label, ''];
 }
 /** Keep the visual surface mounted for its shared exit time. */
-export function usePresence(open: boolean, ms?: number) {
+export function usePresence(open: boolean, ms?: number | '--t-med') {
   const [shown, setShown] = useState(open);
   useEffect(() => {
     if (open) {
@@ -39,7 +39,7 @@ export function usePresence(open: boolean, ms?: number) {
       return;
     }
     if (!shown) return;
-    const tm = window.setTimeout(() => setShown(false), ms ?? duration('--t-out'));
+    const tm = window.setTimeout(() => setShown(false), typeof ms === 'number' ? ms : duration(ms ?? '--t-out'));
     return () => clearTimeout(tm);
   }, [open, shown, ms]);
   return { shown: shown || open, closing: shown && !open };
@@ -511,22 +511,26 @@ export function TextField({
   onCommit,
   placeholder,
   inputMode,
+  onInputChange,
 }: {
   label: string;
   value: string;
   onCommit: (v: string) => void;
   placeholder?: string;
   inputMode?: 'decimal' | 'text';
+  onInputChange?: (v: string) => void;
 }) {
   const id = useId(),
     [v, setV] = useState(value ?? ''),
-    editing = useRef(false);
+    editing = useRef(false),
+    startingValue = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!editing.current) setV(value ?? '');
   }, [value]);
   const commit = () => {
     editing.current = false;
-    if (v !== (value ?? '')) onCommit(v);
+    if (v !== (startingValue.current ?? value ?? '')) onCommit(v);
+    startingValue.current = undefined;
   };
   return (
     <div className={s.field}>
@@ -539,8 +543,12 @@ export function TextField({
         inputMode={inputMode}
         onFocus={() => {
           editing.current = true;
+          startingValue.current = v;
         }}
-        onChange={(e) => setV(e.target.value)}
+        onChange={(e) => {
+          setV(e.target.value);
+          onInputChange?.(e.target.value);
+        }}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

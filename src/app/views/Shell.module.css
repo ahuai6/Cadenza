@@ -118,6 +118,29 @@
   gap: 4px;
   flex: none;
 }
+.hallEntry,
+.modeEntry {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: var(--hit);
+  padding-inline: 10px;
+  border-radius: var(--r-2);
+  white-space: nowrap;
+}
+.hallEntry:hover,
+.modeEntry:hover {
+  background: var(--hover);
+}
+.modeEntry[aria-pressed='true'] {
+  background: var(--pick);
+  color: var(--on-pick);
+}
+@media (max-width: 1220px) {
+  .modeEntry span {
+    display: none;
+  }
+}
 .spreadAction {
   display: grid;
   place-items: center;
@@ -201,6 +224,8 @@
 .brand,
 .places,
 .round,
+.hallEntry,
+.modeEntry,
 .spreadAction,
 .busy {
   transition:
@@ -209,8 +234,8 @@
     background-color var(--t-fast) var(--ease),
     visibility 0s;
 }
-:global(html[data-fxbar='true']) .shell :is(.brand, .places, .round, .spreadAction, .busy),
-.shell[data-layer='fx'] :is(.brand, .places, .round, .spreadAction, .busy) {
+:global(html[data-fxbar='true']) .shell :is(.brand, .places, .round, .hallEntry, .modeEntry, .spreadAction, .busy),
+.shell[data-layer='fx'] :is(.brand, .places, .round, .hallEntry, .modeEntry, .spreadAction, .busy) {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;

@@ -4,6 +4,7 @@
 // opened by the scene (the gear, the , key, the south chapel's sculptures).
 import { useEffect, useRef, useState } from 'react';
 import { boot } from '../actions/boot';
+import { bindEditingKey } from '../editing';
 import { ensureFont } from '../../engine';
 import { createWorld } from './world';
 import { createBind, isNight } from './bind';
@@ -55,6 +56,7 @@ export function SpaceShell() {
     document.documentElement.dataset.tone = tone === 'white' ? 'white' : 'paper';
   }, [night, tone]);
   useEffect(() => boot(() => setReady(true)), []);
+  useEffect(bindEditingKey, []);
   useEffect(() => {
     const mq = matchMedia('(prefers-color-scheme: dark)'),
       check = () => setNight(isNight(settings.get()));

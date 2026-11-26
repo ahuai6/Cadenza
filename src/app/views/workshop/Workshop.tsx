@@ -18,6 +18,7 @@ import {
   canvas,
   start,
   edit,
+  chooseWorkshopPreset,
   applyLyrics,
   resetDemo,
   importAudio,
@@ -32,6 +33,8 @@ import {
   queueImport,
 } from '../../workshop/project';
 import s from './Workshop.module.css';
+import { canEdit, editTask, useEditing, useEditingDraft } from '../../editing';
+import { EditControls } from '../../ui/EditModeButton';
 
 const TABS: [string, string, string][] = [
   ['lyrics', 'tab.lyrics', 'lyrics'],
@@ -42,7 +45,8 @@ const fmt = (x: number) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${(x 
 const wide = () => matchMedia('(min-width: 900px)').matches;
 
 /** A library song into the workshop: its audio, lyrics, cover and bound style become the workshop's next project. */
-export async function sendToWorkshop(t: Track) {
+export const sendToWorkshop = (t: Track) => (canEdit() ? editTask(() => prepareWorkshopSong(t)) : Promise.resolve());
+async function prepareWorkshopSong(t: Track) {
   try {
     const x = await songForWorkshop(t);
     const style = x.song?.style ? { ...(x.song.style as object), aspect: '16:9' } : { preset: 'cover', aspect: '16:9' };
@@ -95,6 +99,7 @@ export function WorkshopPage() {
 }
 export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
   const session = useStore(ws, (x) => x.session);
+  const projectId = useStore(ws, (x) => x.projectId);
   useStore(ws, (x) => x.rev);
   const [panel, setPanel] = useState(wide),
     [tab, setTab] = useState('lyrics'),
@@ -154,7 +159,8 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
     else if (document.fullscreenElement) document.exitFullscreen?.();
     else document.documentElement.requestFullscreen?.().catch(() => {});
   };
-  const props = session ? { s: session, edit, ctx: 'workshop' as const } : null;
+  const draftKey = 'workshop:' + projectId;
+  const props = session ? { s: session, edit, choose: chooseWorkshopPreset, ctx: 'workshop' as const, draftKey } : null;
   const exportPresence = usePresence(exp);
   return (
     <div className={s.app + (web ? ' ' + s.web : '')} data-panel={panel} data-idle={idle && engine.isPlaying && !exp}>
@@ -203,9 +209,13 @@ export function Workshop({ note, web }: { note?: boolean; web?: boolean }) {
         <div className={s.pane} key={tab}>
           {props && (
             <>
-              {tab === 'lyrics' && <LyricsPane s={props.s} />}
+              {tab === 'lyrics' && <LyricsPane key={draftKey} s={props.s} draftKey={draftKey} />}
               {tab === 'look' && <StylePage {...props} media={<MediaBox s={props.s} />} />}
-              {tab === 'end' && <EndPane {...props} />}
+              {tab === 'end' && (
+                <EndingControls>
+                  <EndPane {...props} />
+                </EndingControls>
+              )}
             </>
           )}
         </div>
@@ -438,20 +448,30 @@ function Timeline({ s: ss }: { s: Session }) {
   );
 }
 
-function LyricsPane({ s: ss }: { s: Session }) {
+function EndingControls({ children }: { children: React.ReactNode }) {
+  const editing = useEditing();
+  return (
+    <>
+      {!editing && <Note>{tx('edit.required')}</Note>}
+      <EditControls>{children}</EditControls>
+    </>
+  );
+}
+
+function LyricsPane({ s: ss, draftKey }: { s: Session; draftKey: string }) {
   const st = useStore(ws, (x) => x.status),
     audioName = useStore(ws, (x) => x.audioName),
     analyzing = useStore(ws, (x) => x.analyzing);
-  const [text, setText] = useState(ss.spec.lyrics),
-    [bpm, setBpm] = useState(String(ss.spec.bpm || 120)),
-    [projMsg, setProjMsg] = useState(''),
-    editing = useRef(false),
-    ta = useRef<HTMLTextAreaElement>(null);
+  const [text, setText, clearDraft, sync] = useEditingDraft('lyrics:' + draftKey, () => ss.spec.lyrics);
+  const [bpm, setBpm, clearBpm, syncBpm] = useEditingDraft('bpm:' + draftKey, () => String(ss.spec.bpm || 120));
+  const [projMsg, setProjMsg] = useState('');
+  const editing = useEditing();
+  const ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (!editing.current) setText(ss.spec.lyrics);
+    sync(ss.spec.lyrics);
   }, [ss, ss.spec.lyrics]);
   useEffect(() => {
-    setBpm(String(+(ss.spec.bpm || 120).toFixed(1)));
+    syncBpm(String(+(ss.spec.bpm || 120).toFixed(1)));
   }, [ss.spec.bpm]);
   const audioFile = useRef<HTMLInputElement>(null),
     projFile = useRef<HTMLInputElement>(null);
@@ -476,140 +496,151 @@ function LyricsPane({ s: ss }: { s: Session }) {
   };
   return (
     <>
-      <Section>
-        <Note>{tx('lyr.intro')}</Note>
-        <details className={s.help}>
-          <summary>{tx('lyr.fmt')}</summary>
-          <h4>{tx('lyr.line')}</h4>
-          <pre>{'[00:04.00] 我們 沿著 街道\n[00:04.00] we walk down the street'}</pre>
-          <h4>{tx('lyr.kar')}</h4>
-          <pre>{'[01:20.81]<01:20.810>穿<01:21.240>過 <01:21.960>光<01:24.400>'}</pre>
-          <p dangerouslySetInnerHTML={{ __html: tx('lyr.karHelp') }} />
-          <h4>{tx('lyr.marks')}</h4>
-          <pre>{'[01:02.00]#1 夜に駆ける\n[01:10.00]I love you (love you)'}</pre>
-          <p dangerouslySetInnerHTML={{ __html: tx('lyr.marksHelp') }} />
-          <p>{tx('lyr.auto')}</p>
-        </details>
-        <CueBar target={ta} />
-        <textarea
-          ref={ta}
-          className={s.lyrics}
-          spellCheck={false}
-          aria-label={tx('lyr.ta')}
-          value={text}
-          onFocus={() => {
-            editing.current = true;
-          }}
-          onKeyDown={cueKeyDown}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <Row>
-          <TextField
-            label="BPM"
-            value={bpm}
-            inputMode="decimal"
-            onCommit={(v) => {
-              setBpm(v);
-              edit((x) => x.setTiming({ bpm: Math.max(40, Math.min(240, +v || 120)) }));
-            }}
+      {!editing && <Note>{tx('edit.required')}</Note>}
+      <EditControls>
+        <Section>
+          <Note>{tx('lyr.intro')}</Note>
+          <details className={s.help}>
+            <summary>{tx('lyr.fmt')}</summary>
+            <h4>{tx('lyr.line')}</h4>
+            <pre>{'[00:04.00] 我們 沿著 街道\n[00:04.00] we walk down the street'}</pre>
+            <h4>{tx('lyr.kar')}</h4>
+            <pre>{'[01:20.81]<01:20.810>穿<01:21.240>過 <01:21.960>光<01:24.400>'}</pre>
+            <p dangerouslySetInnerHTML={{ __html: tx('lyr.karHelp') }} />
+            <h4>{tx('lyr.marks')}</h4>
+            <pre>{'[01:02.00]#1 夜に駆ける\n[01:10.00]I love you (love you)'}</pre>
+            <p dangerouslySetInnerHTML={{ __html: tx('lyr.marksHelp') }} />
+            <p>{tx('lyr.auto')}</p>
+          </details>
+          <CueBar target={ta} />
+          <textarea
+            ref={ta}
+            className={s.lyrics}
+            spellCheck={false}
+            aria-label={tx('lyr.ta')}
+            value={text}
+            onKeyDown={cueKeyDown}
+            onChange={(e) => setText(e.target.value)}
           />
-          <Button
-            size="sm"
-            disabled={!ss.analysis}
-            title={ss.analysis ? '' : tx('bpm.need')}
-            onClick={() => ss.analysis && edit((x) => x.setTiming({ bpm: +ss.analysis!.tempo.bpm.toFixed(1) }))}
-          >
-            {tx('bpm.detect')}
-          </Button>
-        </Row>
-        <Row>
-          <Button
-            kind="primary"
-            size="sm"
-            onClick={() => {
-              editing.current = false;
-              applyLyrics(text, bpm);
-            }}
-          >
-            {tx('apply')}
-          </Button>
-          <Button
-            kind="ghost"
-            size="sm"
-            onClick={() => {
-              editing.current = false;
-              resetDemo();
-            }}
-          >
-            {tx('reset')}
-          </Button>
-        </Row>
-        {st.lyrics && <Note>{st.lyrics}</Note>}
-      </Section>
-      <Section title={tx('aud.h')} note={tx('aud.help')}>
-        <Row>
-          <Button
-            size="sm"
-            icon="note"
-            disabled={analyzing}
-            onClick={() => (Lib?.openWorkshopAudio ? void importAudio() : audioFile.current?.click())}
-          >
-            {tx('aud.import')}
-          </Button>
-          {audioName && (
-            <Button kind="ghost" size="sm" onClick={clearAudio}>
-              {tx('remove')}
+          <Row>
+            <TextField
+              label="BPM"
+              value={bpm}
+              inputMode="decimal"
+              onInputChange={setBpm}
+              onCommit={(v) => {
+                edit((x) => x.setTiming({ bpm: Math.max(40, Math.min(240, +v || 120)) }));
+                if (canEdit()) clearBpm(String(ss.spec.bpm || 120));
+              }}
+            />
+            <Button
+              size="sm"
+              disabled={!ss.analysis}
+              title={ss.analysis ? '' : tx('bpm.need')}
+              onClick={() => {
+                if (ss.analysis && canEdit()) {
+                  edit((x) => x.setTiming({ bpm: +ss.analysis!.tempo.bpm.toFixed(1) }));
+                  clearBpm(String(ss.spec.bpm || 120));
+                }
+              }}
+            >
+              {tx('bpm.detect')}
             </Button>
-          )}
-          <input
-            ref={audioFile}
-            type="file"
-            accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac"
-            hidden
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) importAudio(f);
-              e.target.value = '';
-            }}
+          </Row>
+          <Row>
+            <Button
+              kind="primary"
+              size="sm"
+              onClick={async () => {
+                if (await applyLyrics(text, bpm)) {
+                  clearDraft(text);
+                  clearBpm(String(ss.spec.bpm || 120));
+                }
+              }}
+            >
+              {tx('apply')}
+            </Button>
+            <Button
+              kind="ghost"
+              size="sm"
+              onClick={() => {
+                clearDraft();
+                clearBpm();
+                resetDemo();
+              }}
+            >
+              {tx('reset')}
+            </Button>
+          </Row>
+          {st.lyrics && <Note>{st.lyrics}</Note>}
+        </Section>
+        <Section title={tx('aud.h')} note={tx('aud.help')}>
+          <Row>
+            <Button
+              size="sm"
+              icon="note"
+              disabled={analyzing}
+              onClick={() => (Lib?.openWorkshopAudio ? void importAudio() : audioFile.current?.click())}
+            >
+              {tx('aud.import')}
+            </Button>
+            {audioName && (
+              <Button kind="ghost" size="sm" onClick={clearAudio}>
+                {tx('remove')}
+              </Button>
+            )}
+            <input
+              ref={audioFile}
+              type="file"
+              accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importAudio(f);
+                e.target.value = '';
+              }}
+            />
+          </Row>
+          {st.audio && <Note>{st.audio}</Note>}
+          <Slider
+            label={tx('lshift')}
+            min={-1500}
+            max={1500}
+            step={10}
+            value={ss.spec.lshift || 0}
+            format={(v) => `${v > 0 ? '+' : ''}${Math.round(v)} ms`}
+            onChange={(v) => edit((x) => x.setTiming({ lshift: v }))}
           />
-        </Row>
-        {st.audio && <Note>{st.audio}</Note>}
-        <Slider
-          label={tx('lshift')}
-          min={-1500}
-          max={1500}
-          step={10}
-          value={ss.spec.lshift || 0}
-          format={(v) => `${v > 0 ? '+' : ''}${Math.round(v)} ms`}
-          onChange={(v) => edit((x) => x.setTiming({ lshift: v }))}
-        />
-        <TextField
-          label={tx('aud.range')}
-          value={ss.spec.range || ''}
-          placeholder={tx('aud.range.ph')}
-          onCommit={(v) => edit((x) => x.setTiming({ range: v }))}
-        />
-        <Check
-          label={tx('aud.fade')}
-          checked={ss.spec.fade !== false}
-          onChange={(v) =>
-            edit((x) => {
-              x.spec.fade = v;
-            })
-          }
-        />
-        <Note>
-          {tx('lshift.help')} {tx('aud.rangeHelp')}
-        </Note>
-      </Section>
+          <TextField
+            label={tx('aud.range')}
+            value={ss.spec.range || ''}
+            placeholder={tx('aud.range.ph')}
+            onCommit={(v) => edit((x) => x.setTiming({ range: v }))}
+          />
+          <Check
+            label={tx('aud.fade')}
+            checked={ss.spec.fade !== false}
+            onChange={(v) =>
+              edit((x) => {
+                x.spec.fade = v;
+              })
+            }
+          />
+          <Note>
+            {tx('lshift.help')} {tx('aud.rangeHelp')}
+          </Note>
+        </Section>
+      </EditControls>
       <Section title={tx('proj.h')} note={tx('proj.help')}>
         <Row>
           <Button size="sm" onClick={exportProject}>
             {tx('proj.export')}
           </Button>
-          <Button size="sm" onClick={() => projFile.current?.click()}>
-            {tx('proj.import')}
-          </Button>
+          {editing && (
+            <Button size="sm" onClick={() => projFile.current?.click()}>
+              {tx('proj.import')}
+            </Button>
+          )}
           <input
             ref={projFile}
             type="file"

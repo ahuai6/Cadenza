@@ -7,8 +7,10 @@ import { engine } from '../playback/stage';
 import { switchOutput, applyBalance } from '../playback/player';
 import { applyEngineConfig } from '../engineConfig';
 import { applyUiFont } from '../uifont';
+import { canEdit } from '../editing';
 
 export async function setSettings(patch: Partial<Settings>) {
+  if (!canEdit() && Object.keys(patch).some((k) => ['mvDark', 'mvBlur', 'mvDesat', 'mvFit'].includes(k))) return;
   settings.set(patch);
   const save = async () => {
     const n = D ? await D.setSettings(patch) : { ...settings.get(), ...patch };

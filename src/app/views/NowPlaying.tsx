@@ -12,6 +12,7 @@ import { QualityTag } from '../ui/quality';
 import { Marquee } from '../ui/Marquee';
 import { HifiBadge, Heart } from './Player';
 import { pickPlaylist, editMeta, npSettings } from './Modals';
+import { canEdit } from '../editing';
 import s from './NowPlaying.module.css';
 
 export function Stage() {
@@ -61,11 +62,11 @@ export function NowPlaying() {
   if (!t) return null;
   const more = (e: React.MouseEvent) =>
     openMenu(e, [
-      { label: tx('np.findLyr'), icon: 'search', run: () => npSettings('lyrics') },
+      canEdit() && { label: tx('np.findLyr'), icon: 'search', run: () => npSettings('lyrics') },
       { label: tx('np.set') + '…', icon: 'lyrics', run: () => npSettings('view') },
       '-',
       { label: tx('s.addToPl'), icon: 'plus', run: () => pickPlaylist([t.id]) },
-      { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
+      canEdit() && { label: tx('s.meta.menu'), icon: 'tag', run: () => editMeta(t) },
     ]);
   const live = layer === 'np';
   // above the title: the album, its year and the track's place on it

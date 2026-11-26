@@ -67,6 +67,8 @@ function standIns() {
     tags: {},
   }));
   window.cadenzaDesktop = {
+    setEditing: async () => true,
+    openMusicHall: async () => true,
     settings: async () => st,
     setSettings: async (x) => Object.assign(st, x),
     relaunch: async () => {},
@@ -156,7 +158,12 @@ const SONG = `(() => {
     Math.hypot(framed[0] - walked[0], framed[2] - walked[2]) > 10 && (await eye()).join() === walked.join(),
     JSON.stringify([walked, framed]),
   );
-  ok('window buttons: minimise, maximise, full screen, close', (await p.$$('#win-btns button')).length === 4);
+  ok(
+    'window buttons: minimise, maximise, full screen, close, plus the music hall and editing entry points',
+    (await p.$$('#win-btns button:not([data-test])')).length === 4 &&
+      (await p.$$('#win-btns [data-test=open-hall]')).length === 1 &&
+      (await p.$('#win-btns [data-test=edit-mode][aria-pressed=false]')) !== null,
+  );
   const glass = await p.evaluate(() => {
     const style = (selector) => getComputedStyle(document.querySelector(selector));
     return {

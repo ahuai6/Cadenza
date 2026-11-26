@@ -23,6 +23,8 @@ import { LyricsTab } from './Effect';
 import { Row, Slider, Check, Select } from '../ui/kit';
 import { FontPicker } from '../ui/fonts';
 import { ensureFont } from '../../engine';
+import { canEdit, useEditing } from '../editing';
+import { EditControls, EditModeButton } from '../ui/EditModeButton';
 import s from '../ui/dialogs.module.css';
 export { ModalHost, askText, editMeta, askConfirm } from '../ui/dialogs';
 const NP_FONT_EXTRA = (): [string, string][] => [['ui', tx('np.font.ui')]];
@@ -31,7 +33,8 @@ export const pickPlaylist = (ids: string[]) => open<string>({ kind: 'playlist', 
 export const askMv = () => open<boolean>({ kind: 'mv' });
 export const askMvOffset = () => open<boolean>({ kind: 'mvOffset' });
 /** The play page's own settings: its lyrics (edit, search online, timing) and how they are shown. */
-export const npSettings = (tab: 'lyrics' | 'view' = 'lyrics') => open<boolean>({ kind: 'np', tab });
+export const npSettings = (tab: 'lyrics' | 'view' = 'lyrics') =>
+  tab === 'lyrics' && !canEdit() ? Promise.resolve(null) : open<boolean>({ kind: 'np', tab });
 /** Export a library song as a video: it is opened (paused) with everything bound to it, then the export dialog. */
 export async function exportTrack(t: Track, list?: Track[]) {
   if (t.protected) return;
@@ -46,9 +49,11 @@ export async function exportTrack(t: Track, list?: Track[]) {
 /** What the play page can be drawn over: the song's own ambient field, or one of Folia's backgrounds. */
 const NP_BACKDROPS = ['ambient', 'f-common', 'f-latent', 'f-sora', 'f-monet', 'f-nomand'];
 function NpModal({ m }: { m: { tab: string } }) {
+  const editing = useEditing();
   const [tab, setTab] = useState(m.tab),
     o = useStore(ui, (x) => x.npLyr),
     set = (k: Partial<typeof o>) => {
+      if (!canEdit()) return;
       const v = { ...o, ...k };
       ui.set({ npLyr: v });
       keep('npLyr', v);
@@ -57,65 +62,73 @@ function NpModal({ m }: { m: { tab: string } }) {
   return (
     <>
       <Head title={tx('np.set')} />
-      <Seg
-        fit
-        size="sm"
-        value={tab}
-        onChange={setTab}
-        options={[
-          ['lyrics', tx('np.lyrics')],
-          ['view', tx('np.view')],
-        ]}
-      />
-      {tab === 'lyrics' && session && (
-        <div className={s.npBody}>
-          <LyricsTab />
-        </div>
+      {!editing && (
+        <>
+          <p className={s.help}>{tx('edit.required')}</p>
+          <EditModeButton />
+        </>
       )}
-      {tab === 'view' && (
-        <div style={{ display: 'grid', gap: 12 }}>
-          <Select
-            label={tx('np.bg')}
-            value={o.bg || 'ambient'}
-            options={NP_BACKDROPS.map((v) => [v, tx(v === 'ambient' ? 'np.bg.ambient' : 'bg.' + v)])}
-            onChange={(v) => set({ bg: v })}
-          />
-          <div className={s.field}>
-            <span>{tx('np.font')}</span>
-            <FontPicker
-              label={tx('np.font')}
-              value={o.font || 'ui'}
-              extra={NP_FONT_EXTRA()}
-              onChange={async (v) => {
-                const ss = player.get().session;
-                if (v !== 'ui' && ss) await ensureFont(v, ss.doc.lines.map((L) => L.text).join(''));
-                set({ font: v });
-              }}
-            />
+      <EditControls>
+        <Seg
+          fit
+          size="sm"
+          value={tab}
+          onChange={setTab}
+          options={[
+            ['lyrics', tx('np.lyrics')],
+            ['view', tx('np.view')],
+          ]}
+        />
+        {tab === 'lyrics' && session && (
+          <div className={s.npBody}>
+            <LyricsTab />
           </div>
-          <Slider
-            label={tx('np.size')}
-            min={0.75}
-            max={1.4}
-            step={0.05}
-            value={o.size}
-            format={(v) => Math.round(v * 100) + '%'}
-            onChange={(v) => set({ size: v })}
-          />
-          <Check label={tx('np.blur')} checked={o.blur} onChange={(v) => set({ blur: v })} />
-          <Check label={tx('np.subs')} checked={o.subs} onChange={(v) => set({ subs: v })} />
-          <Check label={tx('np.reads')} checked={o.reads !== false} onChange={(v) => set({ reads: v })} />
-          <Row>
-            <Button
-              kind="ghost"
-              size="sm"
-              onClick={() => set({ size: 1, blur: true, subs: true, reads: true, font: 'ui', bg: 'ambient' })}
-            >
-              {tx('reset.all')}
-            </Button>
-          </Row>
-        </div>
-      )}
+        )}
+        {tab === 'view' && (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <Select
+              label={tx('np.bg')}
+              value={o.bg || 'ambient'}
+              options={NP_BACKDROPS.map((v) => [v, tx(v === 'ambient' ? 'np.bg.ambient' : 'bg.' + v)])}
+              onChange={(v) => set({ bg: v })}
+            />
+            <div className={s.field}>
+              <span>{tx('np.font')}</span>
+              <FontPicker
+                label={tx('np.font')}
+                value={o.font || 'ui'}
+                extra={NP_FONT_EXTRA()}
+                onChange={async (v) => {
+                  const ss = player.get().session;
+                  if (v !== 'ui' && ss) await ensureFont(v, ss.doc.lines.map((L) => L.text).join(''));
+                  set({ font: v });
+                }}
+              />
+            </div>
+            <Slider
+              label={tx('np.size')}
+              min={0.75}
+              max={1.4}
+              step={0.05}
+              value={o.size}
+              format={(v) => Math.round(v * 100) + '%'}
+              onChange={(v) => set({ size: v })}
+            />
+            <Check label={tx('np.blur')} checked={o.blur} onChange={(v) => set({ blur: v })} />
+            <Check label={tx('np.subs')} checked={o.subs} onChange={(v) => set({ subs: v })} />
+            <Check label={tx('np.reads')} checked={o.reads !== false} onChange={(v) => set({ reads: v })} />
+            <Row>
+              <Button
+                kind="ghost"
+                size="sm"
+                onClick={() => set({ size: 1, blur: true, subs: true, reads: true, font: 'ui', bg: 'ambient' })}
+              >
+                {tx('reset.all')}
+              </Button>
+            </Row>
+          </div>
+        )}
+      </EditControls>
     </>
   );
 }

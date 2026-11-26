@@ -59,7 +59,16 @@ export interface MediaLease {
   ranges: 'unknown' | 'bytes' | 'unsupported';
 }
 
-export type ProviderCapability = 'search' | 'account' | 'playlists' | 'lyrics' | 'stream' | 'download' | 'open';
+export type ProviderCapability =
+  | 'search'
+  | 'account'
+  | 'playlists'
+  | 'recommendations'
+  | 'charts'
+  | 'lyrics'
+  | 'preview'
+  | 'download'
+  | 'open';
 export interface ProviderDescriptor {
   id: string;
   capabilities: Partial<Record<ProviderCapability, 'public' | 'authorized'>>;

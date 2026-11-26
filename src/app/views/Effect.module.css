@@ -340,3 +340,14 @@
     bottom: 166px;
   }
 }
+.editMode {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+}
+.editMode[aria-pressed='true'] {
+  color: var(--on-pick);
+  background: var(--pick);
+}

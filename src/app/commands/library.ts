@@ -99,6 +99,7 @@ define({
 });
 define({
   id: 'track.toWorkshop',
+  editing: true,
   on: 'track',
   section: 'make',
   icon: 'workshop',
@@ -117,6 +118,7 @@ define({
 });
 define({
   id: 'track.editTags',
+  editing: true,
   on: 'track',
   section: 'make',
   icon: 'tag',
@@ -139,6 +141,7 @@ define({
 });
 define({
   id: 'track.instrumental',
+  editing: true,
   on: 'track',
   section: 'make',
   icon: 'note',

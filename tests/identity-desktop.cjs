@@ -168,6 +168,8 @@ async function run() {
     assert.equal(a.id, old);
     assert.notEqual(a.id, b.id);
     assert.equal(a.audioContentId, b.audioContentId);
+    await win.locator('[data-test=titlebar] [data-test=edit-mode]').click();
+    await win.locator('[data-test=titlebar] [data-test=edit-mode][aria-pressed=true]').waitFor();
     await call((id) => window.cadenzaLib.setSong(id, { lshift: 0.55 }), b.id);
     assert.deepEqual(await call((id) => window.cadenzaLib.song(id), old), fields);
     assert.equal((await call((id) => window.cadenzaLib.song(id), b.id)).lshift, 0.55);
@@ -242,6 +244,45 @@ async function run() {
     assert.equal(await save(alias), false);
     assert.equal(await call((id) => window.cadenzaLib.analysis(id, 77), b.id), null);
     assert.equal(await save(await call((id) => window.cadenzaLib.analysisToken(id), b.id)), true);
+
+    const faults = await app.evaluate((_electron, root) => {
+      const load = process.getBuiltinModule('node:module').createRequire(root + '/package.json');
+      const identity = load('./electron/audio-identity.cjs');
+      const original = identity.fingerprint;
+      const counts = { 'Transient.wav': 0, 'Recheck.wav': 0 };
+      identity.fingerprint = (binary, file, stamp, signal) => {
+        const name = load('node:path').basename(file);
+        if (
+          name === 'Reboot.wav' ||
+          (Object.hasOwn(counts, name) && ++counts[name] <= (name === 'Transient.wav' ? 1 : 3))
+        ) {
+          throw Object.assign(new Error('injected disk contention'), { code: 'EBUSY' });
+        }
+        return original(binary, file, stamp, signal);
+      };
+      return true;
+    }, root);
+    assert.equal(faults, true);
+    fs.writeFileSync(path.join(music, 'Transient.wav'), media);
+    fs.writeFileSync(path.join(music, 'Recheck.wav'), media);
+    await call(() => window.cadenzaLib.rescan());
+    await at('Transient.wav');
+    await win.waitForFunction(() =>
+      window.__cadenza.lib.get().tracks.some((t) => t.file === 'Recheck.wav' && t.identityState === 'unverified'),
+    );
+    const unverified = (await snapshot()).tracks.find((t) => t.file === 'Recheck.wav');
+    assert.equal(await call((id) => window.cadenzaLib.analysisToken(id), unverified.id), null);
+    await call(() => window.cadenzaLib.rescan());
+    await at('Recheck.wav');
+    const rechecked = (await snapshot()).tracks.find((t) => t.file === 'Recheck.wav');
+    assert.equal(rechecked.id, unverified.id);
+    assert.equal(rechecked.audioContentId, a.audioContentId);
+    fs.writeFileSync(path.join(music, 'Reboot.wav'), media);
+    await call(() => window.cadenzaLib.rescan());
+    await win.waitForFunction(() =>
+      window.__cadenza.lib.get().tracks.some((t) => t.file === 'Reboot.wav' && t.identityState === 'unverified'),
+    );
+    await call(() => window.cadenzaDesktop.setSettings({ scanOnLaunch: false }));
     const cache = path.join(folder, 'rhythm-v2');
     fs.writeFileSync(
       path.join(
@@ -261,12 +302,18 @@ async function run() {
   assert.equal(saved.tracks[old].detached, 'changed');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(folder, 'songs', old + '.json'), 'utf8')), fields);
   const copy = Object.values(saved.tracks).find((track) => path.basename(track.path) === 'Copy.wav');
+  const reboot = Object.values(saved.tracks).find((track) => path.basename(track.path) === 'Reboot.wav');
+  assert.equal(reboot.identityError, true);
   assert.equal(saved.fieldOrigins[old].title.source, 'manual');
   const reopened = await launch();
   try {
     const win = await reopened.firstWindow();
     await win.waitForFunction(() => window.__cadenza?.lib.get().loaded);
     await win.evaluate(() => window.__cadenza.pauseAnalysis(true, 'identity test'));
+    await win.waitForFunction(
+      (id) => window.__cadenza.lib.get().tracks.some((t) => t.id === id && t.identityState === 'verified'),
+      reboot.id,
+    );
     const state = await win.evaluate(async (id) => {
       const view = await window.cadenzaLib.get();
       return {

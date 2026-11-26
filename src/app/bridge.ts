@@ -126,6 +126,8 @@ export interface CoverFound {
 export type Settings = SettingValues & { platform?: string; version?: string };
 type Off = () => void;
 export interface DesktopApi {
+  setEditing(on: boolean): Promise<boolean>;
+  openMusicHall(): Promise<boolean>;
   saveDialog(o: { defaultPath: string; filters: { name: string; extensions: string[] }[] }): Promise<string | null>;
   openWrite(path: string): Promise<number>;
   write(id: number, data: Uint8Array, pos: number): Promise<void>;

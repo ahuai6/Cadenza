@@ -9,6 +9,7 @@ import { toggle, seekBy, resumeLast } from '../playback/player';
 import { startAnalysis, pauseAnalysis } from '../playback/analysis';
 import { applyEngineConfig } from '../engineConfig';
 import { loadSegmenter } from '../../engine';
+import { bindEditingKey } from '../editing';
 import * as layers from '../layers';
 import { back } from '../layers';
 import { applyUiFont } from '../uifont';
@@ -93,7 +94,11 @@ export function bindKeys(): () => void {
     }
   };
   addEventListener('keydown', k);
-  return () => removeEventListener('keydown', k);
+  const offEdit = bindEditingKey();
+  return () => {
+    offEdit();
+    removeEventListener('keydown', k);
+  };
 }
 /** Go to a page (closing the now-playing and effect layers). */
 export function go(page: Page) {

@@ -35,6 +35,8 @@ import {
 import { PlaybackCoordinator, weightedPick, type PlaybackRequest, type Phase, type Mode } from './coordinator';
 import { prepareOutput, preload, keepPreload, clearPreload, type PreparedOutput } from './outputs';
 import { decodeFile } from './pcm';
+import { beforeEditingExit, canEdit, editTask } from '../editing';
+import { applyExistingPreset, type PresetChoice } from '../preset-choice';
 export type { Mode } from './coordinator';
 export const MODES: Mode[] = ['loop', 'shuffle', 'one', 'stop'];
 export const MODE_ICON: Record<Mode, string> = { loop: 'repeat', shuffle: 'shuffle', one: 'repeat1', stop: 'once' };
@@ -409,6 +411,10 @@ async function openVisual({ request, output, abort }: VisualJob) {
     { signal, analyzeAudio: false },
   );
   signal.throwIfAborted();
+  const selections = remember<PresetChoice[]>('song-presets:' + id, []);
+  for (const selection of selections) applyExistingPreset(s, selection);
+  if (selections.length) await s.flush();
+  signal.throwIfAborted();
   if (tr) tr.cached = !!cached;
   for (const [name, ms] of Object.entries(s.timings)) tracePhase(tr, name, ms);
   const font = ui.get().npLyr.font;
@@ -620,6 +626,7 @@ hifi.subscribe((h, prev) => {
 });
 /** Mark a song as an instrumental, or no longer. */
 export async function setInstrumental(id: string, on: boolean) {
+  if (!canEdit()) return;
   if (!Lib) return;
   // its look goes with it: the song's own saved look gives way (to the record theme, or back to the cover theme) unless
   // the song is locked, which is how a look is kept on purpose
@@ -719,32 +726,79 @@ D?.onMedia((op) => {
 
 /* ---------- what is bound to the song: saved shortly after each change ---------- */
 const songWrites = new Map<string, { timer: number; song: SongData }>();
+const writing = new Map<string, Promise<boolean>>();
+function writeSong(id: string): Promise<boolean> {
+  const entry = songWrites.get(id);
+  if (!entry || !Lib) return Promise.resolve(true);
+  clearTimeout(entry.timer);
+  const work = (async () => {
+    await writing.get(id);
+    if (songWrites.get(id) !== entry) return true;
+    const saved = await Lib!.setSong(id, entry.song).catch(() => false);
+    if (saved && songWrites.get(id) === entry) songWrites.delete(id);
+    return saved;
+  })();
+  writing.set(id, work);
+  void work.then(() => {
+    if (writing.get(id) === work) writing.delete(id);
+  });
+  return work;
+}
+beforeEditingExit(async () => (await Promise.all([...songWrites.keys()].map(writeSong))).every(Boolean));
 export function saveSong(patch: Partial<SongData>) {
   const p = player.get();
-  if (!p.shownId || !Lib) return;
-  const song = { ...(p.song || {}), ...patch };
-  projection.set({ song });
+  if (!canEdit() || !p.shownId || !Lib) return;
   const id = p.shownId;
+  if (songWrites.get(id)?.song.unbind && !Object.hasOwn(patch, 'mv')) patch = { ...patch, unbind: true };
+  const song = { ...(p.song || {}), ...patch };
+  const { unbind: _, ...visible } = song;
+  projection.set({ song: visible });
   clearTimeout(songWrites.get(id)?.timer);
-  const timer = window.setTimeout(() => {
-    songWrites.delete(id);
-    void Lib!.setSong(id, song).catch(() => {});
-  }, 500);
+  const timer = window.setTimeout(() => void writeSong(id), 500);
   songWrites.set(id, { song, timer });
 }
 /** Change the shown song's session (its style, timing, lyrics) and keep the change with the song. */
 export function editSong(fn: (s: Session) => unknown) {
-  const s = player.get().session;
-  if (!s || player.get().song?.locked) return;
+  const { session: s, song, shownId } = player.get();
+  if (!canEdit() || !s || song?.locked) return;
   fn(s);
   engine.invalidate();
   projection.set({ rev: player.get().rev + 1 });
+  if (shownId) keep('song-presets:' + shownId, []);
   saveSong({ style: storedStyle(s.ownStyle()), lshift: s.spec.lshift || 0, v: 3 });
+}
+
+/** Listening choices preserve the saved per-song style and offer only registered presets. */
+export function chooseSongPreset(choice: PresetChoice) {
+  const { session, shownId } = player.get();
+  if (!session || !shownId || !applyExistingPreset(session, choice)) return;
+  if (canEdit() && !player.get().song?.locked) {
+    editSong(() => {});
+    return;
+  }
+  const key = 'song-presets:' + shownId;
+  const family = (option: PresetChoice) => option.kind === 'look' || option.kind === 'theme';
+  const prior = remember<PresetChoice[]>(key, []).filter((option) => family(option) !== family(choice));
+  keep(key, [...(choice.kind === 'theme' ? [] : prior), choice]);
+  engine.invalidate();
+  projection.set({ rev: player.get().rev + 1 });
+}
+
+export function setLyricOffset(lshift: number) {
+  const { session, song, rev } = player.get();
+  if (!canEdit() || !session || song?.locked) return;
+  session.setTiming({ lshift });
+  engine.invalidate();
+  projection.set({ rev: rev + 1 });
+  saveSong({ lshift });
 }
 
 /* ---------- lyrics ---------- */
 /** Persist the supplied source. Edits of TTML remain XML, including lines and tracks not rendered by the player. */
-export async function useLyrics(text: string, o: { edit?: boolean } = {}) {
+export const useLyrics = (text: string, options: { edit?: boolean } = {}) =>
+  canEdit() ? editTask(() => applyLyricsEdit(text, options)) : Promise.resolve(false);
+
+async function applyLyricsEdit(text: string, o: { edit?: boolean }) {
   const ttml = isTtml(text);
   if (ttml || (o.edit && isTtml(player.get().session?.spec.lyrics || ''))) {
     const xml = new DOMParser().parseFromString(text, 'application/xml');
@@ -828,9 +882,10 @@ export const spacedLines = () =>
  *  the singing joins the segmenter's words into, as shown — or from the segmenter's own), or none: every line back to
  *  the automatic spacing at once. */
 export async function saveSpacing(edited: string[] | null) {
+  if (!canEdit()) return false;
   const p = player.get(),
     s = p.session;
-  if (!s) return;
+  if (!s) return false;
   let sp: Spacing | undefined;
   // each line as it is shown now (the segmenter's words, joined into the phrases they are sung in — or the listener's own)
   const shown = new Map(
@@ -862,6 +917,7 @@ export async function saveSpacing(edited: string[] | null) {
     engine.invalidate();
     projection.set({ rev: p.rev + 1 });
   }
+  return true;
 }
 
 /* ---------- MV ---------- */
@@ -875,10 +931,12 @@ async function loadMv(id: string, mv: { offset: number }, on: boolean) {
   projection.set({ mv: { ...player.get().mv, ready: ok, on: ok && on } });
   if (ok && on) engine.mv.setOn(true);
 }
-export async function bindMv() {
+export const bindMv = () => (canEdit() ? editTask(bindSelectedMv) : Promise.resolve(false));
+async function bindSelectedMv() {
   const p = player.get();
   if (!p.shownId || !Lib) return false;
   const generation = transport.get().generation;
+  if (!(await writeSong(p.shownId)) || generation !== transport.get().generation) return false;
   const r = await Lib.bindMv(p.shownId);
   if (!r || generation !== transport.get().generation) return false;
   // (kept on before the clip is opened: binding it changes the library, and a song opened again meanwhile reads what
@@ -887,7 +945,7 @@ export async function bindMv() {
     mv: { bound: true, name: r.name, offset: r.offset, on: false, ready: false },
     song: { ...(p.song || {}), mv: r, mvOn: true },
   });
-  saveSong({ mvOn: true });
+  saveSong({ mv: r, mvOn: true });
   await loadMv(p.shownId, r, true);
   return true;
 }
@@ -899,6 +957,7 @@ export function setMvOn(on: boolean) {
   saveSong({ mvOn: on });
 }
 export function setMvOffset(x: number) {
+  if (!canEdit()) return;
   const p = player.get();
   engine.mv.offset = +x || 0;
   engine.invalidate();
@@ -906,13 +965,11 @@ export function setMvOffset(x: number) {
   saveSong({ mv: { ...(p.song?.mv || { name: p.mv.name }), offset: +x || 0 } });
 }
 export async function unbindMv() {
-  const p = player.get();
+  if (!canEdit()) return;
   engine.mv.setOn(false);
   engine.mv.close();
   projection.set({ mv: { bound: false, name: '', offset: 0, on: false, ready: false } });
-  saveSong({ mvOn: false });
-  if (p.shownId)
-    Lib?.setSong(p.shownId, { ...(player.get().song || {}), mv: null, mvOn: false, unbind: true }).catch(() => {});
+  saveSong({ mv: null, mvOn: false, unbind: true });
 }
 
 /* ---------- a library song, elsewhere ---------- */
