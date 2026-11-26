@@ -36,6 +36,7 @@ import {
 import { PlaybackCoordinator, weightedPick, type PlaybackRequest, type Phase, type Mode } from './coordinator';
 import { prepareOutput, preload, keepPreload, clearPreload, type PreparedOutput } from './outputs';
 import { decodeFile } from './pcm';
+import { MediaOutput } from './media-output';
 import { beforeEditingExit, canEdit, editTask } from '../editing';
 import { applyExistingPreset, type PresetChoice } from '../preset-choice';
 export type { Mode } from './coordinator';
@@ -108,6 +109,7 @@ export async function wholeRhythm() {
 }
 
 let prepared: PreparedOutput | null = null;
+let auditionOutput: MediaOutput | null = null;
 let visualRequest: PlaybackRequest | null = null;
 let trace: ReturnType<typeof traceBegin> | null = null;
 let preloadTimer: ReturnType<typeof setTimeout> | undefined;
@@ -127,6 +129,7 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
       clearTimeout(preloadTimer);
       const id = request.entry.id;
       trace = traceBegin(trackOf(id)?.title || id);
+      if (request.handoff && projection.get().shownId === id && projection.get().session) return;
       engine.clear(transport.get().album && request.automatic ? 'album' : 'song');
       engine.mv.setOn(false);
       engine.mv.close();
@@ -136,7 +139,12 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
     },
     async prepare(request) {
       const tr = trace;
-      if (audioConfig) await audioConfig;
+      while (audioConfig) {
+        const configuration = audioConfig;
+        await configuration;
+        request.signal.throwIfAborted();
+        if (audioConfig === configuration) break;
+      }
       for (let edit; (edit = tagEdits.get(request.entry.id)); ) {
         request.signal.throwIfAborted();
         await edit.catch(() => {});
@@ -148,11 +156,15 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
       try {
         if (route === 'std') await waitReleased();
         request.signal.throwIfAborted();
+        await engine.clock.outputDevice(route === 'hifi');
+        request.signal.throwIfAborted();
         applyBalance();
         output = await prepareOutput({ ...request, route }, trackOf(request.entry.id), transport.get().album);
       } catch (error) {
         if (route === 'std' || request.signal.aborted) throw error;
         await hifiRelease();
+        request.signal.throwIfAborted();
+        await engine.clock.outputDevice(false);
         request.signal.throwIfAborted();
         if (!warnedFormat) {
           warnedFormat = true;
@@ -168,7 +180,7 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
       const { queue, index } = transport.get();
       keep('last', { q: queue.slice(0, 3000).map((e) => e.id), i: index });
       applyBalance();
-      scheduleVisual(request, output);
+      if (!request.handoff || !projection.get().session) scheduleVisual(request, output);
       schedulePreload();
     },
   },
@@ -212,13 +224,13 @@ engine.followTransport({
   pause: () => transport.pause(),
   toggle,
   seek: seekFile,
-  gain: () => prepared?.syncGain(),
+  gain: () => (auditionOutput ? auditionOutput.syncGain() : prepared?.syncGain()),
 });
 transport.subscribe((s, previous) => {
   const changedQueue = s.queue !== previous.queue;
   const requested = s.generation !== previous.generation;
   projection.set({
-    ...(requested
+    ...(requested && !(s.handoff && projection.get().session)
       ? {
           id: s.target?.id ?? null,
           shownId: s.target?.id ?? null,
@@ -250,7 +262,10 @@ transport.subscribe((s, previous) => {
     schedulePreload();
   if (s.phase === 'playing' && s.target && lastPlayedGeneration !== s.generation) {
     lastPlayedGeneration = s.generation;
-    void Lib?.played(s.target.id).catch(() => {});
+    if (!s.handoff || s.target.key !== lastPlayedEntry) {
+      lastPlayedEntry = s.target.key;
+      void Lib?.played(s.target.id).catch(() => {});
+    }
   }
   if (s.phase === 'error' && previous.phase !== 'error') {
     console.warn('audio playback', s.error);
@@ -258,7 +273,62 @@ transport.subscribe((s, previous) => {
   }
   engine.transportChanged();
 });
+let lastPlayedEntry = 0;
 let lastPlayedGeneration = 0;
+D?.onHallPreview((request) => {
+  if (!request) {
+    transport.endPreview(true);
+    return;
+  }
+  const { token } = request;
+  const publish = (phase: string) => D?.hallPreviewStatus(token, phase, transport.previewTime());
+  let timer: ReturnType<typeof setInterval> | undefined;
+  publish('buffering');
+  void transport.preview(
+    async (signal) => {
+      prepared = null;
+      clearTimeout(preloadTimer);
+      clearPreload();
+      if (audioConfig) await audioConfig;
+      signal.throwIfAborted();
+      await hifiRelease();
+      signal.throwIfAborted();
+      await engine.clock.outputDevice(false);
+      signal.throwIfAborted();
+      const media = new MediaOutput(
+        'cadenza://preview/' + token,
+        engine.clock,
+        () => (engine.muted ? 0 : Math.min(engine.volume, 1)),
+        false,
+      );
+      auditionOutput = media;
+      const close = () => {
+        media.close();
+        if (auditionOutput === media) auditionOutput = null;
+      };
+      signal.addEventListener('abort', close, { once: true });
+      try {
+        await media.ready;
+      } catch (error) {
+        close();
+        throw error;
+      }
+      return {
+        route: 'std',
+        duration: media.duration,
+        start: (at, notify) => media.start(at, notify),
+        stop: close,
+        pause: () => media.pause(),
+        time: media.time,
+      };
+    },
+    (event) => {
+      clearInterval(timer);
+      if (event === 'running') timer = setInterval(() => publish('playing'), 250);
+      publish(event === 'running' ? 'playing' : typeof event === 'string' ? event : 'error');
+    },
+  );
+});
 
 function schedulePreload() {
   clearTimeout(preloadTimer);
@@ -504,19 +574,22 @@ export async function resumeLast() {
 /** Serialize device configuration and let the latest playback request wait on its completion. */
 export async function switchOutput<T>(apply: () => Promise<T>): Promise<T> {
   const prior = audioConfig;
-  const tx = (async () => {
-    if (prior) await prior.catch(() => {});
-    const result = await apply();
-    if (!hifiOn()) await waitReleased();
-    await hifiRefresh();
-    return result;
-  })();
-  audioConfig = tx;
-  if (transport.get().target) void transport.restart();
+  const transaction = Promise.resolve(prior)
+    .catch(() => {})
+    .then(async () => {
+      const result = await apply();
+      if (!hifiOn()) await waitReleased();
+      await hifiRefresh();
+      return result;
+    });
+  audioConfig = transaction;
+  const handoff = transport.handoff();
   try {
-    return await tx;
+    const result = await transaction;
+    await handoff;
+    return result;
   } finally {
-    if (audioConfig === tx) audioConfig = null;
+    if (audioConfig === transaction) audioConfig = null;
   }
 }
 onTrouble((kind) => {

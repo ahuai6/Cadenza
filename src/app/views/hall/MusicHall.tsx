@@ -5,12 +5,14 @@ import { applyUiFont } from '../../uifont';
 import { Icon } from '../../ui/icons';
 import { Turn } from '../../ui/kit';
 import mark from '../../brand/mark.svg';
-import { hallApi, type HallAppearance, type HallProvider, type HallSnapshot } from '../../hall/api';
+import { hallApi, type HallAppearance, type HallProvider, type HallSnapshot, type HallDownload } from '../../hall/api';
+import { Catalog } from './Catalog';
+import { AccountControls } from './AccountControls';
 import s from './MusicHall.module.css';
 
 const providerName = (provider: HallProvider) => (provider.label ? tx(provider.label) : provider.name);
 const initial: HallAppearance = { theme: 'light', tone: 'white', lang: '', uiFont: 'default' };
-const navigation = ['discover', 'accounts'] as const;
+const navigation = ['discover', 'accounts', 'downloads'] as const;
 
 export function MusicHall() {
   const [record, setRecord] = useState<HallSnapshot | null>(null);
@@ -73,6 +75,10 @@ export function MusicHall() {
     void applyUiFont(language, appearance.uiFont, words(language));
   }, [language, appearance.uiFont]);
 
+  async function reloadAccounts() {
+    const fresh = await hallApi?.read();
+    if (fresh) setRecord(fresh);
+  }
   const provider = record?.providers.find((p) => p.id === selected) || record?.providers[0];
   const move = (next: typeof page) => {
     if (next === page) return;
@@ -96,7 +102,7 @@ export function MusicHall() {
         <nav aria-label={tx('hall.title')} className={s.routes}>
           {navigation.map((key) => (
             <button type="button" key={key} aria-current={page === key ? 'page' : undefined} onClick={() => move(key)}>
-              {tx('hall.' + key)}
+              {key === 'downloads' ? '下载任务' : tx('hall.' + key)}
             </button>
           ))}
         </nav>
@@ -109,13 +115,14 @@ export function MusicHall() {
       <main ref={main} className={s.scroll} data-test="hall-scroll">
         <div className={s.page}>
           <h1 ref={heading} tabIndex={-1} className={s.title}>
-            {tx(page === 'discover' ? 'hall.title' : 'hall.accounts')}
+            {page === 'downloads' ? '下载任务' : tx(page === 'discover' ? 'hall.title' : 'hall.accounts')}
           </h1>
           {failed && <p role="status">{tx('hall.loadFail')}</p>}
           {record && (
             <Turn k={page}>
               {page === 'discover' && provider && <Discovery record={record} provider={provider} select={select} />}
-              {page === 'accounts' && <Accounts record={record} />}
+              {page === 'accounts' && <Accounts record={record} refresh={reloadAccounts} />}
+              {page === 'downloads' && <Downloads />}
             </Turn>
           )}
         </div>
@@ -188,20 +195,20 @@ function Discovery({
         <Turn k={provider.id}>
           <div className={s.workspace}>
             <div className={s.content}>
-              <section className={s.block + ' ' + s.search}>
-                <span className={s.searchMark}>
-                  <Icon n="search" size={23} />
-                </span>
-                <div className={s.searchText}>
-                  <h2>{tx('hall.search')}</h2>
-                  <p>{tx('hall.searchHint')}</p>
-                </div>
-                <Status label={status('search')} />
-              </section>
-              <div className={s.sections}>
-                <Surface title="hall.recommendations" status={status('recommendations')} icon="note" />
-                <Surface title="hall.charts" status={status('charts')} icon="lyrics" />
-              </div>
+              {provider.capabilities.search !== 'unavailable' ? (
+                <Catalog key={provider.id} provider={provider} accounts={record.accounts} />
+              ) : (
+                <section className={s.block + ' ' + s.search}>
+                  <span className={s.searchMark}>
+                    <Icon n="search" size={23} />
+                  </span>
+                  <div className={s.searchText}>
+                    <h2>{tx('hall.search')}</h2>
+                    <p>{tx('hall.searchHint')}</p>
+                  </div>
+                  <Status label={status('search')} />
+                </section>
+              )}
             </div>
             <aside className={s.sidebar} aria-label={providerName(provider)}>
               <Surface title="hall.playlists" status={status('playlists')} icon="library">
@@ -258,7 +265,7 @@ function Surface({
   );
 }
 
-function Accounts({ record }: { record: HallSnapshot }) {
+function Accounts({ record, refresh }: { record: HallSnapshot; refresh: () => Promise<void> }) {
   return (
     <div className={s.accountPage}>
       <section className={s.block}>
@@ -289,6 +296,9 @@ function Accounts({ record }: { record: HallSnapshot }) {
                 ) : (
                   <Status label={p.capabilities.account === 'unavailable' ? 'hall.unavailable' : 'hall.disconnected'} />
                 )}
+                {p.capabilities.account === 'public' && (
+                  <AccountControls provider={p.id} accounts={matches} refresh={refresh} />
+                )}
               </li>
             );
           })}
@@ -309,5 +319,75 @@ function Accounts({ record }: { record: HallSnapshot }) {
         </ul>
       </section>
     </div>
+  );
+}
+
+const taskNames: Record<string, string> = {
+  queued: '等待',
+  resolving: '正在核对可用音质',
+  downloading: '下载中',
+  verifying: '验证音频及标签',
+  importing: '正在增量入库',
+  complete: '已加入曲库',
+  cancelled: '已取消',
+  failed: '失败',
+  retrying: '等待重试',
+  skipped: '文件名冲突，已跳过',
+};
+const taskProblems: Record<string, string> = {
+  restricted: '当前账号或歌曲不具备该档位的保存权限',
+  'format-mismatch': '实际编码或时长与所选资源不一致',
+  'import-failed': '文件已验证保存，曲库导入待重试',
+  'rate-limit': '来源限速或本机队列已满',
+  'first-byte-timeout': '等待媒体响应超时',
+  'download-stalled': '传输停滞',
+  expired: '账号授权已过期',
+};
+function Downloads() {
+  const [tasks, setTasks] = useState<HallDownload[]>([]);
+  useEffect(() => {
+    let current = true;
+    let updated = false;
+    const off = hallApi?.onDownloads((items) => {
+      updated = true;
+      setTasks(items);
+    });
+    void hallApi
+      ?.downloads()
+      .then((items) => {
+        if (current && !updated) setTasks(items);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+      off?.();
+    };
+  }, []);
+  return (
+    <section className={s.catalog} aria-label="下载任务">
+      {tasks.length === 0 && <p>暂无下载任务。</p>}
+      {tasks.map((task) => (
+        <article key={task.id} className={s.taskBlock}>
+          <div>
+            <strong>{task.title || '下载'}</strong>
+            <small>{taskNames[task.state] || task.state}</small>
+          </div>
+          {task.total > 0 && <progress aria-label="下载进度" max={task.total} value={task.bytes} />}
+          {task.problem && <p>{taskProblems[task.problem] || task.problem}</p>}
+          <div className={s.trackActions}>
+            {['queued', 'resolving', 'downloading', 'retrying', 'verifying'].includes(task.state) && (
+              <button type="button" onClick={() => void hallApi?.downloadAct(task.id, 'cancel')}>
+                取消
+              </button>
+            )}
+            {['failed', 'cancelled'].includes(task.state) && (
+              <button type="button" onClick={() => void hallApi?.downloadAct(task.id, 'retry')}>
+                重试
+              </button>
+            )}
+          </div>
+        </article>
+      ))}
+    </section>
   );
 }

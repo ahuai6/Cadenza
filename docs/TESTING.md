@@ -231,3 +231,7 @@ node tests/folia-bg-compare.cjs <checkout> <输出>                             
 ### G5.5-R 歌词来源与后台任务
 
 运行 `node tests/lyrics-desktop.cjs` 验证 Windows Electron 的 TTML 编辑、增强 LRC 迁移、明确的字段保存与删除、草稿恢复和后台活动状态。夹具同步覆盖 FLAC、MP3、Ogg Vorbis 与 Opus。真实文件通过可选环境变量传入，只读原件和编辑隔离副本。字段矩阵、命令和数据采集口径见 [G5.5-R](G55-R.md)。
+
+## G5.5-B 音频交接与音乐厅
+
+新增双向交接、真实公开目录、试听和合成下载端到端验证。音频图内频谱、原生模拟 PCM、WASAPI 共享或独占状态及物理端点分开记录。另见 [G5.5-B 验证入口与能力范围](G55-B.md)。

@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { createOnlineService, credentialVault } = require('../electron/online.cjs');
+const { registerNetease } = require('../electron/online-netease.cjs');
 
 test('provider capabilities are registered separately from catalog and account credentials', async () => {
   const accesses = [];
@@ -121,4 +122,80 @@ test('credential storage is scoped, atomic and fails closed when encryption is u
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('NetEase authorizes on the main side and rejects partial playlists and downgraded downloads', async (t) => {
+  const credentials = new Map();
+  const vault = {
+    read: ({ account }) => credentials.get(account),
+    save: ({ account }, value) => credentials.set(account, value),
+    remove: ({ account }) => credentials.delete(account),
+  };
+  const service = createOnlineService({ vault });
+  registerNetease(service);
+  let incomplete = false;
+  let codec = 'flac';
+  const lyrics = '\n[00:01.00]Original\n\n[00:02.00]\n';
+  const translation = '\n[offset:50]\n[00:01.00]Translation\n\n';
+  const song = { id: 21, name: 'Fixture', dt: 5000 };
+  t.mock.method(globalThis, 'fetch', async (url, { headers }) => {
+    switch (new URL(url).pathname) {
+      case '/api/login/qrcode/unikey':
+        return Response.json({ unikey: 'fixture-qr' });
+      case '/api/login/qrcode/client/login':
+        return Response.json({ code: 803 }, { headers: { 'Set-Cookie': 'MUSIC_U=fixture-credential; Secure' } });
+      case '/api/w/nuser/account/get':
+        assert.equal(headers.Cookie, 'MUSIC_U=fixture-credential');
+        return Response.json({ profile: { userId: 8, nickname: 'Test listener' } });
+      case '/api/v6/playlist/detail':
+        return Response.json({
+          playlist: { trackCount: 3, trackIds: (incomplete ? [21, 22] : [21, 22, 21]).map((id) => ({ id })) },
+        });
+      case '/api/v3/song/detail':
+        assert.equal(headers.Cookie, 'MUSIC_U=fixture-credential');
+        return Response.json({
+          songs: [song, { ...song, id: 22 }],
+          privileges: [{ id: 21, st: 0, downloadMaxBrLevel: 'lossless' }],
+        });
+      case '/api/song/enhance/download/url':
+        return Response.json({
+          data: { id: 21, code: 200, url: 'https://music.126.net/synthetic', size: 4096, encodeType: codec },
+        });
+      case '/api/song/lyric':
+        return Response.json({ lrc: { lyric: lyrics }, tlyric: { lyric: translation } });
+      default:
+        throw new Error('Unexpected request');
+    }
+  });
+
+  const invoke = (capability, input, account) =>
+    service.invoke({
+      provider: 'netease',
+      capability,
+      owner: 1,
+      account,
+      input,
+    });
+  const qr = await invoke('account', { action: 'begin' });
+  assert.equal(qr.phase, 'waiting');
+  assert.equal((await invoke('account', { action: 'poll', id: qr.id })).phase, 'connected');
+  assert.ok(!JSON.stringify(service.snapshot()).includes('fixture-credential'));
+  const playlist = () => invoke('playlists', { id: '12', offset: 0 }, '8');
+  assert.deepEqual(
+    (await playlist()).rows.map(({ ref }) => ref.id),
+    ['21', '22', '21'],
+  );
+  incomplete = true;
+  await assert.rejects(playlist(), { code: 'incomplete' });
+
+  const download = () => invoke('download', { id: '21', tier: 'lossless' }, '8');
+  const lease = await download();
+  assert.equal(lease.permission, 'save');
+  assert.equal(lease.lyrics.text, lyrics);
+  assert.equal(lease.lyrics.auxiliary.translation, translation);
+  codec = 'mp3';
+  await assert.rejects(download(), { code: 'restricted' });
+  await invoke('account', { action: 'logout', account: '8' });
+  await assert.rejects(download(), { code: 'sign-in-required' });
+  assert.equal(credentials.size, 0);
 });

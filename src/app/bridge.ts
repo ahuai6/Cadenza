@@ -128,6 +128,8 @@ type Off = () => void;
 export interface DesktopApi {
   setEditing(on: boolean): Promise<boolean>;
   openMusicHall(): Promise<boolean>;
+  onHallPreview(fn: (request: { token: string; duration: number } | null) => void): Off;
+  hallPreviewStatus(token: string, phase: string, position: number): void;
   saveDialog(o: { defaultPath: string; filters: { name: string; extensions: string[] }[] }): Promise<string | null>;
   openWrite(path: string): Promise<number>;
   write(id: number, data: Uint8Array, pos: number): Promise<void>;

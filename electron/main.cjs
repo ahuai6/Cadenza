@@ -63,6 +63,8 @@ protocol.registerSchemesAsPrivileged([library.scheme]);
 
 const desk = require('./desk.cjs');
 const { createOnlineService, credentialVault } = require('./online.cjs');
+const { registerPublicProviders } = require('./online-providers.cjs');
+const { registerNetease } = require('./online-netease.cjs');
 const { musicHall } = require('./music-hall.cjs');
 const fromMain = (event) =>
   !!win && !win.isDestroyed() && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame;
@@ -94,10 +96,16 @@ try {
   /* first run */
 }
 const online = createOnlineService({
+  accountFile: path.join(app.getPath('userData'), 'library', 'online-accounts.json'),
   vault: credentialVault(path.join(app.getPath('userData'), 'library', 'credentials'), safeStorage),
 });
+registerPublicProviders(online, process.env.CADENZA_APPLE_DEVELOPER_TOKEN);
+registerNetease(online);
 const hall = musicHall({
   online,
+  getPlayer: () => win,
+  library,
+  nativeBin: audio.binPath,
   fromMain,
   asset: (file) => asset(file),
   preferences: () => ({
@@ -454,6 +462,7 @@ app
       settings,
       (event) => editing && fromMain(event),
     );
+    await online.restoreAccounts();
     hifi = audio.start(ipcMain, () => win, settings, library);
     infer = inferHost.start(ipcMain, () => win, settings);
     createWindow();
@@ -484,8 +493,9 @@ app.on('before-quit', (event) => {
   libraryClosing = true;
   quitting = true;
   online.close();
-  void library
+  void hall
     .close()
+    .then(() => library.close())
     .catch((error) => console.error('[library close]', error))
     .finally(() => {
       libraryClosed = true;

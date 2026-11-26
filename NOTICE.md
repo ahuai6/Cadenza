@@ -35,6 +35,8 @@ Cadenza 以 **GNU Affero General Public License v3.0**（AGPL-3.0-only）发布�
 
 - **node-taglib-sharp**（LGPL-2.1-or-later，<https://github.com/benrr101/node-taglib-sharp>）：把编辑过的歌词写入歌曲标签（MP3 的 USLT、FLAC／Ogg 的 Vorbis 注释、M4A 的 ©lyr）。以未修改的 npm 套件形式独立随附于 `node_modules`，可自行替换为其他版本。
 
+- **qrcode**（MIT，Copyright (c) 2012 Ryan Day，<https://github.com/soldair/node-qrcode>）：生成音乐厅账户授权二维码。
+
 ## 字体
 
 所有随程序附带的字体皆为 SIL Open Font License 1.1（经由 Fontsource 套件取得），授权允许随软件散布。清单见 `scripts/fonts.mjs`。

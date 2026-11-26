@@ -1,8 +1,63 @@
-const { BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain, shell, dialog, app } = require('electron');
+const { OnlineError } = require('./online.cjs');
+const { boundedText, catalogId, publicUrl } = require('./online-providers.cjs');
+const audition = require('./online-preview.cjs');
+const { createDownloads } = require('./online-downloads.cjs');
 const path = require('node:path');
+const fs = require('node:fs/promises');
+const { assertDirectory, replace } = require('./library-storage.cjs');
 
-function musicHall({ online, fromMain, preferences, asset }) {
+function musicHall({ online, fromMain, preferences, asset, getPlayer, library, nativeBin }) {
   let window = null;
+  let fetchingPreview;
+  let previewStatus = null;
+  const displayPreview = () => {
+    if (!previewStatus) return tell('hall:preview-display', null);
+    const { provider, id, phase, position, duration, title } = previewStatus;
+    tell('hall:preview-display', { provider, id, phase, position, duration, title });
+  };
+  const tell = (channel, ...value) => {
+    if (window && !window.isDestroyed()) window.webContents.send(channel, ...value);
+  };
+  const downloads = createDownloads({
+    library,
+    nativeBin,
+    publish: (tasks) => tell('hall:download-display', tasks),
+    resolve: (job, signal) =>
+      online.invoke({
+        provider: job.provider,
+        capability: 'download',
+        account: job.account,
+        owner: job.owner,
+        input: { id: job.track, tier: job.tier },
+        signal,
+      }),
+  });
+  function stopPreview(owner) {
+    if (fetchingPreview && fetchingPreview.owner === owner) {
+      fetchingPreview.abort.abort();
+      fetchingPreview = null;
+    }
+    const token = audition.close(owner);
+    const player = token && getPlayer();
+    if (player && !player.isDestroyed()) player.webContents.send('hall:preview-request', null);
+    if (token && previewStatus?.token === token) {
+      previewStatus = null;
+      tell('hall:preview-display', null);
+    }
+  }
+  ipcMain.on('hall:preview-status', (event, token, phase, position) => {
+    if (
+      !fromMain(event) ||
+      previewStatus?.token !== token ||
+      !['playing', 'buffering', 'ended', 'error'].includes(phase) ||
+      !Number.isFinite(position)
+    )
+      return;
+    previewStatus = { ...previewStatus, phase, position: Math.max(0, Math.min(position, previewStatus.duration)) };
+    if (phase === 'ended' || phase === 'error') audition.close();
+    displayPreview();
+  });
   const authorized = (event) =>
     window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
   ipcMain.handle('hall:open', (event) => {
@@ -39,6 +94,7 @@ function musicHall({ online, fromMain, preferences, asset }) {
     });
     w.on('closed', () => {
       online.closeOwner(owner);
+      stopPreview(owner);
       if (window === w) window = null;
     });
     w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -54,6 +110,229 @@ function musicHall({ online, fromMain, preferences, asset }) {
   ipcMain.handle('hall:read', (event) =>
     authorized(event) ? { ...online.snapshot(), appearance: preferences() } : null,
   );
+  ipcMain.handle('hall:cancel', (event, provider, lane) => {
+    if (authorized(event) && catalogId(provider) && ['browse', 'search', 'playlists'].includes(lane))
+      online.cancel(event.sender.id, provider + ':' + lane);
+  });
+  ipcMain.handle('hall:preview-stop', (event) => {
+    if (authorized(event)) stopPreview(event.sender.id);
+  });
+  ipcMain.handle('hall:catalog', async (event, provider, capability, raw) => {
+    if (!authorized(event)) return { ok: false, code: 'restricted' };
+    const owner = event.sender.id;
+    const input = {
+      id: catalogId(raw?.id || ''),
+      namespace: ['songs', 'albums', 'playlists'].includes(raw?.namespace) ? raw.namespace : 'songs',
+      query: boundedText(raw?.query, 120).trim(),
+      region: /^[a-z]{2}$/.test(raw?.region) ? raw.region : 'us',
+      offset: Number.isSafeInteger(raw?.offset) ? Math.min(1000, Math.max(0, raw.offset)) : 0,
+    };
+    const lane = provider + ':' + (capability === 'search' ? 'search' : 'browse');
+    try {
+      if (typeof provider !== 'string' || !catalogId(provider)) throw new OnlineError('invalid');
+      if (!['search', 'charts', 'recommendations', 'collection', 'preview', 'lyrics', 'open'].includes(capability))
+        throw new OnlineError('unavailable');
+      if (capability === 'search' && !input.query) throw new OnlineError('invalid');
+      if (['collection', 'preview', 'lyrics', 'open'].includes(capability) && !input.id)
+        throw new OnlineError('invalid');
+      if (capability === 'preview') {
+        const prior = fetchingPreview;
+        prior?.abort.abort();
+        const job = { owner, abort: new AbortController() };
+        fetchingPreview = job;
+        try {
+          const media = await online.invoke({ provider, capability, input, owner, lane: 'preview' });
+          job.abort.signal.throwIfAborted();
+          const asset = await audition.prepare(media, job.abort.signal);
+          if (fetchingPreview !== job || !window || window.isDestroyed() || owner !== window.webContents.id)
+            throw new OnlineError('cancelled');
+          const player = getPlayer();
+          if (!player || player.isDestroyed()) throw new OnlineError('unavailable');
+          const lease = audition.open(owner, asset, (token) => {
+            if (previewStatus?.token === token) stopPreview(owner);
+          });
+          previewStatus = { ...lease, provider, id: input.id, title: media.title, phase: 'buffering', position: 0 };
+          player.webContents.send('hall:preview-request', lease);
+          displayPreview();
+          return { ok: true };
+        } finally {
+          if (fetchingPreview === job) fetchingPreview = null;
+        }
+      }
+      const result = await online.invoke({
+        provider,
+        capability,
+        input,
+        owner,
+        lane: capability === 'open' ? undefined : lane,
+      });
+      if (!window || window.isDestroyed() || window.webContents.id !== owner) throw new OnlineError('cancelled');
+      if (capability === 'open') {
+        const url = publicUrl(result.url, ['music.apple.com', 'music.163.com', 'y.qq.com', 'kugou.com'], true);
+        if (!url) throw new OnlineError('restricted');
+        await shell.openExternal(url);
+        return { ok: true };
+      }
+      return capability === 'lyrics' ? { ok: true, lyrics: result } : { ok: true, data: result };
+    } catch (error) {
+      return { ok: false, code: error instanceof OnlineError ? error.code : 'provider-failed' };
+    }
+  });
+  const playlistSnapshots = new Map();
+  const indexFile = path.join(app.getPath('userData'), 'library', 'online-playlists.json');
+  let loadedSnapshots;
+  let snapshotWrites = Promise.resolve();
+  function loadSnapshots() {
+    loadedSnapshots ||= (async () => {
+      await assertDirectory(path.dirname(indexFile));
+      const stat = await fs.lstat(indexFile);
+      if (!stat.isFile() || stat.size > 6 * 1024 * 1024) return;
+      const saved = JSON.parse(await fs.readFile(indexFile, 'utf8'));
+      if (!Array.isArray(saved)) return;
+      for (const [key, entry] of saved.slice(-12)) {
+        if (
+          typeof key === 'string' &&
+          Array.isArray(entry?.rows) &&
+          entry.rows.length <= 10000 &&
+          entry.rows.every((item) => typeof item?.title === 'string' && catalogId(item.ref?.id)) &&
+          Number.isFinite(entry.syncedAt)
+        )
+          playlistSnapshots.set(key, entry);
+      }
+    })().catch(() => {});
+    return loadedSnapshots;
+  }
+  function saveSnapshots() {
+    while (playlistSnapshots.size > 12) playlistSnapshots.delete(playlistSnapshots.keys().next().value);
+    let state = JSON.stringify([...playlistSnapshots]);
+    while (Buffer.byteLength(state) > 6 * 1024 * 1024 && playlistSnapshots.size > 1) {
+      playlistSnapshots.delete(playlistSnapshots.keys().next().value);
+      state = JSON.stringify([...playlistSnapshots]);
+    }
+    if (Buffer.byteLength(state) > 6 * 1024 * 1024) return;
+    snapshotWrites = snapshotWrites
+      .catch(() => {})
+      .then(async () => {
+        await assertDirectory(path.dirname(indexFile));
+        await replace(indexFile, state);
+      });
+    void snapshotWrites.catch(() => console.warn('[online] playlist snapshot unavailable'));
+  }
+  ipcMain.handle('hall:account', async (event, provider, action, raw) => {
+    if (!authorized(event) || !['begin', 'poll', 'cancel', 'logout'].includes(action))
+      return { ok: false, code: 'restricted' };
+    try {
+      const result = await online.invoke({
+        provider,
+        capability: 'account',
+        owner: event.sender.id,
+        input: { action, id: catalogId(raw?.id), account: catalogId(raw?.account) },
+      });
+      if (action === 'logout') {
+        await loadSnapshots();
+        for (const key of playlistSnapshots.keys()) {
+          if (key.startsWith(provider + ':' + catalogId(raw?.account) + ':')) playlistSnapshots.delete(key);
+        }
+        saveSnapshots();
+      }
+      return { ok: true, data: result };
+    } catch (error) {
+      return { ok: false, code: error instanceof OnlineError ? error.code : 'provider-failed' };
+    }
+  });
+  ipcMain.handle('hall:playlists', async (event, provider, raw) => {
+    if (!authorized(event)) return { ok: false, code: 'restricted' };
+    const owner = event.sender.id;
+    const account = catalogId(raw?.account);
+    const id = raw?.id ? catalogId(raw.id) : '';
+    const key = provider + ':' + account + ':' + id;
+    await loadSnapshots();
+    const prior = playlistSnapshots.get(key);
+    const connected = () =>
+      online
+        .snapshot()
+        .accounts.some((entry) => entry.provider === provider && entry.id === account && entry.state === 'connected');
+    if (!authorized(event)) return { ok: false, code: 'cancelled' };
+    if (!connected()) return { ok: false, code: 'sign-in-required' };
+    if (prior && raw?.refresh !== true) return { ok: true, data: prior };
+    try {
+      const rows = [];
+      const fingerprints = new Set();
+      for (let page = 0; page < 400; page++) {
+        const result = await online.invoke({
+          provider,
+          capability: 'playlists',
+          account,
+          owner,
+          lane: provider + ':playlists',
+          input: { account, id, offset: page * (id ? 25 : 100) },
+        });
+        if (!authorized(event)) throw new OnlineError('cancelled');
+        if (!connected()) throw new OnlineError('expired');
+        if (!Array.isArray(result?.rows)) throw new OnlineError('incomplete');
+        const fingerprint = JSON.stringify(result.rows.map((row) => row.ref.id));
+        // Full pages of a playlist may intentionally repeat. A repeated list page from an account indicates bad pagination.
+        if ((result.more && !result.rows.length) || (!id && fingerprints.has(fingerprint)))
+          throw new OnlineError('incomplete');
+        fingerprints.add(fingerprint);
+        rows.push(...result.rows);
+        if (result.more) continue;
+        const snapshot = { rows, more: false, syncedAt: Date.now() };
+        playlistSnapshots.delete(key);
+        playlistSnapshots.set(key, snapshot);
+        saveSnapshots();
+        return { ok: true, data: snapshot };
+      }
+      throw new OnlineError('incomplete');
+    } catch (error) {
+      const code = error instanceof OnlineError ? error.code : 'provider-failed';
+      return { ok: false, code, previous: code === 'expired' ? undefined : prior };
+    }
+  });
+  ipcMain.handle('hall:download-list', (event) => (authorized(event) ? downloads.snapshot() : []));
+  ipcMain.handle(
+    'hall:download-act',
+    (event, id, command) =>
+      authorized(event) && ['cancel', 'retry'].includes(command) && downloads.act(catalogId(id), command),
+  );
+  ipcMain.handle('hall:download-add', async (event, provider, raw) => {
+    if (!authorized(event)) return { ok: false, code: 'restricted' };
+    const account = catalogId(raw?.account),
+      track = catalogId(raw?.track),
+      tier = raw?.tier;
+    if (
+      !track ||
+      !['standard', 'high', 'lossless'].includes(tier) ||
+      !online
+        .snapshot()
+        .accounts.some((entry) => entry.provider === provider && entry.id === account && entry.state === 'connected') ||
+      online.snapshot().providers.find((entry) => entry.id === provider)?.capabilities.download !== 'authorized'
+    )
+      return { ok: false, code: 'restricted' };
+    const folder = await dialog.showOpenDialog(window, {
+      title: '选择下载并加入曲库的目录',
+      defaultPath: app.getPath('music'),
+      properties: ['openDirectory'],
+    });
+    if (!authorized(event) || folder.canceled || !folder.filePaths[0]) return { ok: false, code: 'cancelled' };
+    try {
+      return {
+        ok: true,
+        task: downloads.add({
+          provider,
+          account,
+          track,
+          tier,
+          owner: event.sender.id,
+          title: boundedText(raw?.title),
+          conflict: raw?.conflict === 'skip' ? 'skip' : 'keep',
+          folder: folder.filePaths[0],
+        }),
+      };
+    } catch (error) {
+      return { ok: false, code: error instanceof OnlineError ? error.code : 'download-failed' };
+    }
+  });
   ipcMain.handle('hall:window', (event, op) => {
     if (!authorized(event)) return;
     if (op === 'min') window.minimize();
@@ -61,6 +340,12 @@ function musicHall({ online, fromMain, preferences, asset }) {
     if (op === 'close') window.close();
   });
   return {
+    async close() {
+      await downloads.close();
+      await snapshotWrites.catch(() => {});
+      if (window && !window.isDestroyed()) stopPreview(window.webContents.id);
+      audition.close();
+    },
     appearanceChanged() {
       if (window && !window.isDestroyed()) window.webContents.send('hall:appearance', preferences());
     },

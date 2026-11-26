@@ -206,7 +206,22 @@ async function run(ui) {
         audio: false,
         desktop: false,
         scheme: ui === 'space' ? 'dark' : 'light',
-        api: ['onAppearance', 'onMaximized', 'read', 'window'],
+        api: [
+          'account',
+          'cancel',
+          'catalog',
+          'downloadAct',
+          'downloadAdd',
+          'downloads',
+          'onAppearance',
+          'onDownloads',
+          'onMaximized',
+          'onPreview',
+          'playlists',
+          'read',
+          'stopPreview',
+          'window',
+        ],
       },
     );
     assert.equal(await get(() => window.cadenzaHall), undefined);
@@ -216,8 +231,9 @@ async function run(ui) {
     await hall.keyboard.press('End');
     assert.equal(await tabs.last().getAttribute('aria-selected'), 'true');
     assert.equal(await tabs.last().evaluate((node) => node === document.activeElement), true);
-    await hall.getByRole('tabpanel', { name: 'LyricsFlow' }).getByText('Search tracks', { exact: true }).waitFor();
-    assert.equal(await hall.getByRole('button', { name: /search|preview|download|sign in/i }).count(), 0);
+    const search = hall.getByRole('searchbox', { name: '歌曲搜索' });
+    await search.waitFor();
+    assert.equal(await hall.getByRole('button', { name: '搜索', exact: true }).isEnabled(), false);
     assert.equal(
       await hall.locator('[data-test=hall-titlebar]').evaluate((node) => getComputedStyle(node).webkitAppRegion),
       'drag',
@@ -281,7 +297,7 @@ async function run(ui) {
           .setSize(1160, 800);
       });
       await hall.getByRole('button', { name: '发现', exact: true }).click();
-      await hall.getByRole('tabpanel', { name: 'LyricsFlow' }).getByText('搜索歌曲', { exact: true }).waitFor();
+      await hall.getByRole('tabpanel', { name: 'LyricsFlow' }).getByRole('searchbox', { name: '歌曲搜索' }).waitFor();
       await hall
         .locator('[data-turn=in]')
         .last()

@@ -1,6 +1,6 @@
 # 在线音乐前置研究与 G5 决策
 
-对照 [Denza-Fork 参考文档](https://github.com/ahuai6/Denza-Fork/blob/7152ca59236ec7f753a7562e4ddeded7d0dcf39a/docs/DENZA-ONLINE-API.md) 和同一提交的源码。2026-11-22 核对 `custom` HEAD 为 `7152ca59236ec7f753a7562e4ddeded7d0dcf39a`（v3.2.9-denza.10），与固定参考无差异。本文把源码中有调用链、隔离测试有覆盖和公网现场可用分开记录。G4R 记录接口证据。G5 更新接入计划和认证边界，实际登录、翻译、播放及下载留到 G5.5。
+对照 [Denza-Fork 参考文档](https://github.com/ahuai6/Denza-Fork/blob/7152ca59236ec7f753a7562e4ddeded7d0dcf39a/docs/DENZA-ONLINE-API.md) 和同一提交的源码。2026-11-22 核对 `custom` HEAD 为 `7152ca59236ec7f753a7562e4ddeded7d0dcf39a`（v3.2.9-denza.10），与固定参考无差异。本文把源码中有调用链、隔离测试有覆盖和公网现场可用分开记录。G4R 记录接口证据。G5 更新接入计划和认证边界，G5.5-B 实际实现与未验收能力见 [G5.5-B](G55-B.md)，后续 AI 翻译由 G5.5-C 实施。
 
 ## 1. 平台能力与证据
 
@@ -68,11 +68,11 @@ G5.5 优先接入官方 Sign in with ChatGPT 和 Responses API。账户身份认
 
 G5.5-A 已接通 [产品架构](PRODUCT.md) 中的独立音乐厅及 `electron/online.cjs`。本次核对 Denza-Fork 的 `custom` 分支仍指向 `7152ca5923`。Windows 使用 `safeStorage`，持久化凭据按音乐或 AI、来源、账户分别存放于 G1 管理的资料范围，系统加密不可用时拒绝持久化。Renderer 的公开快照只包括平台能力、账户显示信息和外观，无连接命令、原始媒体数据或凭据。 [Denza-Fork 在线参考](https://github.com/ahuai6/Denza-Fork/blob/7152ca5923/docs/DENZA-ONLINE-API.md) · [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage)
 
-### G5.5-B 实现接口
+### G5.5-B 实现及能力范围
 
 - 用 `register(descriptor, operations)` 登记独立能力和实现，再于主进程 `invoke({ provider, capability, account, input, owner })` 请求。能力包括搜索、账号、歌单、推荐、榜单、歌词、试听、下载、外部打开，声明为公开或需授权。发给界面前，按操作逐项投影成公开数据，出错只返回稳定错误码。平台账户状态通过 `setAccount` 更新。Apple Music 与 LyricsFlow 的来源 ID 和凭据作用域独立。
 - 搜索、只读发现和试听随窗口取消。试听适配应让 `AbortSignal` 覆盖短期 `MediaLease` 的使用期，由现有播放协调器分配临时输出授权。新试听撤销旧试听，在关闭或完成后释放授权。可恢复原本地播放意图，同时保持本地队列及曲库不变。提交下载及账号流程后由主进程持有，退出应用时取消。
-- 下载以 `RemoteTrackRef` 和 `MediaVariant` 申请允许保存的租约，校验及写标签后提交真实本地文件。完成结果使用新曲库条目与 `TrackSourceLink`，与已验证的 `AudioContentId` 关联。临时 URL 与授权头仅在主进程使用。账号回调、重试、实际授权与导入事务将在 G5.5-B 验收。
+- 下载以 `RemoteTrackRef` 和 `MediaVariant` 申请允许保存的租约，校验及写标签后提交真实本地文件。完成结果使用新曲库条目与 `TrackSourceLink`，与已验证的 `AudioContentId` 关联。临时 URL 与授权头仅在主进程使用。二维码与公共目录已实测。下载、验证、原子提交和重试已通过隔离夹具；真实账号授权、歌单同步与文件保存仍须现场验收。
 
 ### G5.5-C 与 AI
 

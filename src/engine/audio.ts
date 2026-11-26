@@ -62,6 +62,25 @@ export class AudioClock {
     const source = context.createMediaElementSource(element);
     return { context, source, input: this.gainNode! };
   }
+  /** Give up Chromium's physical output while the native backend owns it, keeping graph nodes reusable. */
+  outputDevice(native: boolean) {
+    const ctx = this.ac() as AudioContext & {
+      setSinkId?: (sink: string | { type: 'none' }) => Promise<void>;
+    };
+    const next = this.deviceChange
+      .catch(() => {})
+      .then(async () => {
+        if (native === this.parked) return;
+        if (typeof ctx.setSinkId === 'function') await ctx.setSinkId(native ? { type: 'none' } : '');
+        else if (native) await ctx.suspend();
+        // The media backend resumes the context only after connecting a valid source.
+        this.parked = native;
+      });
+    this.deviceChange = next;
+    return next;
+  }
+  private deviceChange = Promise.resolve();
+  private parked = false;
   /** Estimated delay after the graph's render position, in seconds. */
   outputDelay() {
     const c = this.ctx;

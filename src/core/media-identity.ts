@@ -63,6 +63,7 @@ export type ProviderCapability =
   | 'search'
   | 'account'
   | 'playlists'
+  | 'collection'
   | 'recommendations'
   | 'charts'
   | 'lyrics'

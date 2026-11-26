@@ -11,14 +11,22 @@ import { canEdit } from '../editing';
 
 export async function setSettings(patch: Partial<Settings>) {
   if (!canEdit() && Object.keys(patch).some((k) => ['mvDark', 'mvBlur', 'mvDesat', 'mvFit'].includes(k))) return;
-  settings.set(patch);
+  const outputChange = 'audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch;
+  if (!outputChange) settings.set(patch);
   const save = async () => {
     const n = D ? await D.setSettings(patch) : { ...settings.get(), ...patch };
     settings.set(n);
     return n;
   };
-  const n =
-    'audioOut' in patch || 'audioMode' in patch || 'audioDevice' in patch ? await switchOutput(save) : await save();
+  let n;
+  try {
+    n = outputChange ? await switchOutput(save) : await save();
+  } catch (error) {
+    console.warn('output configuration', String(error));
+    const current = await D?.settings().catch(() => null);
+    if (current) settings.set(current);
+    return;
+  }
   if ('fixedVolume' in patch) engine.setVolume(engine.volume);
   if ('volBalance' in patch || 'fixedVolume' in patch) applyBalance();
   applyEngineConfig(n, Object.keys(patch));

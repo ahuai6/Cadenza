@@ -20,6 +20,7 @@ export interface PlaybackRequest {
   readonly route: Route;
   readonly direction: -1 | 0 | 1;
   readonly automatic: boolean;
+  readonly handoff?: boolean;
 }
 type Options<T extends Output> = {
   duration(id: string): number;
@@ -36,6 +37,7 @@ export type PlaybackState = Readonly<{
   target: Entry | null;
   output: Entry | null;
   generation: number;
+  handoff?: boolean;
   direction: -1 | 0 | 1;
   intent: boolean;
   phase: Phase;
@@ -53,6 +55,12 @@ export class PlaybackCoordinator<T extends Output> {
   private current: { request: PlaybackRequest; abort: AbortController; output: T | null } | null = null;
   private run = 0;
   private entryKey = 0;
+  private audition: {
+    abort: AbortController;
+    intent: boolean;
+    output: Output | null;
+    notify: (event: OutputEvent) => void;
+  } | null = null;
   private scrubbing = false;
   private readonly history: number[] = [];
   private readonly round = new Set<number>();
@@ -170,18 +178,21 @@ export class PlaybackCoordinator<T extends Output> {
     route = this.options.route(),
     queue = this.get().queue,
     album = this.get().album,
+    handoff = false,
   ) {
     const entry = queue[index];
     if (!entry) return;
+    this.endPreview(false);
     this.revoke();
-    this.scrubbing = false;
+    if (!handoff) this.scrubbing = false;
     const abort = new AbortController();
     const generation = this.get().generation + 1;
-    const request: PlaybackRequest = { generation, entry, signal: abort.signal, route, direction, automatic };
+    const request: PlaybackRequest = { generation, entry, signal: abort.signal, route, direction, automatic, handoff };
     const current = { request, abort, output: null } as NonNullable<typeof this.current>;
     this.current = current;
     this.queue(queue, index, {
       generation,
+      handoff,
       direction,
       intent,
       route,
@@ -264,6 +275,7 @@ export class PlaybackCoordinator<T extends Output> {
     }
   }
   play() {
+    this.endPreview(false);
     const s = this.get();
     if (!s.target || (s.intent && s.phase !== 'ended')) return;
     if (!this.current || s.phase === 'error') {
@@ -274,6 +286,7 @@ export class PlaybackCoordinator<T extends Output> {
     this.start();
   }
   pause() {
+    this.endPreview(false);
     const s = this.get();
     if (!s.intent) return;
     const position = this.time;
@@ -284,6 +297,7 @@ export class PlaybackCoordinator<T extends Output> {
     this.state.set({ intent: false, position, output: null, phase: s.phase === 'preparing' ? 'preparing' : 'paused' });
   }
   seek(at: number, scrubbing = false) {
+    this.endPreview(false);
     const s = this.get();
     const current = this.current;
     if (!s.target || !Number.isFinite(at)) return;
@@ -299,6 +313,7 @@ export class PlaybackCoordinator<T extends Output> {
   }
   /** Close the current resource without throwing away the selected entry or its position. */
   stop() {
+    this.endPreview(false);
     if (!this.current) return;
     const position = this.time;
     this.revoke();
@@ -307,6 +322,66 @@ export class PlaybackCoordinator<T extends Output> {
   restart(intent = this.get().intent, at = this.time, route = this.options.route()) {
     const { index } = this.get();
     return this.select(index, intent, at, 0, false, route);
+  }
+
+  /** Revoke the current backend immediately and settle on actual output acknowledgement or supersession. */
+  async handoff() {
+    const previewIntent = this.audition?.intent;
+    this.endPreview(false);
+    const { target, index, intent, queue, album } = this.get();
+    if (!target) return;
+    const generation = this.get().generation + 1;
+    await this.select(index, previewIntent ?? intent, this.time, 0, false, this.options.route(), queue, album, true);
+    if (this.get().generation !== generation || this.get().phase !== 'buffering') return;
+    await new Promise<void>((resolve) => {
+      const off = this.subscribe((state) => {
+        if (state.generation === generation && state.phase === 'buffering') return;
+        off();
+        resolve();
+      });
+    });
+  }
+
+  async preview(prepare: (signal: AbortSignal) => Promise<Output>, notify: (event: OutputEvent) => void) {
+    const intent = this.audition?.intent ?? this.get().intent;
+    const position = this.time;
+    this.endPreview(false);
+    this.revoke();
+    const job = { abort: new AbortController(), intent, output: null as Output | null, notify };
+    this.audition = job;
+    if (this.get().target) this.state.set({ phase: 'paused', position, output: null, intent: false });
+    try {
+      const output = await prepare(job.abort.signal);
+      if (this.audition !== job) {
+        output.stop();
+        return;
+      }
+      job.output = output;
+      output.start(0, (event) => {
+        if (this.audition !== job) return;
+        if (event === 'ended' || typeof event !== 'string') this.endPreview(true, event);
+        else notify(event);
+      });
+    } catch (error) {
+      if (this.audition === job) this.endPreview(true, { error: String((error as Error)?.message || error) });
+    }
+  }
+
+  endPreview(restore: boolean, event: OutputEvent = 'ended') {
+    const active = this.audition;
+    if (!active) return;
+    this.audition = null;
+    active.abort.abort();
+    active.output?.stop();
+    active.notify(event);
+    const { index, target, queue, album, position } = this.get();
+    if (restore && target && active.intent) {
+      void this.select(index, true, position, 0, false, this.options.route(), queue, album, true);
+    }
+  }
+
+  previewTime() {
+    return this.audition?.output?.time() ?? 0;
   }
 
   private remember() {

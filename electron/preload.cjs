@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('cadenzaDesktop', {
   setSettings: (patch) => L('settings:set', patch),
   setEditing: (on) => L('editing:set', on),
   openMusicHall: () => L('hall:open'),
+  onHallPreview: on('hall:preview-request'),
+  hallPreviewStatus: (token, phase, position) => ipcRenderer.send('hall:preview-status', token, phase, position),
   relaunch: () => L('app:relaunch'),
   playing: (on) => L('win:playing', on),
   onSettings: on('settings:pushed'),
