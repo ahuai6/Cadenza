@@ -1,5 +1,6 @@
 const { OnlineError } = require('./online.cjs');
 const { registerApple } = require('./online-apple.cjs');
+const { registerKugou } = require('./online-kugou.cjs');
 
 const boundedText = (x, limit = 200) => (typeof x === 'string' ? x.slice(0, limit) : '');
 const catalogId = (value) =>
@@ -69,24 +70,37 @@ async function getJson(url, options) {
 }
 function registerPublicProviders(service, developerToken) {
   registerApple(service, developerToken, { getJson, boundedText, publicUrl, catalogId });
+  const qqPublic = async (method, params, signal) => {
+    const sdk = require('@sansenjian/qq-music-api/services');
+    const result = await sdk[method]({
+      params,
+      isFormat: false,
+      option: { signal, timeout: 8000, maxRedirects: 0, maxContentLength: 2 * 1024 * 1024 },
+    });
+    signal.throwIfAborted();
+    if (result.status !== 200) throw new OnlineError('provider-failed');
+    const body = result.body?.response;
+    if (body?.code !== 0) throw new OnlineError('invalid-response');
+    return body;
+  };
   service.register(
     {
       id: 'qq',
       name: 'QQ Music',
       label: 'hall.qq',
-      capabilities: { search: 'public', charts: 'public', open: 'public' },
+      capabilities: {
+        search: 'public',
+        charts: 'public',
+        recommendations: 'public',
+        collection: 'public',
+        lyrics: 'public',
+        open: 'public',
+      },
     },
     {
       async charts(_input, { signal }) {
-        const { getTopLists } = require('@sansenjian/qq-music-api/services');
-        const response = await getTopLists({
-          isFormat: false,
-          option: { signal, timeout: 8000, maxRedirects: 0, maxContentLength: 2 * 1024 * 1024 },
-        });
-        signal.throwIfAborted();
-        if (response.status !== 200) throw new OnlineError('provider-failed');
-        const data = response.body?.response;
-        if (data?.code !== 0 || !Array.isArray(data.data?.topList)) throw new OnlineError('invalid-response');
+        const data = await qqPublic('getTopLists', {}, signal);
+        if (!Array.isArray(data.data?.topList)) throw new OnlineError('invalid-response');
         return {
           rows: data.data.topList.slice(0, 50).flatMap((chart) => {
             const id = catalogId(chart.id);
@@ -99,73 +113,116 @@ function registerPublicProviders(service, developerToken) {
                 album: '',
                 image: publicUrl(String(chart.picUrl || '').replace(/^http:/, 'https:'), ['gtimg.cn']),
                 preview: false,
+                collection: false,
               },
             ];
           }),
           more: false,
         };
       },
-      async search({ query, offset }, { signal }) {
-        const url = new URL('https://c.y.qq.com/soso/fcgi-bin/client_search_cp');
-        url.search = new URLSearchParams({ w: query, p: String(1 + Math.floor(offset / 25)), n: '25', format: 'json' });
-        const result = await getJson(url, { signal });
-        const data = result?.data?.song;
-        if (+result.code !== 0 || !Array.isArray(data?.list)) throw new OnlineError('invalid-response');
-        const rows = data.list.flatMap((item) => {
-          const id = catalogId(item.songmid);
-          if (!id || !item.songname) return [];
-          const coverId = catalogId(item.albummid);
-          return [
-            {
-              ref: { provider: 'qq', namespace: 'songs', id, access: { kind: 'public' }, availability: {} },
-              title: boundedText(item.songname),
-              artist: boundedText((item.singer || []).map((artist) => artist.name).join(' / ')),
-              album: boundedText(item.albumname),
-              duration: Number.isFinite(item.interval) ? item.interval : undefined,
-              image: coverId ? 'https://y.gtimg.cn/music/photo_new/T002R150x150M000' + coverId + '.jpg' : '',
-              preview: false,
-            },
-          ];
-        });
+      async recommendations(_, { signal }) {
+        const result = await qqPublic('songLists', { sin: 0, ein: 24, sortId: 5, categoryId: 10000000 }, signal);
+        if (!Array.isArray(result.data?.list)) throw new OnlineError('invalid-response');
         return {
-          rows,
-          more: data.list.length === 25 && offset + 25 < Number(data.totalnum || data.curnum + offset + 25),
+          rows: result.data.list.flatMap((item) => {
+            const id = catalogId(item.dissid);
+            if (!/^\d+$/.test(id) || !item.dissname) return [];
+            return [
+              {
+                ref: { provider: 'qq', namespace: 'playlists', id, access: { kind: 'public' }, availability: {} },
+                title: boundedText(item.dissname),
+                artist: '',
+                album: '',
+                preview: false,
+                collection: false,
+                image: publicUrl(String(item.imgurl || '').replace(/^http:/, 'https:'), ['qq.com', 'gtimg.cn']),
+              },
+            ];
+          }),
+          more: false,
         };
+      },
+      async collection({ id, namespace, offset }, { signal }) {
+        if (namespace !== 'albums') throw new OnlineError('unavailable');
+        const result = await qqPublic('getAlbumSongs', { albumMid: id, begin: offset, num: 25 }, signal);
+        const album = result.albumSonglist?.data;
+        if (result.albumSonglist?.code !== 0 || album?.albumMid !== id || !Array.isArray(album?.songList))
+          throw new OnlineError('invalid-response');
+        return {
+          rows: album.songList.flatMap(({ songInfo }) => {
+            const id = catalogId(songInfo?.mid);
+            if (!id || !songInfo.name) return [];
+            return [
+              {
+                ref: { provider: 'qq', namespace: 'songs', id, access: { kind: 'public' }, availability: {} },
+                title: boundedText(songInfo.name),
+                album: boundedText(songInfo.album?.name),
+                artist: boundedText((songInfo.singer || []).map(({ name }) => name).join(' / ')),
+                duration: songInfo.interval,
+                preview: false,
+              },
+            ];
+          }),
+          more: offset + album.songList.length < Number(album.totalNum),
+        };
+      },
+      async search({ query, offset }, { signal }) {
+        if (offset) return { rows: [], more: false, source: 'qq-smartbox' };
+        const url = new URL('https://c.y.qq.com/splcloud/fcgi-bin/smartbox_new.fcg');
+        url.search = new URLSearchParams({ key: query, format: 'json' });
+        const result = await getJson(url, { signal });
+        if (+result.code !== 0 || !result.data) throw new OnlineError('invalid-response');
+        const rows = ['song', 'album'].flatMap((kind) =>
+          (result.data[kind]?.itemlist || []).flatMap((item) => {
+            const id = catalogId(item.mid);
+            if (!id || !item.name) return [];
+            return [
+              {
+                ref: {
+                  provider: 'qq',
+                  namespace: kind === 'song' ? 'songs' : 'albums',
+                  id,
+                  access: { kind: 'public' },
+                  availability: {},
+                },
+                title: boundedText(item.name),
+                artist: boundedText(item.singer),
+                album: '',
+                image: publicUrl(String(item.pic || '').replace(/^http:/, 'https:'), ['gtimg.cn']),
+                preview: false,
+              },
+            ];
+          }),
+        );
+        return { rows, more: false, source: 'qq-smartbox' };
+      },
+      async lyrics({ id, namespace }, { signal }) {
+        if (namespace !== 'songs') throw new OnlineError('invalid');
+        const url = new URL('https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg');
+        url.search = new URLSearchParams({ songmid: id, format: 'json', nobase64: '1' });
+        const data = await getJson(url, { signal, headers: { Referer: 'https://y.qq.com/' } });
+        if (+data.code !== 0) throw new OnlineError('not-found');
+        const lyric = (value) => {
+          if (typeof value !== 'string' || value.length > 500_000) return '';
+          if (/^\s*\[/.test(value)) return value;
+          if (!/^[\w+/]+={0,2}$/.test(value)) return '';
+          const decoded = Buffer.from(value, 'base64').toString('utf8');
+          return /^\s*\[/.test(decoded) ? decoded : '';
+        };
+        const original = lyric(data.lyric);
+        if (!original) throw new OnlineError('not-found');
+        return { text: original, format: 'lrc', tracks: { original, translation: lyric(data.trans) || undefined } };
       },
       async open({ id, namespace }) {
         if (namespace === 'charts' && /^\d+$/.test(id)) return { url: 'https://y.qq.com/n/ryqq/toplist/' + id };
+        if (namespace === 'albums') return { url: 'https://y.qq.com/n/ryqq/albumDetail/' + id };
+        if (namespace === 'playlists' && /^\d+$/.test(id)) return { url: 'https://y.qq.com/n/ryqq/playlist/' + id };
         if (namespace !== 'songs') throw new OnlineError('invalid');
         return { url: 'https://y.qq.com/n/ryqq/songDetail/' + id };
       },
     },
   );
-  service.register(
-    { id: 'kugou', name: 'KuGou', label: 'hall.kugou', capabilities: { search: 'public' } },
-    {
-      async search({ query, offset }, { signal }) {
-        const url = new URL('https://songsearch.kugou.com/song_search_v2');
-        url.search = new URLSearchParams({ keyword: query, page: String(1 + Math.floor(offset / 25)), pagesize: '25' });
-        const result = await getJson(url, { signal });
-        if (+result.status !== 1 || !Array.isArray(result.data?.lists)) throw new OnlineError('invalid-response');
-        const rows = result.data.lists.flatMap((item) => {
-          const id = catalogId(item.FileHash);
-          if (!id || !item.SongName) return [];
-          return [
-            {
-              ref: { provider: 'kugou', namespace: 'songs', id, access: { kind: 'public' }, availability: {} },
-              title: boundedText(item.SongName),
-              artist: boundedText(item.SingerName),
-              album: boundedText(item.AlbumName),
-              duration: Number.isFinite(item.Duration) ? item.Duration : undefined,
-              image: publicUrl(item.AlbumImage?.replaceAll('{size}', '150'), ['kugou.com']),
-              preview: false,
-            },
-          ];
-        });
-        return { rows, more: result.data.lists.length === 25 && offset + 25 < Number(result.data.total) };
-      },
-    },
-  );
+  registerKugou(service, { getJson, boundedText, publicUrl, catalogId });
 }
 
 module.exports = { registerPublicProviders, catalogId, boundedText, publicUrl, request, getJson };

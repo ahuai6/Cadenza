@@ -8,8 +8,10 @@ import {
   type HallTrack,
   type HallSnapshot,
   type HallTier,
+  type HallDownloadPreference,
 } from '../../hall/api';
 import { tx } from '../../../i18n';
+import { DownloadWriteOptions } from './DownloadSettings';
 import { Icon } from '../../ui/icons';
 import s from './MusicHall.module.css';
 
@@ -65,6 +67,7 @@ export function Catalog({
   const [tier, setTier] = useState<HallTier>(downloadPreference.tier ?? 'standard');
   const [useDefault, setUseDefault] = useState(downloadPreference.hasDirectory);
   const [remember, setRemember] = useState(false);
+  const [writeSettings, setWriteSettings] = useState<HallDownloadPreference>(downloadPreference);
   const [tiers, setTiers] = useState<HallTier[] | null>(null);
   const [variantError, setVariantError] = useState('');
   const [conflict, setConflict] = useState<'keep' | 'skip'>('keep');
@@ -150,8 +153,8 @@ export function Catalog({
     setNotice('');
     try {
       const answer = await hallApi!.catalog(provider.id, kind, {
-        id: row.ref.id,
-        namespace: row.ref.namespace,
+        id: row.catalogId || row.ref.id,
+        namespace: row.catalogId ? 'songs' : row.ref.namespace,
         region: row.ref.availability.storefront || region,
       });
       if (ticket === previewRun.current && !answer.ok && answer.code !== 'cancelled')
@@ -188,7 +191,7 @@ export function Catalog({
     setLyrics(null);
     try {
       const result = await hallApi!.catalog(provider.id, 'lyrics', {
-        id: track.ref.id,
+        id: track.catalogId || track.ref.id,
         region: track.ref.availability.storefront,
       });
       if (number !== previewRun.current) return;
@@ -200,6 +203,12 @@ export function Catalog({
   }
   async function downloadOptions(track: HallTrack) {
     const ticket = ++downloadRun.current;
+    const prefs = (await hallApi?.downloadSettings(provider.id, 'read').catch(() => null)) || downloadPreference;
+    if (ticket !== downloadRun.current) return;
+    setWriteSettings(prefs);
+    setTier(prefs.tier ?? 'standard');
+    setUseDefault(prefs.hasDirectory);
+    setConflict(prefs.conflict);
     setDownload(track);
     setTiers(null);
     setVariantError('');
@@ -284,6 +293,17 @@ export function Catalog({
       {download && canDownload && (
         <section className={s.block} aria-label="确认加入曲库">
           <strong>{download.title}</strong>
+          <small>
+            {writeSettings.naming === 'artist-title' && download.artist ? download.artist + ' - ' : ''}
+            {download.title}
+          </small>
+          <details>
+            <summary>{tx('hall.downloadThisTask')}</summary>
+            <DownloadWriteOptions
+              value={writeSettings}
+              change={(patch) => setWriteSettings((prior) => ({ ...prior, ...patch }))}
+            />
+          </details>
           <p role="status">
             {variantError
               ? tx('hall.variantsFailed')
@@ -311,7 +331,7 @@ export function Catalog({
                 <option value="skip">跳过</option>
               </select>
             </label>
-            {downloadPreference.hasDirectory && (
+            {writeSettings.hasDirectory && (
               <label>
                 <input
                   type="checkbox"
@@ -344,6 +364,7 @@ export function Catalog({
                     conflict,
                     useDefault,
                     remember,
+                    settings: writeSettings,
                   });
                   if (result.ok) {
                     setDownloadPreference(result.downloadPreference);
@@ -447,6 +468,7 @@ export function Catalog({
         {!working && !notice && query && !page.rows.length && <p>未找到内容。</p>}
       </div>
       {page.source === 'lyricsflow' && <small>{tx('hall.catalogFallback')}</small>}
+      {page.source === 'qq-smartbox' && <small>{tx('hall.qqSuggestions')}</small>}
       <div ref={list} aria-busy={working}>
         {page.rows.length > 0 && (
           <ul className={s.trackList}>
@@ -465,24 +487,27 @@ export function Catalog({
                 </span>
                 <span className={s.trackDuration}>{duration(track.duration)}</span>
                 <div className={s.trackActions}>
-                  {track.ref.namespace !== 'songs' && provider.capabilities.collection === 'public' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (query) history.current.push({ query, data: page, scroll: frame()?.scrollTop || 0 });
-                        if (track.ref.access.kind === 'account') void syncPlaylists(false, track);
-                        else
-                          void apply({
-                            kind: 'collection',
-                            track,
-                            offset: 0,
-                            region: track.ref.availability.storefront || region,
-                          });
-                      }}
-                    >
-                      查看
-                    </button>
-                  )}
+                  {((track.ref.namespace !== 'songs' && track.collection !== false) || track.albumId) &&
+                    provider.capabilities.collection === 'public' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (query) history.current.push({ query, data: page, scroll: frame()?.scrollTop || 0 });
+                          if (track.ref.access.kind === 'account') void syncPlaylists(false, track);
+                          else
+                            void apply({
+                              kind: 'collection',
+                              track: track.albumId
+                                ? { ...track, ref: { ...track.ref, namespace: 'albums', id: track.albumId } }
+                                : track,
+                              offset: 0,
+                              region: track.ref.availability.storefront || region,
+                            });
+                        }}
+                      >
+                        查看
+                      </button>
+                    )}
                   {track.preview && provider.capabilities.preview === 'public' && (
                     <button
                       type="button"
@@ -492,11 +517,12 @@ export function Catalog({
                       {pendingPreview === track.ref.id ? '准备中' : '试听'}
                     </button>
                   )}
-                  {provider.capabilities.lyrics === 'public' && track.ref.namespace === 'songs' && (
-                    <button type="button" onClick={() => void readLyrics(track)}>
-                      歌词
-                    </button>
-                  )}
+                  {provider.capabilities.lyrics === 'public' &&
+                    (track.ref.namespace === 'songs' || track.catalogId) && (
+                      <button type="button" onClick={() => void readLyrics(track)}>
+                        歌词
+                      </button>
+                    )}
                   {canDownload && track.ref.namespace === 'songs' && (
                     <button
                       type="button"
@@ -508,11 +534,13 @@ export function Catalog({
                       加入资料库
                     </button>
                   )}
-                  {provider.capabilities.open === 'public' && (
-                    <button type="button" onClick={() => void command('open', track)}>
-                      打开官网
-                    </button>
-                  )}
+                  {provider.capabilities.open === 'public' &&
+                    (!track.ref.namespace.startsWith('library-') || track.catalogId) &&
+                    (provider.id !== 'kugou' || track.ref.namespace !== 'songs') && (
+                      <button type="button" onClick={() => void command('open', track)}>
+                        打开官网
+                      </button>
+                    )}
                 </div>
               </li>
             ))}

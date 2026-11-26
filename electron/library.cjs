@@ -443,9 +443,13 @@ const sameMetadata = (a, b) => metadataFields.every((k) => isDeepStrictEqual(a[k
 
 const auxiliaryLyricRoles = ['translation', 'transliteration'];
 const auxiliaryLyricFile = (file, role) => file + '.' + role + '.lrc';
+const onlineLyricFile = (file, format) => file + '.' + format;
 async function sidecars(track) {
   const files = [ttmlSidecar(track.path), sidecar(track.path)];
-  const companions = auxiliaryLyricRoles.map((role) => auxiliaryLyricFile(track.path, role));
+  const companions = [
+    ...auxiliaryLyricRoles.map((role) => auxiliaryLyricFile(track.path, role)),
+    ...['ttml', 'lrc', 'yrc'].map((format) => onlineLyricFile(track.path, format)),
+  ];
   const stamps = await Promise.all(
     [...files, ...companions].map(async (file) => {
       const info = file && (await fsp.stat(file).catch(() => null));
@@ -456,6 +460,8 @@ async function sidecars(track) {
   if (track.sidecarStamp !== current) track.lyricsRevision = (track.lyricsRevision || 0) + 1;
   track.sidecarStamp = current;
   [track.ttmlFile, track.lrc] = files.map(Boolean);
+  track.ttmlFile ||= !!stamps[4];
+  track.lrc ||= !!(stamps[5] || stamps[6]);
 }
 
 let scanning = false,
@@ -1020,6 +1026,18 @@ async function lyricSources(id) {
       if (error.code !== 'ENOENT') errors.push(source);
     }
   }
+  for (const format of ['ttml', 'lrc', 'yrc']) {
+    const file = onlineLyricFile(track.path, format);
+    const source = 'sidecar:download-' + format;
+    try {
+      const stat = await fsp.lstat(file);
+      if (stat.isFile() && stat.size <= 8 * 1024 * 1024)
+        add(source, path.basename(file), decodeText(await fsp.readFile(file)), false);
+      else errors.push(source);
+    } catch (error) {
+      if (error.code !== 'ENOENT') errors.push(source);
+    }
+  }
   const ext = path.extname(track.path).toLowerCase();
   try {
     if (ext === '.flac') {
@@ -1111,7 +1129,7 @@ async function readLyrics(id) {
   const field = sources?.fields.find((item) => item.id === sources.primary);
   if (!field) return null;
   return {
-    source: field.format === 'ttml' ? 'ttml' : field.id === 'sidecar:lrc' ? 'lrc' : 'embedded',
+    source: field.format === 'ttml' ? 'ttml' : field.id.startsWith('sidecar:') ? 'lrc' : 'embedded',
     text: field.text,
   };
 }
@@ -2052,16 +2070,12 @@ const pathOf = async (id) => {
   if (t.sourceStamp && (!(await currentSource(t)) || activeTrack(id) !== t)) return null;
   return t.path;
 };
-async function importOnline({ file, ref, tier, detected, content, auxiliary }) {
-  if (!db || stopping || !identity.validId(content)) throw new Error('library unavailable');
-  const dir = path.dirname(file);
-  await assertDirectory(dir);
-  const stat = await fsp.lstat(file);
-  if (!stat.isFile()) throw new Error('download is unavailable');
-  for (const role of auxiliaryLyricRoles) {
-    const text = auxiliary?.[role];
+async function writeOnlineSidecars({ file, auxiliary, external }) {
+  const targets = auxiliaryLyricRoles.map((role) => [auxiliaryLyricFile(file, role), auxiliary?.[role]]);
+  if (['ttml', 'lrc', 'yrc'].includes(external?.format))
+    targets.push([onlineLyricFile(file, external.format), external.text]);
+  for (const [companion, text] of targets) {
     if (typeof text !== 'string' || !text) continue;
-    const companion = auxiliaryLyricFile(file, role);
     try {
       await writeLyricSidecar(companion, text);
     } catch (error) {
@@ -2073,6 +2087,14 @@ async function importOnline({ file, ref, tier, detected, content, auxiliary }) {
         throw error;
     }
   }
+}
+async function importOnline({ file, ref, tier, detected, content, auxiliary, external }) {
+  if (!db || stopping || !identity.validId(content)) throw new Error('library unavailable');
+  const dir = path.dirname(file);
+  await assertDirectory(dir);
+  const stat = await fsp.lstat(file);
+  if (!stat.isFile()) throw new Error('download is unavailable');
+  await writeOnlineSidecars({ file, auxiliary, external });
   const stamp = identity.revision(stat);
   onlineImports.set(file, { stamp, content });
   try {
@@ -2120,6 +2142,7 @@ module.exports = {
   close,
   pathOf,
   importOnline,
+  writeOnlineSidecars,
   analysisSettingsChanged: () => {
     if (db && !stopping) send('lib:wake');
   },

@@ -106,6 +106,9 @@ function createOnlineService({ vault, accountFile, catalog = planned } = {}) {
     adapters.set(id, { capabilities: { ...descriptor.capabilities }, operations: { ...operations } });
   }
   const accountKey = (provider, id) => JSON.stringify([provider, id]);
+  const configurationScope = (provider) => ({ domain: 'music', provider, account: 'developer-configuration' });
+  const readConfiguration = (provider) => vault?.read(configurationScope(provider));
+  const saveConfiguration = (provider, secret) => vault.save(configurationScope(provider), secret);
   function setAccount(provider, { id, name, state }) {
     if (
       !adapters.has(provider) ||
@@ -249,6 +252,8 @@ function createOnlineService({ vault, accountFile, catalog = planned } = {}) {
     connect,
     disconnect,
     restoreAccounts,
+    readConfiguration,
+    saveConfiguration,
     cancel,
     closeOwner,
     close,

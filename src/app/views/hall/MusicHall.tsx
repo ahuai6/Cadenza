@@ -7,6 +7,7 @@ import { Turn } from '../../ui/kit';
 import mark from '../../brand/mark.svg';
 import { hallApi, type HallAppearance, type HallProvider, type HallSnapshot, type HallDownload } from '../../hall/api';
 import { Catalog } from './Catalog';
+import { DownloadSettings } from './DownloadSettings';
 import { AccountControls } from './AccountControls';
 import s from './MusicHall.module.css';
 
@@ -131,7 +132,12 @@ export function MusicHall() {
                 />
               )}
               {page === 'accounts' && <Accounts record={record} refresh={reloadAccounts} />}
-              {page === 'downloads' && <Downloads />}
+              {page === 'downloads' && (
+                <>
+                  <DownloadSettings providers={record.providers} />
+                  <Downloads />
+                </>
+              )}
             </Turn>
           )}
         </div>

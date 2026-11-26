@@ -1,5 +1,7 @@
 # 在线音乐前置研究与 G5 决策
 
+当前音乐厅公开能力、Apple MusicKit 配置、下载范围与标签设置见 [G5.5-BR2](G55-BR2.md)。
+
 本文件保留早期研究语境。当前四平台接入、Apple Music 幕后服务、锁定版本和维护入口见 [G5.5-BR](G55-BR.md)。
 
 对照 [Denza-Fork 参考文档](https://github.com/ahuai6/Denza-Fork/blob/7152ca59236ec7f753a7562e4ddeded7d0dcf39a/docs/DENZA-ONLINE-API.md) 和同一提交的源码。2026-11-22 核对 `custom` HEAD 为 `7152ca59236ec7f753a7562e4ddeded7d0dcf39a`（v3.2.9-denza.10），与固定参考无差异。本文把源码中有调用链、隔离测试有覆盖和公网现场可用分开记录。G4R 记录接口证据。G5 更新接入计划和认证边界，G5.5-B 实际实现与未验收能力见 [G5.5-B](G55-B.md)，后续 AI 翻译由 G5.5-C 实施。

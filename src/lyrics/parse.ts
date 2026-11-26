@@ -328,8 +328,12 @@ export function parse(src: string, off = 0, len = Infinity): Parsed {
       L.t -= d;
       if (L.close != null) L.close -= d;
       for (const w of L.words) {
-        for (const u of w.units || []) u.t -= d;
-        for (const u of w.harm?.units || []) u.t -= d;
+        for (const units of [w.units, w.harm?.units]) {
+          for (const u of units || []) {
+            u.t -= d;
+            if (u.e != null) u.e -= d;
+          }
+        }
       }
     }
     for (let i = 0; i < breaks.length; i++) breaks[i] -= d;
@@ -356,6 +360,32 @@ export function parse(src: string, off = 0, len = Infinity): Parsed {
 
 /** Lyrics in either format: TTML when the text is TTML, else LRC (or plain lines). */
 import { isTtml, parseTtml } from './ttml';
+const yrcLine = /^\[(\d+),(\d+)\](?=\(\d+,\d+,\d+\))/;
+function yrcForPlayback(src: string): string {
+  const stamp = (ms: number) =>
+    Math.floor(ms / 60000) +
+    ':' +
+    String(Math.floor(ms / 1000) % 60).padStart(2, '0') +
+    '.' +
+    String(ms % 1000).padStart(3, '0');
+  return src
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = yrcLine.exec(line);
+      if (!match) return line;
+      const start = Number(match[1]);
+      const words = line
+        .slice(match[0].length)
+        .replace(
+          /\((\d+),(\d+),\d+\)(.*?)(?=\(\d+,\d+,\d+\)|$)/g,
+          (_, begin, duration, text) =>
+            '<' + stamp(Number(begin)) + '>' + text + '<' + stamp(Number(begin) + Number(duration)) + '>',
+        );
+      return '[' + stamp(start) + ']' + words;
+    })
+    .join('\n');
+}
 export function parseLyrics(src: string, off = 0, len = Infinity): Parsed {
-  return isTtml(src) ? parseTtml(src, off, len) : parse(src, off, len);
+  if (isTtml(src)) return parseTtml(src, off, len);
+  return parse(/^\[\d+,\d+\]\(\d+,\d+,\d+\)/m.test(src) ? yrcForPlayback(src) : src, off, len);
 }

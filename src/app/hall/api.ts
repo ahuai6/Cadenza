@@ -24,12 +24,15 @@ export interface HallTrack {
   duration?: number;
   image?: string;
   preview: boolean;
+  collection?: boolean;
+  albumId?: string;
+  catalogId?: string;
 }
 export interface HallPage {
   rows: HallTrack[];
   more: boolean;
   syncedAt?: number;
-  source?: 'apple' | 'lyricsflow';
+  source?: 'apple' | 'lyricsflow' | 'qq-smartbox';
 }
 export type HallCapability = 'search' | 'recommendations' | 'charts' | 'collection' | 'preview' | 'lyrics' | 'open';
 export interface HallPreview {
@@ -53,6 +56,13 @@ export type HallTier = 'standard' | 'high' | 'lossless';
 export interface HallDownloadPreference {
   hasDirectory: boolean;
   tier?: HallTier;
+  fields: string[];
+  languageTracks: string[];
+  lyric: 'native' | 'lrc' | 'none';
+  lyricFile: 'embedded' | 'external' | 'both';
+  naming: 'artist-title' | 'title' | 'numbered';
+  conflict: 'keep' | 'skip';
+  importTrack: boolean;
 }
 export interface HallDownload {
   id: string;
@@ -67,6 +77,11 @@ export interface HallDownload {
 interface HallApi {
   read(): Promise<HallSnapshot | null>;
   downloads(): Promise<HallDownload[]>;
+  downloadSettings(
+    scope: string,
+    command: 'read' | 'save' | 'inherit' | 'folder',
+    input?: Partial<HallDownloadPreference>,
+  ): Promise<HallDownloadPreference | null>;
   downloadVariants(
     provider: string,
     input: { track: string; account?: string; region?: string },
@@ -82,6 +97,7 @@ interface HallApi {
       conflict: 'keep' | 'skip';
       useDefault: boolean;
       remember: boolean;
+      settings?: Partial<HallDownloadPreference>;
     },
   ): Promise<
     { ok: true; task: HallDownload; downloadPreference: HallDownloadPreference } | { ok: false; code: string }
@@ -91,7 +107,7 @@ interface HallApi {
   onDownloads(fn: (tasks: HallDownload[]) => void): () => void;
   account(
     provider: string,
-    action: 'begin' | 'poll' | 'cancel' | 'logout',
+    action: 'begin' | 'poll' | 'cancel' | 'logout' | 'import',
     input?: object,
   ): Promise<{ ok: true; data: HallLogin } | { ok: false; code: string }>;
   playlists(

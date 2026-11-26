@@ -279,3 +279,69 @@ test('download access checks only require accounts for operations declared autho
     'account-only',
   );
 });
+
+test('MusicKit import validates credentials against Apple and preserves private and catalog identities', async (t) => {
+  const { registerPublicProviders } = require('../electron/online-providers.cjs');
+  const saved = new Map();
+  const vault = {
+    read: ({ account }) => saved.get(account),
+    save: ({ account }, secret) => saved.set(account, secret),
+    remove: ({ account }) => saved.delete(account),
+  };
+  const service = createOnlineService({ vault });
+  registerPublicProviders(service);
+  const developerToken = 'authorized-fixture-developer';
+  const musicUserToken = 'authorized-fixture-user';
+  const routes = [];
+  t.mock.method(globalThis, 'fetch', async (raw, { headers }) => {
+    const url = new URL(raw);
+    routes.push(url.pathname);
+    assert.equal(url.origin, 'https://api.music.apple.com');
+    assert.equal(headers.Authorization, 'Bearer ' + developerToken);
+    assert.equal(headers['Music-User-Token'], musicUserToken);
+    if (url.pathname === '/v1/me/storefront') return Response.json({ data: [{ id: 'jp' }] });
+    if (url.pathname === '/v1/me/library/playlists')
+      return Response.json({
+        data: [{ type: 'library-playlists', id: 'p.abc', attributes: { name: 'Fixture playlist' } }],
+      });
+    if (url.pathname === '/v1/me/library/playlists/p.abc/tracks')
+      return Response.json({
+        data: [
+          {
+            type: 'library-songs',
+            id: 'i.private',
+            attributes: { name: 'Fixture song', playParams: { catalogId: '42' } },
+          },
+        ],
+      });
+    throw new Error('Unexpected Apple route');
+  });
+  const invoke = (capability, input, account) => service.invoke({ provider: 'apple', capability, input, account });
+  const signed = await invoke('account', { action: 'import', credentials: { developerToken, musicUserToken } });
+  assert.equal(signed.phase, 'connected');
+  const [account] = service.snapshot().accounts;
+  assert.doesNotMatch(JSON.stringify(service.snapshot()), /authorized-fixture/);
+  const lists = await invoke('playlists', { id: '', offset: 0, account: account.id }, account.id);
+  assert.equal(lists.rows[0].ref.namespace, 'library-playlists');
+  const songs = await invoke('playlists', { id: 'p.abc', offset: 0, account: account.id }, account.id);
+  assert.equal(songs.rows[0].ref.id, 'i.private');
+  assert.equal(songs.rows[0].catalogId, '42');
+  assert.equal(songs.rows[0].ref.availability.storefront, 'jp');
+  assert.deepEqual(routes, ['/v1/me/storefront', '/v1/me/library/playlists', '/v1/me/library/playlists/p.abc/tracks']);
+  await invoke('account', { action: 'logout', account: account.id });
+  assert.equal(saved.size, 0);
+});
+
+test('download preferences preserve explicit empty fields and inherit untouched options', () => {
+  const { downloadSettings } = require('../electron/online-download-settings.cjs');
+  const effective = downloadSettings(
+    { fields: ['artist', 'dangerous'], naming: 'numbered', importTrack: true },
+    { fields: [], lyric: 'lrc' },
+    { lyric: 'none', importTrack: false, folder: 'C:\\not-supplied-by-UI' },
+  );
+  assert.deepEqual(effective.fields, []);
+  assert.equal(effective.naming, 'numbered');
+  assert.equal(effective.lyric, 'none');
+  assert.equal(effective.importTrack, false);
+  assert.equal(effective.folder, undefined);
+});

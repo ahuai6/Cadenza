@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { tx } from '../../../i18n';
 import { hallApi, type HallLogin, type HallSnapshot } from '../../hall/api';
 import s from './MusicHall.module.css';
 
@@ -24,19 +25,28 @@ export function AccountControls({
     setMessage('');
     setWorking(true);
     try {
-      const result = await hallApi!.account(provider, 'begin');
+      const result = await hallApi!.account(provider, provider === 'apple' ? 'import' : 'begin');
       if (run !== generation.current) {
         if (result.ok && result.data.id) void hallApi?.account(provider, 'cancel', { id: result.data.id });
         return;
       }
       if (!result.ok) {
+        if (provider === 'apple') {
+          if (result.code !== 'cancelled') setMessage(tx('hall.appleImportFailed'));
+          return;
+        }
         setMessage('二维码暂时不可用，请刷新后重试。');
+        return;
+      }
+      if (provider === 'apple') {
+        await refresh();
         return;
       }
       current.current = result.data.id;
       setLogin(result.data);
     } catch {
-      if (run === generation.current) setMessage('二维码暂时不可用，请刷新后重试。');
+      if (run === generation.current)
+        setMessage(provider === 'apple' ? tx('hall.appleImportFailed') : '二维码暂时不可用，请刷新后重试。');
     } finally {
       if (run === generation.current) setWorking(false);
     }
@@ -87,7 +97,7 @@ export function AccountControls({
   return (
     <div className={s.accountControls}>
       <button disabled={working} type="button" onClick={() => void begin()}>
-        {login ? '刷新二维码' : '二维码登录'}
+        {provider === 'apple' ? tx('hall.appleImport') : login ? '刷新二维码' : '二维码登录'}
       </button>
       {accounts.map((entry) => (
         <button

@@ -8,9 +8,9 @@ const { assertDirectory } = require('./library-storage.cjs');
 const identity = require('./audio-identity.cjs');
 const flac = require('./flac-lyrics.cjs');
 const tags = require('./tag-lyrics.cjs');
+const { downloadSettings } = require('./online-download-settings.cjs');
 
 const maxAudio = 256 * 1024 * 1024;
-const audioDomains = ['music.126.net', 'music.163.com'];
 const decoderNames = new Map([
   ['flac', { ext: '.flac', codec: 'FLAC', lossless: true }],
   ['alac', { ext: '.m4a', codec: 'ALAC', lossless: true }],
@@ -49,8 +49,11 @@ async function writeFlacLyrics(file, edits) {
   }
 }
 async function receive(lease, filename, update, signal) {
-  let url = publicUrl(lease.url, audioDomains, true);
-  if (!url || lease.permission !== 'save' || lease.expiresAt <= Date.now()) throw new OnlineError('restricted');
+  const domains = lease.transport?.mediaDomains;
+  if (!Array.isArray(domains) || !domains.length) throw new OnlineError('restricted');
+  let url = publicUrl(lease.url, domains, true);
+  if (!url || lease.permission !== 'save' || !Number.isFinite(lease.expiresAt) || lease.expiresAt <= Date.now())
+    throw new OnlineError('restricted');
   if (!Number.isSafeInteger(lease.size) || lease.size < 2048 || lease.size > maxAudio)
     throw new OnlineError('invalid-response');
   const deadlineAbort = new AbortController();
@@ -59,12 +62,13 @@ async function receive(lease, filename, update, signal) {
   let timer = deadline(15000, 'timeout', deadlineAbort);
   try {
     for (let n = 0; n < 3; n++) {
-      response = await fetch(url, { redirect: 'manual', signal: combined });
+      if (lease.expiresAt <= Date.now()) throw new OnlineError('expired-media');
+      response = await fetch(url, { redirect: 'manual', credentials: 'omit', signal: combined });
       if (response.status < 300 || response.status >= 400) break;
       const location = response.headers.get('location');
       await response.body?.cancel();
       try {
-        url = publicUrl(new URL(location || '', url).href, audioDomains, true);
+        url = location && publicUrl(new URL(location, url).href, domains, true);
       } catch {
         url = '';
       }
@@ -126,6 +130,7 @@ async function inspected(file, lease) {
     !kind ||
     format.lossless !== kind.lossless ||
     kind.codec.toLowerCase() !== lease.codec ||
+    !(Number.isFinite(lease.track.duration) && lease.track.duration > 0) ||
     !(format.duration > 0) ||
     Math.abs(format.duration - lease.track.duration) > Math.max(2, lease.track.duration * 0.03)
   )
@@ -156,35 +161,69 @@ async function decorate(file, lease, info, nativeBin, signal) {
   const handle = taglib.File.createFromPath(file);
   // Tags are supplied by the same provider and version as the resolved resource.
   const existing = info.metadata.common;
+  const settings = downloadSettings(lease.settings);
+  const selected = new Set(settings.fields);
+  let touched = false;
+  function add(field, property, value) {
+    const old = handle.tag[property];
+    if (
+      !selected.has(field) ||
+      (Array.isArray(old) ? old.length : !!old) ||
+      (Array.isArray(value) ? !value.length : !value)
+    )
+      return;
+    handle.tag[property] = value;
+    touched = true;
+  }
+  const asList = (text) => (typeof text === 'string' && text ? [text] : []);
   try {
-    handle.tag.title ||= lease.track.title;
-    if (!handle.tag.performers?.length && lease.track.artist) handle.tag.performers = [lease.track.artist];
-    handle.tag.album ||= lease.track.album || '';
-    if (!handle.tag.pictures?.length && lease.track.image) {
+    const track = lease.track;
+    add('title', 'title', track.title);
+    add('artist', 'performers', asList(track.artist));
+    add('album', 'album', track.album);
+    add('albumArtist', 'albumArtists', asList(track.albumArtist));
+    add('number', 'track', track.number);
+    add('trackCount', 'trackCount', track.trackCount);
+    add('disc', 'disc', track.disc);
+    add('discCount', 'discCount', track.discCount);
+    add('year', 'year', track.year);
+    add('genre', 'genres', asList(track.genre));
+    add('composer', 'composers', asList(track.composer));
+    add('copyright', 'copyright', track.copyright);
+    add('isrc', 'isrc', track.isrc);
+    if (selected.has('cover') && !handle.tag.pictures?.length && track.image) {
       try {
-        const address = publicUrl(lease.track.image, ['music.126.net']);
+        const address = publicUrl(lease.track.image, lease.transport?.imageDomains || []);
         if (address) {
           const pic = await request(address, { signal, bytes: 2 * 1024 * 1024 });
           if (pic.type === 'image/jpeg' && pic.content[0] === 255 && pic.content[1] === 216) {
             const picture = taglib.Picture.fromData(taglib.ByteVector.fromByteArray(pic.content));
             picture.type = taglib.PictureType.FrontCover;
             handle.tag.pictures = [picture];
+            touched = true;
           }
         }
       } catch {
         signal.throwIfAborted();
       }
     }
-    handle.save();
+    if (touched) handle.save();
   } finally {
     handle.dispose();
   }
-  const text = lease.lyrics?.text;
+  const text =
+    settings.lyric === 'none'
+      ? undefined
+      : settings.lyric === 'lrc'
+        ? (lease.lyrics?.alternatives?.lrc ?? (lease.lyrics?.format === 'lrc' ? lease.lyrics.text : undefined))
+        : lease.lyrics?.text;
+  const format = settings.lyric === 'lrc' ? 'lrc' : lease.lyrics?.format;
   const flacEdits = [];
-  if (typeof text === 'string' && text.length && !existing.lyrics?.length) {
+  if (settings.lyric === 'lrc' && lease.lyrics?.text && !text) throw new OnlineError('lyrics-format-unavailable');
+  if (settings.lyricFile !== 'external' && typeof text === 'string' && text.length && !existing.lyrics?.length) {
     const xml = /^\s*(?:<\?xml[^>]*>\s*)?<tt[\s>]/i.test(text);
     if (info.kind.ext === '.flac') {
-      flacEdits.push({ target: xml ? 'new:ttml' : 'new:lrc', text });
+      flacEdits.push({ target: xml ? 'new:ttml' : format === 'yrc' ? 'new:yrc' : 'new:lrc', text });
     } else if (info.kind.ext === '.mp3') {
       tags.write(file, 'id3', 'id3:new', text);
       if (!tags.read(file, 'id3').some((item) => item.text === text)) throw new OnlineError('tag-verification');
@@ -203,8 +242,12 @@ async function decorate(file, lease, info, nativeBin, signal) {
         throw new OnlineError('tag-verification');
     }
   }
-  const auxiliary = { ...lease.lyrics?.auxiliary };
-  if (info.kind.ext === '.flac') {
+  const auxiliary = Object.fromEntries(
+    Object.entries(lease.lyrics?.auxiliary || {}).filter(
+      ([role]) => settings.lyric !== 'none' && settings.languageTracks.includes(role),
+    ),
+  );
+  if (info.kind.ext === '.flac' && settings.lyricFile !== 'external') {
     const previousFields = flacEdits.length || Object.keys(auxiliary).length ? await flac.fields(file) : [];
     const verified = [];
     for (const role of ['translation', 'transliteration']) {
@@ -229,11 +272,22 @@ async function decorate(file, lease, info, nativeBin, signal) {
     }
   }
   const checked = await inspected(file, lease);
-  if (!checked.metadata.common.title || (existing.picture?.length && !checked.metadata.common.picture?.length))
+  if (
+    (existing.title && existing.title !== checked.metadata.common.title) ||
+    (selected.has('title') && lease.track.title && !checked.metadata.common.title) ||
+    (existing.picture?.length && !checked.metadata.common.picture?.length)
+  )
     throw new OnlineError('tag-verification');
   const after = await identity.fingerprint(nativeBin(), file, identity.revision(await fs.stat(file)), signal);
   if (before !== after) throw new OnlineError('tag-verification');
-  return { content: before, auxiliary };
+  const external =
+    settings.lyricFile === 'embedded' || typeof text !== 'string' || !text
+      ? undefined
+      : {
+          text,
+          format: format === 'yrc' ? format : /^\s*(?:<\?xml[^>]*>\s*)?<tt[\s>]/i.test(text) ? 'ttml' : 'lrc',
+        };
+  return { content: before, auxiliary, external };
 }
 
 // TagLib rewrites tag blocks synchronously. Keep that disk and CPU work off the Electron IPC thread.
@@ -298,7 +352,7 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
       await assertDirectory(job.folder);
       job.state = 'resolving';
       emit();
-      const lease = await resolve(job, signal);
+      const lease = { ...(await resolve(job, signal)), settings: job.settings };
       signal.throwIfAborted();
       job.title = lease.track.title;
       job.state = 'downloading';
@@ -318,9 +372,16 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
       const info = await inspected(part, lease);
       file = part + info.kind.ext;
       await fs.rename(part, file);
-      const { content, auxiliary } = await decorateAsync(file, lease, nativeBin(), signal);
+      const { content, auxiliary, external } = await decorateAsync(file, lease, nativeBin(), signal);
       signal.throwIfAborted();
-      const stem = segment([lease.track.artist, lease.track.title].filter(Boolean).join(' - ')) || 'Audio';
+      const settings = downloadSettings(job.settings);
+      const naming =
+        settings.naming === 'title'
+          ? [lease.track.title]
+          : settings.naming === 'numbered'
+            ? [lease.track.number && String(lease.track.number).padStart(2, '0'), lease.track.title]
+            : [lease.track.artist, lease.track.title];
+      const stem = segment(naming.filter(Boolean).join(' - ')) || 'Audio';
       const prefix = /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(stem) ? '_' + stem : stem;
       let final;
       await assertDirectory(job.folder);
@@ -331,10 +392,7 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
           break;
         } catch (error) {
           if (error.code !== 'EEXIST' || i === 100) throw error;
-          if (job.conflict === 'skip') {
-            job.state = 'skipped';
-            return;
-          }
+          if (job.conflict === 'skip') return 'skipped';
         }
       }
       job.import = {
@@ -344,11 +402,16 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
         detected: info.detected,
         content,
         auxiliary,
+        external,
       };
-      job.state = 'importing';
-      emit();
-      await library.importOnline(job.import);
-      job.state = 'complete';
+      if (settings.importTrack) {
+        job.state = 'importing';
+        emit();
+        await library.importOnline(job.import);
+      } else if (external || Object.keys(auxiliary).length) {
+        await library.writeOnlineSidecars(job.import);
+      }
+      return 'complete';
     } finally {
       await remove(part);
       if (file) await remove(file);
@@ -363,11 +426,12 @@ function createDownloads({ resolve, library, nativeBin, publish }) {
       if (job.import) {
         job.state = 'importing';
         emit();
-        await library.importOnline(job.import);
+        if (downloadSettings(job.settings).importTrack) await library.importOnline(job.import);
+        else await library.writeOnlineSidecars(job.import);
         job.state = 'complete';
         return;
       }
-      await execute(job);
+      job.state = await execute(job);
     } catch (error) {
       job.problem = error instanceof OnlineError ? error.code : job.import ? 'import-failed' : 'download-failed';
       job.state = job.abort.signal.aborted ? 'cancelled' : 'failed';

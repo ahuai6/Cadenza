@@ -1,5 +1,7 @@
 # 测试
 
+当前音乐厅公开能力、Apple MusicKit 配置、下载范围与标签设置见 [G5.5-BR2](G55-BR2.md)。
+
 G5.5-BR 增加 Apple Music 官方与回退隔离、四平台界面、QQ SDK 榜单、FLAC 内嵌译文与账号权限查询验证。运行 `npm run online:verify` 后，用隔离资料的 `tests/hall-live-desktop.cjs` 和 `tests/hall-download-desktop.cjs` 分别验证公网与本地数据路径。 [验证边界](G55-BR.md)
 
 ## G5.5-A 编辑模式与音乐厅

@@ -84,22 +84,22 @@ async function run() {
       ['apple', 'Apple Music'],
     ]) {
       await hall.locator('#platform-' + id).click();
-      await hall.getByLabel('歌曲搜索').fill(id === 'apple' ? 'Bohemian Rhapsody' : 'Bach');
+      await hall.getByLabel('歌曲搜索').fill(id === 'apple' ? 'Bohemian Rhapsody' : id === 'qq' ? '周杰伦' : 'Bach');
       await hall.getByRole('button', { name: '搜索', exact: true }).click();
       const section = hall.getByRole('region', { name: '在线目录' });
-      if (id === 'qq') {
-        const warning = section.getByRole('status').filter({ hasText: /来源|超时|未找到|没有可用|返回|失败|请求/ });
-        await section.locator('div[aria-busy=false] ul li').first().or(warning).first().waitFor({ timeout: 18000 });
-        if (await warning.count()) {
-          assert.equal(await section.locator('ul li').count(), 0);
-          console.log(
-            'QQ search returned explicit upstream unavailability or no results:',
-            await warning.allTextContents(),
-          );
-          continue;
-        }
+      try {
+        await section.locator('div[aria-busy=false] ul li').first().waitFor({ timeout: 18000 });
+      } catch (error) {
+        console.error(
+          id,
+          'catalog result:',
+          await section
+            .getByRole('status')
+            .innerText()
+            .catch(() => 'unknown'),
+        );
+        throw error;
       }
-      await section.locator('div[aria-busy=false] ul li').first().waitFor({ timeout: 18000 });
       const count = await section.locator('div[aria-busy=false] ul li').count();
       assert.ok(count > 0, name);
       console.log('Live catalog:', id, count);
@@ -114,6 +114,33 @@ async function run() {
     assert.ok(charts.ok && charts.data.rows.length > 0, JSON.stringify(charts));
     assert.ok(charts.data.rows.every((row) => row.ref.namespace === 'charts'));
     console.log('Live QQ charts:', charts.data.rows.length);
+    const sources = await hall.evaluate(async () => {
+      const api = window.cadenzaHall;
+      const targets = [
+        ['qq', 'recommendations', {}],
+        ['qq', 'collection', { namespace: 'albums', id: '0024bjiL2aocxT' }],
+        ['qq', 'lyrics', { namespace: 'songs', id: '001zMQr71F1Qo8' }],
+        ['kugou', 'recommendations', {}],
+        ['kugou', 'charts', {}],
+        ['kugou', 'collection', { namespace: 'charts', id: '8888', offset: 25 }],
+        ['netease', 'collection', { namespace: 'albums', id: '172276' }],
+      ];
+      const results = [];
+      for (const [provider, capability, input] of targets) {
+        const result = await api.catalog(provider, capability, input);
+        results.push({
+          provider,
+          capability,
+          count: result?.data?.rows?.length || 0,
+          format: result?.lyrics?.format,
+          error: result?.code,
+        });
+      }
+      return results;
+    });
+    for (const source of sources) assert.ok(source.count > 0 || source.format === 'lrc', JSON.stringify(source));
+    console.log('Live provider operations:', JSON.stringify(sources));
+
     await hall.getByRole('button', { name: '试听', exact: true }).first().click();
     await hall.getByText(/^正在试听/).waitFor({ timeout: 25000 });
     await main.waitForFunction(() => window.__cadenza.api.playback.get().phase === 'paused' && window.hallWave());

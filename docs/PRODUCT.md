@@ -1,5 +1,7 @@
 # Cadenza 产品架构
 
+当前音乐厅公开能力、Apple MusicKit 配置、下载范围与标签设置见 [G5.5-BR2](G55-BR2.md)。
+
 G5.5-BR 的音乐厅只展示网易云、QQ 音乐、酷狗和 Apple Music。LyricsFlow 为 Apple Music 提供公共目录回退、歌词和短试听，实际来源在目录页标识。 [当前接入](G55-BR.md)
 
 Cadenza 以本地音乐为核心，把聆听、歌词视觉和创作建立在同一套曲库之上。

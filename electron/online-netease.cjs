@@ -70,6 +70,9 @@ function track(item) {
     title: boundedText(item.name),
     artist: boundedText((item.ar || item.artists || []).map((a) => a.name).join(' / ')),
     album: boundedText(album?.name),
+    albumId: idValid(album?.id) ? String(album.id) : undefined,
+    albumArtist: boundedText(album?.ar?.map((item) => item.name).join(' / ')),
+    number: Number.isSafeInteger(item.no) && item.no > 0 ? item.no : undefined,
     image: publicUrl(album?.picUrl, ['music.126.net']),
     duration: Number.isFinite(item.dt) ? item.dt / 1000 : undefined,
     preview: false,
@@ -157,6 +160,27 @@ async function collection(id, offset, ctx) {
   if (wanted.some((id) => !index.has(id))) throw new OnlineError('incomplete');
   return { rows: wanted.map((id) => index.get(id)), more: ids.length > offset + wanted.length };
 }
+async function albumCollection(id, offset, { signal }) {
+  const reply = await request('https://music.163.com/api/v1/album/' + idOf(id), {
+    signal,
+    headers: { Referer: 'https://music.163.com/' },
+  });
+  let data;
+  try {
+    data = JSON.parse(reply.content);
+  } catch {
+    throw new OnlineError('invalid-response');
+  }
+  if (data.code !== 200 || String(data.album?.id) !== id || !Array.isArray(data.songs))
+    throw new OnlineError('not-found');
+  return {
+    rows: data.songs
+      .slice(offset, offset + 25)
+      .map(track)
+      .filter(Boolean),
+    more: offset + 25 < data.songs.length,
+  };
+}
 function registerNetease(service) {
   service.register(
     {
@@ -190,7 +214,11 @@ function registerNetease(service) {
         const data = await call('toplist', {}, ctx);
         return { rows: filtered(data.list, playlist), more: false };
       },
-      collection: ({ id, offset }, ctx) => collection(id, offset, ctx),
+      collection({ id, namespace, offset }, ctx) {
+        if (namespace === 'albums') return albumCollection(id, offset, ctx);
+        if (namespace === 'playlists') return collection(id, offset, ctx);
+        throw new OnlineError('invalid');
+      },
       account: accounts(service),
       async lyrics({ id, namespace }, ctx) {
         if (namespace !== 'songs') throw new OnlineError('invalid');
@@ -240,10 +268,12 @@ function registerNetease(service) {
         try {
           const text = await call('lyric', { id }, ctx);
           const tracks = lyricTracks(text);
-          const original = tracks.original;
+          const original = tracks.timed || tracks.original;
           if (original !== undefined) {
             lyrics = {
               text: original,
+              format: tracks.timed ? 'yrc' : 'lrc',
+              alternatives: { lrc: tracks.original, yrc: tracks.timed },
               auxiliary: {
                 translation: tracks.translation,
                 transliteration: tracks.transliteration,
@@ -258,6 +288,7 @@ function registerNetease(service) {
         return {
           url: address.href,
           permission: 'save',
+          transport: { mediaDomains: ['music.126.net', 'music.163.com'], imageDomains: ['music.126.net'] },
           expiresAt: Date.now() + 90000,
           size: Number(media.size),
           codec: String(media.encodeType).toLowerCase(),

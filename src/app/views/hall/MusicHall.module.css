@@ -423,3 +423,61 @@
 .taskBlock progress {
   width: 100%;
 }
+
+.writeOptions {
+  display: grid;
+  gap: 16px;
+}
+.writeOptions fieldset {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  border: 0;
+  margin: 0;
+  padding: 0.65rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.8rem;
+}
+.writeOptions legend {
+  padding: 0;
+  font-weight: 600;
+}
+.writeOptions fieldset label,
+.downloadSettings .catalogTabs label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.writeOptions fieldset label:has(input[type='checkbox']) {
+  min-block-size: 44px;
+  min-inline-size: 44px;
+}
+.writeOptions input[type='checkbox'],
+.downloadSettings input[type='checkbox'] {
+  accent-color: currentColor;
+}
+.downloadSettings .catalogTabs {
+  gap: 0.65rem 1rem;
+}
+.downloadSettings,
+.writeOptions select {
+  min-inline-size: 0;
+}
+.downloadSettings select,
+.writeOptions select {
+  max-inline-size: 100%;
+  min-block-size: 34px;
+  padding-inline: 0.65rem;
+  border: 0;
+  border-radius: var(--r-2);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font: inherit;
+}
+.downloadSettings button.saveDownloadSettings {
+  background: var(--fg);
+  color: var(--hall-paper);
+}
+.downloadSettings button.saveDownloadSettings:hover:not(:disabled) {
+  background: var(--fg-2);
+}

@@ -3,6 +3,7 @@ const { OnlineError } = require('./online.cjs');
 const { boundedText, catalogId, publicUrl } = require('./online-providers.cjs');
 const audition = require('./online-preview.cjs');
 const { createDownloads } = require('./online-downloads.cjs');
+const { downloadSettings, settingsPatch } = require('./online-download-settings.cjs');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { assertDirectory, replace } = require('./library-storage.cjs');
@@ -14,6 +15,7 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
   let previewStatus = null;
   const downloadPrefsFile = path.join(app.getPath('userData'), 'library', 'online-download-preferences.json');
   let downloadPrefs = {};
+  let scopedDownloadPrefs = {};
   let downloadPrefsWrite = Promise.resolve();
   let downloadPrefsLoad;
   function loadDownloadPrefs() {
@@ -23,8 +25,36 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
       const data = JSON.parse(await fs.readFile(downloadPrefsFile, 'utf8'));
       if (typeof data.folder === 'string' && path.isAbsolute(data.folder) && VALID_TIERS.includes(data.tier))
         downloadPrefs = { folder: data.folder, tier: data.tier };
+      if (data.scopes && typeof data.scopes === 'object') {
+        for (const id of ['global', ...online.snapshot().providers.map((provider) => provider.id)]) {
+          if (!Object.hasOwn(data.scopes, id)) continue;
+          const scope = data.scopes[id];
+          scopedDownloadPrefs[id] = {
+            ...settingsPatch(scope),
+            ...(VALID_TIERS.includes(scope?.tier) ? { tier: scope.tier } : {}),
+            ...(typeof scope?.folder === 'string' && path.isAbsolute(scope.folder) ? { folder: scope.folder } : {}),
+          };
+        }
+      }
     })().catch(() => {});
     return downloadPrefsLoad;
+  }
+  function saveDownloadPrefs() {
+    const body = JSON.stringify({ ...downloadPrefs, scopes: scopedDownloadPrefs });
+    downloadPrefsWrite = downloadPrefsWrite
+      .catch(() => {})
+      .then(async () => {
+        await assertDirectory(path.dirname(downloadPrefsFile));
+        await replace(downloadPrefsFile, body);
+      });
+    return downloadPrefsWrite;
+  }
+  function effectiveDownloadPrefs(provider) {
+    return { ...downloadPrefs, ...scopedDownloadPrefs.global, ...scopedDownloadPrefs[provider] };
+  }
+  function publicDownloadPrefs(provider) {
+    const settings = effectiveDownloadPrefs(provider);
+    return { ...downloadSettings(settings), hasDirectory: !!settings.folder, tier: settings.tier };
   }
   const displayPreview = () => {
     if (!previewStatus) return tell('hall:preview-display', null);
@@ -129,7 +159,7 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
       ? {
           ...online.snapshot(),
           appearance: preferences(),
-          downloadPreference: { hasDirectory: !!downloadPrefs.folder, tier: downloadPrefs.tier },
+          downloadPreference: publicDownloadPrefs(),
         }
       : null;
   });
@@ -249,14 +279,34 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
     void snapshotWrites.catch(() => console.warn('[online] playlist snapshot unavailable'));
   }
   ipcMain.handle('hall:account', async (event, provider, action, raw) => {
-    if (!authorized(event) || !['begin', 'poll', 'cancel', 'logout'].includes(action))
+    if (!authorized(event) || !['begin', 'poll', 'cancel', 'logout', 'import'].includes(action))
       return { ok: false, code: 'restricted' };
     try {
+      let credentials;
+      if (action === 'import') {
+        if (provider !== 'apple') return { ok: false, code: 'invalid' };
+        const picked = await dialog.showOpenDialog(window, {
+          properties: ['openFile'],
+          filters: [{ name: 'MusicKit JSON', extensions: ['json'] }],
+        });
+        if (!authorized(event) || picked.canceled || !picked.filePaths[0]) return { ok: false, code: 'cancelled' };
+        const file = await fs.open(picked.filePaths[0], 'r');
+        try {
+          const stat = await file.stat();
+          if (!stat.isFile() || stat.size > 16384) return { ok: false, code: 'invalid' };
+          const data = Buffer.alloc(16385);
+          const { bytesRead } = await file.read(data, 0, data.length, 0);
+          if (bytesRead > 16384) return { ok: false, code: 'invalid' };
+          credentials = JSON.parse(data.subarray(0, bytesRead).toString('utf8'));
+        } finally {
+          await file.close();
+        }
+      }
       const result = await online.invoke({
         provider,
         capability: 'account',
         owner: event.sender.id,
-        input: { action, id: catalogId(raw?.id), account: catalogId(raw?.account) },
+        input: { action, id: catalogId(raw?.id), account: catalogId(raw?.account), credentials },
       });
       if (action === 'logout') {
         await loadSnapshots();
@@ -320,6 +370,29 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
     }
   });
   ipcMain.handle('hall:download-list', (event) => (authorized(event) ? downloads.snapshot() : []));
+  ipcMain.handle('hall:download-settings', async (event, scope, command, raw) => {
+    if (!authorized(event) || !(scope === 'global' || online.snapshot().providers.some(({ id }) => id === scope)))
+      return null;
+    await loadDownloadPrefs();
+    if (!authorized(event)) return null;
+    if (command === 'read') return publicDownloadPrefs(scope);
+    if (command === 'inherit' && scope !== 'global') {
+      delete scopedDownloadPrefs[scope];
+    } else if (command === 'save') {
+      scopedDownloadPrefs[scope] = {
+        ...scopedDownloadPrefs[scope],
+        ...settingsPatch(raw),
+        ...(VALID_TIERS.includes(raw?.tier) ? { tier: raw.tier } : {}),
+      };
+    } else if (command === 'folder') {
+      const picked = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
+      if (!authorized(event) || picked.canceled || !picked.filePaths[0]) return null;
+      await assertDirectory(picked.filePaths[0]);
+      scopedDownloadPrefs[scope] = { ...scopedDownloadPrefs[scope], folder: picked.filePaths[0] };
+    } else return null;
+    await saveDownloadPrefs();
+    return publicDownloadPrefs(scope);
+  });
   ipcMain.handle('hall:download-variants', async (event, provider, raw) => {
     if (!authorized(event)) return { ok: false, code: 'restricted' };
     const id = catalogId(raw?.track);
@@ -375,7 +448,9 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
     try {
       await loadDownloadPrefs();
       if (!authorized(event)) return { ok: false, code: 'cancelled' };
-      let folder = raw?.useDefault === true ? downloadPrefs.folder : undefined;
+      const prefs = effectiveDownloadPrefs(provider);
+      const settings = downloadSettings(prefs, undefined, raw?.settings);
+      let folder = raw?.useDefault === true ? prefs.folder : undefined;
       if (folder) {
         try {
           await assertDirectory(folder);
@@ -385,7 +460,7 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
       }
       if (!folder) {
         const picked = await dialog.showOpenDialog(window, {
-          defaultPath: downloadPrefs.folder || app.getPath('music'),
+          defaultPath: prefs.folder || app.getPath('music'),
           properties: ['openDirectory'],
         });
         if (picked.canceled || !picked.filePaths[0]) return { ok: false, code: 'cancelled' };
@@ -400,24 +475,18 @@ function musicHall({ online, fromMain, preferences, asset, getPlayer, library, n
         region: /^[a-z]{2}$/.test(raw?.region) ? raw.region : undefined,
         owner: event.sender.id,
         title: boundedText(raw?.title),
-        conflict: raw?.conflict === 'skip' ? 'skip' : 'keep',
+        conflict: raw?.conflict === 'skip' ? 'skip' : raw?.conflict === 'keep' ? 'keep' : settings.conflict,
+        settings,
         folder,
       });
       if (raw?.remember === true) {
-        downloadPrefs = { folder, tier };
-        const body = JSON.stringify(downloadPrefs);
-        downloadPrefsWrite = downloadPrefsWrite
-          .catch(() => {})
-          .then(async () => {
-            await assertDirectory(path.dirname(downloadPrefsFile));
-            await replace(downloadPrefsFile, body);
-          });
-        void downloadPrefsWrite.catch(() => console.warn('[online] download preferences unavailable'));
+        scopedDownloadPrefs[provider] = { ...scopedDownloadPrefs[provider], folder, tier };
+        void saveDownloadPrefs().catch(() => console.warn('[online] download preferences unavailable'));
       }
       return {
         ok: true,
         task,
-        downloadPreference: { hasDirectory: !!downloadPrefs.folder, tier: downloadPrefs.tier },
+        downloadPreference: publicDownloadPrefs(provider),
       };
     } catch (error) {
       return { ok: false, code: error instanceof OnlineError ? error.code : 'download-failed' };

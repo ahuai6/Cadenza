@@ -217,6 +217,7 @@ async function run(ui) {
           'downloadAct',
           'downloadAdd',
           'downloadReveal',
+          'downloadSettings',
           'downloadVariants',
           'downloads',
           'onAppearance',
@@ -232,7 +233,22 @@ async function run(ui) {
     );
     assert.equal(await get(() => window.cadenzaHall), undefined);
     const hallState = await hall.evaluate(() => window.cadenzaHall.read());
-    assert.deepEqual(hallState.downloadPreference, { hasDirectory: true, tier: 'lossless' });
+    assert.equal(hallState.downloadPreference.hasDirectory, true);
+    assert.equal(hallState.downloadPreference.tier, 'lossless');
+    const settings = await hall.evaluate(async () => {
+      const api = window.cadenzaHall;
+      await api.downloadSettings('global', 'save', { naming: 'title', fields: ['title', 'artist'] });
+      const local = await api.downloadSettings('netease', 'save', { lyric: 'none', fields: ['album'] });
+      const inherited = await api.downloadSettings('qq', 'read');
+      const reset = await api.downloadSettings('netease', 'inherit');
+      return { local, inherited, reset };
+    });
+    assert.deepEqual(settings.local.fields, ['album']);
+    assert.equal(settings.local.lyric, 'none');
+    assert.equal(settings.local.naming, 'title');
+    assert.deepEqual(settings.inherited.fields, ['title', 'artist']);
+    assert.deepEqual(settings.reset.fields, settings.inherited.fields);
+    assert.equal(settings.reset.lyric, 'native');
     assert.equal(await hall.evaluate(() => window.cadenzaHall.downloadReveal('fictional-task')), false);
 
     assert.equal(app.windows().length, 2);
@@ -353,6 +369,19 @@ async function run(ui) {
     await open.click();
     const reopened = await next;
     await reopened.getByRole('tab', { name: 'Apple Music' }).waitFor();
+    const zh = ui === 'classic';
+    await reopened.getByRole('button', { name: zh ? '下载任务' : 'Downloads', exact: true }).click();
+    const panel = reopened.getByRole('heading', { name: zh ? '下载设置' : 'Download settings', exact: true });
+    await panel.waitFor();
+    const section = panel.locator('..');
+    await section.getByRole('combobox', { name: zh ? '设置范围' : 'Settings scope' }).selectOption('netease');
+    const album = section.getByRole('checkbox', { name: zh ? '专辑' : 'Album', exact: true });
+    await album.waitFor();
+    await album.check();
+    await section.getByRole('button', { name: zh ? '保存设置' : 'Save settings', exact: true }).click();
+    await section.getByText(zh ? '已保存下载设置' : 'Download settings saved').waitFor();
+    await reopened.screenshot({ path: path.join(scratch, ui + '-download-settings.png') });
+
     assert.deepEqual(errors, []);
     console.log('Pass isolated Electron', ui, layout);
   } finally {

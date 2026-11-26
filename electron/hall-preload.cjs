@@ -7,6 +7,7 @@ const subscribe = (channel) => (callback) => {
 contextBridge.exposeInMainWorld('cadenzaHall', {
   read: () => ipcRenderer.invoke('hall:read'),
   downloads: () => ipcRenderer.invoke('hall:download-list'),
+  downloadSettings: (scope, command, input) => ipcRenderer.invoke('hall:download-settings', scope, command, input),
   downloadVariants: (provider, input) => ipcRenderer.invoke('hall:download-variants', provider, input),
   downloadAdd: (provider, input) => ipcRenderer.invoke('hall:download-add', provider, input),
   downloadAct: (id, action) => ipcRenderer.invoke('hall:download-act', id, action),
