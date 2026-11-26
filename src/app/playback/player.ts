@@ -1,3 +1,4 @@
+import type { LyricMutation } from '../bridge';
 // Application integration for the playback coordinator and the independent visual Session.
 import { createStore } from '../../core/emitter';
 import {
@@ -809,28 +810,51 @@ async function applyLyricsEdit(text: string, o: { edit?: boolean }) {
   }
   const { shownId: id, session } = player.get();
   if (!id || !session || !Lib) return false;
-  const track = trackOf(id);
-  const tag = settings.get().lyricsTarget === 'tag' && (!ttml || track?.ext === 'm4a' || track?.ext === 'mp4');
+  const tag = settings.get().lyricsTarget === 'tag';
   const result = await (tag
-    ? writeIntoFile(id, text)
+    ? writeIntoFile(id, () => Lib!.writeLyrics(id, text, 'tag'))
     : Lib.writeLyrics(id, text, ttml ? 'ttml' : 'lrc').catch(() => ({ ok: false as const, target: undefined })));
   if (!result.ok) return false;
-  const { shownId, session: current } = player.get();
-  if (shownId === id && current) {
-    current.setLyrics(text);
-    await current.flush();
-    if (player.get().session !== current) return true;
+  return refreshLyrics(id, {
+    source: ttml ? 'ttml' : result.target === 'tag' ? 'embedded' : 'lrc',
+    text,
+  });
+}
+async function refreshLyrics(id: string, lyrics: Awaited<ReturnType<NonNullable<typeof Lib>['lyrics']>>) {
+  const { shownId, session } = player.get();
+  if (shownId !== id || !session) return true;
+  session.setLyrics(lyrics?.text || '');
+  await session.flush();
+  if (player.get().session === session) {
     engine.invalidate();
-    projection.set({
-      hasLyrics: current.hasLyrics,
-      lyrics: { source: ttml ? 'ttml' : result.target === 'tag' ? 'embedded' : 'lrc', text },
-      rev: player.get().rev + 1,
-    });
+    projection.set({ hasLyrics: session.hasLyrics, lyrics, rev: player.get().rev + 1 });
   }
   return true;
 }
+
+export function previewLyrics(id: string, text: string) {
+  if (player.get().shownId !== id) return Promise.resolve(false);
+  return refreshLyrics(id, { source: isTtml(text) ? 'ttml' : 'lrc', text });
+}
+export async function resetLyricPreview(id: string) {
+  if (!Lib || player.get().shownId !== id) return false;
+  return refreshLyrics(id, await Lib.lyrics(id));
+}
+export async function switchLyricSource(id: string, source: string) {
+  if (!Lib || !(await Lib.selectLyrics(id, source))) return false;
+  return refreshLyrics(id, await Lib.lyrics(id));
+}
+export async function commitLyricField(id: string, request: LyricMutation) {
+  if (!Lib || !canEdit()) return { ok: false, why: 'editing-disabled' };
+  return editTask(async () => {
+    const write = () => Lib!.mutateLyrics(id, request);
+    const result = await (request.source.startsWith('sidecar:') ? write() : writeIntoFile(id, write));
+    if (result.ok) await refreshLyrics(id, await Lib!.lyrics(id));
+    return result;
+  });
+}
 /** Serialize writes and keep any new prepare for this file behind the edit. Playback controls retain their latest intent. */
-async function writeIntoFile(id: string, text: string) {
+async function writeIntoFile(id: string, write: () => ReturnType<NonNullable<typeof Lib>['writeLyrics']>) {
   const { target, route, phase } = transport.get();
   const current = target?.id === id;
   const seq = current ? prepared?.nativeSeq : undefined;
@@ -846,14 +870,8 @@ async function writeIntoFile(id: string, text: string) {
         return { ok: false as const, target: undefined };
       }
     }
-    const r = await Lib!.writeLyrics(id, text, 'tag').catch((e) => ({ ok: false, target: undefined, why: String(e) }));
-    if (!r.ok && r.why === 'unsupported') {
-      const fallback = await Lib!
-        .writeLyrics(id, text, isTtml(text) ? 'ttml' : 'lrc')
-        .catch(() => ({ ok: false as const, target: undefined }));
-      toast(tx('s.lyr.tagUnsupported'));
-      return fallback;
-    } else if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
+    const r = await write().catch((e) => ({ ok: false, target: undefined, why: String(e) }));
+    if (!r.ok) toast(tx(r.why === 'busy' ? 's.lyr.tagBusy' : 's.lyr.tagFail', { why: r.why || '' }), 4200);
     else {
       const fresh = await Lib!.get().catch(() => null);
       if (fresh) lib.set(fresh);

@@ -6,7 +6,7 @@ import { ui, lib, settings, useStore, trackOf, keep, type Page } from '../state'
 import { Icon } from '../ui/icons';
 import { ContextMenu, Cover, Toast, Turn } from '../ui/kit';
 import { player } from '../playback/player';
-import { RHYTHM_VERSION } from '../../engine';
+import { BackgroundActivity } from '../ui/BackgroundActivity';
 import mark from '../brand/mark.svg';
 import { LibraryView } from './Library';
 import { PosterWall } from './Wall';
@@ -212,7 +212,7 @@ function TitleBar() {
         ))}
       </nav>
       <div className={s.tbEnd}>
-        <Activity />
+        <BackgroundActivity className={s.busy} />
         <MusicHallButton className={s.hallEntry} />
         <EditModeButton className={s.modeEntry} />
         <button
@@ -298,29 +298,4 @@ function TitleBar() {
   );
 }
 
-/** Work going on in the background (reading the folders, reading the songs' rhythm): a quiet mark beside the settings,
- *  which says what it is when asked (hover, focus). Nothing when there is none. */
-function Activity() {
-  const prog = useStore(lib, (x) => x.progress),
-    tracks = useStore(lib, (x) => x.tracks),
-    an = useStore(lib, (x) => x.analysis);
-  let done = 0,
-    total = 0;
-  // (without a progress event yet: the songs read by this version of the rhythm analysis — an older one is to be redone)
-  if (an) {
-    done = an.done;
-    total = an.total;
-  } else {
-    const playable = tracks.filter((t) => !t.protected);
-    total = playable.length;
-    done = playable.filter((t) => t.analyzed === RHYTHM_VERSION).length;
-  }
-  const text = prog.phase === 'scan' ? tx('s.scanning', prog) : done < total ? tx('s.analyzing', { done, total }) : '';
-  if (!text) return null;
-  return (
-    <span className={s.busy} role="status" title={text} aria-label={text} data-test="activity">
-      <i />
-    </span>
-  );
-}
 export { keep };

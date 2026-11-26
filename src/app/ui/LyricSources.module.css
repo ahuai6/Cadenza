@@ -1,0 +1,73 @@
+.editor,
+.draft {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.draft {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.editor select,
+.draft select,
+.draft input {
+  max-width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: var(--r-1);
+  background: var(--space-inset, var(--surface, Canvas));
+  color: var(--fg, var(--ink, CanvasText));
+}
+.editor textarea {
+  width: 100%;
+  min-height: 10rem;
+  resize: vertical;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: var(--r-2);
+  background: transparent;
+  color: inherit;
+  line-height: 1.55;
+}
+.lines {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.2rem;
+}
+.line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.5rem;
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+.line input[aria-label$='开始'],
+.line input[aria-label$='结束'] {
+  width: 6rem;
+}
+.words {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+.preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.word {
+  max-width: 100%;
+}
+.draft details {
+  min-width: 0;
+}
+.preview {
+  max-height: 14rem;
+  overflow: auto;
+}

@@ -1,0 +1,72 @@
+.button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  color: inherit;
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+.button:hover,
+.button[aria-expanded='true'] {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+.button span {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid currentColor;
+  opacity: 0.53;
+}
+.button[data-active='true'] span {
+  opacity: 1;
+  background: #b64323;
+  border-color: #b64323;
+  box-shadow: 0 0 0 3px #b6432322;
+}
+.popup {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(320px, 95vw);
+  max-height: min(70vh, 500px);
+  overflow: auto;
+  border: 0;
+  border-radius: var(--r-3);
+  padding: 15px;
+  color: var(--ink, #222);
+  background: var(--surface, #faf8f4);
+  box-shadow: 0 12px 45px #0003;
+  -webkit-app-region: no-drag;
+}
+.popup header,
+.popup dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.popup dl {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  border-radius: var(--r-2);
+}
+.popup dd {
+  margin: 0;
+}
+.popup ul {
+  padding: 0 0 0 17px;
+  overflow-wrap: anywhere;
+}
+.popup button {
+  border: 0;
+  border-radius: var(--r-1);
+  padding: 5px 9px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}

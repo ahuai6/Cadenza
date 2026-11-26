@@ -330,33 +330,21 @@
   gap: 6px;
   align-items: center;
 }
-/* the lyric list's editor: the song's lyrics as text, saved where the settings say (into the file or beside it) */
+/* The source editor scrolls inside the reading panel. */
 .editor {
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  overflow: auto;
+  overscroll-behavior: contain;
   gap: 8px;
   padding: 0 12px 12px;
 }
-.editor textarea {
-  flex: 1;
-  min-height: 0;
-  resize: none;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: var(--r-3);
-  background: var(--space-inset);
-  color: var(--fg);
-  font:
-    13px/1.6 ui-monospace,
-    'Cascadia Mono',
-    Consolas,
-    monospace;
-  outline: none;
-}
-.editor .actions {
-  padding: 0;
+.editor :global([data-lyric-editor-lines]) {
+  max-height: none;
+  overflow: visible;
 }
 .wb {
   width: 36px;

@@ -358,6 +358,27 @@ async function run() {
       if (wasAnalyzed) assert.equal(rescanned.analyzed, wasAnalyzed);
     }
     await win.evaluate(() => window.__cadenza.api.stopPlayback());
+    const clearedFile = path.join(music, 'aac-plain.m4a');
+    const oldAtoms = await manifest(clearedFile);
+    const clearId = id('aac-plain.m4a');
+    const lyrics = await win.evaluate((id) => window.cadenzaLib.lyricSources(id), clearId);
+    const field = lyrics.fields.find((item) => item.id === 'mp4:0');
+    assert.ok(field?.writable);
+    assert.deepEqual(
+      await win.evaluate(
+        ({ id, field }) =>
+          window.cadenzaLib.mutateLyrics(id, {
+            source: field.id,
+            revision: field.revision,
+            text: null,
+          }),
+        { id: clearId, field },
+      ),
+      { ok: true, target: 'tag' },
+    );
+    assert.equal(await win.evaluate((id) => window.cadenzaLib.lyrics(id), clearId), null);
+    assert.deepEqual(await manifest(clearedFile), oldAtoms);
+    assert.ok(fs.readdirSync(music).some((filename) => filename.startsWith('aac-plain.m4a.cadenza-backup-')));
     const changedFile = path.join(music, '24-empty.m4a');
     const external = fs.statSync(changedFile);
     fs.utimesSync(changedFile, external.atime, new Date(external.mtimeMs + 10000));

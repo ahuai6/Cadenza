@@ -8,7 +8,8 @@ import { desktop, offerFile, pickSavePath, D, Lib, type Track } from '../../brid
 import { ui, useStore, toast } from '../../state';
 import { Icon } from '../../ui/icons';
 import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropdown, usePresence } from '../../ui/kit';
-import { CueBar, cueKeyDown } from '../../ui/cues';
+import { LyricTextEditor } from '../../ui/LyricTextEditor';
+import { isTtml } from '../../../engine';
 import { yieldAudio, songForWorkshop } from '../../playback/player';
 import { storedStyle } from '../../../theme/style';
 import { StylePage, EndPane, ExportPanel } from '../panes';
@@ -466,7 +467,6 @@ function LyricsPane({ s: ss, draftKey }: { s: Session; draftKey: string }) {
   const [bpm, setBpm, clearBpm, syncBpm] = useEditingDraft('bpm:' + draftKey, () => String(ss.spec.bpm || 120));
   const [projMsg, setProjMsg] = useState('');
   const editing = useEditing();
-  const ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     sync(ss.spec.lyrics);
   }, [ss, ss.spec.lyrics]);
@@ -512,16 +512,7 @@ function LyricsPane({ s: ss, draftKey }: { s: Session; draftKey: string }) {
             <p dangerouslySetInnerHTML={{ __html: tx('lyr.marksHelp') }} />
             <p>{tx('lyr.auto')}</p>
           </details>
-          <CueBar target={ta} />
-          <textarea
-            ref={ta}
-            className={s.lyrics}
-            spellCheck={false}
-            aria-label={tx('lyr.ta')}
-            value={text}
-            onKeyDown={cueKeyDown}
-            onChange={(e) => setText(e.target.value)}
-          />
+          <LyricTextEditor label={tx('lyr.ta')} className={s.lyrics} value={text} update={setText} xml={isTtml(text)} />
           <Row>
             <TextField
               label="BPM"

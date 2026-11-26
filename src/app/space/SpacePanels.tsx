@@ -1,3 +1,5 @@
+import { BackgroundActivity } from '../ui/BackgroundActivity';
+import { LyricSourcesEditor } from '../ui/LyricSources';
 // The space's player bar, completed: the lyric list (the same list the classic effect lyrics open), the play queue and
 // the play mode, as the classic player card has them. The buttons live in the HUD's player card (a portal into it); the
 // lists open as glass cards above it.
@@ -19,15 +21,13 @@ import {
   playQueueAt,
   removeFromQueue,
   clearQueue,
-  useLyrics,
   type Mode,
 } from '../playback/player';
 import { ts } from './i18n';
 
-// (TTML is edited as LRC, and written back as TTML: player.ts useLyrics)
 import { useOutsideClose } from '../ui/outside';
 import { EditModeButton, MusicHallButton } from '../ui/EditModeButton';
-import { useEditing, useEditingDraft } from '../editing';
+import { useEditing } from '../editing';
 import s from './SpacePanels.module.css';
 
 export type Panel = 'lyrics' | 'queue' | null;
@@ -114,6 +114,7 @@ export function WinButtons({ host }: { host: HTMLElement | null }) {
   );
   return createPortal(
     <>
+      <BackgroundActivity />
       <MusicHallButton className={s.wb + ' ' + s.hallEntry} />
       <EditModeButton className={s.wb + ' ' + s.modeEntry} compact />
       {!st.full && b('min', tx('s.min'), 'min')}
@@ -174,27 +175,9 @@ function Lyrics({
   session: ReturnType<typeof player.get>['session'];
   shownId: string | null;
 }) {
-  const text = useStore(player, (x) => x.lyrics?.text || ''),
-    editing = useEditing(),
-    [editor, setEditor] = useState(false),
-    [busy, setBusy] = useState(false);
-  const [draft, update, clearDraft, sync] = useEditingDraft('lyrics:' + shownId, () => text);
-  const showEditor = editing && (editor || !hasLyrics);
-  useEffect(() => {
-    sync(text);
-  }, [text]);
-  const save = async () => {
-    if (!showEditor || busy) return;
-    setBusy(true);
-    try {
-      if (await useLyrics(draft, { edit: true })) {
-        clearDraft(draft);
-        setEditor(false);
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
+  const editing = useEditing();
+  const [editor, setEditor] = useState(false);
+  const showEditor = editor || (editing && !hasLyrics);
   return (
     <section
       className={`hud card ${s.panel} ${s.lyr}`}
@@ -208,8 +191,8 @@ function Lyrics({
     >
       <header className={s.head}>
         <b>{showEditor ? ts('lyr.edit') : tx('s.lyricList')}</b>
-        {editing && !showEditor && (
-          <button type="button" className={s.clear} onClick={() => setEditor(true)}>
+        {!showEditor && (
+          <button type="button" className={s.clear} data-test="open-lyric-sources" onClick={() => setEditor(true)}>
             {ts('lyr.edit')}
           </button>
         )}
@@ -220,28 +203,12 @@ function Lyrics({
       <Turn k={showEditor ? 'editor' : 'reading'} boxClassName={s.lyricSurface} className={s.lyricContent}>
         {showEditor ? (
           <div className={s.editor}>
-            <textarea
-              value={draft}
-              onChange={(e) => update(e.target.value)}
-              spellCheck={false}
-              aria-label={ts('lyr.edit')}
-              placeholder={ts('lyr.placeholder')}
-            />
-            <div className={s.actions}>
-              <button type="button" className={s.solid} disabled={busy} onClick={save}>
-                {tx('s.save')}
-              </button>
-              <button
-                type="button"
-                className={s.ghost}
-                onClick={() => {
-                  clearDraft(text);
-                  setEditor(false);
-                }}
-              >
+            {shownId && <LyricSourcesEditor key={shownId} id={shownId} />}
+            {editor && (
+              <button type="button" className={s.ghost} onClick={() => setEditor(false)}>
                 {tx('s.cancel')}
               </button>
-            </div>
+            )}
           </div>
         ) : (
           <div className={s.lyrBox}>

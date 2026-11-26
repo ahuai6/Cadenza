@@ -375,6 +375,8 @@ function saveSettings(patch) {
     /* read-only profile */
   }
   applySettings();
+  if (['rhythmEngine', 'rhythmRuntime', 'rhythmDevice', 'rhythmDrums'].some((key) => Object.hasOwn(patch || {}, key)))
+    library.analysisSettingsChanged();
   desk.sync();
   // (the page hears of every change, wherever it was made: the desktop lyrics' own buttons, another window)
   if (win && !win.isDestroyed()) win.webContents.send('settings:pushed', { ...settings });

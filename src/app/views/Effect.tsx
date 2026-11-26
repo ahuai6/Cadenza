@@ -1,3 +1,4 @@
+import { LyricSourcesEditor } from '../ui/LyricSources';
 // The effect-lyrics view's controls, over the engine's picture. The picture itself and the move into it are the
 // engine's (the hand-over from the now-playing page); these controls appear as it lands. The bottom bar rises whenever
 // the pointer moves and sinks after a still moment; the pointer itself hides with it and comes back on any movement.
@@ -5,10 +6,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useOutsideClose } from '../ui/outside';
 import { tx } from '../../i18n';
-import { D, Lib } from '../bridge';
+import { D } from '../bridge';
 import { ui, settings, useStore, trackOf, toast, openMenu } from '../state';
-import { Button, IconButton, Row, Slider, Note, Badge, Section, Dropdown, Cover, usePresence } from '../ui/kit';
-import { CueBar, cueKeyDown } from '../ui/cues';
+import { Button, IconButton, Row, Slider, Note, Section, Dropdown, Cover, usePresence } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
 import {
@@ -16,7 +16,6 @@ import {
   editSong,
   chooseSongPreset,
   saveSong,
-  useLyrics,
   setLyricOffset,
   setMvOn,
   unbindMv,
@@ -32,10 +31,8 @@ import { NpLyrics } from '../ui/NpLyrics';
 import { StylePage, ExportPanel } from './panes';
 import { askMv, askMvOffset } from './Modals';
 import { MvLook } from './Settings';
-import { setSettings } from '../actions/settings';
 import s from './Effect.module.css';
 import { PerfHud } from './PerfHud';
-import { isTtml } from '../../engine';
 import { canEdit, useEditing, useEditingDraft } from '../editing';
 import { EditControls, EditModeButton } from '../ui/EditModeButton';
 
@@ -431,158 +428,25 @@ function SpacingEditor() {
 }
 export function LyricsTab() {
   const editing = useEditing();
+  const id = useStore(player, (value) => value.shownId);
+  const offset = useStore(player, (value) => value.session?.spec.lshift || 0);
+  const hasLyrics = useStore(player, (value) => value.hasLyrics);
   return (
     <>
       {!editing && <Note>{tx('edit.required')}</Note>}
+      {id && <LyricSourcesEditor key={id} id={id} />}
       <EditControls>
-        <LyricsEditor />
-      </EditControls>
-    </>
-  );
-}
-function LyricsEditor() {
-  const p = useStore(player),
-    t = trackOf(p.shownId),
-    session = p.session!,
-    target = useStore(settings, (x) => x.lyricsTarget) === 'lrc' ? 'lrc' : 'tag';
-  const [text, setText, clearDraft, sync] = useEditingDraft('lyrics:' + p.shownId, () => session.spec.lyrics || '');
-  const [msg, setMsg] = useState('');
-  const [q, setQ] = useState({ title: t ? t.title : '', artist: t ? t.artist : '' }),
-    [res, setRes] = useState<Awaited<ReturnType<NonNullable<typeof Lib>['searchLyrics']>> | null>(null);
-  const [busy, setBusy] = useState(false),
-    [pick, setPick] = useState<number | null>(null),
-    ta = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    sync(player.get().session?.spec.lyrics || '');
-  }, [p.shownId, session.spec.lyrics]);
-  const use = async (src: string, edit = false) => {
-    const ok = await useLyrics(src, { edit });
-    if (ok) clearDraft(src);
-    setMsg(tx(ok ? 's.lyr.saved' : 'load.none'));
-  };
-  const search = async () => {
-    setBusy(true);
-    setRes(null);
-    setPick(null);
-    try {
-      setRes(await Lib!.searchLyrics({ ...q, album: t?.album, duration: t?.duration }));
-    } catch {
-      setMsg(tx('s.netFail'));
-    }
-    setBusy(false);
-  };
-  const xml = isTtml(text) || isTtml(session.spec.lyrics || '');
-  return (
-    <>
-      <div style={{ display: 'grid', gap: 8, padding: '6px 0 14px' }}>
-        <Row>
-          <b style={{ fontSize: 13 }}>{tx('s.lyr.edit')}</b>
-          <span className="muted" style={{ fontSize: 12 }}>
-            {tx(p.lyrics ? 's.lyr.source.' + p.lyrics.source : 's.lyr.source.none')}
-          </span>
-        </Row>
-        {!xml && <CueBar target={ta} />}
-        <textarea
-          ref={ta}
-          className={s.lyricsTa}
-          spellCheck={false}
-          value={text}
-          onKeyDown={xml ? undefined : cueKeyDown}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="[00:12.30]…"
-        />
-        <Row>
-          <Button kind="primary" size="sm" onClick={() => use(text, true)}>
-            {tx(xml ? 's.save' : 's.lyr.saveLrc')}
-          </Button>
-          {text !== session.spec.lyrics && (
-            <Button size="sm" kind="ghost" onClick={() => clearDraft()}>
-              {tx('edit.discard')}
-            </Button>
-          )}
-          <Dropdown
-            className={s.target}
-            label={tx('s.lyr.target')}
-            value={target}
-            onChange={(v) => setSettings({ lyricsTarget: v as 'tag' | 'lrc' })}
-            options={[
-              ['tag', tx('s.lyr.target.tag')],
-              ['lrc', tx('s.lyr.target.lrc')],
-            ]}
-          />
-          <Button
-            size="sm"
-            onClick={async () => {
-              const x = await Lib!.importLyricsFile();
-              if (x) use(x);
-            }}
-          >
-            {tx('s.lyr.import')}
-          </Button>
-        </Row>
-        {msg && <Note>{msg}</Note>}
         <Slider
           label={tx('s.lyr.offset')}
           min={-1500}
           max={1500}
           step={10}
-          value={session.spec.lshift || 0}
+          value={offset}
           format={(v) => `${v > 0 ? '+' : ''}${Math.round(v)}`}
           onCommit={setLyricOffset}
         />
-      </div>
-      {p.hasLyrics && <SpacingEditor />}
-      <div style={{ display: 'grid', gap: 8 }}>
-        <b style={{ fontSize: 13 }}>{tx('s.lyr.online')}</b>
-        <form
-          className={s.q}
-          onSubmit={(e) => {
-            e.preventDefault();
-            search();
-          }}
-        >
-          <input
-            type="text"
-            value={q.title}
-            placeholder={tx('s.col.title')}
-            onChange={(e) => setQ({ ...q, title: e.target.value })}
-          />
-          <input
-            type="text"
-            value={q.artist}
-            placeholder={tx('s.artists')}
-            onChange={(e) => setQ({ ...q, artist: e.target.value })}
-          />
-          <Button kind="primary" size="sm" type="submit" disabled={busy}>
-            {tx(busy ? 's.searching' : 's.searchBtn')}
-          </Button>
-        </form>
-        {res && !res.length && <Note>{tx('s.empty.results')}</Note>}
-        {res &&
-          res.map((r) => (
-            <div key={r.id} className={s.res}>
-              <button type="button" className={s.resH} onClick={() => setPick(pick === r.id ? null : r.id)}>
-                <span>
-                  <b>{r.title}</b>
-                  <small>{[r.artist, r.album].filter(Boolean).join(' · ')}</small>
-                </span>
-                <Badge k={r.synced ? 'accent' : undefined}>
-                  {r.instrumental ? tx('s.instrumental') : r.synced ? tx('s.lyr.synced') : tx('s.lyr.plain')}
-                </Badge>
-              </button>
-              {pick === r.id && !r.instrumental && (
-                <>
-                  <pre className={s.pre}>{(r.synced || r.plain).split('\n').slice(0, 14).join('\n')}</pre>
-                  <div style={{ padding: '0 11px 11px' }}>
-                    <Button kind="primary" size="sm" onClick={() => use(r.synced || r.plain)}>
-                      {tx('s.lyr.use')}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
-      </div>
+        {hasLyrics && <SpacingEditor />}
+      </EditControls>
     </>
   );
 }

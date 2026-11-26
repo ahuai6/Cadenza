@@ -63,7 +63,7 @@ export function boot(ready: () => void): () => void {
   offW.push(playerApi.player.subscribe(tell));
   tell();
   const offs = [
-    l.onChanged((v) => lib.set({ ...v, analysis: null })),
+    l.onChanged((v) => lib.set(v)),
     l.onProgress((p) => lib.set({ progress: p })),
     l.onAnalysis((a) => lib.set({ analysis: a })),
     d.onWin((win) => ui.set({ win })),

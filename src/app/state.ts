@@ -66,7 +66,11 @@ export const ui = createStore({
 export const lib = createStore({
   ...({ folders: [], tracks: [], favorites: [], playlists: [] } as LibView),
   loaded: false,
-  progress: { phase: 'idle', done: 0, total: 0 },
+  progress: { phase: 'idle', done: 0, total: 0, hashing: 0, queued: 0, unavailable: 0 },
+  analysisTask: { phase: 'idle', id: null } as {
+    phase: 'idle' | 'rhythm' | 'loudness' | 'validate' | 'paused';
+    id: string | null;
+  },
   analysis: null as null | { done: number; total: number },
   /** how far the song being analysed now is (0..1), null between songs */ analysisNow: null as null | number,
   /** which song that is */ analysisFor: null as null | string,

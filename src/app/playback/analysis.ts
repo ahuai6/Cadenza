@@ -17,6 +17,7 @@ import { Lib, mediaUrl, type AnalysisToken } from '../bridge';
 import { lib, settings, trackOf } from '../state';
 
 let busy = false,
+  requested = false,
   paused = false,
   wake: (() => void) | null = null;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -36,7 +37,8 @@ export async function decodeForAnalysis(
   const duration = actualDuration || track?.duration || 0;
   // decodeAudioData retains the input's channel count, independent of the context's output layout.
   const estimated = duration * Math.max(rate, track?.sampleRate || 48000) * (track?.channels || 8) * 4;
-  if (!(duration > 0) || estimated > pcmBudget) throw new Error('analysis PCM budget');
+  if (!(duration > 0)) throw new Error('analysis duration unavailable');
+  if (estimated > pcmBudget) throw new Error('analysis PCM budget');
   signal?.throwIfAborted();
   const r = await fetch(mediaUrl(id, track?.mediaRevision), { signal });
   if (!r.ok) throw new Error('read');
@@ -128,28 +130,42 @@ export function analyzeNow(
   return p;
 }
 async function loop() {
-  if (busy || !Lib) return;
+  if (!Lib) return;
+  if (busy) {
+    requested = true;
+    return;
+  }
   busy = true;
+  requested = false;
+  const blocked = new Set<string>();
   try {
     for (;;) {
-      while (paused)
-        await new Promise<void>((r) => {
-          wake = r;
-        });
+      await waitIfPaused();
       const job =
-        (await Lib.nextAnalysis(RHYTHM_VERSION)) ||
-        (upgrade.size ? { id: upgrade.values().next().value as string, only: undefined } : null);
+        (await Lib.nextAnalysis(RHYTHM_VERSION, [...blocked])) ||
+        (() => {
+          const id = [...upgrade].find((id) => !blocked.has(id));
+          return id ? { id, only: undefined } : null;
+        })();
       // the queue done: the cached analyses not checked yet are read and checked (validate.ts), one at a time — a sound one
       // is remembered as checked, a broken one (cut short, written by a faulty run) goes back to be analysed
       if (!job) {
         if (await verifyCached()) continue;
         break;
       }
-      if (!trackOf(job.id)?.audioContentId) break;
+      if (!trackOf(job.id)?.audioContentId) {
+        blocked.add(job.id);
+        continue;
+      }
       const token = await Lib.analysisToken(job.id);
       // A watcher or later scan will wake the queue with the current file. Avoid spinning on stale paths.
-      if (!token || token.source !== trackOf(job.id)?.mediaRevision) break;
+      if (!token || token.source !== trackOf(job.id)?.mediaRevision) {
+        blocked.add(job.id);
+        continue;
+      }
+      await waitIfPaused();
       upgrade.delete(job.id);
+      lib.set({ analysisTask: { phase: job.only || 'rhythm', id: job.id } });
       if (job.only === 'loudness') {
         try {
           await Lib.saveLoudness(job.id, await loudnessInBackground(await decodeForAnalysis(job.id, true)), token);
@@ -157,10 +173,15 @@ async function loop() {
           await Lib.saveLoudness(job.id, null, token);
         }
       } else await analyzeNow(job.id, { granted: token }).catch(() => {});
+      lib.set({ analysisTask: { phase: 'idle', id: null } });
       await sleep(120);
     }
+  } catch (error) {
+    console.warn('[library analysis]', error);
   } finally {
     busy = false;
+    lib.set({ analysisTask: { phase: 'idle', id: null } });
+    if (requested) void loop();
   }
 }
 /** Check the cached analyses not yet checked; true when any was sent back to be analysed. */
@@ -168,13 +189,11 @@ async function verifyCached(): Promise<boolean> {
   if (!Lib) return false;
   let bad = false;
   for (const id of await Lib.unverified(RHYTHM_VERSION).catch(() => [] as string[])) {
-    while (paused)
-      await new Promise<void>((r) => {
-        wake = r;
-      });
+    await waitIfPaused();
     // (no length to compare with here: a tag's duration can be off — that check is made against decoded audio only)
     const token = await Lib.analysisToken(id);
     if (!token) continue;
+    lib.set({ analysisTask: { phase: 'validate', id } });
     const a = await Lib.analysis(id, RHYTHM_VERSION).catch(() => null),
       why = checkAnalysis(a);
     if (why) {
@@ -182,14 +201,22 @@ async function verifyCached(): Promise<boolean> {
       await Lib.reanalyze([id]);
       bad = true;
     } else await Lib.verified(id, RHYTHM_VERSION, token);
+    lib.set({ analysisTask: { phase: 'idle', id: null } });
     await sleep(40);
   }
   return bad;
 }
+async function waitIfPaused() {
+  while (paused) {
+    lib.set({ analysisTask: { phase: 'paused', id: null } });
+    await new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+  }
+}
 export function startAnalysis() {
   if (!Lib) return;
   Lib.onWake(() => loop());
-  Lib.onChanged(() => loop());
   setTimeout(loop, 1500);
 }
 /** Hold the library's queue (between songs) for a reason — an export, or the effect lyrics on screen while a song plays

@@ -68,22 +68,22 @@ function NpModal({ m }: { m: { tab: string } }) {
           <EditModeButton />
         </>
       )}
+      <Seg
+        fit
+        size="sm"
+        value={tab}
+        onChange={setTab}
+        options={[
+          ['lyrics', tx('np.lyrics')],
+          ['view', tx('np.view')],
+        ]}
+      />
+      {tab === 'lyrics' && session && (
+        <div className={s.npBody}>
+          <LyricsTab />
+        </div>
+      )}
       <EditControls>
-        <Seg
-          fit
-          size="sm"
-          value={tab}
-          onChange={setTab}
-          options={[
-            ['lyrics', tx('np.lyrics')],
-            ['view', tx('np.view')],
-          ]}
-        />
-        {tab === 'lyrics' && session && (
-          <div className={s.npBody}>
-            <LyricsTab />
-          </div>
-        )}
         {tab === 'view' && (
           <div style={{ display: 'grid', gap: 12 }}>
             <Select

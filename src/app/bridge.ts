@@ -196,11 +196,19 @@ export interface LibApi {
   ): Promise<string[]>;
   /** the caches (rhythm, loudness, thumbnails) cleared; every song is analysed again */ clearCaches(): Promise<boolean>;
   /** everything Cadenza keeps — library, songs' data, caches, settings — removed, and the app restarted */ resetAll(): Promise<void>;
-  nextAnalysis(version: number): Promise<{ id: string; only?: 'loudness' } | null>;
+  taskDetails(): Promise<BackgroundTasks>;
+  nextAnalysis(version: number, omit?: string[]): Promise<{ id: string; only?: 'loudness' } | null>;
   prioritize(ids: string[]): Promise<void>;
   song(id: string): Promise<SongData | null>;
   setSong(id: string, d: SongData): Promise<boolean>;
   lyrics(id: string): Promise<{ source: 'lrc' | 'embedded' | 'ttml'; text: string } | null>;
+  lyricSources(id: string): Promise<LyricSources | null>;
+  selectLyrics(id: string, source: string): Promise<boolean>;
+  mutateLyrics(
+    id: string,
+    request: LyricMutation,
+  ): Promise<{ ok: boolean; target?: 'tag' | 'lrc' | 'ttml'; why?: string }>;
+  exportLyrics(id: string, text: string): Promise<boolean>;
   writeLyrics(
     id: string,
     t: string,
@@ -217,9 +225,48 @@ export interface LibApi {
   setCover(id: string, how: { url?: string; file?: boolean; reset?: boolean }): Promise<boolean>;
   bindMv(id: string): Promise<{ name: string; offset: number } | null>;
   onChanged(f: (v: LibView) => void): Off;
-  onProgress(f: (p: { phase: string; done: number; total: number }) => void): Off;
+  onProgress(f: (p: ScanProgress) => void): Off;
   onAnalysis(f: (p: { done: number; total: number }) => void): Off;
   onWake(f: () => void): Off;
+}
+export interface ScanProgress {
+  phase: string;
+  done: number;
+  total: number;
+  unavailable: number;
+  hashing: number;
+  queued: number;
+}
+export interface BackgroundTasks {
+  progress: ScanProgress;
+  cached: number;
+  pending: number;
+  skipped: number;
+  failed: number;
+  unresolved: number;
+  recent: { file: string; reason: string }[];
+  counters: { directories: number; tags: number; fingerprints: number; analyses: number; cacheHits: number };
+}
+export interface LyricTarget {
+  id: string;
+  label: string;
+  format: 'ttml' | 'lrc' | 'either';
+}
+export interface LyricField extends LyricTarget {
+  text: string;
+  writable: boolean;
+  revision: string;
+}
+export interface LyricMutation {
+  source: string;
+  revision?: string;
+  text: string | null;
+}
+export interface LyricSources {
+  fields: LyricField[];
+  targets: LyricTarget[];
+  primary?: string;
+  errors: string[];
 }
 export interface AudioApi {
   state(): Promise<any>;
