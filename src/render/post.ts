@@ -322,7 +322,7 @@ export function drawCaptions(
   g: Ctx,
   f: RenderFrame,
   bottom: number,
-  show: { subs: boolean; reads: boolean } = { subs: true, reads: true },
+  show: { subs: boolean; reads: boolean; independent?: boolean } = { subs: true, reads: true },
 ) {
   if (f.cam.ov >= 1 || !f.plan.hasSubs || (!show.subs && !show.reads)) return;
   const w = f.W,
@@ -330,18 +330,22 @@ export function drawCaptions(
     T = f.pal.text; // (going over the ending's ramp: below)
   // (one line's captions at a time: the line begun last — a line held up long, by a harmony that runs on, never stacks
   // its captions over the next one's; the next one takes the place at once)
-  let cur: (typeof f.plan.lines)[number] | null = null;
-  for (const P of f.plan.lines) if (P.L.t <= f.t && (!cur || P.L.t >= cur.L.t)) cur = P;
-  for (const P of cur ? [cur] : []) {
-    const L = P.L,
+  let current: (typeof f.plan.doc.lines)[number] | undefined;
+  if (show.independent) {
+    for (const line of f.plan.doc.lines) if (line.t <= f.t && (!current || line.t >= current.t)) current = line;
+  } else {
+    for (const { L: line } of f.plan.lines) if (line.t <= f.t && (!current || line.t >= current.t)) current = line;
+  }
+  if (current) {
+    const L = current,
       subs = subLines(show.subs ? L : { ...L, subs: [] }, show.reads);
-    if (!subs.length) continue;
+    if (!subs.length) return;
     const o =
       (f.t >= L.t ? clamp((f.t - L.t - 0.1) / 0.3) : 0) *
       (1 - clamp((f.t - L.end + 0.15) / 0.25)) *
       sstep(clamp((f.view.effect - 0.55) / 0.45)) *
       (1 - f.cam.ov);
-    if (o <= 0) continue; // (in a hand-over: after the page's own lines have come down)
+    if (o <= 0) return; // (in a hand-over: after the page's own lines have come down)
     // (a single line — no reading, or readings turned off — sits a little lower than the bottom of two: the block is
     // anchored by where it reads as resting at the foot of the picture, not by its last line)
     const base = Math.min(h, w * 1.2);

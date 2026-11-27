@@ -8,12 +8,12 @@ Folia（https://github.com/chthollyphile/folia-major，AGPL-3.0，与 Cadenza �
 | --- | --- | --- |
 | `src/folia/upstream.json` | 钉住的上游版本、要搬的文件、要抽出的声明、转接（shim）、少数必要的修补 | Cadenza |
 | `src/folia/vendor/` | 上游文件，路径与上游相同（去掉开头的 `src/`）；**不手改** | `scripts/folia-sync.mjs` 产生 |
-| `src/folia/pixi/` | 与 Pixi v8 兼容的舞台（Container、Graphics、Text、Sprite、滤镜、遮罩、混合模式），以 Canvas2D 画图形与文字、WebGL2 跑 GLSL 滤镜；上游 `import 'pixi.js'` 改指向这里 | Cadenza |
+| `src/folia/pixi/` | 与 Pixi v8 兼容的舞台。稳定贴图和简单几何使用共享图集与 GPU 批次，GLSL 滤镜使用同上下文的帧缓冲。字形栅格、路径和特殊混合保留 Canvas2D 路径 | Cadenza |
 | `src/folia/shim/` | 上游依赖、Cadenza 另有来源的模块：动态信号、节拍来源、图标、framer-motion 的类型 | Cadenza |
 | `src/folia/adapt.ts` | Cadenza 的歌词模型 → Folia 的 `Line`（用 Cadenza 的分词，含用户自订）；外观 → Folia 的 `Theme` | Cadenza |
 | `src/folia/live.ts` | 用当前歌曲时刻采样节拍事件（上游 `beatFxLive`）与频段，事件与频谱由 Cadenza 的节奏分析供给 | Cadenza |
 | `src/folia/engines/` | 各风格的执行层（取代上游的 `create…PixiRuntime.ts`） | Cadenza |
-| `src/render/engines.ts` | 依风格的 `engine` 字段选歌词引擎；导演是默认，Folia 风格画在同一个背景上 | Cadenza |
+| `src/render/engines.ts` | 根据风格登记选择视觉世界、时间与参数接入。Folia 拥有自己的镜头和转场，公共背景及屏幕效果在外层合成 | Cadenza |
 
 分层：`folia` 在 `director` 旁、`render` 之下（`tests/unit/arch.test.ts`）。
 
@@ -41,7 +41,7 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 | `tempera/tuning.ts`、`Tempera*Panel/Controls/Dialog*.tsx`、`useTemperaLayerImageThumbnails.ts` | Cadenza 的风格页（不搬） |
 | `services/analysis/drumHits.ts`（浏览器内分离鼓轨） | `src/folia/shim/drumHits.ts`（鼓点来自 Cadenza 节奏分析的 htdemucs 鼓轨） |
 | `pixi.js` 的 `Mesh` + 自订着色器（墨迹闪光） | `src/folia/pixi/mesh.ts` + `gl.ts` 的网格绘制 |
-| `services/beatFx/beatFxLive.ts`、`clock.ts` | 原样；由 `src/folia/live.ts` 喂 Cadenza 的拍点 |
+| `services/beatFx/beatFxLive.ts`、`clock.ts` | 拍点来自 `src/folia/live.ts`。同步清单补上可选的绝对媒体时间接入，复用上游包络常数和重音曲线 |
 | `services/beatFx/beatFxSource.ts`（Beat This! 推理、分轨） | `src/folia/shim/beatFxSource.ts`（只留类型；拍点来自 Cadenza 的节奏） |
 | `stores/motionSignals.ts` | `src/folia/shim/motionSignals.ts` |
 | `types.ts` | 由同步脚本抽出需要的声明到 `src/folia/vendor/types.ts` |

@@ -9,6 +9,7 @@ type Init = {
   engine: 'dsp' | 'auto' | 'neural';
   onlyLoudness: boolean;
   browser: boolean;
+  drums: boolean;
 };
 let receive: ((value: NeuralRhythm | null) => void) | null = null;
 let running = false;
@@ -81,7 +82,7 @@ async function browserPcm(
   }
 }
 
-async function run({ url, duration, engine, onlyLoudness, browser }: Init) {
+async function run({ url, duration, engine, onlyLoudness, browser, drums }: Init) {
   let features!: AnalysisFeatures;
   let neural: NeuralWindows | null = null;
   let rate = 0;
@@ -126,8 +127,13 @@ async function run({ url, duration, engine, onlyLoudness, browser }: Init) {
     const reading = neural && (await (neural as NeuralWindows).finish());
     if (engine === 'neural' && !reading && features.loudness().peak >= 1e-7)
       throw new Error('neural engine unavailable');
-    self.postMessage({
-      analysis: features.finish({ neural: reading, progress: (p) => self.postMessage({ progress: 0.9 + p * 0.1 }) }),
+    const analysis = features.finish({
+      neural: reading,
+      progress: (p) => self.postMessage({ progress: 0.9 + p * 0.1 }),
     });
+    if (engine === 'neural' && analysis.engine !== 'neural' && analysis.beatEvidence !== 'none')
+      throw new Error('neural beat evidence unavailable');
+    if (drums && analysis.engine === 'neural' && analysis.stems === 'skipped') analysis.stems = 'failed';
+    self.postMessage({ analysis });
   }
 }

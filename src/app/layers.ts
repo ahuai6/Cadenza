@@ -5,6 +5,7 @@ import { engine } from './playback/stage';
 import { ui, settings } from './state';
 import { ASPECTS } from '../engine';
 import { fxAspect } from './playback/player';
+import { DEFAULT_LYRIC_ASPECT } from '../theme/style';
 
 export const refs = {
   titlebar: null as HTMLElement | null,
@@ -166,7 +167,7 @@ async function blurSwap(swap: () => void, my: number) {
   return tween(0, duration('--t-panel'), easeOut, my);
 }
 /** The effect lyrics' frame shape (Settings: 16:9, 16:10, 9:16, 1:1), as a ratio. */
-const fxRatio = () => ASPECTS[fxAspect()] || 16 / 9;
+const fxRatio = () => ASPECTS[fxAspect()] || ASPECTS[DEFAULT_LYRIC_ASPECT];
 const toFx = () => {
   document.documentElement.dataset.fxmode = 'true';
   if (refs.stage) refs.stage.style.clipPath = '';
@@ -194,7 +195,7 @@ function syncFx() {
   }
   if (refs.fxUi) refs.fxUi.style.setProperty('--h', s);
 }
-engine.setAspectBox({ cover: 16 / 9 });
+engine.setAspectBox({ cover: fxRatio() });
 // (the shape changed while the effect lyrics are up: the picture's box takes it at once)
 settings.subscribe((x, y) => {
   if (x.fxAspect !== y.fxAspect)

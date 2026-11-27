@@ -8,6 +8,8 @@ import type { RenderFrame } from '../frame';
 import { makeCanvas } from '../palette';
 import { C2, dot } from './sprite';
 import { stagger, band, lifeFade, loop } from './drift';
+import { gpuQuads } from '../gpu';
+import { gpuLyrics } from '../gfx';
 
 /* ---------- motes: specks of light drifting up (on the shared accent clock: they hang in the air on a hit) ---------- */
 // (into the song's last seconds they rise a little faster, up to about twice their pace: the extra is the speed-up's own
@@ -39,6 +41,16 @@ register({
       amt = +a.params.amount,
       brk = Math.max(0, f.t - (f.plan.musicEnd - 3.5)),
       n = Math.round(MOTES.length * clamp((amt / 2) * 2, 0, 1));
+    const gpu =
+      n >= 40 && g.globalCompositeOperation === 'source-over' && g.filter === 'none' && gpuLyrics() ? gpuQuads() : null;
+    const width = g.canvas.width,
+      height = g.canvas.height;
+    const cursor = gpu?.ctx ?? g;
+    if (gpu) {
+      const pose = g.getTransform();
+      gpu.begin(width, height);
+      cursor.setTransform(pose.a, pose.b, pose.c, pose.d, pose.e, pose.f);
+    }
     for (let i = 0; i < n; i++) {
       const d = MOTES[i],
         L = loop(t + 0.075 * brk * brk, 0.006 * d.s, stagger(i, n)),
@@ -48,13 +60,21 @@ register({
         tw = 0.55 + 0.45 * Math.sin(t * d.f + d.p);
       if (d.big) {
         const r = (10 + 30 * d.z) * (m / 720);
-        g.globalAlpha = ((0.04 + 0.07 * d.z) * tw + P * 0.04) * Math.min(1, amt) * fade;
-        g.drawImage(D, X - r, Y - r, r * 2, r * 2);
+        cursor.globalAlpha = ((0.04 + 0.07 * d.z) * tw + P * 0.04) * Math.min(1, amt) * fade;
+        cursor.drawImage(D, X - r, Y - r, r * 2, r * 2);
       } else {
         const r = (1.2 + 3.2 * d.z) * (m / 720);
-        g.globalAlpha = Math.min(1, (0.2 + 0.5 * d.z) * tw + P * 0.3 * d.z) * Math.min(1, amt) * fade;
-        g.drawImage(D, X - r * 2, Y - r * 2, r * 4, r * 4);
+        cursor.globalAlpha = Math.min(1, (0.2 + 0.5 * d.z) * tw + P * 0.3 * d.z) * Math.min(1, amt) * fade;
+        cursor.drawImage(D, X - r * 2, Y - r * 2, r * 4, r * 4);
       }
+    }
+    if (gpu) {
+      const result = gpu.end();
+      g.save();
+      g.resetTransform();
+      g.globalAlpha = 1;
+      g.drawImage(result, 0, 0, width, height, 0, 0, width, height);
+      g.restore();
     }
     g.globalAlpha = 1;
   },
@@ -272,6 +292,7 @@ register({
 });
 register({
   id: 'feathers-fg',
+  world: 'shared',
   label: 'fx.feathers',
   layer: 'foreground',
   kind: 'effect',

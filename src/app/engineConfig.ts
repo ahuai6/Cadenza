@@ -66,7 +66,7 @@ function nativeRuntime(): NativeRuntime | null {
     async ready() {
       const st = await I.status();
       this.label = st.ep ? 'native ' + st.ep : 'native';
-      return st.runtime && st.models;
+      return st.runtime && st.beats ? { stems: st.stems } : null;
     },
     beat: (spect) => I.run('beat', { spect }),
     separate: (left, right) => I.run('separate', { left, right }),

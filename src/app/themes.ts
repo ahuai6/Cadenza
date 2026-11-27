@@ -1,6 +1,6 @@
 // Saved custom themes: kept in this profile, shared by the workshop and every song's panel.
 import { createStore } from '../core/emitter';
-import { storedStyle, type Style } from '../theme/style';
+import { visualPreset, type Style } from '../theme/style';
 import { remember, keep, useStore } from './state';
 import { canEdit } from './editing';
 
@@ -17,7 +17,7 @@ export function saveTheme(st: Style, name: string, asNew: boolean): string | nul
   if (!canEdit()) return null;
   const list = themes.get().list.slice(),
     id = !asNew && st.id && list.some((t) => t.id === st.id) ? st.id : 't' + Date.now().toString(36);
-  const entry = { id, name, style: { ...storedStyle(st), id, name, preset: 'custom' } };
+  const entry = { id, name, style: visualPreset({ ...st, id, name, preset: 'custom' }) };
   const i = list.findIndex((t) => t.id === id);
   if (i >= 0) list[i] = entry;
   else list.push(entry);

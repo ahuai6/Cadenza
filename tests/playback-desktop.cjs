@@ -261,6 +261,33 @@ async function run(route, crash = false) {
     await target(4);
     await wait((id) => window.__cadenza.player.get().session?.spec.key === id, q[4]);
     assert.equal(await run(() => window.__cadenza.api.playback.get().index), 1);
+    const beforeStyle = await run(() => {
+      const { api } = window.__cadenza;
+      return {
+        output: api.playback.get().output,
+        time: api.playback.time(),
+        run: window.g2.events.findLast((e) => e.ev === 'pos')?.run,
+      };
+    });
+    await run(async () => {
+      const { api, player, engine } = window.__cadenza;
+      await engine.setView('effect', {}, { instant: true });
+      for (const id of ['sonnet', 'tempera', 'story']) {
+        api.chooseSongPreset({ kind: 'motion', id });
+        await player.get().session.flush();
+        if ((player.get().session.style.engine ?? null) !== (id === 'story' ? null : id))
+          throw new Error('wrong visual world after applying ' + id);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }
+    });
+    if (route === 'std') await wait((hz) => window.g2.graphSignal(hz), tones[4]);
+    else await wait((runId) => window.g2.events.findLast((e) => e.ev === 'pos')?.run === runId, beforeStyle.run);
+    const afterStyle = await run(() => {
+      const { api } = window.__cadenza;
+      return { output: api.playback.get().output, time: api.playback.time() };
+    });
+    assert.deepEqual(afterStyle.output, beforeStyle.output);
+    assert.ok(afterStyle.time >= beforeStyle.time, 'changing the visual world keeps the media clock');
     const mediaToggle = () =>
       app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()

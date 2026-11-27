@@ -330,6 +330,7 @@ const GSNAP = makeCanvas(16, 16) as HTMLCanvasElement;
 
 register({
   id: 'glass-shards',
+  world: 'shared',
   label: 'fx.glass',
   layer: 'foreground',
   kind: 'effect',

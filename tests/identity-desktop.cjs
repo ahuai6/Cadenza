@@ -81,8 +81,8 @@ async function run() {
   fixtures();
   const launch = () =>
     _electron.launch({
-      executablePath: require(path.join(root, 'node_modules', 'electron')),
-      args: [root, '--no-sandbox'],
+      executablePath: process.env.CADENZA_TEST_EXE || require(path.join(root, 'node_modules', 'electron')),
+      args: process.env.CADENZA_TEST_EXE ? [] : [root, '--no-sandbox'],
       env: { ...process.env, CADENZA_USER_DATA: profile },
     });
   const app = await launch();
@@ -183,6 +183,54 @@ async function run() {
     await call(() => window.__cadenza.setSettings({ rhythmEngine: 'auto' }));
     assert.equal(await call((id) => window.cadenzaLib.analysis(id, 77), b.id), null);
     assert.equal(await save(token), false);
+    const upgrade = await call(async (id) => {
+      const lib = window.cadenzaLib;
+      const omit = window.__cadenza.lib
+        .get()
+        .tracks.filter((t) => t.id !== id)
+        .map((t) => t.id);
+      const t = await lib.analysisToken(id);
+      const dsp = { version: 4, beats: [0, 0.5], engine: 'dsp', stems: 'failed', loudness: { lufs: -20, peak: 0.4 } };
+      // Use a reserved version so the running G6 scheduler cannot race this fault-injection sequence.
+      dsp.version = 76;
+      const partial = { ...dsp, engine: 'neural' };
+      const strong = { ...partial, stems: 'drumless' };
+      const saved = await lib.saveAnalysis(id, dsp, t);
+      const unavailable = await lib.nextAnalysis(76, omit);
+      const first = await lib.nextAnalysis(76, omit, 'web:1');
+      const retained = await lib.analysis(id, 76);
+      const alternative = await lib.nextAnalysis(76, omit, 'native:1');
+      const backedOff = await lib.nextAnalysis(76, omit, 'web:1');
+      const checkpoint = await lib.saveAnalysis(id, partial, t);
+      const stemsAvailable = await lib.nextAnalysis(76, omit, 'web:2');
+      const completed = await lib.saveAnalysis(id, strong, t);
+      const stale = await lib.saveAnalysis(id, dsp, t);
+      return {
+        saved,
+        unavailable,
+        first,
+        retained,
+        alternative,
+        backedOff,
+        checkpoint,
+        stemsAvailable,
+        completed,
+        stale,
+        final: await lib.analysis(id, 76),
+      };
+    }, b.id);
+    assert.equal(upgrade.saved, true);
+    assert.equal(upgrade.unavailable, null);
+    assert.deepEqual(upgrade.first, { id: b.id, upgrade: true });
+    assert.equal(upgrade.retained.engine, 'dsp');
+    assert.deepEqual(upgrade.alternative, { id: b.id, upgrade: true });
+    assert.equal(upgrade.backedOff, null);
+    assert.equal(upgrade.checkpoint, true);
+    assert.deepEqual(upgrade.stemsAvailable, { id: b.id, upgrade: true });
+    assert.equal(upgrade.completed, true);
+    assert.equal(upgrade.stale, false);
+    assert.equal(upgrade.final.stems, 'drumless');
+    console.log('Pass DSP playback cache, upgrade backoff, partial neural and non-downgrade on one content key');
     await call(() => window.__cadenza.setSettings({ rhythmEngine: 'dsp' }));
     assert.deepEqual(await call((id) => window.cadenzaLib.analysis(id, 77), b.id), analysis);
     await call((id) => window.cadenzaLib.writeLyrics(id, '\n[00:01.00]\n\nKeep sections\n', 'lrc'), old);
@@ -245,8 +293,8 @@ async function run() {
     assert.equal(await call((id) => window.cadenzaLib.analysis(id, 77), b.id), null);
     assert.equal(await save(await call((id) => window.cadenzaLib.analysisToken(id), b.id)), true);
 
-    const faults = await app.evaluate((_electron, root) => {
-      const load = process.getBuiltinModule('node:module').createRequire(root + '/package.json');
+    const faults = await app.evaluate(({ app }) => {
+      const load = process.getBuiltinModule('node:module').createRequire(app.getAppPath() + '/package.json');
       const identity = load('./electron/audio-identity.cjs');
       const original = identity.fingerprint;
       const counts = { 'Transient.wav': 0, 'Recheck.wav': 0 };
@@ -261,7 +309,7 @@ async function run() {
         return original(binary, file, stamp, signal);
       };
       return true;
-    }, root);
+    });
     assert.equal(faults, true);
     fs.writeFileSync(path.join(music, 'Transient.wav'), media);
     fs.writeFileSync(path.join(music, 'Recheck.wav'), media);

@@ -21,6 +21,7 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const MANIFEST = path.join(ROOT, 'src/folia/upstream.json');
 const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
 const VENDOR = path.join(ROOT, manifest.vendor);
+const readSource = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 const args = process.argv.slice(2);
 const check = args.includes('--check');
 let upstream = args.find((a) => !a.startsWith('--'));
@@ -196,7 +197,7 @@ function topLevel(text) {
 
 /** Pulls `names` (and the top-level declarations they reference, transitively) out of a large file. */
 function extract(rel, names) {
-  const text = fs.readFileSync(path.join(upstream, rel), 'utf8');
+  const text = readSource(path.join(upstream, rel));
   const decls = new Map();
   const imports = new Map();
   for (const st of topLevel(text)) {
@@ -275,7 +276,7 @@ function patch(rel, text) {
 
 const outputs = new Map();
 for (const rel of copied) {
-  const src = fs.readFileSync(path.join(upstream, rel), 'utf8');
+  const src = readSource(path.join(upstream, rel));
   const patched = (manifest.patches ?? []).some((x) => x.file === rel);
   outputs.set(rel, header(rel, patched ? ', patched (see the manifest)' : '') + rewrite(rel, patch(rel, src)));
 }
@@ -308,7 +309,7 @@ walkDir(VENDOR);
 let stale = 0;
 for (const [rel, text] of outputs) {
   const dest = path.join(VENDOR, destRel(rel));
-  const same = exists(dest) && fs.readFileSync(dest, 'utf8') === text;
+  const same = exists(dest) && readSource(dest) === text;
   existing.delete(destRel(rel));
   if (same) continue;
   stale += 1;

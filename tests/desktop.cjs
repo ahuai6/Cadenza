@@ -10,7 +10,7 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 const { identifyBuild, initializeProfile } = require('../electron/profile.cjs');
 const ROOT = path.resolve(__dirname, '..'),
-  CACHE = path.join(__dirname, '.cache'),
+  CACHE = process.env.CADENZA_E2E_FIXTURES || path.join(__dirname, '.cache'),
   SHOTS = process.argv[2] || os.tmpdir();
 let failed = 0;
 // the song panel's 外觀與風格 page, with its Advanced open (the knobs, one's own styles and the effects are under it)
@@ -68,8 +68,8 @@ const ok = (name, pass, detail) => {
     JSON.stringify({ theme: process.argv[3] || 'dark', lang: 'zh-Hant', rhythmEngine: 'dsp' }),
   );
   const app = await electron.launch({
-    executablePath: require(path.join(ROOT, 'node_modules', 'electron')),
-    args: [ROOT, '--no-sandbox'],
+    executablePath: process.env.CADENZA_TEST_EXE || require(path.join(ROOT, 'node_modules', 'electron')),
+    args: process.env.CADENZA_TEST_EXE ? [] : [ROOT, '--no-sandbox'],
     env: { ...process.env, CADENZA_USER_DATA: prof },
   });
   const out = path.join(prof, 'export.mp4');
@@ -192,7 +192,7 @@ const ok = (name, pass, detail) => {
   );
   const cached = await C(
     (id) =>
-      window.cadenzaLib.analysis(id, 3).then(
+      window.cadenzaLib.analysis(id, 4).then(
         (a) =>
           a && {
             v: a.version,
@@ -208,7 +208,7 @@ const ok = (name, pass, detail) => {
   ok(
     "rhythm cache: the SDK's own analysis, versioned, saying which engine found the beats",
     cached &&
-      cached.v === 3 &&
+      cached.v === 4 &&
       (cached.engine === 'neural' || cached.engine === 'dsp') &&
       cached.beats > 20 &&
       cached.events > 20 &&
@@ -702,13 +702,13 @@ const ok = (name, pass, detail) => {
     };
   });
   ok(
-    'effect lyrics: full picture at 16:9, the cover theme, the record out from under the sleeve',
+    'effect lyrics: full picture at 16:10, the cover theme, the record out from under the sleeve',
     fx.view === 'effect' &&
       fx.mix > 0.99 &&
       fx.owner === 'backdrop' &&
       fx.vinyl > 0.99 &&
       fx.theme === 'cover' &&
-      fx.aspect === '16:9',
+      fx.aspect === '16:10',
     JSON.stringify(fx),
   );
   // the bar and the pointer: both hide after a still moment, both come back on any movement
@@ -880,6 +880,13 @@ const ok = (name, pass, detail) => {
     await shot('fx-sonnet-panel');
     await W(2500);
     await shot('fx-sonnet');
+    await openStyle(sp, '特效');
+    ok(
+      'style capabilities: native lyric geometry is disabled but shared atmosphere remains available',
+      (await sp.getByRole('checkbox', { name: '歌詞框線', exact: true }).isDisabled()) &&
+        !(await sp.getByRole('checkbox', { name: '光點', exact: true }).isDisabled()),
+    );
+    await shot('fx-sonnet-effects');
     await openStyle(sp, '風格');
     await sp.getByRole('radio', { name: /凝彩/ }).click();
     await W(1500);
@@ -1224,6 +1231,12 @@ const ok = (name, pass, detail) => {
   await W(1200);
 
   /* ---------- MV ---------- */
+  // Keep this track from naturally ending during the binding and fade checks on slower runs.
+  await C(() => window.__cadenza.api.seekFile(5));
+  await win.waitForFunction(() => {
+    const t = window.__cadenza.engine.t;
+    return t >= 4 && t < 12;
+  });
   await win.mouse.move(700, 860);
   await W(300);
   await win.locator('[data-test=fx-bar]').getByRole('button', { name: 'MV' }).click();
@@ -1748,7 +1761,7 @@ const ok = (name, pass, detail) => {
       JSON.stringify({ dropped, back }),
     );
   }
-  /* ---------- streaming: a song not analysed yet plays at once on its opening's reading, the whole one taking over ---------- */
+  /* ---------- a song plays while the analysis queue is held, then takes the result when the hold is released ---------- */
   {
     await C(() => window.__cadenza.pauseAnalysis(true));
     await C((id) => {
@@ -1757,7 +1770,13 @@ const ok = (name, pass, detail) => {
     }, ids['Night Drive']);
     const t0 = Date.now();
     await C((id) => window.__cadenza.api.playIds([id], 0), ids['Night Drive']);
+    await win.waitForFunction((id) => {
+      const { id: target, session, phase } = window.__cadenza.player.get();
+      return target === id && session?.spec.key === id && phase === 'playing';
+    }, ids['Night Drive']);
+    const unanalysed = await C((id) => window.cadenzaLib.analysis(id, 4), ids['Night Drive']);
     const wait = Date.now() - t0;
+    await C(() => window.__cadenza.pauseAnalysis(false));
     let st = null;
     for (let i = 0; i < 60 && st !== 'streamed'; i++) {
       await W(500);
@@ -1765,17 +1784,16 @@ const ok = (name, pass, detail) => {
     }
     const r = await C(
       (id) =>
-        Promise.all([window.cadenzaLib.analysis(id, 3), window.__cadenza.player.get()]).then(([a, p]) => ({
+        Promise.all([window.cadenzaLib.analysis(id, 4), window.__cadenza.player.get()]).then(([a, p]) => ({
           saved: !!a && !a.partial,
-          partial: !!p.session.analysis.partial,
+          partial: !p.session?.analysis || !!p.session.analysis.partial,
           playing: p.playing,
         })),
       ids['Night Drive'],
     );
-    await C(() => window.__cadenza.pauseAnalysis(false));
     ok(
       'streaming: an unanalysed song plays at once, the whole reading put in place while it plays (and only that one kept)',
-      st === 'streamed' && r.saved && !r.partial && r.playing,
+      !unanalysed && st === 'streamed' && r.saved && !r.partial && r.playing,
       JSON.stringify({ st, wait, ...r }),
     );
   }

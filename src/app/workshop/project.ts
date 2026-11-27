@@ -5,7 +5,7 @@
 import { createStore } from '../../core/emitter';
 import { Engine, Session } from '../../engine';
 import { analyzeInBackground, type RhythmAnalysis, type SongInfo } from '../../engine';
-import { storedStyle, presetStyle, DEFAULT_THEME } from '../../theme/style';
+import { storedStyle, presetStyle, DEFAULT_THEME, DEFAULT_LYRIC_ASPECT } from '../../theme/style';
 import { DEMO_LYRICS } from '../../theme/demo';
 import { tx } from '../../i18n';
 import { remember, keep } from '../state';
@@ -134,7 +134,7 @@ async function openProject(
     },
     sessionEnv(engine),
   );
-  s.style.aspect ||= '16:9';
+  s.style.aspect ||= DEFAULT_LYRIC_ASPECT;
   engine.show(s, { play: false });
   ws.set({ session: s, projectId, audioName: buffer ? name : '' });
   bump();
@@ -157,7 +157,7 @@ export async function start() {
     await openProject(fresh());
   }
 }
-/** A library song becomes the workshop's next project (16:9), free to change without touching the song. */
+/** A library song becomes the workshop's next project, free to change without touching the song. */
 export function queueImport(x: Incoming) {
   if (!canEdit()) return;
   pending = x;

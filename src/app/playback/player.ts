@@ -20,7 +20,7 @@ import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
 import { insertNext, followList } from './queue';
 import { SCHEMA } from '../settings/schema';
 import { engine, sessionEnv } from './stage';
-import { requestAnalysis } from './analysis';
+import { onAnalysisUpgrade, requestAnalysis } from './analysis';
 import { traceBegin, tracePhase, traceEnd } from './trace';
 import {
   hifiOn,
@@ -94,6 +94,7 @@ const coming = new WeakMap<Session, Promise<RhythmAnalysis | null>>();
 export function rhythmState(): 'whole' | 'partial' | 'streamed' | null {
   const s = player.get().session;
   if (!s) return null;
+  if (!s.analysis) return coming.has(s) ? 'partial' : null;
   return s.analysis?.partial || s.staged ? 'partial' : coming.has(s) ? 'streamed' : 'whole';
 }
 export function forgetPrepared(id: string) {
@@ -108,6 +109,17 @@ export async function wholeRhythm() {
 
 let prepared: PreparedOutput | null = null;
 let visualRequest: PlaybackRequest | null = null;
+onAnalysisUpgrade((content, result) => {
+  const { session, shownId } = player.get();
+  const request = visualRequest;
+  if (!session || !shownId || request?.entry.id !== shownId || trackOf(shownId)?.audioContentId !== content) return;
+  void session
+    .stage(result, request.signal)
+    .then((staged) => {
+      if (staged && session === player.get().session) engine.invalidate();
+    })
+    .catch(() => {});
+});
 let trace: ReturnType<typeof traceBegin> | null = null;
 let preloadTimer: ReturnType<typeof setTimeout> | undefined;
 let audioConfig: Promise<unknown> | null = null;
@@ -563,7 +575,7 @@ lib.subscribe((L, prev) => {
 export const FX_ASPECTS: string[] = [...SCHEMA.fxAspect.options];
 export const fxAspect = () => {
   const a = settings.get().fxAspect;
-  return a && FX_ASPECTS.includes(a) ? a : '16:9';
+  return a && FX_ASPECTS.includes(a) ? a : SCHEMA.fxAspect.default;
 };
 /** Change the shape: kept for every song, and the song shown is planned again for it at once. */
 export function setFxAspect(shape: string) {

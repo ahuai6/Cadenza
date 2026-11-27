@@ -8,7 +8,8 @@ import { parse } from '../../src/lyrics/parse';
 import { buildLyrics } from '../../src/lyrics/model';
 import { RhythmMap } from '../../src/rhythm/map';
 import { foliaLines } from '../../src/folia/adapt';
-import { beatEvents } from '../../src/folia/live';
+import { beatEvents, installBeats } from '../../src/folia/live';
+import { getBeatFxTrackScale } from '../../src/folia/vendor/services/beatFx/beatFxLive';
 import { compileSonnetProgram } from '../../src/folia/vendor/components/visualizer/sonnet/sonnetProgram';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
@@ -115,9 +116,11 @@ describe('Cadenza’s lyrics reach Folia intact', () => {
       0.25,
     );
     expect(beatEvents(map).slice(0, 2)).toEqual([
-      { t: -0.25, kind: 'downbeat', impact: 0.4, tone: { low: 0.6, mid: 0.3, high: 0.1 }, barPos: 0, rhythmic: false },
-      { t: 0.25, kind: 'beat', impact: 0.4, tone: { low: 0.6, mid: 0.3, high: 0.1 }, barPos: 1, rhythmic: true },
+      { t: -0.25, kind: 'downbeat', impact: 0.8, tone: { low: 0.6, mid: 0.3, high: 0.1 }, barPos: 0, rhythmic: false },
+      { t: 0.25, kind: 'beat', impact: 0.8, tone: { low: 0.6, mid: 0.3, high: 0.1 }, barPos: 1, rhythmic: true },
     ]);
+    installBeats('shared-beat-evidence', map);
+    expect(getBeatFxTrackScale()).toBe(0.5);
   });
   it('Sonnet’s program depends on the song alone (same song, same shots)', () => {
     const { doc } = docOf();

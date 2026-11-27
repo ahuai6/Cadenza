@@ -216,6 +216,7 @@ export class TemperaEngine implements FoliaEngine {
   private depthOn = false;
   private depthMix = 0;
   private lastT: number | null = null;
+  private depthChange: { t: number; mix: number } | null = null;
   private destroyed = false;
 
   constructor(private readonly spec: TemperaOptions) {
@@ -305,11 +306,13 @@ export class TemperaEngine implements FoliaEngine {
 
   private resize(width: number, height: number, resolution: number) {
     if (width === this.width && height === this.height && resolution === this.resolution) return;
+    const geometryChanged = width !== this.width || height !== this.height;
     this.width = width;
     this.height = height;
     this.resolution = resolution;
     this.host.clientWidth = width;
     this.host.clientHeight = height;
+    if (!geometryChanged && this.activeParagraphIndex >= 0) return;
     this.clearScenes();
     this.drawCredits();
     this.overlay.draw(width, height, this.tuning, this.theme);
@@ -330,14 +333,21 @@ export class TemperaEngine implements FoliaEngine {
   /** The depth (墨染奥行) follows the ink flash's switch, easing in over DEPTH_EASE_SECONDS of song time. */
   private updateDepthSwitch(t: number) {
     const on = getBeatEffectStrength(BEAT_EFFECT_IDS.temperaInkFlash) > 0;
+    const seek = this.lastT === null || t < this.lastT || t - this.lastT > 0.3;
     if (on !== this.depthOn) {
       this.depthOn = on;
+      this.depthChange = seek ? null : { t, mix: this.depthMix };
       this.clearScenes();
     }
-    const dt = this.lastT === null ? 0 : Math.min(0.1, Math.abs(t - this.lastT));
     this.lastT = t;
-    const step = dt / DEPTH_EASE_SECONDS;
-    this.depthMix = this.depthOn ? Math.min(1, this.depthMix + step) : Math.max(0, this.depthMix - step);
+    if (seek) this.depthChange = null;
+    const change = this.depthChange;
+    if (!change) this.depthMix = Number(on);
+    else {
+      const k = Math.min(1, (t - change.t) / DEPTH_EASE_SECONDS);
+      this.depthMix = change.mix + (Number(on) - change.mix) * k;
+      if (k === 1) this.depthChange = null;
+    }
   }
 
   private updateInkFlash(time: number, width: number, height: number, paragraphIndex: number) {

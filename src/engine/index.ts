@@ -67,6 +67,6 @@ export { LYRIC_TYPES } from '../director/lyrictypes';
 export { ASPECTS, cameraPrograms } from '../director';
 export { transitions } from '../render/transitions';
 export { FONTS, FONT_KINDS, fontStack, ensureFont, type Face, type FontKind } from '../text/fonts';
-export { effects, effect, type Param as EffectParam } from '../render/effects/registry';
-export { ENGINES, ENGINE_PARAMS, isFoliaEngine, type EngineParam } from '../render/engines';
+export { effects, effect, effectSupported, type Param as EffectParam } from '../render/effects/registry';
+export { ENGINES, ENGINE_PARAMS, isFoliaEngine, cameraOwner, type EngineParam } from '../render/engines';
 export type { GfxMode } from '../render/gfx';

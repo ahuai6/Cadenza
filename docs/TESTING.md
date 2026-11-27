@@ -1,5 +1,7 @@
 # 测试
 
+G7 的 Windows Electron 硬件渲染探针、上游逐帧对照、资源压力及 G6 缓存升级回归见 [G7 验证记录](G7.md)。历史 G0–G6 基准继续按原口径比较。
+
 ## G6 节奏与缓存验证
 
 `node tests/rhythm-analysis-desktop.cjs` 在隔离资料和自生成素材上测试 Windows Electron。可用 `CADENZA_ANALYSIS_SECONDS` 选择 300、900、2700 或 5400 秒，`CADENZA_TEST_EXE` 可指向本地拆包 EXE。探针验证相同内容两条曲目共享分析、长音频末段的绝对拍点位置、并行分析期间的播放图内信号和跳转，以及重启后持久缓存命中。 `--baseline` 适用于 G5.5-F 拆包产物，记录旧版超出预算后跳过的结果。 [实现、性能数据和验证边界](G6.md)

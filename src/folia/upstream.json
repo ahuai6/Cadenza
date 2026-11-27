@@ -114,6 +114,7 @@
   ],
   "shims": {
     "pixi.js": "src/folia/pixi/index.ts",
+    "@cadenza/beat-timeline": "src/folia/beat-timeline.ts",
     "framer-motion": "src/folia/shim/framerMotion.ts",
     "lucide-react": "src/folia/shim/lucide.ts",
     "src/stores/motionSignals.ts": "src/folia/shim/motionSignals.ts",
@@ -123,6 +124,18 @@
     "src/services/analysis/drumHits.ts": "src/folia/shim/drumHits.ts"
   },
   "patches": [
+    {
+      "file": "src/services/beatFx/beatFxLive.ts",
+      "why": "The Cadenza host samples the beat envelope from the authoritative media position, including seek and offline frames.",
+      "find": "export const tickBeatFx = (audioElement: HTMLMediaElement | null, context: BaseAudioContext | null | undefined) => {",
+      "replace": "import { positionBeatFx } from '@cadenza/beat-timeline';\n\nexport const tickBeatFx = (audioElement: HTMLMediaElement | null, context: BaseAudioContext | null | undefined, mediaTime?: number) => {"
+    },
+    {
+      "file": "src/services/beatFx/beatFxLive.ts",
+      "why": "Use the bounded media-time envelope when an explicit position is supplied by Cadenza.",
+      "find": "    stepBeatFxClock(state, heardTime, dtSec);",
+      "replace": "    if (mediaTime === undefined) stepBeatFxClock(state, heardTime, dtSec);\n    else positionBeatFx(state, mediaTime);"
+    },
     {
       "file": "src/components/visualizer/sonnet/sonnetSceneBuilder.ts",
       "why": "unused name (noUnusedLocals)",

@@ -10,9 +10,33 @@ import type { EngineParam, FoliaEngine } from '../folia/engines/types';
 import { foliaLines, foliaTheme, rgbHex } from '../folia/adapt';
 import { installBeats, tickLive, setBeatEffects } from '../folia/live';
 import { fontStack } from '../text/fonts';
+import { setStageQuadRenderer } from '../folia/pixi/render';
+import { gpuQuads } from './gpu';
+import { gpuLyrics } from './gfx';
+
+setStageQuadRenderer((width, height, quads, target) => {
+  const gpu = gpuLyrics() && gpuQuads();
+  if (!gpu) return null;
+  gpu.begin(width, height, false, target);
+  let complete = true;
+  try {
+    for (const q of quads) {
+      if (
+        q.alpha > 0.002 &&
+        !gpu.quad(q.source as Parameters<typeof gpu.quad>[0], ...q.crop, ...q.rect, q.transform, q.alpha, q.tint)
+      )
+        complete = false;
+    }
+  } finally {
+    gpu.end();
+  }
+  return complete ? gpu.canvas : null;
+});
 
 interface Held {
   key: string;
+  palette: RenderFrame['pal'];
+  ambient: RenderFrame['ambient'];
   /** the style object it was last checked against (styles are replaced, never changed in place) */
   style: RenderFrame['style'];
   engine: FoliaEngine;
@@ -20,10 +44,25 @@ interface Held {
 const held = new WeakMap<ScenePlan, Held>();
 
 /** The engines a style can name (the director is none of them). */
-export const ENGINES = ['sonnet', 'tempera'] as const;
-export type EngineId = (typeof ENGINES)[number];
-export const isFoliaEngine = (id: string | undefined): id is EngineId =>
-  !!id && (ENGINES as readonly string[]).includes(id);
+type WorldInput = ConstructorParameters<typeof SonnetEngine>[0] & { coverColors: string[] };
+interface World {
+  create: (input: WorldInput) => FoliaEngine;
+  params: EngineParam[];
+  usesCover: boolean;
+  beatEffects?: (tuning: NonNullable<RenderFrame['style']['engp']>[string]) => Record<string, number>;
+}
+const worlds = {
+  sonnet: { create: (input) => new SonnetEngine(input), params: SONNET_PARAMS, usesCover: false },
+  tempera: {
+    create: (input) => new TemperaEngine(input),
+    params: TEMPERA_PARAMS,
+    usesCover: true,
+    beatEffects: (tuning) => ({ 'tempera.inkFlash': +(tuning.inkFlash ?? 1) }),
+  },
+} satisfies Record<string, World>;
+export type EngineId = keyof typeof worlds;
+export const ENGINES = Object.keys(worlds) as EngineId[];
+export const isFoliaEngine = (id: string | undefined): id is EngineId => !!id && Object.hasOwn(worlds, id);
 
 /** Each engine's own settings (the style pages draw their controls from these). */
 /** What every Folia style has besides its own: whose word split its layout reads — Cadenza's (the listener's own, where
@@ -31,14 +70,14 @@ export const isFoliaEngine = (id: string | undefined): id is EngineId =>
 const SHARED_PARAMS: EngineParam[] = [
   { key: 'foliaSeg', label: 'eng.foliaSeg', kind: 'toggle', def: false, group: 'style' },
 ];
-export const ENGINE_PARAMS: Record<EngineId, EngineParam[]> = {
-  sonnet: [...SONNET_PARAMS, ...SHARED_PARAMS],
-  tempera: [...TEMPERA_PARAMS, ...SHARED_PARAMS],
-};
+export const ENGINE_PARAMS = Object.fromEntries(
+  ENGINES.map((id) => [id, [...worlds[id].params, ...SHARED_PARAMS]]),
+) as Record<EngineId, EngineParam[]>;
 export type { EngineParam };
 
 /** Whether the frame's lyrics are an engine's (the director's word layers, transitions and dots are then left out). */
 export const engineOf = (f: RenderFrame) => (isFoliaEngine(f.style.engine) ? f.style.engine : null);
+export const cameraOwner = (style: RenderFrame['style']) => (isFoliaEngine(style.engine) ? 'world' : 'director');
 
 function seedOf(plan: ScenePlan) {
   const d = plan.doc;
@@ -67,7 +106,16 @@ function specOf(f: RenderFrame, id: EngineId) {
   });
   const tuning = (st.engp?.[id] ?? {}) as Record<string, unknown>;
   // (the tuning is applied to a live engine in place: only what it was built from rebuilds it)
-  const key = JSON.stringify([id, theme, st.k.size ?? 1, f.motion < 1, tuning.beatFx, tuning.credits, tuning.foliaSeg]);
+  const key = JSON.stringify([
+    id,
+    theme,
+    st.k.size ?? 1,
+    f.motion < 1,
+    tuning.beatFx,
+    tuning.credits,
+    tuning.foliaSeg,
+    worlds[id].usesCover ? f.ambient.cols : null,
+  ]);
   return { key, theme, tuning };
 }
 
@@ -90,34 +138,40 @@ function build(f: RenderFrame, id: EngineId, theme: ReturnType<typeof foliaTheme
     credits: tuning.credits !== false,
     tuning,
   };
-  if (id === 'tempera') {
-    const pal = f.pal;
-    // the cover's colours (the gradient colour mode reads them), as Cadenza reads them from the cover (the ambient
-    // field's); with no cover, the look's own
-    const A = f.ambient,
-      coverColors = (A.cols.length ? A.cols : [pal.accent, pal.bg2, pal.text, pal.flash, pal.bg]).map(rgbHex);
-    return new TemperaEngine({ ...common, coverColors });
-  }
-  return new SonnetEngine(common);
+  const pal = f.pal;
+  const coverColors = worlds[id].usesCover
+    ? (f.ambient.cols.length ? f.ambient.cols : [pal.accent, pal.bg2, pal.text, pal.flash, pal.bg]).map(rgbHex)
+    : [];
+  return worlds[id].create({ ...common, coverColors });
 }
 
 /** The frame's engine runtime (made or rebuilt as needed), or null for the director. */
 export function engineFor(f: RenderFrame): FoliaEngine | null {
   const id = engineOf(f);
-  if (!id) return null;
+  if (!id) {
+    releaseWorld(f.plan);
+    return null;
+  }
   // (the key is cheap; it is built once per style change, not per frame)
   const h = held.get(f.plan);
-  if (h && h.style === f.style) return h.engine;
+  if (h && h.style === f.style && h.palette === f.pal && h.ambient === f.ambient) return h.engine;
   const { key, theme, tuning } = specOf(f, id);
   if (h && h.key === key) {
     h.style = f.style;
+    h.palette = f.pal;
+    h.ambient = f.ambient;
     h.engine.setTuning(tuning);
     return h.engine;
   }
   h?.engine.destroy();
-  const next: Held = { key, style: f.style, engine: build(f, id, theme, tuning) };
+  const next: Held = { key, style: f.style, palette: f.pal, ambient: f.ambient, engine: build(f, id, theme, tuning) };
   held.set(f.plan, next);
   return next.engine;
+}
+
+export function releaseWorld(plan: ScenePlan) {
+  held.get(plan)?.engine.destroy();
+  held.delete(plan);
 }
 
 /** An engine still loading its assets (the engine keeps drawing frames until it is in, even paused). */
@@ -128,7 +182,8 @@ export function drawEngine(g: CanvasRenderingContext2D, f: RenderFrame, engine: 
   installBeats(seedOf(f.plan), f.plan.map);
   // (the beat effects a style asks for by id, at the strength its settings give)
   const tuning = f.style.engp?.[engine.id] ?? {};
-  setBeatEffects(engine.id === 'tempera' ? { 'tempera.inkFlash': +(tuning.inkFlash ?? 1) } : {});
+  const world: World | undefined = isFoliaEngine(engine.id) ? worlds[engine.id] : undefined;
+  setBeatEffects(world?.beatEffects?.(tuning) ?? {});
   tickLive(f.t, f.playing !== false, f.plan.map);
   ENGINE_WAIT.on = !engine.ready;
   engine.draw(g, { t: f.t, W: f.W, H: f.H, px: f.px, alpha: f.view.effect, playing: f.playing !== false });

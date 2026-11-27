@@ -21,7 +21,7 @@ export const rhythmEngine = () => engineSetting;
 
 import type { RhythmAnalysis } from './types';
 import type { Loudness } from './loudness';
-import { neuralRhythm, neuralStatus, type NeuralOptions } from './neural';
+import { neuralDrums, neuralRhythm, neuralStatus, type NeuralOptions } from './neural';
 // bundled inline (a blob: URL), so it also starts from a page loaded from file:// (the desktop app)
 import AnalysisWorker from './worker.ts?worker&inline';
 import FileAnalysisWorker from './file-analysis.worker.ts?worker&inline';
@@ -34,6 +34,8 @@ export function analyzePcm(
   const { signal } = options;
   signal.throwIfAborted();
   const worker = new FileAnalysisWorker();
+  const requestedDrums = neuralDrums();
+  let separate = requestedDrums;
   return new Promise((resolve, reject) => {
     const finish = () => {
       signal.removeEventListener('abort', abort);
@@ -62,8 +64,9 @@ export function analyzePcm(
           numberOfChannels: window.length,
           getChannelData: (index: number) => window[index],
         };
-        void neuralRhythm(input, undefined, { urgent: options.urgent, timeoutMs: 90000, signal }).then(
+        void neuralRhythm(input, undefined, { drums: separate, urgent: options.urgent, timeoutMs: 90000, signal }).then(
           (neural) => {
+            if (neural && !neural.drumsRun) separate = false;
             if (!signal.aborted) worker.postMessage({ neural });
           },
           (reason) => {
@@ -78,6 +81,7 @@ export function analyzePcm(
       engine: engineSetting,
       onlyLoudness: !!options.onlyLoudness,
       browser: !!options.browser,
+      drums: requestedDrums,
     });
   });
 }

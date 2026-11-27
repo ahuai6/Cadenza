@@ -10,6 +10,8 @@ import { PRESETS, KNOBS, MACROS, MOTIONS, KNOB_REBUILD, motionOf, presetStyle, t
 import {
   effects,
   effect,
+  effectSupported,
+  cameraOwner,
   cameraPrograms,
   transitions,
   LYRIC_TYPES,
@@ -731,6 +733,7 @@ const FX_GROUPS: [string, string[]][] = [
 export function EffectsPane({ s: ss, edit }: PaneProps) {
   const st = ss.style,
     custom = st.preset === 'custom',
+    owner = cameraOwner(st),
     list = effects('effect').filter((e) => !COMPANIONS.has(e.id)),
     known = new Set(FX_GROUPS.flatMap((g) => g[1]));
   const groups: [string, typeof list][] = [
@@ -744,30 +747,36 @@ export function EffectsPane({ s: ss, edit }: PaneProps) {
       {!custom && <Note>{tx('th.locked')}</Note>}
       <fieldset disabled={!custom} className={s.set}>
         {st.engine && <EngineSection s={ss} edit={edit} group="fx" />}
+        {owner === 'world' && <Note>{tx('fx.nativeOnly')}</Note>}
         {groups
           .filter(([, es]) => es.length)
           .map(([g, es]) => (
             <Section key={g} title={tx(g)}>
               <div className={s.fxList}>
-                {es.map((e) => (
-                  <div key={e.id} className={s.fx} data-on={!!st.fx[e.id]}>
-                    <Check
-                      label={tx(e.label)}
-                      checked={!!st.fx[e.id]}
-                      onChange={(v) => edit((x) => x.setEffect(e.id, v))}
-                    />
-                    {st.fx[e.id] &&
-                      (e.params || []).map((p) => (
-                        <ParamControl
-                          key={p.key}
-                          p={p}
-                          value={st.fxp?.[e.id]?.[p.key] ?? p.def}
-                          onChange={(v) => edit((x) => x.setEffectParam(e.id, p.key, v, true))}
-                          onCommit={(v) => edit((x) => x.setEffectParam(e.id, p.key, v))}
-                        />
-                      ))}
-                  </div>
-                ))}
+                {es.map((e) => {
+                  const available = effectSupported(e, owner);
+                  const on = available && !!st.fx[e.id];
+                  return (
+                    <div key={e.id} className={s.fx} data-on={on} data-unavailable={!available}>
+                      <Check
+                        label={tx(e.label)}
+                        checked={on}
+                        disabled={!available}
+                        onChange={(v) => edit((x) => x.setEffect(e.id, v))}
+                      />
+                      {on &&
+                        (e.params || []).map((p) => (
+                          <ParamControl
+                            key={p.key}
+                            p={p}
+                            value={st.fxp?.[e.id]?.[p.key] ?? p.def}
+                            onChange={(v) => edit((x) => x.setEffectParam(e.id, p.key, v, true))}
+                            onCommit={(v) => edit((x) => x.setEffectParam(e.id, p.key, v))}
+                          />
+                        ))}
+                    </div>
+                  );
+                })}
               </div>
             </Section>
           ))}

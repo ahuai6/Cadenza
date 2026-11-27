@@ -7,6 +7,7 @@ import { settings, lib, useStore, remember, keep } from '../state';
 import { Icon } from '../ui/icons';
 import { Button, Seg, Toggle, Note, Slider, Dropdown, splitNote, usePresence } from '../ui/kit';
 import { hifi, refresh as hifiRefresh } from '../playback/hifi';
+import { refreshAnalysisCapability } from '../playback/analysis';
 import { neuralStatus, neuralRecheck, DEBUG } from '../../engine';
 import { setLang, setSettings } from '../actions/settings';
 import { askConfirm } from './Modals';
@@ -238,6 +239,7 @@ function RhythmGroup({ st }: { st: Settings }) {
   const [tick, setTick] = useState(0),
     recheck = () => {
       neuralRecheck();
+      void refreshAnalysisCapability();
       setTick((t) => t + 1);
     };
   useEffect(() => {

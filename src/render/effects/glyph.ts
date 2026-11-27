@@ -183,6 +183,7 @@ function glyphSpot(sl: RenderFrame['plan']['cues']['glyphSlots'][number], f: Ren
 // (deep in the backdrop: behind its roses, its cover, its record — over a song's video when one is up)
 register({
   id: 'glyph',
+  world: 'director',
   label: 'fx.glyph',
   layer: 'backdrop',
   kind: 'effect',

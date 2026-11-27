@@ -8,10 +8,11 @@
 import { clamp, sstep } from '../core/math';
 import { Emitter } from '../core/emitter';
 import { frameLoop, type FrameLoop } from '../core/frames';
-import { cameraAt, settleAt, type CamFrame } from '../director/evaluate';
+import { cameraAt, settleAt, worldFrame, type CamFrame } from '../director/evaluate';
 import { pathDiag, basePose } from '../director/camera';
 import { drawFrame, PROFILE } from '../render/renderer';
-import { ENGINE_WAIT } from '../render/engines';
+import { cameraOwner, ENGINE_WAIT, releaseWorld } from '../render/engines';
+import { observeWebgl } from '../core/webgl';
 import { setGpuLyrics, gpuLyrics } from '../render/gfx';
 import { MV_LOOK, type RenderFrame, type MvLook, type BackdropPose } from '../render/frame';
 import { makeCanvas } from '../render/palette';
@@ -212,6 +213,11 @@ export class Engine extends Emitter<EngineEvents> {
   private fadeOut: { cv: HTMLCanvasElement; t0: number } | null = null;
   /** album play: the song before, still running on in the picture for a moment (see show) */
   private carry: { s: Session; t0: number; at: number } | null = null;
+  private drawnPlan: Session['plan'] | null = null;
+  private retireWorld(plan?: Session['plan']) {
+    if (plan && plan !== this.session?.plan && plan !== this.carry?.s.plan && plan !== this.swapFade?.s.plan)
+      releaseWorld(plan);
+  }
   private carryCv: HTMLCanvasElement | null = null;
   private box = { x: 0, y: 0, w: 1, h: 1 };
   private cssW = 1;
@@ -220,6 +226,7 @@ export class Engine extends Emitter<EngineEvents> {
   private ro: ResizeObserver | null = null;
   private host: HTMLElement | null = null;
   private frames: FrameLoop | null = null;
+  private readonly offWebgl: () => void;
   private endedFired = false;
   private musicEndFired = false;
   aspectBox: AspectBox = 'fill'; // fill the host, letterbox an aspect inside it, or cover the host with it
@@ -230,6 +237,7 @@ export class Engine extends Emitter<EngineEvents> {
     this.canvas = canvas;
     this.g = canvas.getContext('2d')!;
     this.clock = new AudioClock(opts.audioContext);
+    this.offWebgl = observeWebgl(() => this.invalidate());
     // (the graphics card reset under the page — a driver fault, a GPU timeout: the canvas comes back empty; it is drawn
     // again at once, and the event noted for the performance overlay)
     canvas.addEventListener('contextlost', () => {
@@ -258,6 +266,12 @@ export class Engine extends Emitter<EngineEvents> {
     this.clock.route(node);
   }
   destroy() {
+    this.offWebgl();
+    if (this.session) releaseWorld(this.session.plan);
+    if (this.carry) releaseWorld(this.carry.s.plan);
+    if (this.swapFade) releaseWorld(this.swapFade.s.plan);
+    if (this.drawnPlan) releaseWorld(this.drawnPlan);
+    this.drawnPlan = null;
     this.frames?.stop();
     this.ro?.disconnect();
     this.clock.stop();
@@ -303,7 +317,7 @@ export class Engine extends Emitter<EngineEvents> {
       height: hh + 'px',
     });
     h.style.background = this.aspectBox === 'fill' || cover ? '' : this.letterbox;
-    this.applyScale();
+    this.applyScale(false);
     this.session?.aspectChanged();
     this.dirty = true;
     this.redrawNow();
@@ -331,7 +345,7 @@ export class Engine extends Emitter<EngineEvents> {
     const d = Math.min(2, devicePixelRatio || 1);
     return this.render.scale === 'auto' ? d : Math.max(0.5, d * clamp(+this.render.scale || 1, 0.3, 1));
   }
-  private applyScale() {
+  private applyScale(redraw = true) {
     this.dpr = this.baseDpr() * this.pscale;
     const W = Math.round(this.box.w * this.dpr),
       H = Math.round(this.box.h * this.dpr);
@@ -340,7 +354,7 @@ export class Engine extends Emitter<EngineEvents> {
       this.canvas.height = H;
       setGlyphCacheFor(W, H);
       this.mark.resized = true;
-      this.redrawNow();
+      if (redraw) this.redrawNow();
     }
   }
   setRender(o: Partial<RenderSettings>) {
@@ -416,6 +430,8 @@ export class Engine extends Emitter<EngineEvents> {
    *  while the new song begins; the audio is not touched. */
   show(s: Session, o: { transition?: 'song' | 'album' | 'none'; at?: number; play?: boolean } = {}) {
     const was = this.playing;
+    const previous = this.session?.plan;
+    const carried = this.carry?.s.plan;
     if (!this.transport) {
       this.stopAudio();
       this.carry = null;
@@ -436,6 +452,8 @@ export class Engine extends Emitter<EngineEvents> {
       this.fadeOut = { cv, t0: performance.now() };
     }
     this.session = s;
+    this.retireWorld(previous);
+    this.retireWorld(carried);
     this.t = clamp(this.transport ? this.fileTime() : (o.at ?? 0), 0, Math.max(0, s.dur - 0.01));
     this.endedFired = false;
     this.musicEndFired = false;
@@ -446,6 +464,8 @@ export class Engine extends Emitter<EngineEvents> {
     if (!this.transport && (o.play ?? was)) this.play();
   }
   clear(transition?: 'song' | 'album') {
+    const previous = this.session?.plan;
+    const carried = this.carry?.s.plan;
     if (!this.transport) this.stopAudio();
     else {
       this.fadeOut = this.carry = this.bdCarry = null;
@@ -462,6 +482,8 @@ export class Engine extends Emitter<EngineEvents> {
       this.mv.sync(0, false, 0, false);
     }
     this.session = null;
+    this.retireWorld(previous);
+    this.retireWorld(carried);
     this.playing = false;
     this.dirty = true;
     this.emit('session', null);
@@ -643,7 +665,7 @@ export class Engine extends Emitter<EngineEvents> {
     if (!s) return null;
     const plan = s.plan,
       motion = RM ? 0.25 : 1;
-    let cf = cameraAt(plan, s.sig, t, motion);
+    let cf = cameraOwner(s.style) === 'world' ? worldFrame(plan, s.sig, t) : cameraAt(plan, s.sig, t, motion);
     // (a value that is not a number anywhere in the frame's camera, motion or rhythm sample: drawn with the last good
     // frame's instead — a canvas silently ignores what is drawn with a NaN in it, the picture stuck or black — and noted)
     const bad = nonFinite(cf);
@@ -870,7 +892,7 @@ export class Engine extends Emitter<EngineEvents> {
     }
     // before each blur transition, whatever the frame's spare time: the picture after the cut is drawn once ahead into a
     // tiny canvas (its words' glyphs made then, not in the frame where the blur clears and they first show)
-    if (vis && this.view === 'effect' && this.playing)
+    if (vis && this.view === 'effect' && this.playing && cameraOwner(s.style) === 'director')
       for (const P of s.plan.passages) {
         if (this.t < P.t - P.inn - 0.8 || this.t > P.t - P.inn || this.warmedPass.has(P)) continue;
         // (a few ms a frame until all of it is made: never one long frame of new glyphs)
@@ -891,7 +913,7 @@ export class Engine extends Emitter<EngineEvents> {
     // a half seconds on — a line's words come in over a while, at sizes that change as they do. Every frame that has any
     // time left, with less of it on a busy one: only on frames under 9 ms, a busy machine never looked ahead, and each new
     // line made all its glyphs in the frame it came in (the hitch as lines appear)
-    if (vis && this.view === 'effect' && this.render.prerender && this.playing) {
+    if (vis && this.view === 'effect' && this.render.prerender && this.playing && cameraOwner(s.style) === 'director') {
       const used = performance.now() - t0;
       if (used < 14)
         try {
@@ -928,6 +950,10 @@ export class Engine extends Emitter<EngineEvents> {
   private draw(s: Session) {
     const f = this.frameAt(this.t);
     if (!f) return;
+    if (this.drawnPlan !== f.plan) {
+      this.retireWorld(this.drawnPlan ?? undefined);
+      this.drawnPlan = f.plan;
+    }
     const g = this.g,
       cw = this.canvas.width,
       ch = this.canvas.height;
@@ -997,14 +1023,20 @@ export class Engine extends Emitter<EngineEvents> {
     }
     if (this.carry) {
       const el = (performance.now() - this.carry.at) / 1000;
-      if (el >= CARRY || this.carry.s.needsFlush) this.carry = null;
-      else this.drawCarry(this.carry, el);
+      if (el >= CARRY || this.carry.s.needsFlush) {
+        const plan = this.carry.s.plan;
+        this.carry = null;
+        this.retireWorld(plan);
+      } else this.drawCarry(this.carry, el);
     }
     // (a newer rhythm put in place without a blur to hide it: the picture as it was fades out over the new one)
     if (this.swapFade) {
       const u = (performance.now() - this.swapFade.at) / 1000 / this.swapFade.len;
-      if (u >= 1) this.swapFade = null;
-      else this.drawSwapFade(this.swapFade.s, u);
+      if (u >= 1) {
+        const plan = this.swapFade.s.plan;
+        this.swapFade = null;
+        this.retireWorld(plan);
+      } else this.drawSwapFade(this.swapFade.s, u);
     }
     if (this.fadeOut) {
       const u = clamp((performance.now() - this.fadeOut.t0) / 900);
@@ -1050,7 +1082,7 @@ export class Engine extends Emitter<EngineEvents> {
     if (!s.staged || s.needsFlush) return;
     const t = this.t,
       live = this.view === 'effect' && this.playing;
-    if (live) {
+    if (live && cameraOwner(s.style) === 'director') {
       const P = s.plan.passages.find((P) => P.t >= t - 0.03);
       if (P && P.t - t < 8) {
         if (Math.abs(t - P.t) > 0.04) return;
@@ -1063,7 +1095,10 @@ export class Engine extends Emitter<EngineEvents> {
   private swapNow(s: Session, len: number) {
     const before = s.takeStaged();
     if (!before) return;
+    const previous = this.swapFade?.s.plan;
     this.swapFade = len > 0 ? { s: before, at: performance.now(), len } : null;
+    this.retireWorld(previous);
+    this.retireWorld(before.plan);
     this.dirty = true;
     this.emit('change', undefined);
   }
@@ -1282,7 +1317,7 @@ export class Engine extends Emitter<EngineEvents> {
     drawFrame(g, f, { sig: s.sig });
   }
   private lookAhead(s: Session, t: number, px?: number) {
-    if (t >= s.dur) return;
+    if (t >= s.dur || cameraOwner(s.style) === 'world') return;
     if (!this.warm) this.warm = (makeCanvas(2, 2) as HTMLCanvasElement).getContext('2d')!;
     const f = this.frameAt(t);
     if (!f) return;

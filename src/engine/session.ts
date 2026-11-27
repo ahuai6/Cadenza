@@ -15,6 +15,7 @@ import {
   styleFromStored,
   presetStyle,
   normalizeStyle,
+  readVisualPreset,
   knobbed,
   isCustom,
   withLook,
@@ -323,6 +324,16 @@ export class Session {
   staged: { analysis: RhythmAnalysis; map: RhythmMap; sig: Signals; doc: LyricDoc; plan: ScenePlan } | null = null;
   async stage(a: RhythmAnalysis, signal?: AbortSignal): Promise<boolean> {
     if (!this.parsed || !isCurrent(a)) return false;
+    const quality = (result?: RhythmAnalysis | null) =>
+      result?.partial || !result
+        ? -1
+        : result.engine !== 'neural'
+          ? 0
+          : result.stems === 'drums' || result.stems === 'drumless'
+            ? 2
+            : 1;
+    const improves = () => quality(a) > quality(this.staged?.analysis ?? this.analysis);
+    if (!improves()) return false;
     const version = this.version;
     const map = new RhythmMap(a, this.audioStart),
       doc = buildLyrics(this.parsed, map, this.musicEnd);
@@ -336,7 +347,7 @@ export class Session {
       signal,
     );
     // (an edit or a newer reading meanwhile has taken over: this one is not wanted any more)
-    if (signal?.aborted || this.analysis?.partial !== true || this.version !== version) return false;
+    if (signal?.aborted || !improves() || this.version !== version) return false;
     this.staged = { analysis: a, map, sig: new Signals(map), doc, plan };
     return true;
   }
@@ -367,7 +378,14 @@ export class Session {
   } // (the same plan: its glyphs need no baking again)
   colors() {
     this.pal = paletteOf(this.style);
-    this.ambient = this.cover ? ambientFromImage(this.cover) : ambientFromName(this.spec.song.title);
+    this.updateAmbient();
+  }
+  private ambientSource: Img | string | undefined;
+  private updateAmbient() {
+    const source = this.cover ?? this.spec.song.title;
+    if (source === this.ambientSource && this.ambient) return;
+    this.ambientSource = source;
+    this.ambient = typeof source === 'string' ? ambientFromName(source) : ambientFromImage(source);
   }
   /** Rebuild whatever edits asked for (called by the engine once per frame at most). */
   async flush(): Promise<void> {
@@ -546,10 +564,13 @@ export class Session {
     return (this.rec ??= recommendMotion({ doc: this.doc, map: this.map, analysis: this.analysis }));
   }
   private rec: string | null = null;
-  applyTheme(stored: unknown) {
+  applyTheme(stored: unknown, identity?: Pick<Style, 'id' | 'name'>) {
+    const snapshot = readVisualPreset(stored);
+    if (!snapshot) return false;
     const keep = this.style;
     this.style = normalizeStyle({
-      ...(JSON.parse(JSON.stringify(stored)) as Style),
+      ...snapshot,
+      ...identity,
       preset: 'custom',
       aspect: this.spec.aspect || keep.aspect,
       aa: keep.aa,
@@ -557,6 +578,7 @@ export class Session {
     });
     this.colors();
     this.dirty |= BUILD;
+    return true;
   }
   coverPalette() {
     if (!this.cover) return;
@@ -565,6 +587,7 @@ export class Session {
   }
   setSong(p: Partial<SongInfo>) {
     this.spec.song = { ...this.spec.song, ...p };
+    this.updateAmbient();
     if (!this.hasLyrics) this.dirty |= BUILD;
     else this.dirty |= REPLAN;
   }
@@ -582,8 +605,12 @@ export class Session {
     Object.assign(this.spec, p);
     this.dirty |= p.range !== undefined || p.bpm !== undefined || !this.parsed ? BUILD : RETIME;
   }
+  private coverRequest = 0;
   async setCover(url: string, repaint: boolean) {
-    this.cover = await loadImage(url);
+    const revision = ++this.coverRequest;
+    const image = await loadImage(url);
+    if (revision !== this.coverRequest) return;
+    this.cover = image;
     this.coverKey = url;
     this.spec.coverUrl = url;
     // (the record theme keeps its own stage, in the new cover's colours; any other becomes the cover theme)

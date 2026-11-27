@@ -17,7 +17,7 @@
   "gfx": "default",
   "scale": "auto",
   "fps": 0,
-  "fxAspect": "16:9",
+  "fxAspect": "16:10",
   "prerender": true,
   "gpuLyrics": true,
   "audioOut": "standard",

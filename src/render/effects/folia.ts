@@ -12,7 +12,6 @@ import { foliaTheme, rgbHex } from '../../folia/adapt';
 
 /* ---------- 畫面處理: the finishing chain over the whole picture ---------- */
 let chain: { key: string; filters: pixi.Filter[] } | null = null;
-let copy: HTMLCanvasElement | OffscreenCanvas | null = null;
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
 register({
@@ -54,18 +53,14 @@ register({
     const W = cv.width,
       H = cv.height,
       res = f.px;
-    if (!copy || copy.width !== W || copy.height !== H) copy = pixi.makeCanvas(W, H);
-    const cg = copy.getContext('2d') as CanvasRenderingContext2D;
-    cg.globalCompositeOperation = 'copy';
-    cg.drawImage(cv, 0, 0);
-    const out = runner.run(copy, W / res, H / res, res, chain.filters, { x: 0, y: 0 });
+    const out = runner.run(cv, W / res, H / res, res, chain.filters, { x: 0, y: 0 });
     if (!out) return;
     g.save();
     g.setTransform(1, 0, 0, 1, 0, 0);
     // (fading with the effect view: the finished picture over the plain one)
     g.globalAlpha = k;
     g.globalCompositeOperation = k > 0.999 ? 'copy' : 'source-over';
-    g.drawImage(out as CanvasImageSource, 0, 0, W, H);
+    g.drawImage(out as CanvasImageSource, 0, 0, W, H, 0, 0, W, H);
     g.restore();
   },
 });

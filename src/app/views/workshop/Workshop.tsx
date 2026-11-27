@@ -11,7 +11,7 @@ import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropd
 import { LyricTextEditor } from '../../ui/LyricTextEditor';
 import { isTtml } from '../../../engine';
 import { yieldAudio, songForWorkshop } from '../../playback/player';
-import { storedStyle } from '../../../theme/style';
+import { DEFAULT_LYRIC_ASPECT, storedStyle } from '../../../theme/style';
 import { StylePage, EndPane, ExportPanel } from '../panes';
 import {
   ws,
@@ -50,7 +50,7 @@ export const sendToWorkshop = (t: Track) => (canEdit() ? editTask(() => prepareW
 async function prepareWorkshopSong(t: Track) {
   try {
     const x = await songForWorkshop(t);
-    const style = x.song?.style ? { ...(x.song.style as object), aspect: '16:9' } : { preset: 'cover', aspect: '16:9' };
+    const style = { preset: 'cover', aspect: DEFAULT_LYRIC_ASPECT, ...(x.song?.style as object | undefined) };
     const clean = (v: string) => String(v || '').replace(/[[\]<>#|]/g, ' ');
     const coverData = t.cover
       ? await fetch(`cadenza://cover/${t.cover}`)

@@ -177,13 +177,18 @@ export interface LibApi {
     version: number,
     token: AnalysisToken,
   ): Promise<void>;
-  /** the songs whose cached analysis of this version has not been checked yet */ unverified(
+  /** unchecked caches, plus unclassified older caches when a better analysis is available */ unverified(
     version: number,
+    inspectQuality?: boolean,
   ): Promise<string[]>;
   /** the caches (rhythm, loudness, thumbnails) cleared; every song is analysed again */ clearCaches(): Promise<boolean>;
   /** everything Cadenza keeps — library, songs' data, caches, settings — removed, and the app restarted */ resetAll(): Promise<void>;
   taskDetails(): Promise<BackgroundTasks>;
-  nextAnalysis(version: number, omit?: string[]): Promise<{ id: string; only?: 'loudness' } | null>;
+  nextAnalysis(
+    version: number,
+    omit?: string[],
+    capability?: string,
+  ): Promise<{ id: string; only?: 'loudness'; upgrade?: true } | null>;
   prioritize(ids: string[]): Promise<void>;
   song(id: string): Promise<SongData | null>;
   setSong(id: string, d: SongData): Promise<boolean>;
@@ -260,7 +265,15 @@ export interface AudioApi {
 }
 /** The rhythm engine's networks run natively (electron/infer.cjs): their state, the models' download, one pass. */
 export interface InferApi {
-  status(): Promise<{ runtime: boolean; models: boolean; ep: string | null; downloading: boolean; size: number }>;
+  status(): Promise<{
+    runtime: boolean;
+    models: boolean;
+    beats: boolean;
+    stems: boolean;
+    ep: string | null;
+    downloading: boolean;
+    size: number;
+  }>;
   download(): Promise<{ ok: boolean; why?: string }>;
   onProgress(f: (k: number) => void): Off;
   run(op: 'beat', a: { spect: Float32Array }): Promise<{ beat: Float32Array; downbeat: Float32Array }>;

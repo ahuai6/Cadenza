@@ -14,8 +14,7 @@ export function applyExistingPreset(session: Session, choice: PresetChoice) {
   if (choice.kind === 'theme') {
     const entry = themes.get().list.find((t) => t.id === choice.id);
     if (!entry) return false;
-    session.applyTheme({ ...(entry.style as object), id: entry.id, name: entry.name });
-    return true;
+    return session.applyTheme(entry.style, { id: entry.id, name: entry.name });
   }
   if (choice.kind === 'motion' && Object.hasOwn(MOTIONS, choice.id)) {
     if (!session.custom) session.makeCustom();

@@ -110,7 +110,7 @@ export const SCHEMA = {
     label: 's.set.fps',
     optionLabel: (o) => (o ? ['s.set.fps.n', { n: +o }] : ['s.set.fps.none']),
   }),
-  fxAspect: choice(['16:9', '16:10', '9:16', '1:1'], '16:9', { group: 'picture', only: 'classic' }),
+  fxAspect: choice(['16:9', '16:10', '9:16', '1:1'], '16:10', { group: 'picture', only: 'classic' }),
   prerender: toggle(true, {
     group: 'picture',
     only: 'classic',

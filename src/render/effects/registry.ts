@@ -59,6 +59,8 @@ export interface Effect {
   layer: Layer;
   /** 'backdrop': chosen by the theme's backdrop style (one at a time); 'effect': switched on and off */
   kind: 'backdrop' | 'effect';
+  /** Draws in the composition surface, independent of a director's lyric layout and camera. */
+  world?: 'shared' | 'director';
   params?: Param[];
   /** order inside its layer (lower first) */
   z?: number;
@@ -80,6 +82,10 @@ export function register(e: Effect) {
 }
 export const effect = (id: string) => REG.get(id);
 export const effects = (kind?: Effect['kind']) => [...REG.values()].filter((e) => !kind || e.kind === kind);
+/** Independent worlds can compose public backgrounds and screen effects, with opt-in world-space decorations. */
+export const effectSupported = (e: Effect, owner: 'director' | 'world') =>
+  owner === 'director' ||
+  (e.world !== 'director' && (e.layer === 'backdrop' || e.layer === 'screen' || e.world === 'shared'));
 export function paramsFor(e: Effect, stored?: Record<string, number | string | boolean>) {
   const out: Record<string, number | string | boolean> = {};
   for (const p of e.params || []) out[p.key] = stored?.[p.key] ?? p.def;

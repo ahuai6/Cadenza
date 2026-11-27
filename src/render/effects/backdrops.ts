@@ -10,6 +10,7 @@ import { basePose } from '../../director/camera';
 import { accentClock } from '../../rhythm/accentclock';
 import { stagger, band, lifeFade, loop } from './drift';
 import { gfx } from '../gfx';
+import { cameraOwner } from '../engines';
 
 const C2 = (c: HTMLCanvasElement | OffscreenCanvas) => (c as HTMLCanvasElement).getContext('2d')!;
 const lowSize = (cv: HTMLCanvasElement, W0: number, H0: number, base: number) => {
@@ -456,6 +457,7 @@ export function geoShapes(g: Ctx, G: ReturnType<typeof geoPattern>, e: number, w
 }
 register({
   id: 'geo-front',
+  world: 'shared',
   label: 'bg.geo',
   layer: 'foreground',
   kind: 'effect',
@@ -471,7 +473,7 @@ register({
       cam = f.cam.cont;
     const one = (P: ReturnType<typeof geoPattern>, e: number) => {
       if (!P.on || e <= 0.001) return;
-      const c0 = basePose(f.plan.camera, P.start),
+      const c0 = cameraOwner(f.style) === 'world' ? cam : basePose(f.plan.camera, P.start),
         s = cam.z * 0.35; // pinned to the world: they slide and turn with the camera
       g.save();
       g.translate(w / 2, h / 2);
@@ -738,6 +740,7 @@ const FCHAINS = [
 ];
 register({
   id: 'gothic-chains',
+  world: 'shared',
   label: 'bg.gothic',
   layer: 'foreground',
   kind: 'effect',
@@ -858,13 +861,18 @@ export function drawVideo(
     chh = (w * Math.abs(Math.sin(a)) + h * Math.abs(Math.cos(a))) / Math.min(1, zoom);
   // parallax: the backdrop lags the camera a little (it never looks back across a transition cut)
   const t = f.t;
-  let tb = Math.max(0, t - 0.7);
-  for (const p of f.plan.passages) if (p.t <= t && p.t > tb) tb = p.t;
-  const c0 = basePose(f.plan.camera, t),
-    c1 = basePose(f.plan.camera, tb),
-    lagx = clamp((c1.x - c0.x) * c0.z * 0.1, -w * 0.04, w * 0.04),
-    lagy = clamp((c1.y - c0.y) * c0.z * 0.1, -h * 0.04, h * 0.04),
+  let lagx = 0,
+    lagy = 0,
+    lz = 1;
+  if (cameraOwner(f.style) === 'director') {
+    let tb = Math.max(0, t - 0.7);
+    for (const p of f.plan.passages) if (p.t <= t && p.t > tb) tb = p.t;
+    const c0 = basePose(f.plan.camera, t),
+      c1 = basePose(f.plan.camera, tb);
+    lagx = clamp((c1.x - c0.x) * c0.z * 0.1, -w * 0.04, w * 0.04);
+    lagy = clamp((c1.y - c0.y) * c0.z * 0.1, -h * 0.04, h * 0.04);
     lz = Math.max(1, (c0.z / c1.z) ** 0.12);
+  }
   const sw = ok ? src!.w : 16,
     sh = ok ? src!.h : 9,
     k = Math.max(cw / sw, chh / sh) * lerp(1.09 * lz, 1.015, fit) * (1 + f.P * lerp(0.004, 0.002, fit)),

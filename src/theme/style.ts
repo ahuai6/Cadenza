@@ -5,6 +5,8 @@
 import { clamp } from '../core/math';
 import { hex2rgb, hexOf, paleOf } from '../core/color';
 
+export const DEFAULT_LYRIC_ASPECT = '16:10';
+
 /** a camera program's id (director/cameras.ts: punch, glide, waltz, close, hover, center, or any registered) */
 export type CameraStyleId = string;
 export interface Motion {
@@ -634,7 +636,7 @@ export function presetStyle(key: string, keep?: Partial<Style>): Style {
     from: id,
     k: knobDefaults(),
     m: p.m0,
-    aspect: keep?.aspect || '16:9',
+    aspect: keep?.aspect || DEFAULT_LYRIC_ASPECT,
     aa: AA_MODES.includes(keep?.aa as string) ? keep!.aa! : 'off',
   } as Style;
   if (keep?.k && keep.k.size != null) s.k.size = keep.k.size; // lyric size is the project's, not the theme's
@@ -654,7 +656,7 @@ export function normalizeStyle(s: Partial<Style>): Style {
     m0: { ...base.m0, ...(s.m0 || {}) },
   } as Style;
   if (!AA_MODES.includes(out.aa)) out.aa = 'off';
-  if (!out.aspect) out.aspect = '16:9';
+  if (!out.aspect) out.aspect = DEFAULT_LYRIC_ASPECT;
   delete (out as { quality?: unknown }).quality; // (a field older saves carry, no longer read)
   out.m = knobbed(out.m0, out.k);
   return out;
@@ -697,3 +699,19 @@ export const storedStyle = (s: Style) => {
   const { m, ...rest } = s;
   return clone(rest);
 };
+
+export type VisualPreset = { version: 1; style: ReturnType<typeof storedStyle> };
+
+/** Capture a complete world. Derived motion values are rebuilt by normalizeStyle. */
+export function visualPreset(s: Style): VisualPreset {
+  return { version: 1, style: storedStyle(s) };
+}
+
+export function readVisualPreset(value: unknown): Partial<Style> | null {
+  if (!value || typeof value !== 'object') return null;
+  if ('version' in value) {
+    if (value.version !== 1 || !('style' in value) || !value.style || typeof value.style !== 'object') return null;
+    return clone(value.style as Partial<Style>);
+  }
+  return clone(value as Partial<Style>); // profiles saved before complete presets were versioned
+}

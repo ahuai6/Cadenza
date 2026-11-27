@@ -207,15 +207,17 @@ export function Toggle({
 export function Check({
   label,
   checked,
+  disabled,
   onChange,
 }: {
   label: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
     <label className={s.check}>
-      <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={!!checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <i aria-hidden="true">
         <Icon n="check" size={13} />
       </i>

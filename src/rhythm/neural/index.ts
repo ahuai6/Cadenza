@@ -34,7 +34,7 @@ export interface NativeRuntime {
   segment: number;
   beat(spect: Float32Array): Promise<{ beat: Float32Array; downbeat: Float32Array }>;
   separate(left: Float32Array, right: Float32Array): Promise<{ left: Float32Array; right: Float32Array }[]>;
-  /** can it run now (its models there) */ ready(): Promise<boolean>;
+  ready(): Promise<{ stems: boolean } | null>;
 }
 let nativeRt: NativeRuntime | null = null;
 /** The native runtime to use, or null for the WebGPU kernels. */
@@ -55,7 +55,15 @@ export const neuralDrums = () => drumsOn;
 let worker: Worker | null = null,
   nextId = 1,
   idle: ReturnType<typeof setTimeout> | null = null;
-const pending = new Map<number, { res: (v: any) => void; rej: (e: Error) => void; prog?: (k: number) => void }>();
+const pending = new Map<
+  number,
+  {
+    res: (v: any) => void;
+    rej: (e: Error) => void;
+    prog?: (k: number) => void;
+    checkpoint?: (value: NeuralRhythm) => void;
+  }
+>();
 /** The worker, and its device and models with it, go after two idle minutes (the GPU memory back at once). */
 const IDLE_MS = 120_000;
 function getWorker(): Worker {
@@ -69,6 +77,7 @@ function getWorker(): Worker {
     ev: MessageEvent<{
       id: number;
       progress?: number;
+      checkpoint?: NeuralRhythm;
       result?: unknown;
       error?: string;
       rpc?: number;
@@ -93,6 +102,10 @@ function getWorker(): Worker {
     }
     const p = pending.get(ev.data.id);
     if (!p) return;
+    if (ev.data.checkpoint) {
+      p.checkpoint?.(ev.data.checkpoint);
+      return;
+    }
     if (ev.data.progress != null) {
       p.prog?.(ev.data.progress);
       return;
@@ -125,24 +138,33 @@ function drop() {
   for (const p of pending.values()) p.rej(new Error('neural worker dropped'));
   pending.clear();
 }
-function call<T>(msg: object, transfer: Transferable[] = [], prog?: (k: number) => void): Promise<T> {
+function call<T>(
+  msg: object,
+  transfer: Transferable[] = [],
+  prog?: (k: number) => void,
+  checkpoint?: (value: NeuralRhythm) => void,
+): Promise<T> {
   const id = nextId++,
     w = getWorker();
   return new Promise<T>((res, rej) => {
-    pending.set(id, { res, rej, prog });
+    pending.set(id, { res, rej, prog, checkpoint });
     w.postMessage({ ...msg, id }, transfer);
   });
 }
 
 /** Can the engine run here: a model base, WebGPU with an adapter, and the Beat This! file reachable. Asked once a
  *  session (the machine does not change); `reason` says why not. */
-let status: Promise<{ ok: boolean; device?: string; reason?: string; native?: boolean }> | null = null;
+let status: Promise<{ ok: boolean; device?: string; reason?: string; native?: boolean; stems?: boolean }> | null = null;
+let checkedAt = 0;
 export function neuralStatus() {
+  if (performance.now() - checkedAt >= 60_000) status = null;
+  if (!status) checkedAt = performance.now();
   return (status ??= (async () => {
     // (natively: its models downloaded is all it needs)
     if (nativeRt) {
       try {
-        if (await nativeRt.ready()) return { ok: true, device: nativeRt.label, native: true };
+        const ready = await nativeRt.ready();
+        if (ready) return { ok: true, device: nativeRt.label, native: true, stems: ready.stems };
       } catch {
         /* the WebGPU kernels then */
       }
@@ -156,7 +178,14 @@ export function neuralStatus() {
       return { ok: false, reason: 'model missing' };
     }
     try {
-      return { ok: true, device: await call<string>({ kind: 'probe' }) };
+      const [device, stems] = await Promise.all([
+        call<string>({ kind: 'probe' }),
+        fetch(new URL('htdemucs-wgsl.bin', base).href, { method: 'HEAD' }).then(
+          (response) => response.ok,
+          () => false,
+        ),
+      ]);
+      return { ok: true, device, stems };
     } catch (e) {
       return { ok: false, reason: String((e as Error).message) };
     }
@@ -239,15 +268,19 @@ export async function neuralRhythm(
     let tm: ReturnType<typeof setTimeout> | null = null;
     const me = running!;
     let abort: (() => void) | undefined;
+    let checkpoint: NeuralRhythm | null = null;
     try {
       opts.signal?.throwIfAborted();
       const [left, right] = await at441(buf);
       opts.signal?.throwIfAborted();
       if (me.stopped) throw new Error(PREEMPTED);
       const run = call<NeuralRhythm>(
-        { kind: 'analyse', base, left, right, drums: opts.drums ?? drumsOn, native },
+        { kind: 'analyse', base, left, right, drums: (opts.drums ?? drumsOn) && st.stems !== false, native },
         [left.buffer, right.buffer],
         progress,
+        (value) => {
+          checkpoint = value;
+        },
       );
       const stop = new Promise<never>((_, rej) => {
         me.onStop = () => rej(new Error(PREEMPTED));
@@ -274,8 +307,8 @@ export async function neuralRhythm(
         continue;
       } // (stopped for the song about to play: its worker goes, this song runs again after)
       drop(); // (a lost device or a failed pipeline leaves nothing worth keeping: the next song gets a fresh worker)
-      console.warn('[neural] analysis failed, the built-in analysis takes over:', (e as Error).message);
-      return null;
+      console.warn('[neural] analysis stopped:', (e as Error).message);
+      return checkpoint;
     } finally {
       if (abort) opts.signal?.removeEventListener('abort', abort);
       if (tm) clearTimeout(tm);

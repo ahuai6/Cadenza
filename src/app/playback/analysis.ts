@@ -1,14 +1,22 @@
-import { analyzePcm, checkAnalysis, RHYTHM_VERSION, type RhythmAnalysis } from '../../engine';
+import { analyzePcm, checkAnalysis, neuralStatus, RHYTHM_VERSION, type RhythmAnalysis } from '../../engine';
 import { Lib, mediaUrl, type AnalysisToken } from '../bridge';
 import { lib, settings, trackOf } from '../state';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const requests = new Set<{ id: string; deliver: (value: RhythmAnalysis | null) => void }>();
+const upgrades = new Set<(content: string, result: RhythmAnalysis) => void>();
+export function onAnalysisUpgrade(listener: (content: string, result: RhythmAnalysis) => void) {
+  upgrades.add(listener);
+  return () => {
+    upgrades.delete(listener);
+  };
+}
 const holds = new Set<string>();
 const blockedByUser = () => [...holds].some((reason) => reason !== 'watching');
 let running = false;
 let requested = false;
 let focused: string | null = null;
+let capability = '';
 let active: { id: string; source: string; content: string; abort: AbortController } | null = null;
 
 export async function requestAnalysis(id: string, signal?: AbortSignal): Promise<RhythmAnalysis | null> {
@@ -44,7 +52,13 @@ function deliver(id: string, content: string, result: RhythmAnalysis | null) {
   }
 }
 
-async function analyzeJob(id: string, token: AnalysisToken, only: 'loudness' | undefined, signal: AbortSignal) {
+async function analyzeJob(
+  id: string,
+  token: AnalysisToken,
+  only: 'loudness' | undefined,
+  upgrade: boolean,
+  signal: AbortSignal,
+) {
   const track = trackOf(id);
   const url = 'cadenza://analysis-pcm/' + id + '?rev=' + encodeURIComponent(token.source);
   const progress = (value: number) => lib.set({ analysisNow: value, analysisFor: id });
@@ -68,7 +82,10 @@ async function analyzeJob(id: string, token: AnalysisToken, only: 'loudness' | u
     }
     const why = checkAnalysis(result.analysis);
     if (why) throw new Error(why);
-    if (await Lib!.saveAnalysis(id, result.analysis!, token)) deliver(id, token.content, result.analysis!);
+    if (await Lib!.saveAnalysis(id, result.analysis!, token)) {
+      deliver(id, token.content, result.analysis!);
+      if (upgrade) for (const listener of upgrades) listener(token.content, result.analysis!);
+    }
   } catch (error) {
     if (signal.aborted || (error as Error)?.message === 'analysis decoder busy') return;
     if (only === 'loudness') await Lib!.saveLoudness(id, null, token);
@@ -98,7 +115,7 @@ async function loop() {
             .tracks.filter((track) => track.id !== focused)
             .map((track) => track.id),
         );
-      const job = await Lib.nextAnalysis(RHYTHM_VERSION, omit);
+      const job = await Lib.nextAnalysis(RHYTHM_VERSION, omit, capability);
       if (!job) {
         if (holds.has('watching')) break;
         if (await verifyCached()) continue;
@@ -123,7 +140,7 @@ async function loop() {
       const abort = new AbortController();
       active = { id: job.id, source: token.source, content: token.content, abort };
       lib.set({ analysisTask: { phase: job.only || 'rhythm', id: job.id }, analysisFor: job.id, analysisNow: 0 });
-      await analyzeJob(job.id, token, job.only, abort.signal);
+      await analyzeJob(job.id, token, job.only, !!job.upgrade, abort.signal);
       active = null;
       lib.set({ analysisTask: { phase: 'idle', id: null }, analysisFor: null, analysisNow: null });
       await sleep(160);
@@ -144,8 +161,9 @@ async function loop() {
 
 async function verifyCached(): Promise<boolean> {
   if (!Lib) return false;
-  let bad = false;
-  for (const id of await Lib.unverified(RHYTHM_VERSION).catch(() => [] as string[])) {
+  const inspectQuality = !!capability;
+  let revisit = false;
+  for (const id of await Lib.unverified(RHYTHM_VERSION, inspectQuality).catch(() => [] as string[])) {
     if (blockedByUser()) break;
     const token = await Lib.analysisToken(id);
     if (!token) continue;
@@ -153,14 +171,33 @@ async function verifyCached(): Promise<boolean> {
     const data = await Lib.analysis(id, RHYTHM_VERSION).catch(() => null);
     if (checkAnalysis(data)) {
       await Lib.reanalyze([id]);
-      bad = true;
-    } else await Lib.verified(id, RHYTHM_VERSION, token);
+      revisit = true;
+    } else {
+      await Lib.verified(id, RHYTHM_VERSION, token);
+      revisit ||= inspectQuality;
+    }
     await sleep(40);
   }
-  return bad;
+  return revisit;
 }
 
 let started = false;
+export async function refreshAnalysisCapability() {
+  const start = settings.get();
+  const state = start.rhythmEngine === 'dsp' ? null : await neuralStatus().catch(() => null);
+  const current = settings.get();
+  if (
+    current.rhythmEngine !== start.rhythmEngine ||
+    current.rhythmRuntime !== start.rhythmRuntime ||
+    current.rhythmDevice !== start.rhythmDevice
+  )
+    return;
+  const next = state?.ok ? `${state.native ? 'native' : 'web'}:${state.stems ? 2 : 1}` : '';
+  if (capability !== next) {
+    capability = next;
+    void loop();
+  }
+}
 export function startAnalysis() {
   if (!Lib || started) return;
   started = true;
@@ -178,10 +215,18 @@ export function startAnalysis() {
       )
     ) {
       active?.abort.abort();
+      capability = '';
+      void refreshAnalysisCapability();
       void loop();
     }
   });
-  setTimeout(loop, 1500);
+  setTimeout(() => {
+    void refreshAnalysisCapability();
+    void loop();
+  }, 1500);
+  setInterval(() => {
+    if (!blockedByUser()) void refreshAnalysisCapability();
+  }, 60_000);
 }
 
 export function pauseAnalysis(on: boolean, why = 'export') {

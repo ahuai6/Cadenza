@@ -3,6 +3,7 @@
 //   node tests/folia-stage-compare.cjs <folia checkout with ref-harness/dist built> <out dir>
 // (tests/folia-compare.cjs builds the reference page; run it once first.)
 const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
 const path = require('path');
 const fs = require('fs');
 const serve = require('./serve.cjs');
@@ -22,6 +23,7 @@ const SCENES = {
   'graphics-fills': `(P) => { const g = new P.Graphics(); g.rect(80, 80, 300, 200).fill({ color: 0xe0607a, alpha: 0.6 }).stroke({ color: 0xffffff, width: 3 }); g.poly([500, 100, 900, 120, 800, 420, 520, 380]).fill({ color: 0x7aa6d8 }); g.poly([600, 180, 760, 190, 700, 320]).cut(); g.roundRect(950, 400, 250, 180, 30).fill({ color: 0xf2eee8, alpha: 0.3 }); g.ellipse(250, 520, 160, 70).fill({ color: 0x99ccaa }); return g; }`,
   'graphics-gradient': `(P) => { const g = new P.Graphics(); const fg = new P.FillGradient({ type: 'linear', start: { x: 0, y: 0 }, end: { x: 1, y: 1 }, colorStops: [{ offset: 0, color: '#e0607a' }, { offset: 1, color: '#7aa6d8' }], textureSpace: 'local' }); g.poly([200, 100, 1000, 150, 900, 600, 300, 550]).fill({ fill: fg, alpha: 0.9 }); return g; }`,
   'blur-halo': `(P) => { const c = new P.Container(); const halo = new P.Container(); const t = new P.Text({ text: '慢慢走', style: new P.TextStyle({ fontFamily: '${FONT}', fontSize: 140, fill: '#f2eee8' }) }); t.anchor.set(0.5); t.position.set(640, 360); halo.addChild(t); halo.filters = [new P.BlurFilter({ strength: 4.6, quality: 2, kernelSize: 5 })]; halo.alpha = 0.4; halo.blendMode = 'screen'; const t2 = new P.Text({ text: '慢慢走', style: new P.TextStyle({ fontFamily: '${FONT}', fontSize: 140, fill: '#f2eee8' }) }); t2.anchor.set(0.5); t2.position.set(640, 360); c.addChild(halo, t2); return c; }`,
+  'blur-batched-rects': `(P) => { const c = new P.Container(); for (let i = 0; i < 8; i++) { const color = i % 2 ? 0x99d6ff : 0xe0607a; c.addChild(new P.Graphics().rect(100 + i * 91, 100 + i * 33, 45, 80).fill(color)); } c.filters = [new P.BlurFilter({ strength: 8, quality: 2, kernelSize: 5, resolution: 'inherit' })]; return c; }`,
   'blur-strong': `(P) => { const c = new P.Container(); const g = new P.Graphics().rect(440, 260, 400, 200).fill(0xe0607a).circle(640, 360, 60).fill(0xffffff); c.addChild(g); const b = new P.BlurFilter({ strength: 18, quality: 1, kernelSize: 5 }); b.repeatEdgePixels = true; c.filters = [b]; c.filterArea = new P.Rectangle(0, 0, 1280, 720); return c; }`,
   'color-matrix': `(P) => { const c = new P.Container(); c.addChild(new P.Graphics().rect(200, 200, 300, 300).fill(0x7aa6d8).rect(600, 200, 300, 300).fill(0xe0607a)); const m = new P.ColorMatrixFilter(); m.contrast(0.5, false); c.filters = [m]; c.filterArea = new P.Rectangle(0, 0, 1280, 720); return c; }`,
   'custom-filter': `(P) => { const c = new P.Container(); c.addChild(new P.Graphics().rect(300, 200, 680, 320).fill(0xf2eee8).circle(640, 360, 100).fill(0xe0607a)); const frag = 'in vec2 vTextureCoord; out vec4 finalColor; uniform sampler2D uTexture; uniform highp vec4 uInputSize; uniform highp vec4 uOutputFrame; uniform float uAmount; void main(){ vec2 o = vec2(uAmount * uInputSize.z, 0.0); vec4 c = texture(uTexture, vTextureCoord + o); float band = step(0.5, fract(vTextureCoord.y * uInputSize.y / uOutputFrame.w * 8.0)); finalColor = vec4(c.rgb * (0.6 + 0.4 * band), c.a); }'; const vert = 'in vec2 aPosition; out vec2 vTextureCoord; uniform vec4 uInputSize; uniform vec4 uOutputFrame; uniform vec4 uOutputTexture; void main(void){ vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy; position.x = position.x * (2.0 / uOutputTexture.x) - 1.0; position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z; gl_Position = vec4(position, 0.0, 1.0); vTextureCoord = aPosition * (uOutputFrame.zw * uInputSize.zw); }'; const u = new P.UniformGroup({ uAmount: { value: 40, type: 'f32' } }); const f = new P.Filter({ glProgram: P.GlProgram.from({ vertex: vert, fragment: frag, name: 'cmp' }), resources: { u }, resolution: 'inherit', padding: 0 }); c.filters = [f]; c.filterArea = new P.Rectangle(0, 0, 1280, 720); return c; }`,
@@ -127,4 +129,6 @@ const SCENES = {
   await cz.br.close();
   a.server.close();
   b.server.close();
+  const batch = rows.find((row) => row.name === 'blur-batched-rects').full;
+  assert.ok(batch.iou > 0.95 && batch.ink > 0.95 && batch.ink < 1.05, JSON.stringify(batch));
 })();

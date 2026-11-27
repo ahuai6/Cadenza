@@ -756,6 +756,9 @@ function compatibility(settings) {
 }
 
 const analysisFailedForVersion = (track) => track.failed === flavor() && track.analysisFailureVersion === want;
+const rhythmQuality = (analysis) =>
+  analysis.engine === 'neural' ? (['drums', 'drumless'].includes(analysis.stems) ? 2 : 1) : 0;
+const upgradeDelay = 24 * 60 * 60 * 1000;
 
 let cacheEpoch = 0,
   writes = Promise.resolve();
@@ -861,6 +864,12 @@ async function saveAnalysis(id, a, token) {
     const valid = () => matchesToken(id, token);
     const t = activeTrack(id);
     if (!valid() || !(await currentSource(t)) || !valid()) return false;
+    const previous = rhythmSummary(t);
+    const quality = rhythmQuality(a);
+    if (previous?.version === a.version) {
+      const priorQuality = previous.quality ?? rhythmQuality((await getAnalysis(id, a.version)) || {});
+      if (priorQuality > quality || !valid()) return false;
+    }
     const file = anFile(token.content, token.settings, a.version);
     if (!(await replace(file, encoded, valid)) || !valid()) return false;
     const record = contentRecord(token.content);
@@ -868,7 +877,7 @@ async function saveAnalysis(id, a, token) {
     record.rhythm[token.settings] = {
       version: a.version,
       checked: false,
-      ...(a.version >= 4 ? { compatibility: signature } : {}),
+      ...(a.version >= 4 ? { compatibility: signature, quality, upgrade: prev?.upgrade } : {}),
     };
     if (analysisVersion(prev?.version) && prev.version !== a.version)
       await fsp.rm(anFile(token.content, token.settings, prev.version), { force: true });
@@ -909,6 +918,10 @@ async function getAnalysis(id, version) {
     const result = JSON.parse(data.body);
     if (!Array.isArray(result.beats) || result.version !== row.version) throw new Error('invalid rhythm data');
     if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return null;
+    if (row.version >= 4 && row.quality == null) {
+      row.quality = rhythmQuality(result);
+      save();
+    }
     scanCounters.cacheHits++;
     return result;
   } catch {
@@ -948,6 +961,7 @@ function saveLoudness(id, l, token) {
 async function analysisFailed(id, why, token) {
   const t = activeTrack(id);
   if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return false;
+  if (rhythmSummary(t)?.version === want) return false; // a failed upgrade does not disqualify an existing result
   t.failed = flavor();
   t.analysisFailureVersion = want;
   t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined;
@@ -989,21 +1003,36 @@ function taskDetails() {
     counters: { ...scanCounters },
   };
 }
-function nextJob(version, omit) {
+function nextJob(version, omit, capability) {
   const excluded = new Set(Array.isArray(omit) ? omit.filter((id) => typeof id === 'string') : []);
   if (version) want = version;
+  const mode = flavor();
+  const canUpgrade = !mode.startsWith('dsp-') && /^(web|native):[12]$/.test(capability);
+  const target = canUpgrade ? Math.min(mode.includes('-nodrums-') ? 1 : 2, Number(capability.at(-1))) : 0;
+  const now = Date.now();
   const ready = (t) => t && !t.detached && !t.protected && identity.validId(t.audioContentId);
   const pick = (t) => {
     if (!ready(t) || excluded.has(t.id)) return null;
-    if (rhythmSummary(t)?.version !== want) return analysisFailedForVersion(t) ? null : { id: t.id };
+    const row = rhythmSummary(t);
+    if (row?.version !== want) return analysisFailedForVersion(t) ? null : { id: t.id };
     if (!loudnessOf(t) && !t.loudFailed) return { id: t.id, only: 'loudness' };
+    if (row.quality != null && row.quality < target && (row.upgrade?.[capability] ?? 0) <= now)
+      return { id: t.id, upgrade: true };
     return null;
+  };
+  const issue = (job) => {
+    scanCounters.analyses++;
+    if (job.upgrade) {
+      const row = rhythmSummary(activeTrack(job.id));
+      row.upgrade = { ...row.upgrade, [capability]: now + upgradeDelay };
+      save();
+    }
+    return job;
   };
   while (priority.length) {
     const item = pick(activeTrack(priority.shift()));
     if (item) {
-      scanCounters.analyses++;
-      return item;
+      return issue(item);
     }
   }
   let candidate = null;
@@ -1017,8 +1046,7 @@ function nextJob(version, omit) {
       job = next;
     }
   }
-  if (job) scanCounters.analyses++;
-  return job;
+  return job ? issue(job) : null;
 }
 
 /* ---------- per-song data: the lyric style bound to this song, lock, MV, timing ---------- */
@@ -1817,9 +1845,16 @@ function register(ipcMain, getWin, canEdit) {
       save();
     }
   });
-  ipcMain.handle('lib:unverified', (_e, version) =>
+  ipcMain.handle('lib:unverified', (_e, version, inspectQuality) =>
     Object.values(db.tracks)
-      .filter((t) => !t.detached && rhythmSummary(t)?.version === version && !rhythmSummary(t).checked)
+      .filter((t) => {
+        const row = !t.detached && rhythmSummary(t);
+        return (
+          row &&
+          row.version === version &&
+          (!row.checked || (inspectQuality === true && version >= 4 && row.quality == null))
+        );
+      })
       .map((t) => t.id),
   );
   ipcMain.handle('lib:clearCaches', () => {
@@ -1845,7 +1880,7 @@ function register(ipcMain, getWin, canEdit) {
     });
   });
   ipcMain.handle('lib:taskDetails', () => taskDetails());
-  ipcMain.handle('lib:nextAnalysis', (_e, version, omit) => nextJob(version, omit));
+  ipcMain.handle('lib:nextAnalysis', (_e, version, omit, capability) => nextJob(version, omit, capability));
   ipcMain.handle('lib:prioritize', (_e, ids) => {
     priority = [].concat(ids, priority).slice(0, 50);
     send('lib:wake');

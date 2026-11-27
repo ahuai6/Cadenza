@@ -13,7 +13,7 @@ import { impulse } from '../core/spring';
 import type { Signals, RhythmSample } from '../rhythm/signals';
 import type { ScenePlan } from './types';
 import { basePose } from './camera';
-import type { Cam, Fx } from './project';
+import { NO_FX, type Cam, type Fx } from './project';
 import { transK } from './passages';
 
 export interface CamFrame {
@@ -32,6 +32,26 @@ export interface CamFrame {
     number,
     number,
   ];
+}
+
+const SCREEN_POSE: Cam = { x: 0, y: 0, z: 1, r: 0, d: 0, yaw: 0, pitch: 0 };
+
+/** A world with its own shots receives an untransformed composition surface. */
+export function worldFrame(plan: ScenePlan, sig: Signals, t: number): CamFrame {
+  return {
+    cam: SCREEN_POSE,
+    cont: SCREEN_POSE,
+    fx: NO_FX,
+    hand: [0, 0],
+    rest: 0,
+    hold: 1,
+    split: 0,
+    idle: 0,
+    trans: 0,
+    ov: 0,
+    calm: 1 - sstep(clamp((t - plan.musicEnd) / 0.8)),
+    rs: sig.sample(t),
+  };
 }
 
 export function idleK(plan: ScenePlan, t: number) {

@@ -8,7 +8,7 @@ import { Graphics, GraphicsPath, type FillStyle, type StrokeStyle } from './grap
 import { Sprite, Texture, TextureSource, type ImageLike } from './texture';
 import { Text, CanvasTextMetrics, type TextStyle } from './text';
 import { BlurFilter, type Filter } from './filters';
-import { glRunner, drawMeshGl } from './gl';
+import { glRunner, drawMeshGl, type FilterTarget } from './gl';
 import { Mesh } from './mesh';
 import { cssColor } from './color';
 
@@ -64,8 +64,9 @@ function mulTint(a: number, b: number) {
 
 /** A bounded cache of rasterised bitmaps (text, tinted images), evicted least-recently-used by area. */
 class BitmapCache {
-  private map = new Map<string, { canvas: AnyCanvas; area: number }>();
-  private area = 0;
+  private map = new Map<string, { canvas: AnyCanvas; bytes: number }>();
+  private retired: AnyCanvas[] = [];
+  private bytes = 0;
   constructor(private readonly budget: number) {}
   get(key: string) {
     const hit = this.map.get(key);
@@ -76,19 +77,26 @@ class BitmapCache {
     return hit?.canvas;
   }
   set(key: string, canvas: AnyCanvas) {
-    const area = canvas.width * canvas.height;
-    this.map.set(key, { canvas, area });
-    this.area += area;
+    const bytes = canvas.width * canvas.height * 4;
+    this.map.set(key, { canvas, bytes });
+    this.bytes += bytes;
     for (const [k, v] of this.map) {
-      if (this.area <= this.budget || k === key) break;
+      if (this.bytes <= this.budget || k === key) break;
       this.map.delete(k);
-      this.area -= v.area;
-      if (v.canvas instanceof HTMLCanvasElement) v.canvas.width = v.canvas.height = 0;
+      this.bytes -= v.bytes;
+      this.retired.push(v.canvas);
     }
   }
+  endFrame() {
+    // A submitted quad may still reference an evicted bitmap until its ordered batch is flushed.
+    for (const canvas of this.retired) canvas.width = canvas.height = 0;
+    this.retired.length = 0;
+  }
   clear() {
+    this.endFrame();
+    for (const { canvas } of this.map.values()) canvas.width = canvas.height = 0;
     this.map.clear();
-    this.area = 0;
+    this.bytes = 0;
   }
 }
 
@@ -124,6 +132,37 @@ interface Frame {
   res: number;
   /** the frame's own rectangle in stage CSS px (its viewport) */
   view: Rectangle;
+  quads?: StageQuad[];
+  painted?: boolean;
+}
+
+export interface StageQuad {
+  source: CanvasImageSource & { width: number; height: number };
+  crop: [number, number, number, number];
+  rect: [number, number, number, number];
+  transform: [number, number, number, number, number, number];
+  alpha: number;
+  tint?: number;
+}
+
+let drawQuads:
+  | ((width: number, height: number, quads: StageQuad[], target?: FilterTarget) => AnyCanvas | null)
+  | undefined;
+export function setStageQuadRenderer(draw: typeof drawQuads) {
+  drawQuads = draw;
+}
+
+let white: AnyCanvas | undefined;
+function whitePixel() {
+  if (!white) {
+    // Neighbours of the sampled texel must be solid too. A one-pixel sprite would blend with the
+    // atlas's transparent gutter across the entire destination rectangle.
+    white = makeCanvas(3, 3);
+    const g = ctxOf(white);
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, 3, 3);
+  }
+  return white;
 }
 
 export interface StageStats {
@@ -135,7 +174,9 @@ export interface StageStats {
 
 export class StageRenderer {
   resolution = 1;
-  private texts = new BitmapCache(48 * 1024 * 1024);
+  // Preserve the established text working set of 48 Mi pixels. A 48 MiB byte limit thrashed the
+  // multi-scale glyphs during 1080p Sonnet close-ups, causing repeated rasterisation and uploads.
+  private texts = new BitmapCache(192 * 1024 * 1024);
   private tints = new BitmapCache(16 * 1024 * 1024);
   private pool: AnyCanvas[] = [];
   readonly stats: StageStats = { nodes: 0, draws: 0, filters: 0, rasters: 0 };
@@ -160,10 +201,13 @@ export class StageRenderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     }
-    const frame: Frame = { ctx, base, res: o.resolution, view: new Rectangle(0, 0, o.width, o.height) };
+    const frame: Frame = { ctx, base, res: o.resolution, view: new Rectangle(0, 0, o.width, o.height), quads: [] };
     ctx.save();
     this.node(root, frame, new Matrix(), 1, 'normal', 0xffffff, root.parent ? root.parent.worldTransform : null);
+    this.flush(frame);
     ctx.restore();
+    this.texts.endFrame();
+    this.tints.endFrame();
   }
 
   /** Pixi's `renderer.generateTexture`: the tree drawn into a texture of its own. */
@@ -181,18 +225,49 @@ export class StageRenderer {
     };
     // the target's own transform is left out: its content is drawn in its own space
     this.content(o.target, frame, new Matrix(), 1, 'normal', 0xffffff);
+    this.texts.endFrame();
+    this.tints.endFrame();
     return new Texture({ source: new TextureSource(c as unknown as ImageLike, res) });
   }
 
   clearCaches() {
     this.texts.clear();
     this.tints.clear();
+    for (const canvas of this.pool) canvas.width = canvas.height = 0;
+    this.pool.length = 0;
+  }
+
+  private flush(f: Frame) {
+    if (!f.quads?.length) return;
+    const pending = f.quads;
+    const g = f.ctx;
+    const { width, height } = g.canvas;
+    const out = pending.length >= 4 ? drawQuads?.(width, height, pending) : null;
+    f.painted = true;
+    g.globalCompositeOperation = 'source-over';
+    if (out) {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalAlpha = 1;
+      g.drawImage(out, 0, 0, width, height, 0, 0, width, height);
+    } else {
+      for (const item of pending) {
+        g.setTransform(...item.transform);
+        g.globalAlpha = item.alpha;
+        if (item.tint === undefined) g.drawImage(item.source, ...item.crop, ...item.rect);
+        else {
+          g.fillStyle = cssColor(item.tint);
+          g.fillRect(...item.rect);
+        }
+      }
+    }
+    pending.length = 0;
   }
 
   private canvas(w: number, h: number): AnyCanvas {
-    const c = this.pool.pop() ?? makeCanvas(w, h);
     const W = Math.max(1, Math.ceil(w)),
       H = Math.max(1, Math.ceil(h));
+    const match = this.pool.findIndex((c) => c.width === W && c.height === H);
+    const c = (match >= 0 ? this.pool.splice(match, 1)[0] : this.pool.pop()) ?? makeCanvas(W, H);
     if (c.width !== W || c.height !== H) {
       c.width = W;
       c.height = H;
@@ -204,7 +279,18 @@ export class StageRenderer {
     return c;
   }
   private release(c: AnyCanvas) {
-    if (this.pool.length < 8) this.pool.push(c);
+    const bytes = c.width * c.height * 4;
+    if (bytes > 64 * 1024 * 1024) {
+      c.width = c.height = 0;
+      return;
+    }
+    let cached = this.pool.reduce((sum, item) => sum + item.width * item.height * 4, 0);
+    while (this.pool.length && (this.pool.length >= 8 || cached + bytes > 64 * 1024 * 1024)) {
+      const old = this.pool.shift()!;
+      cached -= old.width * old.height * 4;
+      old.width = old.height = 0;
+    }
+    this.pool.push(c);
   }
 
   /**
@@ -229,10 +315,14 @@ export class StageRenderer {
     this.stats.nodes += 1;
     const filters = n.filters?.filter((x) => x.enabled);
     if (filters?.length) {
+      this.flush(f);
+      f.painted = true;
       this.filtered(n, f, world, a, b, t, filters);
       return;
     }
     if (n.mask) {
+      this.flush(f);
+      f.painted = true;
       this.masked(n, f, world, a, b, t);
       return;
     }
@@ -248,6 +338,8 @@ export class StageRenderer {
     else {
       const draw = (n as { drawCustom?: (g: Ctx2D, m: Matrix, alpha: number) => void }).drawCustom;
       if (draw) {
+        this.flush(f);
+        f.painted = true;
         const m = Matrix.multiply(f.base, world, this.mat());
         f.ctx.globalCompositeOperation = compositeOf(b);
         draw.call(n, f.ctx, m, a);
@@ -280,9 +372,42 @@ export class StageRenderer {
     const ins = n.context.instructions;
     if (!ins.length) return;
     const g = f.ctx;
-    const m = this.setTransform(f, world);
-    g.globalCompositeOperation = compositeOf(b);
+    const m = Matrix.multiply(f.base, world, this.mat());
     for (const i of ins) {
+      if (
+        i.action === 'fill' &&
+        f.quads &&
+        drawQuads &&
+        b === 'normal' &&
+        !i.data.hole &&
+        !i.data.style.fill &&
+        !i.data.style.texture?.source.resource
+      ) {
+        const path = i.data.path.ops;
+        const rect = path[0];
+        if (
+          path.length === 1 &&
+          rect?.t === 'R' &&
+          !m.b &&
+          !m.c &&
+          [m.a * rect.x + m.tx, m.d * rect.y + m.ty, m.a * rect.w, m.d * rect.h].every(Number.isInteger)
+        ) {
+          f.quads.push({
+            source: whitePixel(),
+            crop: [1, 1, 1, 1],
+            rect: [rect.x, rect.y, rect.w, rect.h],
+            transform: [m.a, m.b, m.c, m.d, m.tx, m.ty],
+            alpha: a * i.data.style.alpha,
+            tint: mulTint(i.data.style.color, t),
+          });
+          this.stats.draws += 1;
+          continue;
+        }
+      }
+      this.flush(f);
+      f.painted = true;
+      g.setTransform(m.a, m.b, m.c, m.d, m.tx, m.ty);
+      g.globalCompositeOperation = compositeOf(b);
       if (i.action === 'texture') {
         const d = i.data;
         const src = d.image.source.resource;
@@ -342,15 +467,38 @@ export class StageRenderer {
     const src = tex.source.resource;
     if (!src || tex === Texture.EMPTY) return;
     const g = f.ctx;
-    this.setTransform(f, world);
-    g.globalAlpha = a;
-    g.globalCompositeOperation = compositeOf(b);
     const { width: w, height: h } = tex.frame;
     const x0 = -n.anchor.x * w,
       y0 = -n.anchor.y * h;
+    const r = tex.source.resolution;
+    if (
+      f.quads &&
+      drawQuads &&
+      b === 'normal' &&
+      t === 0xffffff &&
+      tex.source.version === 0 &&
+      'width' in src &&
+      'height' in src &&
+      !('videoWidth' in src)
+    ) {
+      const m = Matrix.multiply(f.base, world, this.mat());
+      f.quads.push({
+        source: src as StageQuad['source'],
+        crop: [tex.frame.x * r, tex.frame.y * r, w * r, h * r],
+        rect: [x0, y0, w, h],
+        transform: [m.a, m.b, m.c, m.d, m.tx, m.ty],
+        alpha: a,
+      });
+      this.stats.draws += 1;
+      return;
+    }
+    this.flush(f);
+    f.painted = true;
+    this.setTransform(f, world);
+    g.globalAlpha = a;
+    g.globalCompositeOperation = compositeOf(b);
     if (t !== 0xffffff) g.drawImage(this.tinted(tex, t), x0, y0, w, h);
     else {
-      const r = tex.source.resolution;
       g.drawImage(src as CanvasImageSource, tex.frame.x * r, tex.frame.y * r, w * r, h * r, x0, y0, w, h);
     }
     this.stats.draws += 1;
@@ -372,11 +520,24 @@ export class StageRenderer {
       this.texts.set(key, c);
       this.stats.rasters += 1;
     }
+    const x0 = -n.anchor.x * measured.width - pad,
+      y0 = -n.anchor.y * measured.height - pad;
+    if (f.quads && drawQuads && b === 'normal') {
+      f.quads.push({
+        source: c,
+        crop: [0, 0, c.width, c.height],
+        rect: [x0, y0, c.width / res, c.height / res],
+        transform: [m.a, m.b, m.c, m.d, m.tx, m.ty],
+        alpha: a,
+      });
+      this.stats.draws += 1;
+      return;
+    }
+    this.flush(f);
+    f.painted = true;
     g.setTransform(m.a, m.b, m.c, m.d, m.tx, m.ty);
     g.globalAlpha = a;
     g.globalCompositeOperation = compositeOf(b);
-    const x0 = -n.anchor.x * measured.width - pad,
-      y0 = -n.anchor.y * measured.height - pad;
     g.drawImage(c as CanvasImageSource, x0, y0, c.width / res, c.height / res);
     this.stats.draws += 1;
   }
@@ -385,6 +546,8 @@ export class StageRenderer {
   private mesh(n: Mesh, f: Frame, world: Matrix, a: number, b: BLEND_MODES) {
     const prog = n.shader?.glProgram;
     if (!prog) return;
+    this.flush(f);
+    f.painted = true;
     const runner = glRunner();
     if (!runner.ok) return;
     const W = f.ctx.canvas.width,
@@ -405,7 +568,7 @@ export class StageRenderer {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalAlpha = 1;
     g.globalCompositeOperation = compositeOf(b);
-    g.drawImage(out as CanvasImageSource, 0, 0);
+    g.drawImage(out as CanvasImageSource, 0, 0, W, H, 0, 0, W, H);
     g.restore();
     this.stats.draws += 1;
   }
@@ -428,6 +591,15 @@ export class StageRenderer {
       y0 = bounds.minY,
       x1 = bounds.maxX,
       y1 = bounds.maxY;
+    // Blur has no frame-position uniforms of its own. Round its implicit bounds outwards so a moving word
+    // can use the same targets across nearby frames without changing the filter radius or clipping the halo.
+    if (!n.filterArea && filters.every((filter) => filter.kind === 'blur' && !filter.blendRequired)) {
+      const tile = 32;
+      x0 = Math.floor(x0 / tile) * tile;
+      y0 = Math.floor(y0 / tile) * tile;
+      x1 = Math.ceil(x1 / tile) * tile;
+      y1 = Math.ceil(y1 / tile) * tile;
+    }
     if (clip) {
       x0 = Math.max(x0, f.view.x);
       y0 = Math.max(y0, f.view.y);
@@ -461,17 +633,31 @@ export class StageRenderer {
       base: new Matrix(res, 0, 0, res, -area.x * res, -area.y * res),
       res,
       view: area,
+      quads: [],
     };
     inner.ctx.save();
-    if (n.mask) this.masked(n, inner, world, 1, 'normal', t);
-    else this.content(n, inner, world, 1, 'normal', t);
+    if (n.mask) {
+      inner.painted = true;
+      this.masked(n, inner, world, 1, 'normal', t);
+    } else this.content(n, inner, world, 1, 'normal', t);
+    const runner = glRunner();
+    const blend = filters.at(-1)?.blendMode;
+    // Keep the Canvas2D Gaussian for a lost or unavailable context.
+    if (runner.ok)
+      filters = filters.flatMap((filter) => (filter.kind === 'blur' ? (filter as BlurFilter).glPasses() : [filter]));
+    let input: FilterTarget | null = null;
+    if (runner.ok && filters.length && !inner.painted && inner.quads!.length >= 4 && drawQuads) {
+      const w = Math.max(1, Math.round(area.width * res)),
+        h = Math.max(1, Math.round(area.height * res));
+      const target = runner.target('incoming', w, h, !filters.some((filter) => filter.blendRequired));
+      if (drawQuads(w, h, inner.quads!, target)) {
+        input = target;
+        inner.quads!.length = 0;
+      }
+    }
+    if (!input) this.flush(inner);
     inner.ctx.restore();
-    // (with a GPU, Pixi's blur runs as its own GL passes; without one, as the Canvas2D blur of the same spread)
-    const gpu = glRunner().ok;
-    const chain: Filter[] = gpu
-      ? filters.flatMap((x) => (x.kind === 'blur' ? (x as BlurFilter).glPasses() : [x]))
-      : filters;
-    filters = chain;
+    let gpuOutput: AnyCanvas | null = null;
     let i = 0;
     while (i < filters.length) {
       const x = filters[i];
@@ -515,22 +701,30 @@ export class StageRenderer {
           back.height,
         );
       }
-      const out = runner.run(cur, area.width, area.height, res, run, { x: area.x, y: area.y }, back);
+      const out = runner.run(input || cur, area.width, area.height, res, run, { x: area.x, y: area.y }, back);
       if (back) this.release(back);
       if (out) {
-        const next = this.canvas(cur.width, cur.height);
-        ctxOf(next).drawImage(out as CanvasImageSource, 0, 0);
-        this.release(cur);
-        cur = next;
+        gpuOutput = out;
       }
     }
     const g = f.ctx;
     const m = f.base;
     g.setTransform(m.a, m.b, m.c, m.d, m.tx, m.ty);
     g.globalAlpha = a;
-    const last = filters[filters.length - 1];
-    g.globalCompositeOperation = compositeOf(last.blendMode !== 'normal' ? last.blendMode : b);
-    g.drawImage(cur as CanvasImageSource, area.x, area.y, area.width, area.height);
+    g.globalCompositeOperation = compositeOf(blend && blend !== 'normal' ? blend : b);
+    if (gpuOutput)
+      g.drawImage(
+        gpuOutput,
+        0,
+        0,
+        Math.max(1, Math.round(area.width * res)),
+        Math.max(1, Math.round(area.height * res)),
+        area.x,
+        area.y,
+        area.width,
+        area.height,
+      );
+    else g.drawImage(cur, area.x, area.y, area.width, area.height);
     this.stats.draws += 1;
     this.release(cur);
   }
@@ -559,6 +753,7 @@ export class StageRenderer {
       for (const i of mask.context.instructions) if (i.action === 'fill') p.addPath(i.data.path.toPath2D());
       g.clip(p);
       this.content(n, f, world, a, b, t);
+      this.flush(f);
       g.restore();
       return;
     }

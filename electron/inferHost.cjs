@@ -24,14 +24,14 @@ const MODELS = [
 ];
 const IDLE_MS = 120_000;
 const dir = () => process.env.CADENZA_NATIVE_MODELS || path.join(app.getPath('userData'), 'models', 'native');
-const present = () =>
-  MODELS.every((m) => {
-    try {
-      return fs.statSync(path.join(dir(), m.name + '.onnx')).size === m.size;
-    } catch {
-      return false;
-    }
-  });
+function presentModel(m) {
+  try {
+    return fs.statSync(path.join(dir(), m.name + '.onnx')).size === m.size;
+  } catch {
+    return false;
+  }
+}
+const present = () => MODELS.every(presentModel);
 /** Can the native runtime load here at all (its binding for this platform). */
 function runtime() {
   try {
@@ -150,13 +150,18 @@ function start(ipcMain, getWin, settings) {
       arm();
     }
   }
-  ipcMain.handle('infer:status', () => ({
-    runtime: runtime(),
-    models: present(),
-    ep,
-    downloading: !!downloading,
-    size: MODELS.reduce((a, m) => a + m.size, 0),
-  }));
+  ipcMain.handle('infer:status', () => {
+    const [beats, stems] = MODELS.map(presentModel);
+    return {
+      runtime: runtime(),
+      models: beats && stems,
+      beats,
+      stems,
+      ep,
+      downloading: !!downloading,
+      size: MODELS.reduce((a, m) => a + m.size, 0),
+    };
+  });
   ipcMain.handle('infer:download', async () => {
     if (present()) return { ok: true };
     downloading ??= (async () => {

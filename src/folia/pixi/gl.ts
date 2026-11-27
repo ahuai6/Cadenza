@@ -3,10 +3,8 @@
 // One WebGL2 context for the whole app; a chain of filters ping-pongs between two textures and the
 // last pass lands on the context's own canvas, which the caller draws immediately.
 //
-// Conventions (as Pixi's FilterSystem sets them, with input textures exactly the frame's size):
-//   uInputSize    = (w, h, 1/w, 1/h)          frame size in CSS px
-//   uInputPixel   = (W, H, 1/W, 1/H)          frame size in device px
-//   uInputClamp   = half-texel inset of [0,1]²
+// Conventions (as in Pixi's FilterSystem):
+//   uInputSize / uInputPixel describe the allocated texture. uInputClamp bounds its valid frame.
 //   uOutputFrame  = (0, 0, w, h)
 //   uOutputTexture= (w, h, ±1)                −1 flips onto the canvas (whose rows run the other way)
 //   uGlobalFrame  = (x, y, w, h)              the frame on the stage
@@ -19,6 +17,7 @@ import {
   type UniformValue,
 } from './filters';
 import { Texture, TextureSource, type ImageLike } from './texture';
+import { webglDevice } from '../../core/webgl';
 
 interface Uniform {
   loc: WebGLUniformLocation;
@@ -30,7 +29,7 @@ interface Program {
   uniforms: Map<string, Uniform>;
   aPosition: number;
 }
-interface Target {
+export interface FilterTarget {
   tex: WebGLTexture;
   fbo: WebGLFramebuffer;
   w: number;
@@ -57,29 +56,25 @@ export class GlRunner {
   private programs = new Map<number, Program | null>();
   private quad: WebGLBuffer | null = null;
   private vao: WebGLVertexArrayObject | null = null;
-  private ping: Target | null = null;
-  private pong: Target | null = null;
+  private targets = new Map<string, FilterTarget>();
   private input: WebGLTexture | null = null;
   private back: WebGLTexture | null = null;
-  private extra = new Map<TextureSource, { tex: WebGLTexture; version: number }>();
-  lost = false;
+  private extra = new Map<TextureSource, { tex: WebGLTexture; version: number; bytes: number }>();
+  private extraBytes = 0;
+  private readonly device = webglDevice();
+  readonly generation = this.device?.generation;
+  get lost() {
+    return !this.device || this.device.lost || this.generation !== this.device.generation;
+  }
+  private sizes = new WeakMap<WebGLTexture, { width: number; height: number }>();
+  private meshPrograms = new Map<number, Program | null>();
 
   constructor() {
-    this.canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(4, 4) : document.createElement('canvas');
-    let gl: WebGL2RenderingContext | null = null;
-    try {
-      gl = this.canvas.getContext('webgl2', {
-        premultipliedAlpha: true,
-        alpha: true,
-        antialias: false,
-        preserveDrawingBuffer: false,
-      }) as WebGL2RenderingContext | null;
-    } catch {
-      gl = null;
-    }
-    this.gl = gl;
+    this.canvas =
+      this.device?.canvas ??
+      (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1) : document.createElement('canvas'));
+    const gl = (this.gl = this.device?.gl ?? null);
     if (!gl) return;
-    (this.canvas as HTMLCanvasElement).addEventListener?.('webglcontextlost', () => (this.lost = true));
     this.quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]), gl.STATIC_DRAW);
@@ -87,7 +82,7 @@ export class GlRunner {
   }
 
   get ok() {
-    return !!this.gl && !this.lost;
+    return !!this.gl && !this.lost && !this.gl.isContextLost();
   }
 
   private program(f: Filter): Program | null {
@@ -125,11 +120,20 @@ export class GlRunner {
           if (loc) uniforms.set(name, { loc, type: info.type, size: info.size });
         }
         out = { prog, uniforms, aPosition: gl.getAttribLocation(prog, 'aPosition') };
-      } else console.warn(`[stage] ${gp.name}: ${gl.getProgramInfoLog(prog)}`);
+      } else {
+        console.warn(`[stage] ${gp.name}: ${gl.getProgramInfoLog(prog)}`);
+        gl.deleteProgram(prog);
+      }
     }
     if (vs) gl.deleteShader(vs);
     if (fs) gl.deleteShader(fs);
     this.programs.set(gp.uid, out);
+    if (this.programs.size > 128) {
+      const oldest = this.programs.keys().next().value!;
+      const entry = this.programs.get(oldest);
+      if (entry) gl.deleteProgram(entry.prog);
+      this.programs.delete(oldest);
+    }
     return out;
   }
 
@@ -143,19 +147,37 @@ export class GlRunner {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
   }
-  private target(old: Target | null, w: number, h: number): Target {
+  target(slot: 'incoming' | 'ping' | 'pong', w: number, h: number, round = false): FilterTarget {
     const gl = this.gl!;
-    if (old && old.w === w && old.h === h) return old;
+    if (round) {
+      w = Math.ceil(w / 64) * 64;
+      h = Math.ceil(h / 64) * 64;
+    }
+    const key = `${slot}:${w}x${h}`;
+    const old = this.targets.get(key);
     if (old) {
-      gl.deleteTexture(old.tex);
-      gl.deleteFramebuffer(old.fbo);
+      this.targets.delete(key);
+      this.targets.set(key, old);
+      return old;
     }
     const tex = this.texture();
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     const fbo = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    return { tex, fbo, w, h };
+    const result = { tex, fbo, w, h };
+    this.targets.set(key, result);
+    let bytes = 0;
+    for (const entry of this.targets.values()) bytes += entry.w * entry.h * 4;
+    for (const [name, entry] of this.targets) {
+      if (bytes <= 96 * 1024 * 1024 && this.targets.size <= 12) break;
+      if (entry.w === w && entry.h === h) continue; // active inputs, never evict during a pass chain
+      gl.deleteTexture(entry.tex);
+      gl.deleteFramebuffer(entry.fbo);
+      this.targets.delete(name);
+      bytes -= entry.w * entry.h * 4;
+    }
+    return result;
   }
   private upload(tex: WebGLTexture | null, src: Src): WebGLTexture {
     const gl = this.gl!;
@@ -163,15 +185,31 @@ export class GlRunner {
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src as TexImageSource);
+    const image = src as TexImageSource;
+    const width = 'videoWidth' in src ? Number(src.videoWidth) : src.width;
+    const height = 'videoHeight' in src ? Number(src.videoHeight) : src.height;
+    const size = this.sizes.get(t);
+    if (size?.width === width && size.height === height)
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, image);
+    else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      this.sizes.set(t, { width, height });
+    }
     return t;
   }
   /** A texture resource a filter or shader binds (cover art, noise maps…), uploaded once per version. */
   sourceTexture(source: TextureSource): WebGLTexture | null {
     const gl = this.gl;
-    if (!gl || !source.resource) return null;
+    if (!gl || !this.ok || !source.resource) return null;
     const hit = this.extra.get(source);
-    if (hit && hit.version === source.version) return hit.tex;
+    if (hit) {
+      this.extra.delete(source);
+      if (hit.version === source.version) {
+        this.extra.set(source, hit);
+        return hit.tex;
+      }
+      this.extraBytes -= hit.bytes;
+    }
     const tex = this.upload(hit?.tex ?? null, source.resource);
     const wrap =
       source.style.addressMode === 'repeat'
@@ -184,12 +222,19 @@ export class GlRunner {
     const filt = source.style.scaleMode === 'nearest' ? gl.NEAREST : gl.LINEAR;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
-    this.extra.set(source, { tex, version: source.version });
+    const size = this.sizes.get(tex);
+    const bytes = (size?.width ?? 0) * (size?.height ?? 0) * 4;
+    this.extra.set(source, { tex, version: source.version, bytes });
+    this.extraBytes += bytes;
+    while (this.extra.size > 1 && (this.extra.size > 64 || this.extraBytes > 64 * 1024 * 1024))
+      this.releaseSource(this.extra.keys().next().value!);
     return tex;
   }
   releaseSource(source: TextureSource) {
     const hit = this.extra.get(source);
-    if (hit && this.gl) this.gl.deleteTexture(hit.tex);
+    if (!hit) return;
+    this.gl?.deleteTexture(hit.tex);
+    this.extraBytes -= hit.bytes;
     this.extra.delete(source);
   }
 
@@ -236,21 +281,15 @@ export class GlRunner {
 
   private meshBuf: { pos: WebGLBuffer; uv: WebGLBuffer; idx: WebGLBuffer; vao: WebGLVertexArrayObject } | null = null;
   /** Draws a mesh with its own program onto the whole (cleared) canvas, W×H device px; returns it to be drawn over. */
-  mesh(
-    W: number,
-    H: number,
-    m: MeshDraw,
-    cache: Map<number, Program | null>,
-  ): HTMLCanvasElement | OffscreenCanvas | null {
+  mesh(W: number, H: number, m: MeshDraw): HTMLCanvasElement | OffscreenCanvas | null {
     const gl = this.gl;
-    if (!gl || this.lost) return null;
+    if (!gl || !this.ok) return null;
     const saved = this.programs;
-    this.programs = cache;
+    this.programs = this.meshPrograms;
     const p = this.program({ glProgram: m.glProgram } as unknown as Filter);
     this.programs = saved;
     if (!p) return null;
-    if (this.canvas.width !== W) this.canvas.width = W;
-    if (this.canvas.height !== H) this.canvas.height = H;
+    const y = outputViewport(this.canvas, W, H);
     if (!this.meshBuf)
       this.meshBuf = {
         pos: gl.createBuffer()!,
@@ -261,7 +300,9 @@ export class GlRunner {
     const B = this.meshBuf;
     gl.bindVertexArray(B.vao);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, W, H);
+    gl.viewport(0, y, W, H);
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(0, y, W, H);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.disable(gl.BLEND);
@@ -309,6 +350,7 @@ export class GlRunner {
       unit += 1;
     }
     gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
+    gl.disable(gl.SCISSOR_TEST);
     gl.bindVertexArray(null);
     return this.canvas;
   }
@@ -319,7 +361,7 @@ export class GlRunner {
    * `back` is the picture under the frame, for filters that read it (blendRequired).
    */
   run(
-    src: Src,
+    src: Src | FilterTarget,
     w: number,
     h: number,
     res: number,
@@ -328,14 +370,17 @@ export class GlRunner {
     back?: Src | null,
   ): HTMLCanvasElement | OffscreenCanvas | null {
     const gl = this.gl;
-    if (!gl || this.lost || !filters.length) return null;
+    if (!gl || !this.ok || !filters.length) return null;
     const W = Math.max(1, Math.round(w * res)),
       H = Math.max(1, Math.round(h * res));
-    if (this.canvas.width !== W) this.canvas.width = W;
-    if (this.canvas.height !== H) this.canvas.height = H;
-    this.input = this.upload(this.input, src);
+    const y = outputViewport(this.canvas, W, H);
+    gl.activeTexture(gl.TEXTURE0);
+    let read = 'fbo' in src ? src.tex : (this.input = this.upload(this.input, src));
+    let iw = 'fbo' in src ? src.w : W;
+    let ih = 'fbo' in src ? src.h : H;
+    // Backdrop-dependent filters sample both textures in the same coordinates.
+    const round = !filters.some((filter) => filter.blendRequired);
     if (back) this.back = this.upload(this.back, back);
-    let read = this.input;
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.disable(gl.BLEND);
@@ -345,17 +390,20 @@ export class GlRunner {
       const f = filters[i];
       const last = i === filters.length - 1;
       const p = this.program(f) ?? this.program(COPY);
-      let out: Target | null = null;
+      let out: FilterTarget | null = null;
       if (!last) {
         const which = i % 2 === 0 ? 'ping' : 'pong';
-        out = this.target(this[which], W, H);
-        this[which] = out;
+        out = this.target(which, W, H, round);
       }
       if (!p) return null;
       gl.bindFramebuffer(gl.FRAMEBUFFER, out ? out.fbo : null);
-      gl.viewport(0, 0, W, H);
+      const bottom = out ? 0 : y;
+      gl.viewport(0, bottom, W, H);
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(0, bottom, out?.w ?? W, out?.h ?? H);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.scissor(0, bottom, W, H);
       gl.useProgram(p.prog);
       if (p.aPosition >= 0) {
         gl.enableVertexAttribArray(p.aPosition);
@@ -373,9 +421,9 @@ export class GlRunner {
       bindTex('uTexture', read);
       if (f.blendRequired) bindTex('uBackTexture', this.back);
       const std: Record<string, UniformValue> = {
-        uInputSize: [w, h, 1 / w, 1 / h],
-        uInputPixel: [W, H, 1 / W, 1 / H],
-        uInputClamp: [0.5 / W, 0.5 / H, 1 - 0.5 / W, 1 - 0.5 / H],
+        uInputSize: [(iw * w) / W, (ih * h) / H, W / (iw * w), H / (ih * h)],
+        uInputPixel: [iw, ih, 1 / iw, 1 / ih],
+        uInputClamp: [0.5 / iw, 0.5 / ih, (W - 0.5) / iw, (H - 0.5) / ih],
         uOutputFrame: [0, 0, w, h],
         uOutputTexture: [w, h, last ? -1 : 1, 0],
         uGlobalFrame: [frame.x, frame.y, w, h],
@@ -395,15 +443,23 @@ export class GlRunner {
         if (source) bindTex(k, this.sourceTexture(source));
       }
       gl.drawArrays(gl.TRIANGLES, 0, 6);
-      if (out) read = out.tex;
+      if (out) {
+        read = out.tex;
+        iw = out.w;
+        ih = out.h;
+      }
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.SCISSOR_TEST);
     return this.canvas;
   }
 }
 
-/** A mesh's own program, compiled once (Pixi's mesh conventions: aPosition, aUV, the three matrices). */
-const meshPrograms = new Map<number, Program | null>();
+function outputViewport(canvas: HTMLCanvasElement | OffscreenCanvas, width: number, height: number) {
+  if (canvas.width < width) canvas.width = width;
+  if (canvas.height < height) canvas.height = height;
+  return canvas.height - height;
+}
 
 export interface MeshDraw {
   glProgram: import('./filters').GlProgram;
@@ -422,7 +478,7 @@ export function drawMeshGl(
   H: number,
   m: MeshDraw,
 ): HTMLCanvasElement | OffscreenCanvas | null {
-  return runner.mesh(W, H, m, meshPrograms);
+  return runner.mesh(W, H, m);
 }
 function resourceSource(r: FilterResource): TextureSource | null {
   if (!r || r instanceof UniformGroup) return null;
@@ -434,6 +490,7 @@ function resourceSource(r: FilterResource): TextureSource | null {
 let shared: GlRunner | null = null;
 /** The app's one filter context, made on first use. */
 export function glRunner(): GlRunner {
-  if (!shared || shared.lost) shared = new GlRunner();
+  const device = webglDevice();
+  if (!shared || (device && !device.lost && shared.generation !== device.generation)) shared = new GlRunner();
   return shared;
 }

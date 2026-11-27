@@ -8,7 +8,15 @@
 import { clamp, D2R } from '../core/math';
 import { sstep } from '../core/math';
 import { rgba } from '../core/color';
-import { effects, effect, paramsFor, type Ctx, type BackdropView, type Effect } from './effects/registry';
+import {
+  effects,
+  effect,
+  effectSupported,
+  paramsFor,
+  type Ctx,
+  type BackdropView,
+  type Effect,
+} from './effects/registry';
 import './effects/ambient';
 import './effects/cover';
 import './effects/backdrops';
@@ -34,7 +42,7 @@ import { cameraAt } from '../director/evaluate';
 import type { Signals } from '../rhythm/signals';
 import { gfx, LITE_OFF } from './gfx';
 import { glyphFrame } from './glyphs';
-import { engineFor, drawEngine } from './engines';
+import { cameraOwner, engineFor, drawEngine } from './engines';
 import { transition, transPhase } from './transitions';
 import { cameraProgram } from '../director/cameras';
 
@@ -73,12 +81,14 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   };
   if (PR) for (const k in PR) PR[k as keyof typeof PR] = 0;
   glyphFrame(); // (this frame's budget for new large glyph bitmaps: glyphs.ts)
+  const owner = cameraOwner(st);
+  const independent = owner === 'world';
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   g.globalAlpha = 1;
   g.globalCompositeOperation = 'source-over';
   g.filter = 'none';
   // the camera's speed on screen (for the motion trail and the backdrop's slight lean-in when moving fast)
-  const prev = cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam,
+  const prev = independent ? cf.cam : cameraAt(f.plan, o.sig, Math.max(0, f.t - 1 / 60), f.motion).cam,
     cam = cf.cam;
   const vx = (cam.x - prev.x) * cam.z,
     vy = (cam.y - prev.y) * cam.z,
@@ -86,7 +96,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // (a cut between the moment before and now is not a motion: across it the "speed" was the whole jump to the next
   // passage, and for that one frame — the blur's peak — the backdrop leant in up to 15 % and the trail flared: the size
   // twitch where the blur turns to clear)
-  const acrossCut = f.plan.camera.cuts.some((k) => k.t > f.t - 1 / 60 - 1e-6 && k.t <= f.t + 1e-6);
+  const acrossCut = !independent && f.plan.camera.cuts.some((k) => k.t > f.t - 1 / 60 - 1e-6 && k.t <= f.t + 1e-6);
   const mb = Number.isFinite(vel) && !acrossCut ? Math.min((12 * W) / 1280, vel * 0.025) * f.motion : 0; // (the moment before not a number: no motion lean — engine.ts guards the frame itself)
   /* ---- backdrop ---- */
   // a video backdrop: in a long pause it rests upright and centred (the camera's turn, push and drift let go of it), and
@@ -124,7 +134,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
     rest,
   };
   // (album play: the backdrop — the cover — goes on from where the song before left it, easing to this song's own camera)
-  if (f.bdFrom && f.bdFrom.k > 0) {
+  if (!independent && f.bdFrom && f.bdFrom.k > 0) {
     const B = f.bdFrom,
       k = B.k;
     bd.roll += (B.roll - bd.roll) * k;
@@ -154,7 +164,11 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   // (lite: the effects that read the whole frame again or blur every frame are left out)
   const lite = gfx() === 'lite',
     bdEffects = effects('effect').filter(
-      (e) => e.layer === 'backdrop' && (st.fx[e.id] || e.id === 'mv') && !(lite && LITE_OFF.has(e.id)),
+      (e) =>
+        e.layer === 'backdrop' &&
+        effectSupported(e, owner) &&
+        (st.fx[e.id] || e.id === 'mv') &&
+        !(lite && LITE_OFF.has(e.id)),
     );
   if (bgFx.front)
     bdEffects.push({
@@ -257,7 +271,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
     tempo = Math.sqrt(clamp(bl / 0.5, 0.5, 2)),
     calm = cf.calm;
   let flash = 0;
-  {
+  if (!independent) {
     const env = (x: number, decay: number, atk: number) => (x < atk ? sstep(x / atk) : Math.exp(-(x - atk) * decay));
     flash = env(f.rs.phase, 9, 0.05) * (f.rs.inBar === 0 ? 0.12 : 0.05) * f.I * Math.min(3, M.groove ?? 1); // the beat's own glint follows the groove
     if (st.bgStyle === 'solid') flash *= 2.6; // (plainly seen on a plain colour: nothing else on it moves)
@@ -274,7 +288,7 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   }
   const invert = st.flashMode === 'invert';
   let inv = false;
-  if (invert && M.flash > 0.02 && calm > 0.5 && f.motion >= 1 && view > 0.5) {
+  if (!independent && invert && M.flash > 0.02 && calm > 0.5 && f.motion >= 1 && view > 0.5) {
     const wnd = 0.1 * tempo;
     for (const q of f.plan.cues.flash) {
       const dt = f.t - q.t;
@@ -304,18 +318,28 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   }
   const world = (layer: 'world-back' | 'world-front' | 'foreground' | 'screen', fr: RenderFrame = f) => {
     for (const e of effects('effect')
-      .filter((x) => x.layer === layer && (st.fx[x.id] || alwaysOn(x)) && !(lite && LITE_OFF.has(x.id)))
+      .filter(
+        (x) =>
+          x.layer === layer &&
+          effectSupported(x, owner) &&
+          (st.fx[x.id] || alwaysOn(x)) &&
+          !(lite && LITE_OFF.has(x.id)),
+      )
       .sort(byZ))
       e.draw(g, fr, { bd, params: paramsFor(e, st.fxp?.[e.id]) });
   };
   if (eng && view > 0.001) {
     mark('backdrop');
+    world('world-back');
     drawEngine(g as CanvasRenderingContext2D, f, eng);
     g.setTransform(f.px, 0, 0, f.px, 0, 0);
     g.globalAlpha = 1;
     g.globalCompositeOperation = 'source-over';
     g.filter = 'none';
     mark('lyrics');
+    world('world-front');
+    world('foreground');
+    mark('world');
   } else if (view > 0.001) {
     mark('backdrop');
     world('world-back');
@@ -357,7 +381,11 @@ export function drawFrame(g: Ctx, f: RenderFrame, o: DrawOptions) {
   g.setTransform(f.px, 0, 0, f.px, 0, 0);
   if (!eng) drawIdleDots(g, f);
   if (o.captions !== false)
-    drawCaptions(g, f, o.captionBottom ?? H * 0.9, { subs: o.capSubs !== false, reads: o.capReads !== false });
+    drawCaptions(g, f, o.captionBottom ?? H * 0.9, {
+      subs: o.capSubs !== false,
+      reads: o.capReads !== false,
+      independent,
+    });
   drawIntro(g, f);
   if (!eng || f.style.engp?.[f.style.engine!]?.credits === false) drawEndCard(g, f);
   const fo = clamp((f.t - (f.plan.dur - 0.6)) / 0.6) * view;

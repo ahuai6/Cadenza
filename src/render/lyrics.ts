@@ -17,7 +17,7 @@ import { blurGlyph, drawFocus, focusW, sharpGlyph, strokeGlyph, type InkGrad } f
 import type { RenderFrame } from './frame';
 import type { Ctx } from './effects/registry';
 import { gfx, gpuLyrics } from './gfx';
-import { GpuLyrics } from './gpu';
+import { gpuQuads } from './gpu';
 
 /** Culling can be switched off to prove it never removes anything visible (render tests). */
 let CULL = true;
@@ -328,7 +328,6 @@ export function drawLyrics(
 /** The lyric layer: the passes given (a motion trail, then the words), on the GPU when it can (render/gpu.ts: the same
  *  pass recorded and drawn as textured quads, set into the frame in one copy), else straight onto the frame.
  *  dry: only make (and upload) what these words will need — a look ahead, nothing drawn. */
-let GPU: GpuLyrics | null | undefined;
 export const GPU_STATS = { on: false, quads: 0, uploads: 0, draws: 0, skipped: 0 };
 export function paintLyrics(
   g: Ctx,
@@ -337,7 +336,7 @@ export function paintLyrics(
   passes: Parameters<typeof drawLyrics>[3][],
   dry = false,
 ) {
-  const L = gpuLyrics() ? (GPU === undefined ? (GPU = GpuLyrics.create()) : GPU) : null;
+  const L = gpuLyrics() ? gpuQuads() : null;
   if (!L || !L.alive()) {
     GPU_STATS.on = false;
     for (const o of passes) drawLyrics(g, f, vis, o);

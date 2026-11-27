@@ -124,6 +124,27 @@ async function analyse(r: Extract<Req, { kind: 'analyse' }>): Promise<NeuralRhyt
     }
   const A = computeBeatAccents(mel, grid.beats, grid.downbeats, energy, track.beat);
   const tBeats = performance.now() - t0;
+  const beatsOnly: NeuralRhythm = {
+    model: `beat_this final0 · ${who}`,
+    beats: grid.beats.map((t) => +t.toFixed(4)),
+    downbeats: grid.downbeats.map((t) => +t.toFixed(4)),
+    impact: A.impact,
+    low: A.low,
+    mid: A.mid,
+    high: A.high,
+    rhythmic: A.rhythmic,
+    pulse: A.pulse,
+    confidence: A.confidence,
+    trackScale: A.trackScale,
+    group: A.meter.group,
+    usual: A.meter.usual,
+    drums: null,
+    drumless: false,
+    drumsRun: false,
+    voice: null,
+    ms: { beats: Math.round(tBeats), drums: 0 },
+  };
+  if (r.drums) post({ id: r.id, checkpoint: beatsOnly });
   prog(0.4);
   console.info(`[neural] beats: ${formatBeatMeter(A.meter, A.pulse)} | ${who} | ${tBeats.toFixed(0)} ms`);
   // the drums: HTDemucs' drum stem, segment by segment, then the hits off its spectrogram
@@ -201,19 +222,7 @@ async function analyse(r: Extract<Req, { kind: 'analyse' }>): Promise<NeuralRhyt
   }
   prog(1);
   return {
-    model: `beat_this final0 · ${who}`,
-    beats: grid.beats.map((t) => +t.toFixed(4)),
-    downbeats: grid.downbeats.map((t) => +t.toFixed(4)),
-    impact: A.impact,
-    low: A.low,
-    mid: A.mid,
-    high: A.high,
-    rhythmic: A.rhythmic,
-    pulse: A.pulse,
-    confidence: A.confidence,
-    trackScale: A.trackScale,
-    group: A.meter.group,
-    usual: A.meter.usual,
+    ...beatsOnly,
     drums,
     drumless,
     drumsRun,

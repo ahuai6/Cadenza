@@ -11,6 +11,7 @@ import { setAllBitmap, sharpBm, sdfGlyph, sdfTier, SDF_SPREAD, SDF_MAX, type Sdf
 import { EM } from '../text/metrics';
 import { makeCanvas } from './palette';
 import type { Ctx } from './effects/registry';
+import { webglDevice } from '../core/webgl';
 
 type Src = ((ImageBitmap | HTMLCanvasElement | OffscreenCanvas) & { width: number; height: number }) | Sdf;
 const isSdf = (s: Src): s is Sdf => 'sdf' in s;
@@ -249,11 +250,12 @@ layout(location=7) in vec4 cC;
 layout(location=8) in vec4 sdf;     // kind (0 an image, 1 a filled glyph, 2 one lit by its gradient, 3 its outline),
                                     // field px either side of the edge, device px per field px, the outline's width
 uniform vec2 size;
+uniform float rowDirection;
 out vec2 vUv; out float vA; out float vT; flat out vec4 vC0; flat out vec4 vC1; flat out vec4 vC2; flat out vec4 vS;
 void main() {
   vec2 p = rect.xy + corner * rect.zw;
   vec2 q = vec2(m0.x * p.x + m0.z * p.y + m1.x, m0.y * p.x + m0.w * p.y + m1.y);
-  gl_Position = vec4(q.x / size.x * 2.0 - 1.0, 1.0 - q.y / size.y * 2.0, 0.0, 1.0);
+  gl_Position = vec4(q.x / size.x * 2.0 - 1.0, (1.0 - q.y / size.y * 2.0) * rowDirection, 0.0, 1.0);
   vUv = mix(uv.xy, uv.zw, corner); vA = m1.z;
   // (the lit gradient: top at -0.55 em, middle at 55 % of the way, bottom at 0.6 em — as the canvas draws it)
   vT = (p.y - m1.w + 0.55 * ${EM}.0) / (1.15 * ${EM}.0);
@@ -265,6 +267,7 @@ uniform sampler2D tex; in vec2 vUv; in float vA; in float vT; flat in vec4 vC0; 
 void main() {
   vec4 t = texture(tex, vUv);
   if (vS.x < 0.5) { o = t * vA; return; }
+  if (vS.x > 3.5) { o = t * vC0 * vA; return; }
   // the distance to the edge in field px, positive inside, then in device px by how fast it changes from one pixel to the
   // next on screen — whatever the glyph's transform does to it (its lean in depth, the frame's shear, a squash): a pixel's
   // coverage is its share of a ramp exactly one device pixel wide across the edge. (A scale worked out on the CPU from
@@ -288,7 +291,10 @@ export class GpuLyrics {
   private gl: WebGL2RenderingContext;
   private prog: WebGLProgram;
   private buf: WebGLBuffer;
+  private vao: WebGLVertexArrayObject | null;
   private uSize: WebGLUniformLocation;
+  private uRows: WebGLUniformLocation;
+  private drawingTarget: WebGLFramebuffer | null = null;
   private data = new Float32Array(F * 1024);
   private n = 0;
   private tex: WebGLTexture | null = null;
@@ -299,7 +305,8 @@ export class GpuLyrics {
   private ownBytes = 0;
   private bigOf = new Map<WebGLTexture, object[]>();
   private dry = false;
-  lost = false;
+  private readonly device = webglDevice();
+  readonly generation = this.device?.generation;
   w = 0;
   h = 0;
   /** the live layers drawn so far (a look ahead counts as the layer before it: it never empties a page that one used) */ private frameNo = 0;
@@ -322,13 +329,19 @@ export class GpuLyrics {
       return s;
     };
     const p = gl.createProgram()!;
-    gl.attachShader(p, sh(gl.VERTEX_SHADER, VS));
-    gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FS));
+    const vertex = sh(gl.VERTEX_SHADER, VS),
+      fragment = sh(gl.FRAGMENT_SHADER, FS);
+    gl.attachShader(p, vertex);
+    gl.attachShader(p, fragment);
     gl.linkProgram(p);
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || 'link');
     this.prog = p;
     this.uSize = gl.getUniformLocation(p, 'size')!;
+    this.uRows = gl.getUniformLocation(p, 'rowDirection')!;
     const vao = gl.createVertexArray();
+    this.vao = vao;
     gl.bindVertexArray(vao);
     const corners = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, corners);
@@ -347,37 +360,31 @@ export class GpuLyrics {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    (canvas as HTMLCanvasElement).addEventListener?.('webglcontextlost', (e: Event) => {
-      e.preventDefault();
-      this.lost = true;
-      console.warn('[gpu] WebGL lyric layer context lost: lyrics go back to the 2D canvas');
-    });
   }
   static create(): GpuLyrics | null {
     try {
-      const cv: any = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(16, 16) : makeCanvas(16, 16);
-      const gl = cv.getContext('webgl2', {
-        premultipliedAlpha: true,
-        alpha: true,
-        antialias: false,
-        depth: false,
-        stencil: false,
-        preserveDrawingBuffer: true,
-      }) as WebGL2RenderingContext | null;
-      return gl ? new GpuLyrics(cv, gl) : null;
+      const device = webglDevice();
+      return device && !device.lost ? new GpuLyrics(device.canvas, device.gl) : null;
     } catch (e) {
       console.warn('GPU lyrics unavailable', e);
       return null;
     }
   }
-  /** Can it draw (its context not lost: a driver reset, a GPU switch — then the lyrics go back to the 2D canvas for good). */
   alive() {
-    if (!this.lost && this.gl.isContextLost()) this.lost = true;
-    return !this.lost;
+    return this.device && !this.device.lost && this.generation === this.device.generation && !this.gl.isContextLost();
   }
   /** Start a layer of w × h device pixels (dry: make and upload what it needs, draw nothing — a look ahead). */
-  begin(w: number, h: number, dry = false) {
+  begin(w: number, h: number, dry = false, target: { fbo: WebGLFramebuffer; w: number; h: number } | null = null) {
     const gl = this.gl;
+    this.drawingTarget = target?.fbo ?? null;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.drawingTarget);
+    gl.bindVertexArray(this.vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     this.dry = dry;
     this.n = 0;
     if (!dry) {
@@ -388,18 +395,20 @@ export class GpuLyrics {
     if (!dry) {
       // (the canvas only grows: the live picture and an export of another size take turns on it, each drawn into its
       // top left corner — a canvas resized every frame would be made anew every frame)
-      if (this.canvas.width < w || this.canvas.height < h) {
+      if (!target && (this.canvas.width < w || this.canvas.height < h)) {
         this.canvas.width = Math.max(this.canvas.width, w);
         this.canvas.height = Math.max(this.canvas.height, h);
       }
-      const y = this.canvas.height - h;
+      const y = target ? 0 : this.canvas.height - h;
       gl.viewport(0, y, w, h);
       gl.enable(gl.SCISSOR_TEST);
-      gl.scissor(0, y, w, h);
+      gl.scissor(0, y, target?.w ?? w, target?.h ?? h);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
+      if (target) gl.scissor(0, y, w, h);
       gl.useProgram(this.prog);
       gl.uniform2f(this.uSize, w, h);
+      gl.uniform1f(this.uRows, target ? -1 : 1);
       this.w = w;
       this.h = h;
     }
@@ -475,7 +484,7 @@ export class GpuLyrics {
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
         if (sc) gl.enable(gl.SCISSOR_TEST);
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.drawingTarget);
         at = this.place(w + GUT * 2, h + GUT * 2);
         if (!at) return null;
       }
@@ -567,6 +576,7 @@ export class GpuLyrics {
     dh: number,
     m: M,
     alpha: number,
+    tint?: number,
   ): boolean {
     if (alpha <= 0.002 || !dw || !dh) return false;
     const s = this.slot(src);
@@ -608,7 +618,13 @@ export class GpuLyrics {
     d[o + 13] = s.v0 + (sy / H) * dv;
     d[o + 14] = s.u0 + ((sx + sw) / W) * du;
     d[o + 15] = s.v0 + ((sy + sh) / H) * dv;
-    d[o + 28] = 0;
+    if (tint !== undefined) {
+      d[o + 16] = ((tint >> 16) & 255) / 255;
+      d[o + 17] = ((tint >> 8) & 255) / 255;
+      d[o + 18] = (tint & 255) / 255;
+      d[o + 19] = 1;
+    }
+    d[o + 28] = tint === undefined ? 0 : 4;
     this.n++;
     this.stats.quads++;
     return true;
@@ -668,4 +684,16 @@ export class GpuLyrics {
     this.n = 0;
     this.stats.draws++;
   }
+}
+
+let active: GpuLyrics | null = null;
+let activeGeneration: number | undefined;
+export function gpuQuads(): GpuLyrics | null {
+  const device = webglDevice();
+  if (!device || device.lost || device.gl.isContextLost()) return null;
+  if (activeGeneration !== device.generation) {
+    active = GpuLyrics.create();
+    activeGeneration = device.generation;
+  }
+  return active;
 }

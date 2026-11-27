@@ -32,16 +32,19 @@ const ok = (name, pass, detail) => {
   // (the full browser: the headless shell has no WebGPU)
   const exe =
     fs.existsSync('/opt/pw-browsers') && fs.readdirSync('/opt/pw-browsers').find((d) => /^chromium-\d/.test(d));
+  const hardware = process.env.CADENZA_NEURAL_HARDWARE === '1';
   const browser = await chromium.launch({
     ...(exe ? { executablePath: `/opt/pw-browsers/${exe}/chrome-linux64/chrome` } : { channel: 'chromium' }),
-    args: [
-      '--enable-unsafe-webgpu',
-      '--enable-features=Vulkan',
-      '--use-vulkan=swiftshader',
-      '--use-webgpu-adapter=swiftshader',
-      '--disable-vulkan-fallback-to-gl-for-testing',
-      '--ignore-gpu-blocklist',
-    ],
+    args: hardware
+      ? ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=d3d11']
+      : [
+          '--enable-unsafe-webgpu',
+          '--enable-features=Vulkan',
+          '--use-vulkan=swiftshader',
+          '--use-webgpu-adapter=swiftshader',
+          '--disable-vulkan-fallback-to-gl-for-testing',
+          '--ignore-gpu-blocklist',
+        ],
   });
   const p = await browser.newPage(),
     errs = [],
@@ -90,12 +93,20 @@ const ok = (name, pass, detail) => {
   }
   await p.goto(url + '/harness.html');
   await p.waitForFunction(() => window.H);
+  const stemFault = process.env.CADENZA_NEURAL_STEM_FAULT === '1';
+  if (stemFault) {
+    await p.route('**/models/htdemucs-wgsl.bin', async (route) => {
+      if (route.request().method() === 'HEAD') return route.continue();
+      await new Promise((resolve) => setTimeout(resolve, 7000));
+      await route.abort().catch(() => {});
+    });
+  }
   if (NATIVE)
     await p.evaluate(() =>
       H.rhythm.setNativeRuntime({
         label: 'native cpu',
         segment: 343980,
-        ready: async () => true,
+        ready: async () => ({ stems: true }),
         beat: async (spect) => {
           const r = await window.nativeBeat(Array.from(spect));
           return { beat: Float32Array.from(r.beat), downbeat: Float32Array.from(r.downbeat) };
@@ -108,7 +119,7 @@ const ok = (name, pass, detail) => {
       }),
     );
   const r = await p.evaluate(
-    async ([drumSecs, skipDrums, stream]) => {
+    async ([drumSecs, skipDrums, stream, stemFault]) => {
       const BPM = 128,
         B = 60 / BPM,
         SR = 44100,
@@ -280,7 +291,7 @@ const ok = (name, pass, detail) => {
                 window.report(`drums ${(k * 100).toFixed(0)} % at ${((performance.now() - t1) / 1000).toFixed(0)} s`);
               }
             },
-            { drums: true },
+            { drums: true, timeoutMs: stemFault ? 5000 : undefined },
           );
       const off = INTRO - 2,
         dd = ND && ND.drums ? ND.drums : { times: [], kinds: [] },
@@ -292,6 +303,7 @@ const ok = (name, pass, detail) => {
         ts.filter((t) => t > INTRO + 0.05 && Math.abs((((((t - phase) / (2 * B)) % 1) + 1) % 1) - 0.5) > 0.42).length /
         Math.max(1, ts.filter((t) => t > INTRO + 0.05).length);
       const drumR = {
+        beats: ND?.beats?.length ?? 0,
         ran: !!ND && ND.drumsRun,
         drumless: ND && ND.drumless,
         hits: dd.times.length,
@@ -354,7 +366,7 @@ const ok = (name, pass, detail) => {
         version: a.version,
       };
     },
-    [+(process.env.DRUM_SECS || 8), !!process.env.SKIP_DRUMS, !!process.env.STREAM],
+    [+(process.env.DRUM_SECS || 8), !!process.env.SKIP_DRUMS, !!process.env.STREAM, stemFault],
   );
   console.log(JSON.stringify(r));
   for (const l of logs) console.log('  ' + l);
@@ -397,7 +409,13 @@ const ok = (name, pass, detail) => {
     );
     ok('neural: the hurried path skips the drum stem and says so', r.stems === 'skipped');
     const D = r.drumR;
-    if (!process.env.SKIP_DRUMS)
+    if (stemFault)
+      ok(
+        'neural: a stalled HTDemucs request preserves the Beat This checkpoint',
+        D.beats >= 12 && !D.ran && !D.drumless && logs.some((line) => line.includes('no answer in 5000 ms')),
+        JSON.stringify(D),
+      );
+    if (!process.env.SKIP_DRUMS && !stemFault)
       ok(
         'neural: the drum stem is separated and its hits picked (kicks on 1 and 3, the snares found on 2 and 4, hats)',
         D.ran &&
@@ -410,7 +428,7 @@ const ok = (name, pass, detail) => {
         `${D.hits} hits, kinds ${D.kinds}, coverage ${D.coverage}, kicks on 1/3 ${(D.kickOn13 * 100).toFixed(0)} %, snares on 2/4 ${(D.snareOn24 * 100).toFixed(0)} %, ${(D.ms / 1000).toFixed(0)} s`,
       );
     // (the song has no singing: the vocal stem, separated in the same pass, is what leaked in — none, or hardly sung)
-    if (!process.env.SKIP_DRUMS)
+    if (!process.env.SKIP_DRUMS && !stemFault)
       ok(
         'neural: the voice is separated with the drums, and a song without singing has (almost) none',
         D.ran && (!D.voice || D.voice.sung < 0.15),
@@ -425,11 +443,7 @@ const ok = (name, pass, detail) => {
         r.drumGroove > 40,
       `intro ${r.introRhythmic.join('')}, groove ${r.introGroove}/${r.drumGroove}, strong in intro ${r.strongInIntro}`,
     );
-    ok(
-      'neural: the beats take seconds, not minutes (here on an emulated GPU)',
-      r.ms < 600000,
-      `${(r.ms / 1000).toFixed(0)} s`,
-    );
+    ok('neural: the beat pass completes within the harness budget', r.ms < 600000, `${(r.ms / 1000).toFixed(0)} s`);
     ok('neural: progress is reported from start to end', r.prog[0] < 0.2 && r.prog[1] === 1, JSON.stringify(r.prog));
     // songs asked for at once take turns on the one worker (its networks share their buffers): two in the background,
     // then the song about to play — it does not wait behind them (the running one is stopped and runs again after),

@@ -73,7 +73,7 @@ gh api repos/ahuai6/Cadenza/releases/latest --jq '.tag_name+" "+(.assets|map(.na
 
 - 只改 `src/folia/upstream.json`（commit、要搬的文件、要抽出的声明、shim、修补），跑 `node scripts/folia-sync.mjs <checkout>`；`src/folia/vendor/` 是产生的，**不手改**。
 - 同步脚本遇到未对应的 import、找不到的声明、不再吻合的修补会失败并列出来。
-- 更新后跑 `FOLIA_UPSTREAM=<checkout> npx vitest run tests/unit/folia.test.ts`，再跑 `docs/TESTING.md` 的 Folia 对照，把数字更新到该文档的表。
+- 更新后在指定上游 checkout 运行 `node scripts/folia-sync.mjs <checkout> --check`、Folia 单测及上游画面对照。若触及舞台、图集或滤镜，再运行 [G7 的 Windows Electron 探针](G7.md)。对照记录保留上游 commit、设备、逻辑画布尺寸、时间和测量口径。
 
 ## 依赖
 

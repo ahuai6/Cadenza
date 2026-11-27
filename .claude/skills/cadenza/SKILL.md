@@ -117,7 +117,7 @@ rigs/       镜头控制器：walk（自由行走）、director（固定视角�
 
 **新增一种风格（动态）**（现况）：在 `theme/style.ts` 的 `MOTIONS` 加一笔；需要的话在 `director/recommend.ts` 加推荐条件。新增属于风格的字段时，也要加进 `motionPart` 与 `withSavedMotion`（我的风格），并给默认值让旧数据读得进来。
 
-**新增一个 Folia 风格**（现况，3.3.0）：先读 `docs/FOLIA.md`。在 `src/folia/upstream.json` 加上上游文件（缺的依赖写 shim，不改上游文件），跑 `node scripts/folia-sync.mjs <checkout>`；在 `src/folia/engines/` 写它的执行层（照上游的 runtime，画布与时钟交给 Cadenza），在 `render/engines.ts` 登记，在 `theme/style.ts` 的 `MOTIONS` 加一笔 `engine`。它能拆出来的部分（滤镜、标记）注册成一般特效。
+**新增 Folia 风格**：先读 `docs/FOLIA.md` 和 `docs/G7.md`。执行层登记在 `render/engines.ts`，插件通过公共图层及能力契约组合。新风格随歌曲时间运行，拥有本身的镜头和转场，复用二维 GPU 设备及已有音乐、歌词和 Session 数据。登记上游来源并跑画面对照与上下文生命周期测试。
 
 **新增一种外观**（现况）：在 `PRESETS` 加一笔。颜色默认取自封面（`render/palette.ts`）。
 
