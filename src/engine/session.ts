@@ -7,6 +7,7 @@ import { respace, type Spacing } from '../lyrics/spacing';
 import { loadSegmenter, segmenterReady } from '../text/segment';
 import { buildLyrics, type LyricDoc } from '../lyrics/model';
 import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis } from '../rhythm';
+import { emptyRhythm } from '../rhythm/analyze';
 import { planCuesFor, recommendMotion, ASPECTS, type ScenePlan } from '../director';
 import { planSong, type MapOrigin } from './planner';
 import type { SongInfo } from '../director/titles';
@@ -162,7 +163,7 @@ export class Session {
     s.colors();
     let a = spec.analysis && isCurrent(spec.analysis) ? spec.analysis : null;
     const buf = spec.audio;
-    // (no analysis can be had — the neural engine only, and it cannot run: the song plays on a tempo grid)
+    s.libraryAnalysis = !analyzeAudio;
     if (analyzeAudio && !a && buf && buf.getChannelData && !buf.load) {
       a = await analyzeInBackground(buf as AudioBuffer).catch(() => null);
       if (a) env.onAnalysis?.(a);
@@ -188,6 +189,8 @@ export class Session {
     this.dirty |= BUILD;
   }
   analysis: RhythmAnalysis | null = null;
+  private libraryAnalysis = false;
+  private missingRhythm: RhythmAnalysis | null = null;
   /** the song's own look while it wears another one (see spec.look): what is kept with the song */
   ownLook: Partial<Style> | null = null;
   lookOf(): Partial<Style> {
@@ -251,9 +254,12 @@ export class Session {
       last = parsed.lines[parsed.lines.length - 1];
     const musicEnd = buf ? Math.max(1, fileEnd - audioStart) : last ? (last.stop ?? last.t + 3) + 1.6 : 10,
       dur = musicEnd + endLen;
+    if (this.libraryAnalysis && !this.analysis) this.missingRhythm = emptyRhythm(dur + 2, 'unavailable');
     const origin: MapOrigin = this.analysis
       ? { analysis: this.analysis, offset: audioStart }
-      : { grid: [Math.max(40, Math.min(240, sp.bpm || 120)), 0, dur + 2] };
+      : this.missingRhythm
+        ? { analysis: this.missingRhythm, offset: 0 }
+        : { grid: [Math.max(40, Math.min(240, sp.bpm || 120)), 0, dur + 2] };
     const map = 'grid' in origin ? RhythmMap.grid(...origin.grid) : new RhythmMap(origin.analysis, origin.offset);
     if (map.repairs.length) console.warn('[rhythm] analysis repaired as read:', map.repairs.join('; '));
     const doc = buildLyrics(parsed, map, musicEnd);
@@ -306,7 +312,9 @@ export class Session {
   private get origin(): MapOrigin {
     return this.analysis
       ? { analysis: this.analysis, offset: this.audioStart }
-      : { grid: [Math.max(40, Math.min(240, this.spec.bpm || 120)), 0, this.dur + 2] };
+      : this.missingRhythm
+        ? { analysis: this.missingRhythm, offset: 0 }
+        : { grid: [Math.max(40, Math.min(240, this.spec.bpm || 120)), 0, this.dur + 2] };
   }
   private parsed: ReturnType<typeof parse> | null = null;
   /** A newer reading of the song's rhythm, arriving while it plays (streaming: the song started on a quick reading of

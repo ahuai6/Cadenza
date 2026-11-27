@@ -24,6 +24,63 @@ import type { Loudness } from './loudness';
 import { neuralRhythm, neuralStatus, type NeuralOptions } from './neural';
 // bundled inline (a blob: URL), so it also starts from a page loaded from file:// (the desktop app)
 import AnalysisWorker from './worker.ts?worker&inline';
+import FileAnalysisWorker from './file-analysis.worker.ts?worker&inline';
+
+export function analyzePcm(
+  url: string,
+  options: { duration: number; signal: AbortSignal; browser?: boolean; onlyLoudness?: boolean; urgent?: boolean },
+  progress?: (value: number) => void,
+): Promise<{ analysis?: RhythmAnalysis; loudness?: Loudness }> {
+  const { signal } = options;
+  signal.throwIfAborted();
+  const worker = new FileAnalysisWorker();
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      signal.removeEventListener('abort', abort);
+      worker.terminate();
+    };
+    const abort = () => {
+      finish();
+      reject(signal.reason);
+    };
+    const error = (message: string) => {
+      finish();
+      reject(new Error(message));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    worker.onerror = (event) => error(event.message || 'analysis worker failed');
+    worker.onmessage = ({ data }) => {
+      if (data.error) error(data.error);
+      else if (data.analysis || data.loudness) {
+        finish();
+        resolve(data);
+      } else if (data.progress !== undefined) progress?.(data.progress);
+      else if (data.window) {
+        const window = data.window as Float32Array[];
+        const input = {
+          sampleRate: data.sampleRate as number,
+          numberOfChannels: window.length,
+          getChannelData: (index: number) => window[index],
+        };
+        void neuralRhythm(input, undefined, { urgent: options.urgent, timeoutMs: 90000, signal }).then(
+          (neural) => {
+            if (!signal.aborted) worker.postMessage({ neural });
+          },
+          (reason) => {
+            if (!signal.aborted) error(String(reason));
+          },
+        );
+      }
+    };
+    worker.postMessage({
+      url,
+      duration: options.duration,
+      engine: engineSetting,
+      onlyLoudness: !!options.onlyLoudness,
+      browser: !!options.browser,
+    });
+  });
+}
 
 /* Two workers: one for the song about to play, one for the background — the one the player waits on never queues
    behind a song of the library being analysed (each worker takes its jobs one at a time). */

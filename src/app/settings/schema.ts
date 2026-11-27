@@ -145,7 +145,6 @@ export const SCHEMA = {
   rhythmRuntime: choice(['auto', 'webgpu'], 'auto', { group: 'rhythm', advanced: true }),
   rhythmDevice: choice(['auto', 'cpu'], 'auto', { group: 'rhythm', advanced: true }),
   rhythmDrums: toggle(true, { group: 'rhythm', advanced: true }),
-  rhythmStream: choice(['stream', 'full'], 'stream', { group: 'rhythm', advanced: true }),
   // diagnostics
   perfHud: toggle(false, { group: 'diagnostics', advanced: true, label: 's.set.perfHud', help: 's.set.perfHudHelp' }),
   debugLog: toggle(false, {

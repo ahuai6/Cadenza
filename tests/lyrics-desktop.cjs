@@ -384,6 +384,12 @@ async function quiet(win) {
     );
     assert.equal(remaining.fields[0].text, '\n[00:04.10]\n\ntext\n');
     assert.ok(fs.readdirSync(music).some((name) => name.startsWith('blank.flac.cadenza-backup-')));
+    const auxiliary = '[00:04.100]First translation\n\n[00:05.000]\n';
+    assert.ok(remaining.targets.some((target) => target.id === 'new:translation'));
+    assert.equal((await mutate(win, candidate.id, { source: 'new:translation', text: auxiliary })).ok, true);
+    const embedded = (await source(win, candidate.id)).fields.find((field) => field.label === 'LYRICS_TRANSLATION');
+    assert.equal(embedded.text, auxiliary);
+    assert.equal((await waitFile(win, 'blank.flac')).audioContentId, candidate.audioContentId);
     console.log('Pass blank FLAC create TTML/LRC/sidecar, independent deletion, backup, exact blank/time-only lines');
 
     for (const name of ['plain.mp3', 'plain.ogg', 'plain.opus']) {
@@ -484,10 +490,7 @@ async function quiet(win) {
     await win.waitForFunction(() => window.__cadenza.lib.get().analysisTask.phase === 'paused');
     await win.evaluate(() => window.__cadenza.pauseAnalysis(false, 'g55r'));
     await win.waitForFunction(
-      async () =>
-        (await window.cadenzaLib.taskDetails()).recent.some(
-          (task) => task.file === 'budget.wav' && /budget/.test(task.reason),
-        ),
+      () => window.__cadenza.lib.get().tracks.some((track) => track.title === 'budget' && track.analyzed === 4),
       undefined,
       { timeout: 45000 },
     );
@@ -497,15 +500,30 @@ async function quiet(win) {
       undefined,
       { timeout: 45000 },
     );
-    console.log('Pass unavailable directory recovery, paused/resumed analysis, over-budget skip and idle indicator');
+    console.log(
+      'Pass unavailable directory recovery, paused/resumed analysis, long silence beyond the old budget and idle indicator',
+    );
   } finally {
     await run.app.close();
   }
 
+  const db = path.join(profile, 'library', 'db.json');
+  const old = JSON.parse(fs.readFileSync(db, 'utf8'));
+  const blankId = Object.values(old.tracks).find((track) => path.basename(track.path) === 'blank.flac').id;
+  const originalHash = hash(file);
+  old.overrides[firstId] = { ...old.overrides[firstId], preferLrc: true };
+  delete old.overrides[firstId].lyricsSource;
+  old.overrides[blankId] = { ...old.overrides[blankId], preferLrc: true };
+  delete old.overrides[blankId].lyricsSource;
+  fs.writeFileSync(db, JSON.stringify(old));
   const repeat = await launch(profile);
   try {
     await quiet(repeat.win);
     assert.equal((await waitFile(repeat.win, 'combined.flac')).id, firstId);
+    const migrated = await source(repeat.win, firstId);
+    assert.equal(migrated.fields.find((field) => field.id === migrated.primary).label, 'LYRICS');
+    assert.equal((await source(repeat.win, blankId)).primary, 'sidecar:lrc');
+    assert.equal(hash(file), originalHash);
     const recovered = await repeat.win.evaluate(() =>
       Object.keys(localStorage)
         .filter((key) => key.startsWith('cadenza-draft-v1:lyric-source:'))
@@ -544,6 +562,11 @@ async function quiet(win) {
   try {
     const saved = await source(clean.win, (await waitFile(clean.win, 'combined.flac')).id);
     assert.match(saved.fields.find((field) => field.id === saved.primary).text, /Translation one/);
+    const blank = await source(clean.win, (await waitFile(clean.win, 'blank.flac')).id);
+    assert.equal(
+      blank.fields.find((field) => field.label === 'LYRICS_TRANSLATION').text,
+      '[00:04.100]First translation\n\n[00:05.000]\n',
+    );
     if (reference) {
       const ref = await source(clean.win, (await waitFile(clean.win, 'sample.flac')).id);
       assert.match(ref.fields.find((field) => field.id === ref.primary).text, /xml:lang="zh-Hans"/);

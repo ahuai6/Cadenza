@@ -1,233 +1,193 @@
-// The library's rhythm analysis, in the background: the main process keeps the queue (songs the player is about to need
-// first, then the most recently played and added), this page takes one song at a time, decodes it at the analysis rate
-// (22 kHz: a quarter of the memory of a full decode) and runs the rhythm SDK in its worker. One song at a time, with a
-// pause between songs and none at all while an export runs, so playback and the interface never compete with it.
-import {
-  analyzeInBackground,
-  checkAnalysis,
-  loudnessInBackground,
-  RHYTHM_VERSION,
-  rhythmEngine,
-  neuralDrums,
-  neuralStatus,
-  type RhythmAnalysis,
-} from '../../engine';
-
+import { analyzePcm, checkAnalysis, RHYTHM_VERSION, type RhythmAnalysis } from '../../engine';
 import { Lib, mediaUrl, type AnalysisToken } from '../bridge';
 import { lib, settings, trackOf } from '../state';
 
-let busy = false,
-  requested = false,
-  paused = false,
-  wake: (() => void) | null = null;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const fileBudget = 64 * 1024 * 1024;
-const pcmBudget = 128 * 1024 * 1024;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const requests = new Set<{ id: string; deliver: (value: RhythmAnalysis | null) => void }>();
+const holds = new Set<string>();
+const blockedByUser = () => [...holds].some((reason) => reason !== 'watching');
+let running = false;
+let requested = false;
+let focused: string | null = null;
+let active: { id: string; source: string; content: string; abort: AbortController } | null = null;
 
-/** Automatic full-file PCM is an optional analysis resource. Workshop and export use their explicit offline decode. */
-export async function decodeForAnalysis(
-  id: string,
-  loudnessOnly = false,
-  signal?: AbortSignal,
-  actualDuration?: number,
-) {
+export async function requestAnalysis(id: string, signal?: AbortSignal): Promise<RhythmAnalysis | null> {
+  if (!Lib || signal?.aborted) return null;
+  const saved = (await Lib.analysis(id, RHYTHM_VERSION).catch(() => null)) as RhythmAnalysis | null;
+  if (signal?.aborted) return null;
+  if (saved && !checkAnalysis(saved)) return saved;
+  const content = trackOf(id)?.audioContentId;
+  if (content && focused !== id && active && active.content !== content) active.abort.abort();
+  focused = id;
+  // Register the observer before the main process work is prioritized. It neither owns nor starts an analysis job.
+  return new Promise((resolve) => {
+    const entry = { id, deliver };
+    function deliver(value: RhythmAnalysis | null) {
+      requests.delete(entry);
+      signal?.removeEventListener('abort', abort);
+      resolve(value);
+    }
+    const abort = () => deliver(null);
+    requests.add(entry);
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    else {
+      void Lib!.prioritize([id]).catch(() => deliver(null));
+      void loop();
+    }
+  });
+}
+
+function deliver(id: string, content: string, result: RhythmAnalysis | null) {
+  for (const entry of requests) {
+    if (entry.id === id || (result && trackOf(entry.id)?.audioContentId === content)) entry.deliver(result);
+  }
+}
+
+async function analyzeJob(id: string, token: AnalysisToken, only: 'loudness' | undefined, signal: AbortSignal) {
   const track = trackOf(id);
-  const neural = !loudnessOnly && rhythmEngine() !== 'dsp' && (await neuralStatus()).ok;
-  const rate = neural ? 44100 : 22050;
-  const duration = actualDuration || track?.duration || 0;
-  // decodeAudioData retains the input's channel count, independent of the context's output layout.
-  const estimated = duration * Math.max(rate, track?.sampleRate || 48000) * (track?.channels || 8) * 4;
-  if (!(duration > 0)) throw new Error('analysis duration unavailable');
-  if (estimated > pcmBudget) throw new Error('analysis PCM budget');
-  signal?.throwIfAborted();
-  const r = await fetch(mediaUrl(id, track?.mediaRevision), { signal });
-  if (!r.ok) throw new Error('read');
-  const size = Number(r.headers.get('content-length'));
-  const compressed = r.headers.get('x-cadenza-compressed-length');
-  const fileSize = compressed === null ? size : Number(compressed);
-  if (!(size > 0 && fileSize > 0) || fileSize > fileBudget || size > pcmBudget + 128) {
-    await r.body?.cancel();
-    throw new Error('analysis file budget');
+  const url = 'cadenza://analysis-pcm/' + id + '?rev=' + encodeURIComponent(token.source);
+  const progress = (value: number) => lib.set({ analysisNow: value, analysisFor: id });
+  try {
+    const browser = /opus/i.test(track?.codec || '') || /^(opus|aac)$/i.test(track?.ext?.replace(/^\./, '') || '');
+    const result = await analyzePcm(
+      browser ? mediaUrl(id, token.source) : url,
+      {
+        duration: track?.duration || 0,
+        signal,
+        browser,
+        onlyLoudness: only === 'loudness',
+        urgent: id === focused,
+      },
+      progress,
+    );
+    signal.throwIfAborted();
+    if (only === 'loudness') {
+      await Lib!.saveLoudness(id, result.loudness ?? null, token);
+      return;
+    }
+    const why = checkAnalysis(result.analysis);
+    if (why) throw new Error(why);
+    if (await Lib!.saveAnalysis(id, result.analysis!, token)) deliver(id, token.content, result.analysis!);
+  } catch (error) {
+    if (signal.aborted || (error as Error)?.message === 'analysis decoder busy') return;
+    if (only === 'loudness') await Lib!.saveLoudness(id, null, token);
+    else {
+      await Lib!.analysisFailed(id, String((error as Error)?.message || error).slice(0, 200), token);
+      deliver(id, token.content, null);
+    }
   }
-  const data = await r.arrayBuffer();
-  signal?.throwIfAborted();
-  return new OfflineAudioContext(neural ? 2 : 1, 1, rate).decodeAudioData(data);
 }
-/** Songs analysed in a hurry (the player was waiting: the neural engine's beats only, no drum stem), to be analysed
- *  whole once the library's queue is through; the next play of each reads the full analysis. */
-const upgrade = new Set<string>();
-/** Analyse one song now (the player calls this for a song it needs and the cache does not have). */
-const inflight = new Map<string, Promise<RhythmAnalysis>>();
-export function analyzeNow(
-  id: string,
-  {
-    decoded,
-    urgent = false,
-    duration,
-    granted,
-  }: { decoded?: AudioBuffer | null; urgent?: boolean; duration?: number; granted?: AnalysisToken } = {},
-): Promise<RhythmAnalysis> {
-  const input = trackOf(id)?.mediaRevision;
-  const { rhythmRuntime, rhythmDevice } = settings.get();
-  const key = JSON.stringify([id, input, rhythmEngine(), neuralDrums(), rhythmRuntime, rhythmDevice]);
-  let p = inflight.get(key);
-  if (!p) {
-    // (needed at once: the beats on the GPU have 20 s, else the built-in analysis answers; the drums come later)
-    // (in the background the GPU has a time in proportion to the song — a minute and a little over half the song's own
-    // length — then the built-in analysis answers: a slow or stalled GPU never holds the whole library's queue)
-    p = (async () => {
-      const issued = granted ?? (await Lib?.analysisToken(id));
-      const token = issued?.source === input ? issued : null;
-      try {
-        const buf = decoded || (await decodeForAnalysis(id, false, undefined, duration)),
-          dur = buf.length / buf.sampleRate;
-        const opts = urgent ? { drums: false, timeoutMs: 20_000, urgent: true } : { timeoutMs: 60_000 + dur * 600 };
-        // (the neural engine only, and it did not answer while the player waited: the song plays on a tempo grid, and is
-        // analysed again in the background, with the time a background analysis has)
-        lib.set({ analysisFor: id });
-        let a = await analyzeInBackground(buf, (k) => lib.set({ analysisNow: k, analysisFor: id }), opts)
-          .catch((e) => {
-            if (urgent && rhythmEngine() === 'neural') {
-              upgrade.add(id);
-              setTimeout(() => loop(), 30_000);
-            }
-            throw e;
-          })
-          .finally(() => lib.set({ analysisFor: null, analysisNow: null }));
-        // (a reading that is not sound — rhythm/validate.ts — is never kept: the built-in analysis has one more go, and a
-        // song it cannot read either is marked failed, with why, instead of being analysed again and again)
-        let why = checkAnalysis(a, dur);
-        if (why && a.engine !== 'dsp') {
-          console.warn('[analysis]', id, why, '— the built-in analysis tries');
-          a = await analyzeInBackground(buf, undefined, { ...opts, engine: 'dsp' });
-          why = checkAnalysis(a, dur);
-        }
-        if (why) {
-          console.warn('[analysis]', id, why);
-          throw new Error(why);
-        }
-        if (token) await Lib?.saveAnalysis(id, a, token);
-        // (and a song the GPU did not answer in time, when it can run at all: no second built-in pass on a machine without one)
-        if (
-          urgent &&
-          (a.stems === 'skipped'
-            ? neuralDrums()
-            : a.engine === 'dsp' && rhythmEngine() !== 'dsp' && (await neuralStatus()).ok)
-        ) {
-          upgrade.add(id);
-          setTimeout(() => loop(), 30_000);
-        }
-        return a;
-      } catch (error) {
-        if (token) await Lib?.analysisFailed(id, String((error as Error)?.message || error).slice(0, 200), token);
-        throw error;
-      }
-    })();
-    inflight.set(key, p);
-    const done = () => inflight.delete(key);
-    void p.then(done, done);
-  }
-  return p;
-}
+
 async function loop() {
   if (!Lib) return;
-  if (busy) {
+  if (running) {
     requested = true;
     return;
   }
-  busy = true;
+  running = true;
   requested = false;
   const blocked = new Set<string>();
   try {
-    for (;;) {
-      await waitIfPaused();
-      const job =
-        (await Lib.nextAnalysis(RHYTHM_VERSION, [...blocked])) ||
-        (() => {
-          const id = [...upgrade].find((id) => !blocked.has(id));
-          return id ? { id, only: undefined } : null;
-        })();
-      // the queue done: the cached analyses not checked yet are read and checked (validate.ts), one at a time — a sound one
-      // is remembered as checked, a broken one (cut short, written by a faulty run) goes back to be analysed
+    while (!blockedByUser()) {
+      const omit = [...blocked];
+      if (holds.has('watching'))
+        omit.push(
+          ...lib
+            .get()
+            .tracks.filter((track) => track.id !== focused)
+            .map((track) => track.id),
+        );
+      const job = await Lib.nextAnalysis(RHYTHM_VERSION, omit);
       if (!job) {
+        if (holds.has('watching')) break;
         if (await verifyCached()) continue;
+        // An indexed track may have completed just before the observer registered.
+        for (const entry of requests) {
+          const t = trackOf(entry.id);
+          if (!t || (t.audioContentId && !blocked.has(t.id))) {
+            const data = t
+              ? ((await Lib.analysis(entry.id, RHYTHM_VERSION).catch(() => null)) as RhythmAnalysis | null)
+              : null;
+            entry.deliver(data && !checkAnalysis(data) ? data : null);
+          }
+        }
         break;
       }
-      if (!trackOf(job.id)?.audioContentId) {
-        blocked.add(job.id);
-        continue;
-      }
       const token = await Lib.analysisToken(job.id);
-      // A watcher or later scan will wake the queue with the current file. Avoid spinning on stale paths.
       if (!token || token.source !== trackOf(job.id)?.mediaRevision) {
         blocked.add(job.id);
         continue;
       }
-      await waitIfPaused();
-      upgrade.delete(job.id);
-      lib.set({ analysisTask: { phase: job.only || 'rhythm', id: job.id } });
-      if (job.only === 'loudness') {
-        try {
-          await Lib.saveLoudness(job.id, await loudnessInBackground(await decodeForAnalysis(job.id, true)), token);
-        } catch {
-          await Lib.saveLoudness(job.id, null, token);
-        }
-      } else await analyzeNow(job.id, { granted: token }).catch(() => {});
-      lib.set({ analysisTask: { phase: 'idle', id: null } });
-      await sleep(120);
+      if (blockedByUser()) break;
+      const abort = new AbortController();
+      active = { id: job.id, source: token.source, content: token.content, abort };
+      lib.set({ analysisTask: { phase: job.only || 'rhythm', id: job.id }, analysisFor: job.id, analysisNow: 0 });
+      await analyzeJob(job.id, token, job.only, abort.signal);
+      active = null;
+      lib.set({ analysisTask: { phase: 'idle', id: null }, analysisFor: null, analysisNow: null });
+      await sleep(160);
     }
   } catch (error) {
     console.warn('[library analysis]', error);
   } finally {
-    busy = false;
-    lib.set({ analysisTask: { phase: 'idle', id: null } });
-    if (requested) void loop();
+    active = null;
+    running = false;
+    lib.set({
+      analysisTask: { phase: blockedByUser() ? 'paused' : 'idle', id: null },
+      analysisFor: null,
+      analysisNow: null,
+    });
+    if (requested && !blockedByUser()) void loop();
   }
 }
-/** Check the cached analyses not yet checked; true when any was sent back to be analysed. */
+
 async function verifyCached(): Promise<boolean> {
   if (!Lib) return false;
   let bad = false;
   for (const id of await Lib.unverified(RHYTHM_VERSION).catch(() => [] as string[])) {
-    await waitIfPaused();
-    // (no length to compare with here: a tag's duration can be off — that check is made against decoded audio only)
+    if (blockedByUser()) break;
     const token = await Lib.analysisToken(id);
     if (!token) continue;
     lib.set({ analysisTask: { phase: 'validate', id } });
-    const a = await Lib.analysis(id, RHYTHM_VERSION).catch(() => null),
-      why = checkAnalysis(a);
-    if (why) {
-      console.warn('[analysis] cached analysis of', id, 'is unsound:', why);
+    const data = await Lib.analysis(id, RHYTHM_VERSION).catch(() => null);
+    if (checkAnalysis(data)) {
       await Lib.reanalyze([id]);
       bad = true;
     } else await Lib.verified(id, RHYTHM_VERSION, token);
-    lib.set({ analysisTask: { phase: 'idle', id: null } });
     await sleep(40);
   }
   return bad;
 }
-async function waitIfPaused() {
-  while (paused) {
-    lib.set({ analysisTask: { phase: 'paused', id: null } });
-    await new Promise<void>((resolve) => {
-      wake = resolve;
-    });
-  }
-}
+
+let started = false;
 export function startAnalysis() {
-  if (!Lib) return;
-  Lib.onWake(() => loop());
+  if (!Lib || started) return;
+  started = true;
+  Lib.onWake(() => void loop());
+  Lib.onAnalysisInvalidated((contents) => {
+    if (active && (!contents || contents.includes(active.content))) active.abort.abort();
+  });
+  lib.subscribe(() => {
+    if (active && trackOf(active.id)?.mediaRevision !== active.source) active.abort.abort();
+  });
+  settings.subscribe((next, previous) => {
+    if (
+      ['rhythmEngine', 'rhythmDrums', 'rhythmRuntime', 'rhythmDevice'].some(
+        (key) => next[key as keyof typeof next] !== previous[key as keyof typeof next],
+      )
+    ) {
+      active?.abort.abort();
+      void loop();
+    }
+  });
   setTimeout(loop, 1500);
 }
-/** Hold the library's queue (between songs) for a reason — an export, or the effect lyrics on screen while a song plays
- *  (the picture and the analysis would share the GPU: the picture stuttered) — until no reason is left. */
-const holds = new Set<string>();
+
 export function pauseAnalysis(on: boolean, why = 'export') {
+  if (on === holds.has(why)) return;
   if (on) holds.add(why);
   else holds.delete(why);
-  paused = holds.size > 0;
-  if (!paused) {
-    wake?.();
-    wake = null;
-  }
+  if (on && active && (why !== 'watching' || active.id !== focused)) active.abort.abort();
+  if (!on) void loop();
 }

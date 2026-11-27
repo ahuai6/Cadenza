@@ -417,3 +417,47 @@ export function addTranslations(
   }
   return { text: added ? save(doc, text) : text, added };
 }
+
+/** An auxiliary timed track is edited by unique anchors. Unknown headers and empty lines stay where they were. */
+export function mergeAuxiliaryLyrics(current: string, additions: string, replace: boolean): string | null {
+  if (!current) return additions;
+  const anchor = /^\[(\d+):(\d{1,2})(?:[.:](\d{1,3}))?\](?!\[)(.*)$/;
+  const tokenize = (text: string) =>
+    text.split(/\r?\n/).map((line) => {
+      const match = anchor.exec(line);
+      const time = match
+        ? (Number(match[1]) * 60 + Number(match[2])) * 1000 + Number((match[3] || '').padEnd(3, '0'))
+        : null;
+      return { line, time, text: match?.[4] || '', prefix: match ? line.slice(0, line.length - match[4].length) : '' };
+    });
+  const from = tokenize(current);
+  const incoming = tokenize(additions).filter((row) => row.time !== null && row.text.trim());
+  if (!incoming.length) return replace && from.every((row) => row.time === null) ? additions : null;
+  if (!from.some((row) => row.time !== null)) return null;
+  const unique = new Map<number | null, (typeof incoming)[number]>();
+  for (const row of incoming) {
+    if (unique.has(row.time)) return null;
+    unique.set(row.time, row);
+  }
+  const existing = new Set<number>();
+  for (const row of from) {
+    if (row.time === null || !unique.has(row.time)) continue;
+    if (existing.has(row.time)) return null;
+    existing.add(row.time);
+  }
+  let index = 0;
+  const revised = current
+    .split(/(\r?\n)/)
+    .map((part, offset) => {
+      if (offset % 2) return part;
+      const row = from[index++];
+      const next = unique.get(row.time);
+      if (!next) return part;
+      unique.delete(row.time);
+      return replace || !row.text.trim() ? row.prefix + next.text : part;
+    })
+    .join('');
+  if (!unique.size) return revised;
+  const eol = current.includes('\r\n') ? '\r\n' : '\n';
+  return revised + (revised.endsWith('\n') ? '' : eol) + [...unique.values()].map((row) => row.line).join(eol);
+}

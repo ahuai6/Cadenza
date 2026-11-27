@@ -220,12 +220,13 @@ async function importProjectAudio(f?: File) {
     const buf = await audioContext().decodeAudioData(data);
     const a = await analyzeInBackground(buf);
     edit((s) => s.setAudio(buf, a));
-    edit((s) => s.setTiming({ bpm: +a.tempo.bpm.toFixed(1) }));
+    const tempo = a.beatEvidence === 'none' ? '' : ` · ${a.tempo.bpm.toFixed(1)} BPM`;
+    if (tempo) edit((s) => s.setTiming({ bpm: +a.tempo.bpm.toFixed(1) }));
     ws.set({
       audioName: name,
       status: {
         ...st(),
-        audio: `${name} · ${tx(buf.numberOfChannels > 1 ? 'aud.stereo' : 'aud.mono')} · ${buf.duration.toFixed(1)} s · ${a.tempo.bpm.toFixed(1)} BPM`,
+        audio: `${name} · ${tx(buf.numberOfChannels > 1 ? 'aud.stereo' : 'aud.mono')} · ${buf.duration.toFixed(1)} s${tempo}`,
       },
     });
   } catch {

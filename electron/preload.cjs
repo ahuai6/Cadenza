@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('cadenzaLib', {
   onProgress: on('lib:progress'),
   onAnalysis: on('lib:analysis'),
   onWake: on('lib:wake'),
+  onAnalysisInvalidated: on('lib:analysisInvalidated'),
 });
 // the rhythm engine's networks run natively (electron/infer.cjs): their state, the models' download, one network pass
 contextBridge.exposeInMainWorld('cadenzaInfer', {
@@ -98,6 +99,7 @@ contextBridge.exposeInMainWorld('cadenzaLyricAI', {
   save: (input) => ai('save', input),
   remove: (id) => ai('remove', id),
   models: (id) => ai('models', id),
+  preferences: (input) => ai('preferences', input),
   translate: (input) => ai('translate', input),
   cancel: () => ai('cancel'),
 });

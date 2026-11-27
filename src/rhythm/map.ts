@@ -93,7 +93,7 @@ export class RhythmMap {
     });
   }
   get hasAudio() {
-    return this.a.source !== 'grid';
+    return this.a.source !== 'grid' && this.a.source !== 'unavailable';
   }
 
   /** Where t falls in the beats (beyond the ends the first/last beat length continues the grid). */
@@ -101,6 +101,7 @@ export class RhythmMap {
     const B = this.beats,
       n = B.length;
     if (n < 2) {
+      if (this.a.beatEvidence === 'none') return { bt: 0, phase: 0, inBar: 0, bar: 0, len: 0.5 };
       const len = 60 / this.bpm,
         bt = t / len;
       return {
@@ -147,6 +148,7 @@ export class RhythmMap {
   }
   /** Grid points between t0 and t1: beats subdivided into `div` parts (2: eighths, 3: triplets, 4: sixteenths). */
   grid(t0: number, t1: number, div = 2): number[] {
+    if (this.a.beatEvidence === 'none') return [];
     const a = this.beatAt(t0),
       out: number[] = [];
     for (let k = Math.ceil(a.bt * div - 1e-9); ; k++) {
@@ -169,6 +171,7 @@ export class RhythmMap {
     return best;
   }
   isDownbeat(t: number, tol = 0.06) {
+    if (this.a.beatEvidence === 'none') return false;
     const p = this.beatAt(t);
     return (
       (p.inBar === 0 && p.phase * p.len < tol) ||
@@ -341,7 +344,16 @@ export function repairAnalysis(a: RhythmAnalysis): { a: RhythmAnalysis; fixes: s
   series('odf');
   if (a.spec) {
     let bad = 0;
-    const sp = a.spec.map((b) => Array.from(b as ArrayLike<number>, (v) => (fin(v) ? v : (bad++, 0))));
+    const sp = a.spec.map((band) => {
+      let corrected: number[] | undefined;
+      for (let i = 0; i < band.length; i++) {
+        if (fin(band[i])) continue;
+        corrected ??= band.slice();
+        corrected[i] = 0;
+        bad++;
+      }
+      return corrected ?? band;
+    });
     if (bad) {
       edit().spec = sp;
       fixes.push(`spec: ${bad} not finite`);

@@ -33,7 +33,6 @@
   "rhythmRuntime": "auto",
   "rhythmDevice": "auto",
   "rhythmDrums": true,
-  "rhythmStream": "stream",
   "perfHud": false,
   "debugLog": false,
   "spaceImmersive": false,

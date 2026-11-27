@@ -139,27 +139,32 @@ function aiLyrics(root, vault, auth, fetcher = fetch) {
   const scope = (entry) => ({ domain: 'ai', provider: entry.provider, account: entry.id });
   let changes = Promise.resolve();
   const active = new Map();
-  async function configs() {
+  const defaults = { service: 'chatgpt', byService: {} };
+  async function readConfig() {
     try {
       await assertDirectory(root);
       if (!(await fs.lstat(file)).isFile()) fail('storage');
       const state = JSON.parse(await fs.readFile(file, 'utf8'));
       if (state.version !== 1 || !Array.isArray(state.entries)) fail('storage');
-      return state.entries;
+      return { entries: state.entries, preferences: state.preferences || defaults };
     } catch (error) {
-      if (error.code === 'ENOENT') return [];
+      if (error.code === 'ENOENT') return { entries: [], preferences: defaults };
       throw error;
     }
   }
+  const configs = async () => (await readConfig()).entries;
   function change(action) {
     const result = changes.then(action);
     changes = result.catch(() => {});
     return result;
   }
-  async function store(entries) {
+  async function store(entries, preferences) {
     await fs.mkdir(root, { recursive: true });
     await assertDirectory(root);
-    await replace(file, JSON.stringify({ version: 1, entries }));
+    await replace(
+      file,
+      JSON.stringify({ version: 1, entries, preferences: preferences || (await readConfig()).preferences }),
+    );
   }
   async function config(id) {
     await changes;
@@ -192,7 +197,36 @@ function aiLyrics(root, vault, auth, fetcher = fetch) {
   return {
     async state() {
       await changes;
-      return { entries: await configs(), chatgpt: await auth.state() };
+      return { ...(await readConfig()), chatgpt: await auth.state() };
+    },
+    preferences(data) {
+      return change(async () => {
+        const { entries, preferences } = await readConfig();
+        if (
+          !data ||
+          (data.service !== 'chatgpt' && !entries.some((entry) => entry.id === data.service)) ||
+          !within(data.model, 120) ||
+          !within(data.language, 30) ||
+          !language.test(data.language) ||
+          !within(data.instructions, 1500) ||
+          !Number.isFinite(data.timeout) ||
+          data.timeout < 10000 ||
+          data.timeout > 180000
+        )
+          fail('configuration');
+        await store(entries, {
+          service: data.service,
+          byService: {
+            ...preferences.byService,
+            [data.service]: {
+              model: data.model.trim(),
+              language: data.language,
+              instructions: data.instructions,
+              timeout: data.timeout,
+            },
+          },
+        });
+      });
     },
     save(data) {
       return change(async () => {
@@ -235,7 +269,16 @@ function aiLyrics(root, vault, auth, fetcher = fetch) {
         const entry = entries.find((item) => item.id === id);
         if (!entry) return;
         await vault.remove(scope(entry));
-        await store(entries.filter((item) => item.id !== id));
+        const { preferences } = await readConfig();
+        const byService = { ...preferences.byService };
+        delete byService[id];
+        await store(
+          entries.filter((item) => item.id !== id),
+          {
+            service: preferences.service === id ? 'chatgpt' : preferences.service,
+            byService,
+          },
+        );
       });
     },
     async models(id) {
@@ -281,7 +324,12 @@ function aiLyrics(root, vault, auth, fetcher = fetch) {
         const response = await request(entry, protocol === 'responses' ? '/responses' : '/chat/completions', {
           method: 'POST',
           body: JSON.stringify(params),
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(entry.timeout)]),
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(
+              Number.isFinite(data.timeout) ? Math.max(10000, Math.min(180000, data.timeout)) : entry.timeout,
+            ),
+          ]),
         });
         const output = validatedResult(await readTranslation(response, protocol), input.rows);
         controller.signal.throwIfAborted();

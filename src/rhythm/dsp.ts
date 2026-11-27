@@ -1,42 +1,60 @@
 // Signal processing for the analysis: resampling, a radix-2 FFT, and log-spaced band energies frame by frame.
 
-/** Mixes channels to mono and resamples to `rate` (anti-aliased by a short windowed-sinc low-pass). */
-export function toMono(channels: Float32Array[], sampleRate: number, rate: number): Float32Array {
-  const n = channels[0].length,
-    mono = new Float32Array(n),
-    k = 1 / channels.length;
-  for (const ch of channels) for (let i = 0; i < n; i++) mono[i] += ch[i] * k;
-  if (Math.abs(sampleRate - rate) < 1) return mono;
-  const ratio = sampleRate / rate,
-    out = new Float32Array(Math.floor(n / ratio));
-  // low-pass at 0.45 × the new rate, 17 taps (Blackman-windowed sinc), applied only at the output points
-  const fc = 0.45 / ratio,
-    R = 8,
-    taps: number[] = [];
-  let sum = 0;
-  for (let j = -R; j <= R; j++) {
-    const x = j === 0 ? 2 * fc : Math.sin(2 * Math.PI * fc * j) / (Math.PI * j);
-    const w = 0.42 + 0.5 * Math.cos((Math.PI * j) / (R + 1)) + 0.08 * Math.cos((2 * Math.PI * j) / (R + 1));
-    taps.push(x * w);
-    sum += x * w;
+// The resampling grid is anchored to decoded frame zero, including across packet boundaries.
+export class MonoResampler {
+  private readonly ratio: number;
+  private readonly taps: number[];
+  private edge = new Float32Array(0);
+  private frames = 0;
+  private output = 0;
+
+  constructor(sampleRate: number, rate: number) {
+    this.ratio = sampleRate / rate;
+    const cutoff = Math.min(0.45, 0.45 / this.ratio);
+    this.taps = Array.from({ length: 17 }, (_, i) => {
+      const j = i - 8;
+      const sinc = j === 0 ? 2 * cutoff : Math.sin(2 * Math.PI * cutoff * j) / (Math.PI * j);
+      return sinc * (0.42 + 0.5 * Math.cos((Math.PI * j) / 9) + 0.08 * Math.cos((2 * Math.PI * j) / 9));
+    });
+    const sum = this.taps.reduce((total, value) => total + value, 0);
+    this.taps = this.taps.map((value) => value / sum);
   }
-  for (let j = 0; j < taps.length; j++) taps[j] /= sum;
-  for (let i = 0; i < out.length; i++) {
-    const c = i * ratio,
-      c0 = Math.floor(c),
-      f = c - c0;
-    let a = 0,
-      b = 0;
-    for (let j = -R; j <= R; j++) {
-      const q = c0 + j;
-      if (q >= 0 && q + 1 < n) {
-        a += mono[q] * taps[j + R];
-        b += mono[q + 1] * taps[j + R];
+
+  push(channels: Float32Array[], final = false) {
+    const n = channels[0]?.length || 0;
+    const input = new Float32Array(this.edge.length + n);
+    input.set(this.edge);
+    const offset = this.edge.length;
+    for (const channel of channels) for (let i = 0; i < n; i++) input[offset + i] += channel[i] / channels.length;
+    const start = this.frames - offset;
+    this.frames += n;
+    if (this.ratio === 1) return input;
+    const end = Math.floor(this.frames / this.ratio);
+    let count = end - this.output;
+    if (!final) while (count > 0 && Math.floor((this.output + count - 1) * this.ratio) + 9 >= this.frames) count--;
+    const out = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const position = (this.output + i) * this.ratio;
+      const center = Math.floor(position);
+      let a = 0;
+      let b = 0;
+      for (let j = 0; j < this.taps.length; j++) {
+        const q = center + j - 8 - start;
+        if (q >= 0 && q + 1 < input.length) {
+          a += input[q] * this.taps[j];
+          b += input[q + 1] * this.taps[j];
+        }
       }
+      out[i] = a + (b - a) * (position - center);
     }
-    out[i] = a + (b - a) * f;
+    this.output += count;
+    this.edge = input.slice(Math.max(0, Math.floor(this.output * this.ratio) - 8 - start));
+    return out;
   }
-  return out;
+}
+
+export function toMono(channels: Float32Array[], sampleRate: number, rate: number): Float32Array {
+  return new MonoResampler(sampleRate, rate).push(channels, true);
 }
 
 /** In-place complex FFT (radix 2). re/im have length N, a power of two. */
@@ -126,7 +144,7 @@ export function bandEnergies(x: Float32Array, rate: number, size: number, hop: n
     const o = f * hop;
     let s2 = 0;
     for (let i = 0; i < size; i++) {
-      const v = x[o + i];
+      const v = x[o + i] ?? 0;
       re[i] = v * win[i];
       im[i] = 0;
       s2 += v * v;

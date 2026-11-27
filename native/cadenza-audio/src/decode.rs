@@ -214,6 +214,49 @@ pub fn alac_command(path: &str, range: Option<(u64, u64)>) -> Result<(), String>
     out.flush().map_err(|e| e.to_string())
 }
 
+// One read of the media at its native sample rate, independent from the playback instance.
+// A zero-sized block commits EOF. A broken pipe or a decode error never emits that marker.
+pub fn analysis_pcm(path: &str) -> Result<(), String> {
+    let (mut rd, info) = open(path)?;
+    if info.rate < 8_000 || info.rate > 384_000 || info.ch > 32 {
+        return Err("unsupported analysis PCM format".into());
+    }
+    let channels = info.ch.min(2);
+    let mut out = std::io::BufWriter::with_capacity(64 * 1024, std::io::stdout().lock());
+    let write_error = |e: std::io::Error| e.to_string();
+    out.write_all(b"CDP1").map_err(write_error)?;
+    out.write_all(&info.rate.to_le_bytes()).map_err(write_error)?;
+    out.write_all(&(channels as u32).to_le_bytes()).map_err(write_error)?;
+    let mut decoded_samples = Vec::<f32>::new();
+    let mut output = Vec::with_capacity(4096 * channels * 4);
+    while let Some(packet) = rd.fmt.next_packet().map_err(|e| format!("analysis read: {e}"))? {
+        if packet.track_id != rd.tid { continue; }
+        let decoded = rd.dec.decode(&packet).map_err(|e| format!("analysis decode: {e}"))?;
+        if decoded.spec().channels().count() != info.ch || decoded.spec().rate() != info.rate {
+            return Err("analysis PCM format changed during decode".into());
+        }
+        decoded_samples.resize(decoded.samples_interleaved(), 0.0);
+        decoded.copy_to_slice_interleaved(&mut decoded_samples);
+        output.clear();
+        for frame in decoded_samples.chunks_exact(info.ch) {
+            for sample in &frame[..channels] {
+                output.extend_from_slice(&sample.to_le_bytes());
+            }
+            if output.len() == 4096 * channels * 4 {
+                out.write_all(&(output.len() as u32).to_le_bytes()).map_err(write_error)?;
+                out.write_all(&output).map_err(write_error)?;
+                output.clear();
+            }
+        }
+        if !output.is_empty() {
+            out.write_all(&(output.len() as u32).to_le_bytes()).map_err(write_error)?;
+            out.write_all(&output).map_err(write_error)?;
+        }
+    }
+    out.write_all(&0u32.to_le_bytes()).map_err(write_error)?;
+    out.flush().map_err(write_error)
+}
+
 fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shared) -> Result<(), String> {
     let (mut rd, info) = open(path)?;
     let plan = plan_for(&info);

@@ -22,8 +22,8 @@
    onsets of everything else beside them), each beat's accent and the bars without rhythm. Steps 1, 2 and 7 are the
    same either way, and so is what comes out: one RhythmAnalysis, whichever engine found the beats. */
 import { clamp, quantile, median, mean, bisect } from '../core/math';
-import { toMono, bandEnergies, logBands, smooth, movingMedian } from './dsp';
-import { loudness } from './loudness';
+import { toMono, bandEnergies, logBands, smooth, movingMedian, type Spectrogram } from './dsp';
+import { loudness, type Loudness } from './loudness';
 import {
   RHYTHM_VERSION,
   type RhythmAnalysis,
@@ -36,10 +36,10 @@ import {
 import { barIndexer } from './bars';
 import type { NeuralRhythm } from './neural/types';
 
-const RATE = 22000,
-  SIZE = 1024,
-  HOP = 220,
-  FPS = RATE / HOP; // 100 frames per second
+export const DSP_RATE = 22000,
+  DSP_SIZE = 1024,
+  DSP_HOP = 220,
+  FPS = DSP_RATE / DSP_HOP; // 100 frames per second
 const OUT_RATE = 50; // rate of the series stored in the result
 /** Bias of a detected onset against the true attack (window centre vs. flux response), measured on clicks. */
 const ONSET_BIAS = 0.037;
@@ -121,17 +121,52 @@ function specBands(L: Float32Array, F: number, nb: number): Float32Array[] {
   return out;
 }
 
-export function analyze(channels: Float32Array[], sampleRate: number, opts: AnalyzeOptions = {}): RhythmAnalysis {
-  const prog = opts.progress || (() => {});
-  const x = toMono(channels, sampleRate, RATE);
-  prog(0.1);
-  const duration = x.length / RATE;
-  const bands = logBands(24, 30, 10000),
-    nb = bands.length;
-  const sp = bandEnergies(x, RATE, SIZE, HOP, bands);
-  prog(0.45);
-  const F = sp.frames;
+export const dspBands = logBands(24, 30, 10000);
 
+export function emptyRhythm(duration: number, source: 'audio' | 'unavailable'): RhythmAnalysis {
+  return {
+    version: RHYTHM_VERSION,
+    source,
+    duration,
+    beatEvidence: 'none',
+    rate: OUT_RATE,
+    tempo: { bpm: 120, confidence: 0 },
+    beats: [],
+    meter: 4,
+    downbeat: 0,
+    phrase: 0,
+    halfTime: false,
+    events: [],
+    sections: [],
+    builds: [],
+    level: [],
+    loud: [],
+    odf: [],
+  };
+}
+
+export function analyze(channels: Float32Array[], sampleRate: number, opts: AnalyzeOptions = {}): RhythmAnalysis {
+  const mono = toMono(channels, sampleRate, DSP_RATE);
+  const spectrum = bandEnergies(mono, DSP_RATE, DSP_SIZE, DSP_HOP, dspBands);
+  return analyzeSpectrum(spectrum, mono.length / DSP_RATE, loudness(channels, sampleRate), opts);
+}
+
+function envelope(values: Float32Array): number[] {
+  const output = new Array<number>(Math.floor((values.length * OUT_RATE) / FPS));
+  for (let i = 0; i < output.length; i++) output[i] = +values[Math.floor((i * FPS) / OUT_RATE)].toFixed(3);
+  return output;
+}
+
+export function analyzeSpectrum(
+  sp: Spectrogram,
+  duration: number,
+  measured: Loudness,
+  opts: AnalyzeOptions = {},
+): RhythmAnalysis {
+  if (measured.peak < 1e-7) return { ...emptyRhythm(duration, 'audio'), engine: 'dsp', loudness: measured };
+  const prog = opts.progress || (() => {});
+  const { bands, frames: F } = sp;
+  const nb = bands.length;
   /* ---- 1–2. compressed bands, flux, onset functions ---- */
   const L = new Float32Array(F * nb);
   for (let b = 0; b < nb; b++) {
@@ -220,10 +255,36 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
       c = odf[f + 1],
       den = a - 2 * v + c,
       p = den < 0 ? clamp((0.5 * (a - c)) / den, -0.5, 0.5) : 0;
-    cands.push({ f, t: ((f + p) * HOP) / RATE + ONSET_BIAS, v: v - med[f] * 0.5 });
+    cands.push({ f, t: ((f + p) * DSP_HOP) / DSP_RATE + ONSET_BIAS, v: v - med[f] * 0.5 });
   }
 
   const NG = opts.neural && opts.neural.beats.length >= 8 ? feltGrid(opts.neural) : null;
+  // Relative log flux can amplify numerical leakage from weak bands in an otherwise stationary signal.
+  const stationary = () => {
+    const change = new Float32Array(F);
+    for (let f = 1; f < F; f++) {
+      let previous = 0,
+        delta = 0;
+      for (let b = 0; b < nb; b++) {
+        const p = sp.E[(f - 1) * nb + b];
+        previous += p;
+        delta += Math.abs(sp.E[f * nb + b] - p);
+      }
+      change[f] = delta / Math.max(previous, 1e-30);
+    }
+    return quantile(change, 0.98) < 0.001 && quantile(change, 0.999) < 0.005;
+  };
+  if (!NG && (cands.length < 3 || (flat && stationary()))) {
+    return {
+      ...emptyRhythm(duration, 'audio'),
+      engine: 'dsp',
+      loudness: measured,
+      level: envelope(level),
+      loud: envelope(loud),
+      odf: envelope(odfRaw),
+      spec: specBands(L, F, nb).map(envelope),
+    };
+  }
   /* ---- 3. tempo ---- */
   const ce = new Float32Array(F);
   {
@@ -244,12 +305,30 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     return n ? v / n : 0;
   };
   const prior = (bpm: number) => Math.exp(-0.5 * (Math.log2(bpm / 120) / 1.1) ** 2);
-  const comb = (lag: number, a?: number, b?: number) =>
-    acAt(ce, lag, a, b) +
-    0.5 * acAt(ce, lag * 2, a, b) +
-    0.33 * acAt(ce, lag * 3, a, b) +
-    0.25 * acAt(ce, lag * 4, a, b) +
-    0.35 * acAt(ce, lag / 2, a, b);
+  const correlations = new Map<number, [number, number]>();
+  const globalAc = (lag: number) => {
+    const whole = Math.floor(lag),
+      fraction = lag - whole;
+    let pair = correlations.get(whole);
+    if (!pair) {
+      const count = F - whole - 1;
+      let current = 0,
+        next = 0;
+      for (let f = 0; f < count; f++) {
+        current += ce[f] * ce[f + whole];
+        next += ce[f] * ce[f + whole + 1];
+      }
+      pair = count > 0 ? [current / count, next / count] : [0, 0];
+      correlations.set(whole, pair);
+    }
+    return pair[0] * (1 - fraction) + pair[1] * fraction;
+  };
+  const comb = (lag: number) =>
+    globalAc(lag) +
+    0.5 * globalAc(lag * 2) +
+    0.33 * globalAc(lag * 3) +
+    0.25 * globalAc(lag * 4) +
+    0.35 * globalAc(lag / 2);
   let best = -1,
     bpm = NG ? NG.bpm : 120,
     tot = 0,
@@ -362,7 +441,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
           bfr = g;
         }
       }
-      return (bfr * HOP) / RATE + ONSET_BIAS;
+      return (bfr * DSP_HOP) / DSP_RATE + ONSET_BIAS;
     });
     // extend the grid to the start of the file (the DP may begin late in a quiet intro)
     if (beats.length > 4) {
@@ -375,7 +454,7 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
 
   /* ---- 5. meter, downbeat, phrases, half-time ---- */
   const nBeats = beats.length;
-  const fr = (t: number) => clamp(Math.round(((t - ONSET_BIAS) * RATE) / HOP), 0, F - 1);
+  const fr = (t: number) => clamp(Math.round(((t - ONSET_BIAS) * DSP_RATE) / DSP_HOP), 0, F - 1);
   const maxIn = (a: Float32Array, f: number, r: number) => {
     let m = 0;
     for (let k = f - r; k <= f + r; k++) if (k >= 0 && k < F) m = Math.max(m, a[k]);
@@ -602,7 +681,8 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   const bySlot = new Map<number, { bar: number; raw: number }[]>();
   for (const e of evs) {
     const hist = bySlot.get(e.slot) || [];
-    const recent = hist.filter((h) => h.bar >= e.bar - 4 && h.bar < e.bar).map((h) => h.raw);
+    while (hist.length && hist[0].bar < e.bar - 4) hist.shift();
+    const recent = hist.filter((h) => h.bar < e.bar).map((h) => h.raw);
     const ref = recent.length >= 3 ? median(recent) : medAll;
     const sur = e.raw / (ref + 0.25 * medAll);
     const metric = !e.off && Math.round(e.pos) % e.len === 0 ? 1.3 : !e.off ? 1.0 : 0.9;
@@ -811,15 +891,6 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   }
   prog(0.95);
 
-  const ds = (a: Float32Array) => {
-    const n = Math.floor((a.length * OUT_RATE) / FPS),
-      o: number[] = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const j = Math.floor((i * FPS) / OUT_RATE);
-      o[i] = +a[j].toFixed(3);
-    }
-    return o;
-  };
   const events: RhythmEvent[] = merged.map((e) => {
     const o: RhythmEvent = {
       t: +e.t.toFixed(4),
@@ -835,6 +906,8 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
   prog(1);
   return {
     version: RHYTHM_VERSION,
+    source: 'audio',
+    beatEvidence: 'detected',
     duration,
     rate: OUT_RATE,
     tempo: { bpm, confidence: +confidence.toFixed(3) },
@@ -845,14 +918,12 @@ export function analyze(channels: Float32Array[], sampleRate: number, opts: Anal
     halfTime,
     events,
     sections: sections.map((s) => ({ ...s, energy: +s.energy.toFixed(3), density: +s.density.toFixed(3) })),
-    loudness: (({ lufs, peak }) => ({ lufs: +lufs.toFixed(2), peak: +peak.toFixed(4) }))(
-      loudness(channels, sampleRate),
-    ),
+    loudness: (({ lufs, peak }) => ({ lufs: +lufs.toFixed(2), peak: +peak.toFixed(4) }))(measured),
     builds,
-    level: ds(level),
-    loud: ds(loud),
-    odf: ds(odf),
-    spec: specBands(L, F, nb).map(ds),
+    level: envelope(level),
+    loud: envelope(loud),
+    odf: envelope(odf),
+    spec: specBands(L, F, nb).map(envelope),
     engine: NG ? 'neural' : 'dsp',
     ...(NG
       ? {

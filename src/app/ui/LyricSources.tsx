@@ -5,6 +5,7 @@ import {
   applyTimedTtmlText,
   emptyTtml,
   keepTtmlLanguage,
+  mergeAuxiliaryLyrics,
   openTtml,
   readableTtml,
   removeTtmlLanguage,
@@ -16,7 +17,7 @@ import {
 } from '../../engine';
 import { tx } from '../../i18n';
 import { Lib, LyricAI, type LyricField, type LyricSources, type LyricTarget } from '../bridge';
-import { canEdit, stageNewLyricDraft, useEditing, useEditingDraft } from '../editing';
+import { canEdit, stageLyricDraft, useEditing, useEditingDraft } from '../editing';
 import { commitLyricField, previewLyrics, resetLyricPreview, switchLyricSource } from '../playback/player';
 import { lib, trackOf, useStore } from '../state';
 import { AiLyricTranslation } from './AiLyricTranslation';
@@ -106,11 +107,28 @@ export function LyricSourcesEditor({ id }: { id: string }) {
           fields={data.fields}
           busy={busy}
           setBusy={setBusy}
+          translationTargets={options
+            .filter(
+              (item) =>
+                item.id === 'sidecar:translation' ||
+                item.id === 'new:translation' ||
+                (item.id.startsWith('flac:') && item.label.toUpperCase() === 'LYRICS_TRANSLATION'),
+            )
+            .filter((item) => !('writable' in item) || item.writable === true)}
           stageTranslation={
-            data.targets.some((item) => item.id === 'sidecar:translation') && field && !field.id.includes('translation')
-              ? (value) => {
-                  if (!stageNewLyricDraft('lyric-source:' + id + ':sidecar:translation:new', value)) return false;
-                  choose('sidecar:translation');
+            field && !/translation/i.test(field.id)
+              ? (value, destination, replace) => {
+                  const existing = data.fields.find((item) => item.id === destination);
+                  const revised = existing ? mergeAuxiliaryLyrics(existing.text, value, replace) : value;
+                  if (
+                    revised === null ||
+                    !stageLyricDraft(
+                      'lyric-source:' + id + ':' + destination + ':' + (existing?.revision ?? 'new'),
+                      revised,
+                    )
+                  )
+                    return false;
+                  choose(destination);
                   notice(tx('lyricAi.applied'));
                   return true;
                 }
@@ -404,6 +422,7 @@ function LyricDraft({
   setBusy,
   saved,
   stageTranslation,
+  translationTargets,
 }: {
   id: string;
   target: LyricTarget;
@@ -412,7 +431,8 @@ function LyricDraft({
   busy: boolean;
   setBusy: (value: boolean) => void;
   saved: () => Promise<void>;
-  stageTranslation?: (value: string) => boolean;
+  stageTranslation?: (value: string, destination: string, replace: boolean) => boolean;
+  translationTargets: LyricTarget[];
 }) {
   const original = field?.text ?? (target.format === 'ttml' ? emptyTtml : '');
   const [text, setText, clear] = useEditingDraft(
@@ -576,12 +596,13 @@ function LyricDraft({
             : undefined
         }
       />
-      {(ttml || stageTranslation) && writable && LyricAI && (
+      {(ttml || (stageTranslation && translationTargets.length)) && writable && LyricAI && (
         <AiLyricTranslation
           text={text}
           context={[trackOf(id)?.title, trackOf(id)?.artist, trackOf(id)?.album].filter(Boolean).join(' / ')}
           apply={update}
           stageAuxiliary={stageTranslation}
+          auxiliaryTargets={translationTargets}
         />
       )}
       {timed && ttml ? (

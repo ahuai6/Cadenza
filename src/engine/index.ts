@@ -26,6 +26,7 @@ export {
 export { accentClock } from '../rhythm';
 export {
   analyzeInBackground,
+  analyzePcm,
   analyzeHead,
   loudnessInBackground,
   RHYTHM_VERSION,
@@ -48,6 +49,7 @@ export {
   applyTimedTtmlText,
   emptyTtml,
   keepTtmlLanguage,
+  mergeAuxiliaryLyrics,
   openTtml,
   readableTtml,
   removeTtmlLanguage,

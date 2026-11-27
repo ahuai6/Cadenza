@@ -1,6 +1,10 @@
 # 测试
 
+## G6 节奏与缓存验证
 
+`node tests/rhythm-analysis-desktop.cjs` 在隔离资料和自生成素材上测试 Windows Electron。可用 `CADENZA_ANALYSIS_SECONDS` 选择 300、900、2700 或 5400 秒，`CADENZA_TEST_EXE` 可指向本地拆包 EXE。探针验证相同内容两条曲目共享分析、长音频末段的绝对拍点位置、并行分析期间的播放图内信号和跳转，以及重启后持久缓存命中。 `--baseline` 适用于 G5.5-F 拆包产物，记录旧版超出预算后跳过的结果。 [实现、性能数据和验证边界](G6.md)
+
+用 900 秒样本加 `--invalidate` 验证旧提交令牌失效、清理期间取消实际进行的解码，以及清理后完整重建。探针通过限速使活动输入稳定跨越清理操作，已验证 3 次原生启动、2 次正常结束及 4 条缓存命中。`STREAM=1 SKIP_DRUMS=1 SKIP_QUEUE=1` 运行 `node tests/neural.cjs` 可单独比较同一模型的全输入与分块结果。
 
 ## G5.5：产品收束与编辑模式
 
@@ -76,7 +80,7 @@ G3 当时的媒体元素和 `decodeAudioData()` 都不能直接解码 ALAC/M4A�
 
 - `node --test tests/file-response.cjs` 验证 GET / HEAD、单区间 206、无效与不满足区间的 416、打开的文件与响应一致、错误、请求中止和消费者取消。多个区间统一返回 416。`cadenza://media` 仍通过曲库 ID 授权，受保护文件不可读取。后续区间重开时重新校验大小、mtime、ctime 和文件系统身份。已经缓冲的旧字节可能继续播放，重新验证中的文件快照不会命中持久化分析。 [Electron 协议](https://www.electronjs.org/docs/latest/api/protocol)
 - `node tests/streaming-desktop.cjs --space` 使用生成文件、独立 profile 和真实 Electron。按需要在 PowerShell 设置 `$env:CADENZA_STREAM_SOAK_SECONDS='60'`，增加连续播放的内存、进程与 CPU 采样。真实路径使用主进程读流字节和关闭记录、Web Audio 分声道 FFT、播放快照、Electron CDP 的 JS Heap 与进程指标。Chrome DevTools 和 Playwright CLI 的隔离 HTTP 页面只补充 Range 和交互证据。
-- 常规曲库分析与视觉的临时完整解码使用 64 MiB 文件预算和 128 MiB 的 PCM 估算上限。超过预算，可直接播放并使用已有分析或基础视觉。节奏分析任务保留现有策略，已提交给 Chromium 的解码仍会收尾。超长音频的渐进式分析和任务资源调度由 G6 处理。工坊和有声导出是显式离线操作，有各自完整解码的内存成本。
+- G3 当时的常规曲库分析与视觉临时完整解码使用 64 MiB 文件预算和 128 MiB 的 PCM 估算上限。超过预算，可直接播放并使用已有分析或基础视觉。节奏分析任务保留现有策略，已提交给 Chromium 的解码仍会收尾。超长音频的渐进式分析和任务资源调度由 G6 处理。工坊和有声导出是显式离线操作，有各自完整解码的内存成本。
 - 保持独立的旧信号结束、新信号出现与视觉计划三个时间点。`tests/baseline/playback.cjs` 保持 3.6.0 原口径。`tests/baseline/continuity.cjs <快照目录> <输出目录>` 在 G2 及后续版本测量 20 次前后段频率不同的 seek、预读后的手动选择以及真实图内自然续播间隙。两个输出目录均需是 `CADENZA_BASELINE_ROOT` 下不存在的直接子目录。图内间隙与解码器、缓冲区、图调度和采样窗口相关，物理端点另测。
 
 ### 三代同口径本机复测

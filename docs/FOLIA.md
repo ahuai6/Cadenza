@@ -60,6 +60,7 @@ npx tsc --noEmit -p . && FOLIA_UPSTREAM=/tmp/folia npx vitest run tests/unit/fol
 - **时间**：逐字计时的行用各字的时间；只有整行时间的行照 Folia 自己的 LRC 读法（`estimatedLineTiming.ts`）：持续到下一行，间隔很长时不超过读完的时间加两秒，字平均分在九成的时间里。每行都带 Folia 的 render hints（`renderHints.ts`）。
 - **分词**：默认用 Cadenza 的分词（含用户自订）；风格设置「用 Folia 自己的分词」打开时改给 Folia 的自动分词（同一个 icu-folia 分词器）。
 - **频段**：Folia 的五个频段（20–150、150–400、400–1200、1000–3500、3500–12000 Hz）与它的放大曲线，从 Cadenza 节奏分析的频谱读出；power 照 Folia 由低音与中低音算。
+- **分析共享**：移植对照锚点仍为上游 `6ee9404`。网络推理、HPSS 门槛、分鼓模型及拍上重音计算留在节奏层，Folia 优先读取同一份 `RhythmAnalysis.accents`，通过自己的信号层表达构图与动效。DSP 路径仍从共享事件和频谱统计推导需要的视觉信号。 [G6 分析契约](G6.md)
 - **拍点**：每拍的力道与音色照 Folia 的 beatAccents：拍上低、中、高音的上升（对前 40–120 毫秒）与周围的响度，各自在整首里规范化后混合；没有鼓的小节不触发拍点特效（以分离出的鼓轨判断）。
 
 ## 拆开与交叉搭配

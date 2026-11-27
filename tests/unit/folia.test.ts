@@ -95,6 +95,30 @@ describe('Cadenza’s lyrics reach Folia intact', () => {
     expect(ev.length).toBe(map.beats.length);
     expect(ev.some((e) => e.kind === 'downbeat')).toBe(true);
   });
+  it('consumes shared beat strength, tone and evidence at scene time', () => {
+    const { a } = RhythmMap.grid(120, 0, 3);
+    const values = (v: number) => a.beats.map(() => v);
+    const map = new RhythmMap(
+      {
+        ...a,
+        source: 'audio',
+        accents: {
+          impact: values(0.8),
+          low: values(0.6),
+          mid: values(0.3),
+          high: values(0.1),
+          rhythmic: a.beats.map((_, i) => Number(i > 0)),
+          conf: values(4),
+          trackScale: 0.5,
+        },
+      },
+      0.25,
+    );
+    expect(beatEvents(map).slice(0, 2)).toEqual([
+      { t: -0.25, kind: 'downbeat', impact: 0.4, tone: { low: 0.6, mid: 0.3, high: 0.1 }, barPos: 0, rhythmic: false },
+      { t: 0.25, kind: 'beat', impact: 0.4, tone: { low: 0.6, mid: 0.3, high: 0.1 }, barPos: 1, rhythmic: true },
+    ]);
+  });
   it('Sonnet’s program depends on the song alone (same song, same shots)', () => {
     const { doc } = docOf();
     const a = compileSonnetProgram(foliaLines(doc), 'song'),

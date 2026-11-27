@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { addTranslations, isTtml, parseLyrics, readableTtml } from '../../engine';
 import { tx } from '../../i18n';
-import { LyricAI, type AiEntry, type AiTranslationRow } from '../bridge';
+import { LyricAI, type AiEntry, type AiTranslationPreferences, type AiTranslationRow } from '../bridge';
 import { canEdit } from '../editing';
 import { Button, Note, Row } from './kit';
 import s from './LyricSources.module.css';
@@ -22,11 +22,13 @@ export function AiLyricTranslation({
   context,
   apply,
   stageAuxiliary,
+  auxiliaryTargets,
 }: {
   text: string;
   context: string;
   apply: (value: string) => void;
-  stageAuxiliary?: (value: string) => boolean;
+  stageAuxiliary?: (value: string, destination: string, replace: boolean) => boolean;
+  auxiliaryTargets: { id: string; label: string }[];
 }) {
   const api = LyricAI!;
   const [opened, open] = useState(false);
@@ -38,8 +40,12 @@ export function AiLyricTranslation({
   const [models, setModels] = useState<string[]>([]);
   const [language, setLanguage] = useState('zh-Hans');
   const [instructions, setInstructions] = useState('');
+  const [timeout, setTimeout] = useState(90000);
+  const preferences = useRef<Record<string, AiTranslationPreferences>>({});
   const native = isTtml(text);
   const [mode, setMode] = useState(native ? 'missing' : 'all');
+  const [destination, setDestination] = useState(auxiliaryTargets[0]?.id || '');
+  const [replaceAuxiliary, setReplaceAuxiliary] = useState(false);
   const [first, setFirst] = useState(1);
   const [last, setLast] = useState(1);
   const [notice, setNotice] = useState('');
@@ -74,11 +80,13 @@ export function AiLyricTranslation({
     [api],
   );
 
-  async function refresh() {
+  async function refresh(restore = false) {
     const state = await api.state();
     if (state.ok) {
       setEntries(state.value.entries);
       setChatgpt(state.value.chatgpt);
+      preferences.current = state.value.preferences.byService;
+      if (restore) choose(state.value.preferences.service, state.value.entries);
     } else setNotice(state.why);
   }
   async function control(name: string, action: () => Promise<{ ok: boolean; why?: string }>) {
@@ -99,8 +107,11 @@ export function AiLyricTranslation({
     setService(id);
     setModels([]);
     const selected = options.find((item) => item.id === id);
-    setModel(selected?.model || '');
-    if (selected?.language) setLanguage(selected.language);
+    const saved = preferences.current[id];
+    setModel(saved?.model ?? selected?.model ?? '');
+    setLanguage(saved?.language ?? selected?.language ?? 'zh-Hans');
+    setInstructions(saved?.instructions ?? '');
+    setTimeout(saved?.timeout ?? selected?.timeout ?? 90000);
   }
   async function translate() {
     const source = native ? readableTtml(text) : [];
@@ -150,7 +161,15 @@ export function AiLyricTranslation({
     setNotice('');
     try {
       const contextText = [context, ...lines.map((row) => row.text)].join('\n').slice(0, 15000);
-      const result = await api.translate({ service, model, language, instructions, context: contextText, rows });
+      const result = await api.translate({
+        service,
+        model,
+        language,
+        instructions,
+        timeout,
+        context: contextText,
+        rows,
+      });
       if (run !== request.current || current.current !== text || !canEdit()) return;
       if (!result.ok) setNotice(result.why === 'timeout' ? 'request-timeout' : result.why);
       else {
@@ -177,7 +196,7 @@ export function AiLyricTranslation({
       onToggle={(event) => {
         if (event.currentTarget.open && !opened) {
           open(true);
-          void refresh().catch(() => setNotice('network'));
+          void refresh(true).catch(() => setNotice('network'));
         }
       }}
     >
@@ -462,6 +481,28 @@ export function AiLyricTranslation({
               onChange={(event) => setInstructions(event.target.value)}
             />
           </label>
+          <Row>
+            <label>
+              {tx('lyricAi.timeout')}{' '}
+              <input
+                type="number"
+                min={10}
+                max={180}
+                value={timeout / 1000}
+                disabled={!!busy}
+                onChange={(event) => setTimeout(Number(event.target.value) * 1000)}
+              />
+            </label>
+            <Button
+              size="sm"
+              disabled={!!busy}
+              onClick={() =>
+                void control('preferences', () => api.preferences({ service, model, language, instructions, timeout }))
+              }
+            >
+              {tx('lyricAi.saveDefaults')}
+            </Button>
+          </Row>
           <Note>{tx('lyricAi.privacy')}</Note>
           <Row>
             <Button size="sm" disabled={!!busy || !model.trim()} onClick={() => void translate()}>
@@ -484,6 +525,28 @@ export function AiLyricTranslation({
           )}
           {draft && (
             <div className={s.lines}>
+              {!native && (
+                <Row>
+                  <label>
+                    {tx('lyricAi.target')}{' '}
+                    <select value={destination} onChange={(event) => setDestination(event.target.value)}>
+                      {auxiliaryTargets.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={replaceAuxiliary}
+                      onChange={(event) => setReplaceAuxiliary(event.target.checked)}
+                    />{' '}
+                    {tx('lyricAi.replaceAuxiliary')}
+                  </label>
+                </Row>
+              )}
               {draft.rows.map((row) => (
                 <label className={s.line} key={row.id}>
                   {Number(row.id.slice(5)) + 1}
@@ -512,7 +575,7 @@ export function AiLyricTranslation({
                         { length: draft.lineCount },
                         (_, index) => draft.stamps[index] + (translated.get(index) || ''),
                       ).join('\n');
-                      if (stageAuxiliary?.(value)) setDraft(null);
+                      if (stageAuxiliary?.(value, destination, replaceAuxiliary)) setDraft(null);
                       else setNotice('auxiliary-exists');
                       return;
                     }

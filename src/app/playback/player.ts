@@ -4,7 +4,6 @@ import { createStore } from '../../core/emitter';
 import {
   Session,
   ensureFont,
-  analyzeHead,
   RHYTHM_VERSION,
   isCurrent,
   balanceDb,
@@ -21,7 +20,7 @@ import { lib, ui, settings, toast, trackOf, remember, keep } from '../state';
 import { insertNext, followList } from './queue';
 import { SCHEMA } from '../settings/schema';
 import { engine, sessionEnv } from './stage';
-import { analyzeNow, decodeForAnalysis } from './analysis';
+import { requestAnalysis } from './analysis';
 import { traceBegin, tracePhase, traceEnd } from './trace';
 import {
   hifiOn,
@@ -297,36 +296,6 @@ type VisualJob = { request: PlaybackRequest; output: PreparedOutput; abort: Abor
 let visualActive: VisualJob | null = null;
 let visualNext: VisualJob | null = null;
 let visualAbort: AbortController | null = null;
-let focusedAnalysis: Promise<RhythmAnalysis | null> | null = null;
-function waitForAnalysis(work: Promise<RhythmAnalysis | null>, signal: AbortSignal) {
-  signal.throwIfAborted();
-  return new Promise<RhythmAnalysis | null>((resolve, reject) => {
-    const abort = () => reject(signal.reason);
-    signal.addEventListener('abort', abort, { once: true });
-    void work.then((value) => {
-      signal.removeEventListener('abort', abort);
-      resolve(value);
-    });
-  });
-}
-async function analyzeVisual(
-  id: string,
-  pcm: AudioBuffer | null,
-  urgent: boolean,
-  signal: AbortSignal,
-  duration?: number,
-) {
-  while (focusedAnalysis) {
-    await waitForAnalysis(focusedAnalysis, signal);
-    signal.throwIfAborted();
-  }
-  signal.throwIfAborted();
-  const analysis = (focusedAnalysis = analyzeNow(id, { decoded: pcm, urgent, duration }).catch(() => null));
-  void analysis.then(() => {
-    if (focusedAnalysis === analysis) focusedAnalysis = null;
-  });
-  return waitForAnalysis(analysis, signal);
-}
 function cancelVisual() {
   visualAbort?.abort();
   visualAbort = null;
@@ -374,25 +343,8 @@ async function openVisual({ request, output, abort }: VisualJob) {
     readRhythm(id, output.duration),
   ]);
   signal.throwIfAborted();
-  let analysis = cached;
-  let later: Promise<RhythmAnalysis | null> | undefined;
-  if (!analysis) {
-    if (settings.get().rhythmStream !== 'full') {
-      const pcm = await decodeForAnalysis(id, false, signal, output.duration).catch(() => null);
-      signal.throwIfAborted();
-      if (pcm) {
-        later = analyzeVisual(id, pcm, false, signal).catch(() => null);
-        analysis = await analyzeHead(pcm).catch(() => null);
-        if (!analysis) {
-          analysis = await later;
-          later = undefined;
-        }
-      }
-    } else {
-      analysis = await analyzeVisual(id, null, true, signal, output.duration).catch(() => null);
-    }
-  }
-  signal.throwIfAborted();
+  const analysis = cached;
+  const later = analysis ? undefined : requestAnalysis(id, signal);
   tracePhase(tr, 'visualData', performance.now() - tm);
   const song = songWrites.get(id)?.song || storedSong;
   const album = player.get().album;
@@ -1018,7 +970,7 @@ export async function songForWorkshop(t: Track) {
   // (the workshop works on the whole reading)
   return {
     buffer,
-    analysis: cached || (await analyzeNow(t.id, { decoded: buffer }).catch(() => null)),
+    analysis: cached || (await requestAnalysis(t.id).catch(() => null)),
     song,
     lyrics: t.instrumental ? '' : lyr?.text || '',
     name: t.file,

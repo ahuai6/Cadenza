@@ -26,13 +26,14 @@ const ok = (name, pass, detail) => {
   for (const f of fs.readdirSync(MODELS))
     if (f.endsWith('.bin')) {
       const d = path.join(DIST, 'models', f);
-      if (!fs.existsSync(d)) fs.symlinkSync(path.join(MODELS, f), d);
+      if (!fs.existsSync(d)) fs.copyFileSync(path.join(MODELS, f), d);
     }
   const { server, url } = await serve(DIST);
   // (the full browser: the headless shell has no WebGPU)
-  const exe = fs.readdirSync('/opt/pw-browsers').find((d) => /^chromium-\d/.test(d));
+  const exe =
+    fs.existsSync('/opt/pw-browsers') && fs.readdirSync('/opt/pw-browsers').find((d) => /^chromium-\d/.test(d));
   const browser = await chromium.launch({
-    executablePath: exe ? `/opt/pw-browsers/${exe}/chrome-linux64/chrome` : undefined,
+    ...(exe ? { executablePath: `/opt/pw-browsers/${exe}/chrome-linux64/chrome` } : { channel: 'chromium' }),
     args: [
       '--enable-unsafe-webgpu',
       '--enable-features=Vulkan',
@@ -107,7 +108,7 @@ const ok = (name, pass, detail) => {
       }),
     );
   const r = await p.evaluate(
-    async ([drumSecs, skipDrums]) => {
+    async ([drumSecs, skipDrums, stream]) => {
       const BPM = 128,
         B = 60 / BPM,
         SR = 44100,
@@ -223,6 +224,44 @@ const ok = (name, pass, detail) => {
         { drums: false },
       );
       const ms = performance.now() - t0;
+      let streamed = null;
+      if (stream) {
+        const header = new DataView(new ArrayBuffer(12));
+        header.setUint32(0, 0x43445031);
+        header.setUint32(4, SR, true);
+        header.setUint32(8, 2, true);
+        const blocks = [header.buffer];
+        const left = buf.getChannelData(0);
+        const right = buf.getChannelData(1);
+        for (let i = 0; i < buf.length; i += 4096) {
+          const frames = Math.min(buf.length - i, 4096);
+          const block = new DataView(new ArrayBuffer(frames * 8 + 4));
+          block.setUint32(0, frames * 8, true);
+          for (let j = 0; j < frames; j++) {
+            block.setFloat32(4 + j * 8, left[i + j], true);
+            block.setFloat32(8 + j * 8, right[i + j], true);
+          }
+          blocks.push(block.buffer);
+        }
+        const url = URL.createObjectURL(new Blob([...blocks, new ArrayBuffer(4)]));
+        H.rhythm.setNeuralDrums(false);
+        const started = performance.now();
+        try {
+          const { analysis } = await H.rhythm.analyzePcm(url, { duration: DUR, signal: new AbortController().signal });
+          const hitRate = (beats) =>
+            beats.filter((t) => t > INTRO && t < DUR - 4 && Math.abs(t - Math.round(t / B) * B) < 0.07).length;
+          streamed = {
+            engine: analysis.engine,
+            bpm: analysis.tempo.bpm,
+            hits: hitRate(analysis.beats),
+            reference: hitRate(a.beats),
+            ms: Math.round(performance.now() - started),
+            boundary: analysis.beats.filter((t) => t > 27 && t < 29),
+          };
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      }
       const clip = {
         numberOfChannels: 2,
         sampleRate: SR,
@@ -295,6 +334,7 @@ const ok = (name, pass, detail) => {
       return {
         st,
         ms: Math.round(ms),
+        streamed,
         engine: a.engine,
         bpm: a.tempo.bpm,
         gap,
@@ -314,7 +354,7 @@ const ok = (name, pass, detail) => {
         version: a.version,
       };
     },
-    [+(process.env.DRUM_SECS || 8), !!process.env.SKIP_DRUMS],
+    [+(process.env.DRUM_SECS || 8), !!process.env.SKIP_DRUMS, !!process.env.STREAM],
   );
   console.log(JSON.stringify(r));
   for (const l of logs) console.log('  ' + l);
@@ -328,6 +368,14 @@ const ok = (name, pass, detail) => {
     );
   }
   if (r.st && r.st.ok) {
+    if (process.env.STREAM) {
+      const s = r.streamed;
+      ok(
+        'streamed model: beat timing and overlap against the whole-file result',
+        s?.engine === 'neural' && Math.abs(s.bpm - 128) < 2 && s.hits >= s.reference - 3 && s.boundary.length >= 3,
+        JSON.stringify(s),
+      );
+    }
     ok(
       'neural: the analysis comes from the neural engine, through the same interface',
       r.engine === 'neural' && r.version >= 3,

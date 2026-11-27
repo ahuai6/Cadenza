@@ -170,6 +170,35 @@ test('translation cancellation revokes the active request', async (t) => {
   await assert.rejects(running, { name: 'AbortError' });
 });
 
+test('translation defaults are isolated by service and retained across restart', async (t) => {
+  const dir = await isolated(t);
+  const vault = mockVault();
+  const auth = { state: async () => ({ connected: false }) };
+  const ai = aiLyrics(dir, vault, auth);
+  const service = await ai.save({
+    provider: 'deepseek',
+    key: 'fixture-only',
+    name: 'Fixture',
+    model: 'fixture',
+    language: 'zh-Hans',
+  });
+  const chat = { service: 'chatgpt', model: 'chat-model', language: 'en', instructions: 'context A', timeout: 30000 };
+  const deep = { service: service.id, model: 'deep-model', language: 'ja', instructions: 'context B', timeout: 70000 };
+  await ai.preferences(chat);
+  await ai.preferences(deep);
+  const reopened = aiLyrics(dir, vault, auth);
+  const { preferences } = await reopened.state();
+  assert.equal(preferences.service, service.id);
+  assert.deepEqual({ service: 'chatgpt', ...preferences.byService.chatgpt }, chat);
+  assert.deepEqual({ service: service.id, ...preferences.byService[service.id] }, deep);
+  await assert.rejects(reopened.preferences({ ...deep, timeout: 1000 }), /configuration/);
+  await reopened.remove(service.id);
+  assert.deepEqual((await reopened.state()).preferences, {
+    service: 'chatgpt',
+    byService: { chatgpt: preferences.byService.chatgpt },
+  });
+});
+
 test('ChatGPT login uses PKCE, validates the signed identity, refreshes and revokes', async () => {
   const vault = mockVault();
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });

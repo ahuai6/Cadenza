@@ -8,7 +8,7 @@ export interface Loudness {
   /** sample peak, linear (1 = full scale) */ peak: number;
 }
 
-function kFilter(x: Float32Array, fs: number): Float32Array {
+function kFilter(fs: number) {
   // stage 1: the high shelf (+4 dB above ~1.7 kHz); stage 2: the high-pass (~38 Hz)
   let K = Math.tan((Math.PI * 1681.974450955533) / fs),
     Q = 0.7071752369554196,
@@ -21,7 +21,6 @@ function kFilter(x: Float32Array, fs: number): Float32Array {
   Q = 0.5003270373238773;
   a0 = 1 + K / Q + K * K;
   const a2 = [(2 * (K * K - 1)) / a0, (1 - K / Q + K * K) / a0];
-  const y = new Float32Array(x.length);
   // (both stages' states in double precision: the high-pass's poles sit close to 1)
   let x1 = 0,
     x2 = 0,
@@ -31,9 +30,8 @@ function kFilter(x: Float32Array, fs: number): Float32Array {
     z2 = 0,
     w1 = 0,
     w2 = 0;
-  for (let i = 0; i < x.length; i++) {
-    const v = x[i],
-      s = b[0] * v + b[1] * x1 + b[2] * x2 - a[0] * y1 - a[1] * y2;
+  return (v: number) => {
+    const s = b[0] * v + b[1] * x1 + b[2] * x2 - a[0] * y1 - a[1] * y2;
     x2 = x1;
     x1 = v;
     y2 = y1;
@@ -43,46 +41,71 @@ function kFilter(x: Float32Array, fs: number): Float32Array {
     z1 = s;
     w2 = w1;
     w1 = o;
-    y[i] = o;
-  }
-  return y;
+    return Math.fround(o);
+  };
 }
+export class LoudnessMeter {
+  private readonly filters: Array<(sample: number) => number>;
+  private readonly hop: number;
+  private readonly block: number;
+  private readonly recent: Float64Array;
+  private readonly powers: number[] = [];
+  private peak = 0;
+  private inHop = 0;
+  private slots = 0;
+  private sum = 0;
+
+  constructor(
+    private readonly channels: number,
+    rate: number,
+  ) {
+    this.filters = Array.from({ length: channels }, () => kFilter(rate));
+    this.hop = Math.round(rate * 0.1);
+    this.block = Math.round(rate * 0.4);
+    this.recent = new Float64Array(Math.ceil(this.block / this.hop));
+  }
+
+  push(channels: Float32Array[]) {
+    const n = channels[0]?.length || 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < this.channels; j++) {
+        const sample = channels[j][i];
+        this.peak = Math.max(this.peak, Math.abs(sample));
+        const weighted = this.filters[j](sample);
+        this.sum += weighted * weighted;
+      }
+      if (++this.inHop < this.hop) continue;
+      this.recent[this.slots++ % this.recent.length] = this.sum;
+      this.inHop = 0;
+      this.sum = 0;
+      if (this.slots >= this.recent.length) {
+        let total = 0;
+        for (const part of this.recent) total += part;
+        const power = total / this.block;
+        if (level(power) > -70) this.powers.push(power);
+      }
+    }
+  }
+
+  finish(): Loudness {
+    if (!this.powers.length) return { lufs: -70, peak: this.peak };
+    const relative = level(this.powers.reduce((sum, power) => sum + power, 0) / this.powers.length) - 10;
+    let sum = 0;
+    let count = 0;
+    for (const power of this.powers)
+      if (level(power) > relative) {
+        sum += power;
+        count++;
+      }
+    return { lufs: level(sum / Math.max(1, count)), peak: this.peak };
+  }
+}
+const level = (power: number) => -0.691 + 10 * Math.log10(Math.max(1e-12, power));
+
 export function loudness(channels: Float32Array[], fs: number): Loudness {
-  const ch = channels.slice(0, 2);
-  let peak = 0;
-  for (const c of ch)
-    for (let i = 0; i < c.length; i++) {
-      const v = Math.abs(c[i]);
-      if (v > peak) peak = v;
-    }
-  const n = Math.min(...ch.map((c) => c.length)),
-    blk = Math.round(fs * 0.4),
-    hop = Math.round(fs * 0.1);
-  if (!ch.length || n < blk) return { lufs: -70, peak };
-  // per-hop sums of squares of the weighted signal, every channel weighted 1 (left and right)
-  const nh = Math.floor(n / hop),
-    sq = new Float64Array(nh);
-  for (const c of ch) {
-    const y = kFilter(c, fs);
-    for (let h = 0; h < nh; h++) {
-      let s = 0;
-      for (let i = h * hop, e = i + hop; i < e; i++) s += y[i] * y[i];
-      sq[h] += s;
-    }
-  }
-  const per = blk / hop,
-    blocks: number[] = [];
-  for (let h = 0; h + per <= nh; h++) {
-    let s = 0;
-    for (let k = 0; k < per; k++) s += sq[h + k];
-    blocks.push(s / blk);
-  }
-  const L = (z: number) => -0.691 + 10 * Math.log10(Math.max(1e-12, z));
-  const abs = blocks.filter((z) => L(z) > -70);
-  if (!abs.length) return { lufs: -70, peak };
-  const rel = L(abs.reduce((a, z) => a + z, 0) / abs.length) - 10,
-    kept = abs.filter((z) => L(z) > rel);
-  return { lufs: L(kept.reduce((a, z) => a + z, 0) / Math.max(1, kept.length)), peak };
+  const meter = new LoudnessMeter(Math.min(channels.length, 2), fs);
+  meter.push(channels);
+  return meter.finish();
 }
 /** The volume balance's gain for a song, in dB: towards `target` LUFS, but never past its own headroom (a boost keeps
  *  1 dB under full scale, so nothing ever clips and nothing needs a limiter), within ±12 dB. The target sits low (−18,

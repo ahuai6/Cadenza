@@ -342,7 +342,7 @@ function Hud({ s: ss }: { s: Session }) {
   return (
     <div className={s.hud + ' glass on-picture'} title={tx(ss.map.hasAudio ? 'beats.audio' : 'beats.grid')}>
       <span>
-        <b>{+ss.map.bpm.toFixed(1)}</b> BPM
+        <b>{ss.map.a.beatEvidence === 'none' ? '—' : +ss.map.bpm.toFixed(1)}</b> BPM
       </span>
       <span>
         {tx('bar')} <b ref={bar}>01</b>
@@ -526,10 +526,10 @@ function LyricsPane({ s: ss, draftKey }: { s: Session; draftKey: string }) {
             />
             <Button
               size="sm"
-              disabled={!ss.analysis}
-              title={ss.analysis ? '' : tx('bpm.need')}
+              disabled={!ss.analysis || ss.analysis.beatEvidence === 'none'}
+              title={ss.analysis && ss.analysis.beatEvidence !== 'none' ? '' : tx('bpm.need')}
               onClick={() => {
-                if (ss.analysis && canEdit()) {
+                if (ss.analysis && ss.analysis.beatEvidence !== 'none' && canEdit()) {
                   edit((x) => x.setTiming({ bpm: +ss.analysis!.tempo.bpm.toFixed(1) }));
                   clearBpm(String(ss.spec.bpm || 120));
                 }

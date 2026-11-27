@@ -15,7 +15,9 @@ export function checkAnalysis(a: unknown, duration?: number): string | null {
     return `made for ${r.duration.toFixed(1)} s of audio, the song is ${duration.toFixed(1)} s`;
   const B = r.beats;
   if (!Array.isArray(B)) return 'no beats';
-  if (B.length < 2 && r.duration > 20) return 'no beats in a song of ' + r.duration.toFixed(0) + ' s';
+  if (r.source === 'unavailable') return 'analysis is not ready';
+  if (r.beatEvidence === 'none' && B.length) return 'beat evidence does not match the observed beats';
+  if (r.beatEvidence !== 'none' && B.length < 2 && r.duration > 20) return 'no beats';
   for (let i = 0; i < B.length; i++) {
     if (!finite(B[i])) return `beat ${i} is not a number`;
     if (i && B[i] <= B[i - 1]) return `beat ${i} goes backwards`;

@@ -1,7 +1,7 @@
 // The rhythm SDK's data: what an analysis of a song contains. Plain arrays only, so it can be cached as JSON, sent
 // between threads, and read by any part of the app. Times are in seconds of the audio file.
 
-export const RHYTHM_VERSION = 3; // 2: the coarse spectrum (spec); 3: the neural engine (engine, bars, accents, drums)
+export const RHYTHM_VERSION = 4; // Native media frames, streaming spectrum and versioned beat evidence.
 
 /** How strong a rhythmic event is felt: 0 light (hats, ghost notes), 1 medium (backbeats, ordinary kicks), 2 strong (重拍:
  *  downbeat hits, accents, drops). */
@@ -38,7 +38,8 @@ export interface Section {
 export interface RhythmAnalysis {
   version: number;
   /** 'grid' when made from a tempo alone (no audio) */
-  source?: 'audio' | 'grid';
+  source?: 'audio' | 'grid' | 'unavailable';
+  beatEvidence?: 'detected' | 'none';
   duration: number;
   /** frame rate of the series below (frames per second) */
   rate: number;

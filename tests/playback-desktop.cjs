@@ -66,8 +66,8 @@ async function run(route, crash = false) {
   if (route === 'hifi')
     env.CADENZA_AUDIO_FAKE = 'rates=48000;fmts=i16;dump=' + path.join(prof, 'pcm') + (crash ? ';crash-after=0.6' : '');
   const app = await _electron.launch({
-    executablePath: require(path.join(ROOT, 'node_modules', 'electron')),
-    args: [ROOT, '--no-sandbox'],
+    executablePath: process.env.CADENZA_TEST_EXE || require(path.join(ROOT, 'node_modules', 'electron')),
+    args: process.env.CADENZA_TEST_EXE ? [] : [ROOT, '--no-sandbox'],
     env,
   });
   try {
@@ -135,7 +135,11 @@ async function run(route, crash = false) {
         return open.call(this, spec, ...rest);
       };
       Worker.prototype.postMessage = function (message, ...args) {
-        if (gates.delay && message.channels && !message.only) {
+        if (
+          gates.delay &&
+          message.url?.startsWith('cadenza://analysis-pcm/' + gates.delay + '?') &&
+          !message.onlyLoudness
+        ) {
           gates.rhythm.push(() => post.call(this, message, ...args));
         } else post.call(this, message, ...args);
       };
@@ -177,9 +181,12 @@ async function run(route, crash = false) {
     await run(async (id) => {
       await window.cadenzaLib.reanalyze([id]);
       window.g2.delay = id;
+      window.g2.holdFont = true;
+      window.g2.plansId = id;
       const a = window.__cadenza.api;
       a.setMode('stop');
       void a.playIds([id], 0);
+      window.__cadenza.pauseAnalysis(false, 'g2 fixture');
     }, q[1]);
     await wait(() => window.g2.rhythm.length > 0);
     await target(1);
@@ -194,12 +201,6 @@ async function run(route, crash = false) {
       const pcm = fs.readFileSync(path.join(prof, dump));
       assert.ok(pcm.subarray(-8192).some((value) => value !== 0));
     }
-    await run((id) => {
-      window.g2.delay = '';
-      window.g2.holdFont = true;
-      window.g2.plansId = id;
-      for (const resolve of window.g2.rhythm.splice(0)) resolve();
-    }, q[1]);
     await wait(() => window.g2.fonts.length > 0);
     assert.equal(await run(() => window.__cadenza.player.get().session), null);
     await target(1);
@@ -241,6 +242,8 @@ async function run(route, crash = false) {
       window.g2.fail = id;
       window.g2.plansId = '';
       window.g2.plans.shift()();
+      window.g2.delay = '';
+      for (const resolve of window.g2.rhythm.splice(0)) resolve();
     }, q[3]);
     await wait(() => !!window.__cadenza.player.get().visualError);
     assert.equal(await run(() => window.__cadenza.api.playback.get().phase), 'playing');

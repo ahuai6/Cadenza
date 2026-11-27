@@ -187,6 +187,7 @@ export interface NeuralOptions {
   /** separate the drums (default: the setting) */ drums?: boolean;
   /** give up after this long (ms) of running — waiting in the queue does not count: the worker is dropped, the GPU let go */ timeoutMs?: number;
   /** the song about to play: it goes ahead of the songs waiting in the background */ urgent?: boolean;
+  signal?: AbortSignal;
 }
 /* One song at a time: the worker's networks keep their buffers between runs, so two songs at once would write over
    each other's (and a timeout on one would drop the worker under the other). Requests wait their turn — an urgent one
@@ -228,6 +229,7 @@ export async function neuralRhythm(
   progress?: (k: number) => void,
   opts: NeuralOptions = {},
 ): Promise<NeuralRhythm | null> {
+  opts.signal?.throwIfAborted();
   const st = await neuralStatus();
   if (!st.ok) return null;
   const native = nativeRt && st.native ? { label: nativeRt.label, segment: nativeRt.segment } : undefined;
@@ -236,8 +238,11 @@ export async function neuralRhythm(
     const release = await turn(!!opts.urgent, again);
     let tm: ReturnType<typeof setTimeout> | null = null;
     const me = running!;
+    let abort: (() => void) | undefined;
     try {
+      opts.signal?.throwIfAborted();
       const [left, right] = await at441(buf);
+      opts.signal?.throwIfAborted();
       if (me.stopped) throw new Error(PREEMPTED);
       const run = call<NeuralRhythm>(
         { kind: 'analyse', base, left, right, drums: opts.drums ?? drumsOn, native },
@@ -254,8 +259,16 @@ export async function neuralRhythm(
             }),
           ]
         : [];
-      return await Promise.race([run, stop, ...limit]);
+      const canceled = new Promise<never>((_, reject) => {
+        abort = () => reject(opts.signal?.reason);
+        opts.signal?.addEventListener('abort', abort, { once: true });
+      });
+      return await Promise.race([run, stop, canceled, ...limit]);
     } catch (e) {
+      if (opts.signal?.aborted) {
+        if (abort) drop();
+        throw opts.signal.reason;
+      }
       if (me.stopped) {
         if (me.onStop !== noop) drop();
         continue;
@@ -264,6 +277,7 @@ export async function neuralRhythm(
       console.warn('[neural] analysis failed, the built-in analysis takes over:', (e as Error).message);
       return null;
     } finally {
+      if (abort) opts.signal?.removeEventListener('abort', abort);
       if (tm) clearTimeout(tm);
       release();
     }

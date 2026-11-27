@@ -55,6 +55,23 @@ const quantileOf = (v: number[], q: number) => {
  */
 export function beatEvents(map: RhythmMap): BeatFxEvent[] {
   const meter = Math.max(1, map.meter || 4);
+  const shared = map.a.accents;
+  if (shared && shared.impact.length === map.beats.length) {
+    let since: number | null = null;
+    return Array.from(map.beats, (t, index) => {
+      const down = map.isDownbeat(t);
+      if (down) since = 0;
+      else if (since !== null) since++;
+      return {
+        t,
+        kind: down ? 'downbeat' : 'beat',
+        impact: Math.min(1, Math.max(0, shared.impact[index] * shared.trackScale)),
+        tone: { low: shared.low[index], mid: shared.mid[index], high: shared.high[index] },
+        barPos: since,
+        rhythmic: !!shared.rhythmic[index],
+      };
+    });
+  }
   const spec: number[] = [];
   const has = map.hasAudio && !!map.spec(0, spec);
   const F = 1 / 50; // (the analysis' frame)

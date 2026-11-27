@@ -212,6 +212,7 @@ export interface LibApi {
   onProgress(f: (p: ScanProgress) => void): Off;
   onAnalysis(f: (p: { done: number; total: number }) => void): Off;
   onWake(f: () => void): Off;
+  onAnalysisInvalidated(f: (contents: string[] | null) => void): Off;
 }
 export interface ScanProgress {
   phase: string;
@@ -285,20 +286,34 @@ export interface AiTranslationRow {
   id: string;
   translation: string;
 }
+export interface AiTranslationPreferences {
+  model: string;
+  language: string;
+  instructions: string;
+  timeout: number;
+}
 interface LyricAiApi {
-  state(): Promise<AiResult<{ entries: AiEntry[]; chatgpt: { connected: boolean; inference: boolean } }>>;
+  state(): Promise<
+    AiResult<{
+      entries: AiEntry[];
+      chatgpt: { connected: boolean; inference: boolean };
+      preferences: { service: string; byService: Record<string, AiTranslationPreferences> };
+    }>
+  >;
   signIn(): Promise<AiResult<void>>;
   cancelSignIn(): Promise<AiResult<void>>;
   signOut(): Promise<AiResult<void>>;
   save(entry: Omit<AiEntry, 'id'> & { id?: string; key: string }): Promise<AiResult<AiEntry>>;
   remove(id: string): Promise<AiResult<void>>;
   models(id: string): Promise<AiResult<string[]>>;
+  preferences(input: AiTranslationPreferences & { service: string }): Promise<AiResult<void>>;
   translate(input: {
     service: string;
     model: string;
     language: string;
     context: string;
     instructions: string;
+    timeout?: number;
     rows: Array<{ id: string; text: string }>;
   }): Promise<AiResult<AiTranslationRow[]>>;
   cancel(): Promise<AiResult<void>>;

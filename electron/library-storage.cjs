@@ -70,7 +70,7 @@ async function openLibrary(file) {
   for (const key of obsoleteFields) delete data[key];
   for (const override of Object.values(data.overrides)) {
     if (!record(override) || !Object.hasOwn(override, 'preferLrc')) continue;
-    if (override.preferLrc === true && !override.lyricsSource) override.lyricsSource = 'sidecar:lrc';
+    if (override.preferLrc === true && !override.lyricsSource) override.pendingLegacyLrc = true;
     delete override.preferLrc;
     migrated = true;
   }

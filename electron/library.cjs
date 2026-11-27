@@ -15,6 +15,9 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { serveFile } = require('./file-response.cjs');
 const { isKrc, decodeKrc, encodeKrc } = require('./krc.cjs');
+const { analysisPcm, closeAnalysis } = require('./analysis-pcm.cjs');
+const { MODELS: onnxModels } = require('./inferHost.cjs');
+const { models: webModels } = require('../src/rhythm/neural/models.json');
 const { serveAlac } = require('./alac.cjs');
 const { binPath } = require('./audio.cjs');
 const identity = require('./audio-identity.cjs');
@@ -229,7 +232,16 @@ const containsPath = (dir, file) => {
   return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
 };
 const identityIssues = new Set();
-const scanCounters = { directories: 0, tags: 0, fingerprints: 0, analyses: 0, cacheHits: 0 };
+const scanCounters = {
+  directories: 0,
+  tags: 0,
+  fingerprints: 0,
+  analyses: 0,
+  cacheHits: 0,
+  decodeStreams: 0,
+  decodeCompleted: 0,
+  decodedBytes: 0,
+};
 async function walk(dir, out, unavailable, depth = 0) {
   if (depth > 24) {
     unavailable.add(dir);
@@ -694,9 +706,10 @@ function watchAll() {
 }
 
 /* ---------- derived audio data, addressed by verified content and algorithm ---------- */
-const loudnessVersion = 1;
+const loudnessVersion = 2;
 const flavor = () => {
   const engine = ['neural', 'dsp'].includes(preferences.rhythmEngine) ? preferences.rhythmEngine : 'auto';
+  if (engine === 'dsp') return 'dsp-nodrums-auto-auto';
   return [
     engine,
     preferences.rhythmDrums === false ? 'nodrums' : 'drums',
@@ -705,7 +718,11 @@ const flavor = () => {
   ].join('-');
 };
 const summary = (t) => (identity.validId(t?.audioContentId) ? db.derived[t.audioContentId] : null);
-const rhythmSummary = (t) => summary(t)?.rhythm?.[flavor()];
+function rhythmSummary(t) {
+  const settings = flavor();
+  const row = summary(t)?.rhythm?.[settings];
+  return row && (row.version < 4 || row.compatibility === compatibility(settings)) ? row : null;
+}
 const loudnessOf = (t) => {
   const record = summary(t);
   const l = record?.loudness;
@@ -720,6 +737,25 @@ const anFile = (key, settings, version) => {
   return path.join(P.analysis(), `${key.slice(-64)}-${settings}-${version}.json.gz`);
 };
 const digest = (text) => crypto.createHash('sha256').update(text).digest('hex');
+const compatibilityByFlavor = new Map();
+function compatibility(settings) {
+  if (!compatibilityByFlavor.has(settings)) {
+    const [engine, drums, runtime] = settings.split('-');
+    const include = (name) => name === 'beat_this' || drums === 'drums';
+    const models =
+      engine === 'dsp'
+        ? []
+        : Object.entries(webModels)
+            .filter(([name]) => include(name))
+            .map(([, m]) => m.sha256);
+    if (engine !== 'dsp' && runtime !== 'webgpu')
+      models.push(...onnxModels.filter((m) => include(m.name)).map((m) => m.sha256));
+    compatibilityByFlavor.set(settings, digest(JSON.stringify(['media-seconds-v1', 'stream-analysis-v1', ...models])));
+  }
+  return compatibilityByFlavor.get(settings);
+}
+
+const analysisFailedForVersion = (track) => track.failed === flavor() && track.analysisFailureVersion === want;
 
 let cacheEpoch = 0,
   writes = Promise.resolve();
@@ -767,6 +803,7 @@ async function reanalyze(ids) {
     if (t && identity.validId(t.audioContentId)) contents.add(t.audioContentId);
   }
   for (const key of contents) trackEpoch.set(key, (trackEpoch.get(key) || 0) + 1);
+  if (contents.size) send('lib:analysisInvalidated', [...contents]);
   return serialize(async () => {
     for (const key of contents) {
       const record = db.derived[key];
@@ -779,6 +816,7 @@ async function reanalyze(ids) {
       if (!contents.has(t.audioContentId)) continue;
       delete t.failWhy;
       delete t.failed;
+      delete t.analysisFailureVersion;
     }
     priority = [...ids.filter(activeTrack), ...priority.filter((id) => !ids.includes(id))];
     changed();
@@ -796,15 +834,24 @@ async function clearDir(d) {
   }
 }
 async function saveAnalysis(id, a, token) {
-  if (!matchesToken(id, token) || !analysisVersion(a?.version) || !Array.isArray(a.beats) || a.partial) return false;
+  if (
+    !matchesToken(id, token) ||
+    !analysisVersion(a?.version) ||
+    !Array.isArray(a.beats) ||
+    a.partial ||
+    a.source === 'unavailable'
+  )
+    return false;
   const body = JSON.stringify(a);
-  const envelope = JSON.stringify({
+  const signature = compatibility(token.settings);
+  const header = JSON.stringify({
     key: token.content,
     settings: token.settings,
     version: a.version,
+    ...(a.version >= 4 ? { compatibility: signature } : {}),
     sum: digest(body),
-    body,
   });
+  const envelope = a.version >= 4 ? header + '\n' + body : JSON.stringify({ ...JSON.parse(header), body });
   if (Buffer.byteLength(envelope) > 32 * 1024 * 1024) {
     await analysisFailed(id, 'rhythm cache size budget', token);
     return false;
@@ -818,13 +865,18 @@ async function saveAnalysis(id, a, token) {
     if (!(await replace(file, encoded, valid)) || !valid()) return false;
     const record = contentRecord(token.content);
     const prev = record.rhythm[token.settings];
-    record.rhythm[token.settings] = { version: a.version, checked: false };
+    record.rhythm[token.settings] = {
+      version: a.version,
+      checked: false,
+      ...(a.version >= 4 ? { compatibility: signature } : {}),
+    };
     if (analysisVersion(prev?.version) && prev.version !== a.version)
       await fsp.rm(anFile(token.content, token.settings, prev.version), { force: true });
     if (!want) want = a.version;
     if (a.duration && !t.duration) t.duration = a.duration;
     if (a.loudness) setLoud(record, a.loudness);
     delete t.failed;
+    delete t.analysisFailureVersion;
     delete t.failWhy;
     changed();
     analysisProgress();
@@ -841,11 +893,16 @@ async function getAnalysis(id, version) {
     const file = anFile(token.content, token.settings, row.version);
     const MAX = 32 * 1024 * 1024;
     if ((await fsp.stat(file)).size > MAX) throw new Error('oversized rhythm cache');
-    const data = JSON.parse((await gunzip(await fsp.readFile(file), { maxOutputLength: MAX })).toString());
+    const decoded = (await gunzip(await fsp.readFile(file), { maxOutputLength: MAX })).toString();
+    const line = decoded.indexOf('\n');
+    if (row.version >= 4 && line < 0) throw new Error('missing rhythm cache header');
+    const data =
+      row.version >= 4 ? { ...JSON.parse(decoded.slice(0, line)), body: decoded.slice(line + 1) } : JSON.parse(decoded);
     if (
       data.key !== token.content ||
       data.settings !== token.settings ||
       data.version !== row.version ||
+      (row.version >= 4 && data.compatibility !== row.compatibility) ||
       data.sum !== digest(data.body)
     )
       throw new Error('invalid rhythm cache');
@@ -866,7 +923,7 @@ function analysisProgress() {
   clearTimeout(apTm);
   apTm = setTimeout(() => {
     const all = Object.values(db.tracks).filter(
-      (t) => !t.detached && !t.protected && !t.identityError && t.failed !== flavor(),
+      (t) => !t.detached && !t.protected && !t.identityError && !analysisFailedForVersion(t),
     );
     const done = all.filter((t) => rhythmSummary(t)?.version === want).length;
     send('lib:analysis', { done, total: all.length });
@@ -892,6 +949,7 @@ async function analysisFailed(id, why, token) {
   const t = activeTrack(id);
   if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return false;
   t.failed = flavor();
+  t.analysisFailureVersion = want;
   t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined;
   save();
   analysisProgress();
@@ -917,7 +975,7 @@ function taskDetails() {
       details.failed++;
       reason = 'fingerprint';
     } else if (!identity.validId(t.audioContentId)) details.unresolved++;
-    else if (t.failed === flavor()) {
+    else if (analysisFailedForVersion(t)) {
       if (/budget|duration unavailable/.test(t.failWhy || '')) details.skipped++;
       else details.failed++;
       reason = t.failWhy || 'analysis';
@@ -937,7 +995,7 @@ function nextJob(version, omit) {
   const ready = (t) => t && !t.detached && !t.protected && identity.validId(t.audioContentId);
   const pick = (t) => {
     if (!ready(t) || excluded.has(t.id)) return null;
-    if (rhythmSummary(t)?.version !== want) return t.failed === flavor() ? null : { id: t.id };
+    if (rhythmSummary(t)?.version !== want) return analysisFailedForVersion(t) ? null : { id: t.id };
     if (!loudnessOf(t) && !t.loudFailed) return { id: t.id, only: 'loudness' };
     return null;
   };
@@ -1058,9 +1116,15 @@ async function lyricSources(id) {
         ['lrc', 'LYRICS'],
         ['yrc', 'YRC'],
         ['krc', 'KRC'],
+        ['translation', 'LYRICS_TRANSLATION'],
+        ['transliteration', 'LYRICS_TRANSLITERATION'],
       ]) {
         if (!comments.some((field) => field.key.toUpperCase() === key))
-          targets.push({ id: 'new:' + format, label: key, format });
+          targets.push({
+            id: 'new:' + format,
+            label: key,
+            format: auxiliaryLyricRoles.includes(format) ? 'lrc' : format,
+          });
       }
     } else if (mp4Audio(track.path) || nativeLyrics.family(track.path) || track.embedded || track.ttml) {
       mm ||= await import('music-metadata');
@@ -1119,6 +1183,23 @@ async function lyricSources(id) {
   }
   if (activeTrack(id) !== track || (track.sourceStamp && !(await currentSource(track)))) return null;
   const preference = db.overrides[id] || {};
+  if (preference.pendingLegacyLrc && !preference.lyricsSource) {
+    const preferred =
+      fields.find((field) => field.id === 'sidecar:lrc' && field.format === 'lrc') ||
+      (!errors.includes('sidecar:lrc') &&
+        fields.find(
+          (field) =>
+            field.format === 'lrc' &&
+            field.text &&
+            !field.id.startsWith('sidecar:') &&
+            !/translation|transliteration/i.test(field.label),
+        ));
+    if (preferred) {
+      preference.lyricsSource = preferred.id;
+      delete preference.pendingLegacyLrc;
+      changed();
+    }
+  }
   const primary =
     fields.find((field) => field.id === preference.lyricsSource) ||
     fields.find((field) => field.format === 'ttml') ||
@@ -1149,7 +1230,7 @@ async function selectLyrics(id, source) {
   if (!sources?.fields.some((field) => field.id === source)) return false;
   const preference = (db.overrides[id] ||= {});
   preference.lyricsSource = source;
-  delete preference.preferLrc;
+  delete preference.pendingLegacyLrc;
   changed();
   return true;
 }
@@ -1506,7 +1587,12 @@ function resetMeta(id, part) {
   // Music metadata changes preserve the independent lyrics selection and instrumental flag.
   if (part === 'cover') delete o.coverKey;
   else {
-    const retained = new Set(['lyricsSource', 'instrumental', ...(part === 'tags' ? ['coverKey'] : [])]);
+    const retained = new Set([
+      'lyricsSource',
+      'pendingLegacyLrc',
+      'instrumental',
+      ...(part === 'tags' ? ['coverKey'] : []),
+    ]);
     for (const key of Object.keys(o)) if (!retained.has(key)) delete o[key];
   }
   if (Object.keys(o).length) db.overrides[id] = o;
@@ -1555,6 +1641,19 @@ function registerProtocol() {
         if (kind === 'thumb' && !fs.existsSync(p))
           return serveFile(path.join(P.covers(), key + '.img'), req, 'image/jpeg');
         return serveFile(p, req, kind === 'thumb' ? 'image/jpeg' : 'image/*');
+      }
+      if (kind === 'analysis-pcm') {
+        const t = raw === key && activeTrack(key);
+        if (
+          !t ||
+          t.protected ||
+          !identity.validId(t.audioContentId) ||
+          u.searchParams.get('rev') !== t.sourceStamp ||
+          !(await currentSource(t)) ||
+          activeTrack(key) !== t
+        )
+          return new Response(null, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
+        return analysisPcm(t.path, req, scanCounters);
       }
       if (kind === 'media') {
         const t = key && raw === key && activeTrack(key);
@@ -1725,6 +1824,8 @@ function register(ipcMain, getWin, canEdit) {
   );
   ipcMain.handle('lib:clearCaches', () => {
     cacheEpoch++;
+    send('lib:analysisInvalidated', null);
+    closeAnalysis();
     trackEpoch.clear();
     return serialize(async () => {
       await clearDir(P.analysis());
@@ -1733,6 +1834,7 @@ function register(ipcMain, getWin, canEdit) {
       db.derived = {};
       for (const t of Object.values(db.tracks)) {
         delete t.failed;
+        delete t.analysisFailureVersion;
         delete t.failWhy;
         delete t.loudFailed;
       }
@@ -1855,6 +1957,7 @@ const pathOf = async (id) => {
   return t.path;
 };
 async function close() {
+  closeAnalysis();
   stopping = true;
   clearTimeout(identityTimer);
   clearTimeout(watchTm);

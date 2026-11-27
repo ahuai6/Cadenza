@@ -280,19 +280,6 @@ function RhythmGroup({ st }: { st: Settings }) {
       )}
       {eng === 'neural' && <Note>{tx('s.set.engine.neuralHelp')}</Note>}
       <Note>{tx('s.set.engine.note')}</Note>
-      <Field label={tx('s.set.stream')}>
-        <Seg
-          size="sm"
-          fit
-          value={st.rhythmStream === 'full' ? 'full' : 'stream'}
-          onChange={(v) => setSettings({ rhythmStream: v })}
-          options={[
-            ['stream', tx('s.set.stream.on')],
-            ['full', tx('s.set.stream.off')],
-          ]}
-        />
-      </Field>
-      <Note>{tx('s.set.stream.note')}</Note>
     </Group>
   );
 }

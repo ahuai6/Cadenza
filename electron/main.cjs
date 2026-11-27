@@ -81,6 +81,7 @@ const aiOperations = {
   save: (_sender, input) => translation.save(input),
   remove: (_sender, id) => translation.remove(id),
   models: (_sender, id) => translation.models(id),
+  preferences: (_sender, input) => translation.preferences(input),
   translate: (sender, input) => translation.translate(sender, input),
   cancel: (sender) => translation.cancel(sender),
 };
