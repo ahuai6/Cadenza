@@ -213,6 +213,13 @@ function start(ipcMain, getWin, settings) {
       }
       ep = null;
       errors.beat = errors.separate = null;
+      // (a network the GPU could not run is tried on it again: the device chosen may be another)
+      try {
+        for (const f of fs.readdirSync(path.join(dir(), 'cache')))
+          if (f.endsWith('.unusable')) fs.rmSync(path.join(dir(), 'cache', f), { force: true });
+      } catch {
+        /* no cache yet */
+      }
     },
   };
 }

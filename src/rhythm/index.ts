@@ -37,6 +37,8 @@ export function analyzePcm(
     urgent?: boolean;
     engine?: RhythmEngine;
     preview?: (slice: RhythmPreviewUpdate) => void;
+    /** a first reading of the song's opening (with preview only), long before the whole one */
+    opening?: (reading: RhythmAnalysis) => void;
     stage?: (stage: RhythmTaskStage) => void;
   },
   progress?: (value: number) => void,
@@ -69,6 +71,7 @@ export function analyzePcm(
       } else if (data.progress !== undefined) progress?.(data.progress);
       else if (data.stage === 'merge') options.stage?.('merge');
       else if (data.preview) options.preview?.(data.preview);
+      else if (data.head) options.opening?.(data.head);
       else if (data.window) {
         options.stage?.('beats');
         const window = data.window as Float32Array[];
@@ -77,32 +80,38 @@ export function analyzePcm(
           numberOfChannels: window.length,
           getChannelData: (index: number) => window[index],
         };
-        void neuralRhythm(input, undefined, {
-          drums: separate,
-          urgent: options.urgent,
-          timeoutMs: 90000,
-          signal,
-          onBeats:
-            options.preview || options.stage
-              ? (neuralBeats) => {
-                  if (!signal.aborted) {
-                    if (options.preview) worker.postMessage({ neuralBeats });
-                    options.stage?.('stems');
+        const read = () =>
+          neuralRhythm(input, undefined, {
+            drums: separate,
+            urgent: options.urgent,
+            timeoutMs: 90000,
+            signal,
+            onBeats:
+              options.preview || options.stage
+                ? (neuralBeats) => {
+                    if (!signal.aborted) {
+                      if (options.preview) worker.postMessage({ neuralBeats });
+                      options.stage?.('stems');
+                    }
                   }
-                }
-              : undefined,
-        }).then(
-          (neural) => {
-            if (neural && !neural.drumsRun) separate = false;
-            if (!signal.aborted) {
-              options.stage?.('decode');
-              worker.postMessage({ neural });
-            }
-          },
-          (reason) => {
-            if (!signal.aborted) error(String(reason));
-          },
-        );
+                : undefined,
+          });
+        // (one window the engine could not read — its worker lost, no answer in time — is read once more before the
+        // song's neural reading is given up: a song of a dozen windows used to fail on any one of them)
+        void read()
+          .then((neural) => (neural || signal.aborted ? neural : read()))
+          .then(
+            (neural) => {
+              if (neural && !neural.drumsRun) separate = false;
+              if (!signal.aborted) {
+                options.stage?.('decode');
+                worker.postMessage({ neural });
+              }
+            },
+            (reason) => {
+              if (!signal.aborted) error(String(reason));
+            },
+          );
       }
     };
     worker.postMessage({
@@ -203,3 +212,4 @@ export function loudnessInBackground(buf: {
 export const isCurrent = (a: unknown, duration?: number): a is RhythmAnalysis => checkAnalysis(a, duration) == null;
 export { checkAnalysis } from './validate';
 export { analyzeHead, extendHead, HEAD_SECONDS } from './stream';
+export { OPENING_SECONDS } from './file-analysis';

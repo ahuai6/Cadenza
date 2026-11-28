@@ -2,7 +2,7 @@
 // song's data that shapes it changes, and given the rhythm as it becomes known. At most one build runs, and one waits;
 // a build for a song no longer selected is dropped before it can submit a whole new one. A scene is never needed for
 // sound: the coordinator authorizes playback on its own (player.ts).
-import { ensureFont, loadSegmenter, RhythmPreview, Session, type RhythmAnalysis } from '../../engine';
+import { ensureFont, extendHead, loadSegmenter, RhythmPreview, Session, type RhythmAnalysis } from '../../engine';
 import { coverUrl, D, Lib, type Settings } from '../bridge';
 import { lib, settings, trackOf, ui } from '../state';
 import { SCHEMA } from '../settings/schema';
@@ -129,16 +129,37 @@ async function openVisual({ request, output, abort }: VisualJob) {
     readRhythm(id, output.duration),
   ]);
   signal.throwIfAborted();
-  const analysis = cached;
-  const preview = analysis ? undefined : new RhythmPreview();
+  const preview = cached ? undefined : new RhythmPreview();
+  // A song not read before starts on a reading of its opening, carried over the rest of it on its own beat, so the
+  // picture follows the beat from its first frame and wherever the song is taken; the whole reading takes its place
+  // later, under a transition (engine.ts trySwap).
+  let opening: RhythmAnalysis | null = null;
+  let session: Session | null = null;
+  let openingRead = () => {};
+  const openingArrived = new Promise<void>((resolve) => (openingRead = resolve));
   const later =
     preview &&
-    requestAnalysis(id, signal, (slice) => {
-      if (signal.aborted) return;
-      preview.add(slice);
-      engine.invalidate();
-    });
+    requestAnalysis(
+      id,
+      signal,
+      (slice) => {
+        if (signal.aborted) return;
+        preview.add(slice);
+        engine.invalidate();
+      },
+      (reading) => {
+        if (signal.aborted) return;
+        const carried = extendHead(reading, output.duration || t.duration || reading.duration);
+        if (session) stageOpening(session, carried, signal);
+        else opening = carried;
+        openingRead();
+      },
+    );
   tracePhase(tr, 'visualData', performance.now() - tm);
+  // (the opening is read in a moment: the scene waits for it a little rather than start without a beat)
+  if (preview) await Promise.race([openingArrived, new Promise((resolve) => setTimeout(resolve, OPENING_WAIT_MS))]);
+  signal.throwIfAborted();
+  const analysis = cached ?? opening;
   const song = unsavedSong(id) || storedSong;
   const album = player.get().album;
   const instr = !!t.instrumental;
@@ -171,6 +192,9 @@ async function openVisual({ request, output, abort }: VisualJob) {
     { signal, analyzeAudio: false },
   );
   signal.throwIfAborted();
+  session = s;
+  // (read while the scene was being made)
+  if (opening && !s.analysis) stageOpening(s, opening, signal);
   await applySongChoices(id, s);
   signal.throwIfAborted();
   if (tr) tr.cached = !!cached;
@@ -221,6 +245,17 @@ async function openVisual({ request, output, abort }: VisualJob) {
         .catch(() => null),
     );
   }
+}
+
+/** how long a new song's scene waits for the reading of its opening (ms; it usually takes a few hundred) */
+const OPENING_WAIT_MS = 900;
+function stageOpening(s: Session, carried: RhythmAnalysis, signal: AbortSignal) {
+  void s
+    .stage(carried, signal)
+    .then((staged) => {
+      if (staged && s === player.get().session) engine.invalidate();
+    })
+    .catch(() => {});
 }
 
 /* ---------- edits to the shown song's tags or cover show at once, in every view ---------- */

@@ -405,7 +405,7 @@ function DockLyrics({ live }: { live: boolean }) {
   if (!has || !session?.doc.lines.length) return null;
   return (
     <div className={s.dockLyrics} aria-live="off" data-test="bar-lyric">
-      <NpLyrics lines={session.doc.lines} live={live} layout="dock" song={session.spec.key} />
+      <NpLyrics lines={session.doc.lines} live={live} layout="dock" song={session.showing} />
     </div>
   );
 }

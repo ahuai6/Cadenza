@@ -185,26 +185,40 @@ async function main() {
     // the lyric list: its lines rise in when a new song's scene arrives
     await page.evaluate(() => window.__cadenza.layers.openNp());
     await page.waitForTimeout(800);
-    const rise = await page.evaluate(async (id) => {
-      const { api } = window.__cadenza;
-      void api.playIds([id], 0);
-      const t0 = performance.now();
-      for (;;) {
-        await new Promise((r) => requestAnimationFrame(r));
-        const box = document.querySelector('[data-np-lyr]');
-        if (box && api.player.get().session?.spec.key === id) {
-          return {
-            ms: Math.round(performance.now() - t0),
-            animations: box.getAnimations().length,
-            opacity: +getComputedStyle(box).opacity,
-          };
+    // (played: the song's scene shown, a new opening of it — the same song played again is one too)
+    const riseOf = (id) =>
+      page.evaluate(async (id) => {
+        const { api } = window.__cadenza;
+        const before = api.player.get().session?.serial;
+        void api.playIds([id], 0);
+        const t0 = performance.now();
+        for (;;) {
+          await new Promise((r) => requestAnimationFrame(r));
+          const box = document.querySelector('[data-np-lyr]');
+          const session = api.player.get().session;
+          if (box && session?.spec.key === id && session.serial !== before) {
+            return {
+              ms: Math.round(performance.now() - t0),
+              animations: box.getAnimations().length,
+              opacity: +getComputedStyle(box).opacity,
+            };
+          }
+          if (performance.now() - t0 > 8000) return null;
         }
-        if (performance.now() - t0 > 8000) return null;
-      }
-    }, ids[2]);
+      }, id);
+    const rise = await riseOf(ids[2]);
     console.log('lyrics', JSON.stringify(rise));
     results.lyrics = rise;
     assert.ok(rise && rise.animations === 1 && rise.opacity < 0.9, 'the new lines rise in');
+    // (4.0.0-alpha.8: the song playing, chosen again — its lines rise in again; alpha.7 showed them at once)
+    await page.waitForTimeout(2500);
+    const again = await riseOf(ids[2]);
+    console.log('lyrics again', JSON.stringify(again));
+    results.lyricsAgain = again;
+    assert.ok(
+      again && again.animations === 1 && again.opacity < 0.9,
+      'the lines rise in when the song is played again',
+    );
   } finally {
     await app.close();
   }

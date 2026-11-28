@@ -9,12 +9,22 @@
 // StemSplitio/htdemucs-onnx). Part of Cadenza, AGPL-3.0-only (LICENSE, NOTICE.md).
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 
 let ort = null,
   dir = '',
   eps = [],
   epName = 'cpu';
 const sessions = new Map();
+// A network the GPU provider cannot run here goes to the CPU. HTDemucs on DirectML runs out of memory on some machines
+// in its closing inverse STFT (a ConvTranspose over the whole segment, 8007000E on an 8 GB laptop RTX 3070 Ti, with or
+// without the optimised graph), where Beat This! runs: the stems are then separated on the CPU (about 2–5 s a 7.8 s
+// segment), with few threads so the machine stays free for playback and the picture. Noted beside the models, so a
+// later process goes to the CPU at once; a new choice of device forgets it (inferHost.cjs).
+const onCpu = new Set();
+/** threads for a network moved to the CPU: a background job, never most of the machine */
+const CPU_THREADS = Math.max(2, Math.min(4, Math.floor(os.cpus().length / 4)));
+const unusable = (name) => path.join(dir, 'cache', `${name}-${epName}-${ort.env.versions?.common || 'ort'}.unusable`);
 /** The execution providers to try, best first (the CPU always last). */
 function providers(pref) {
   if (pref === 'cpu') return ['cpu'];
@@ -24,12 +34,16 @@ async function session(name) {
   if (sessions.has(name)) return sessions.get(name);
   const file = path.join(dir, name + '.onnx');
   if (!fs.existsSync(file)) throw new Error(`model missing: ${name}`);
+  if (epName !== 'cpu' && fs.existsSync(unusable(name))) onCpu.add(name);
+  const cpu = epName === 'cpu' || onCpu.has(name),
+    provider = cpu ? 'cpu' : epName;
   // (the graph optimised once per machine, provider and runtime: opening the raw HTDemucs graph takes half a minute)
-  const cache = path.join(dir, 'cache', `${name}-${epName}-${ort.env.versions?.common || 'ort'}.onnx`);
+  const cache = path.join(dir, 'cache', `${name}-${provider}-${ort.env.versions?.common || 'ort'}.onnx`);
   const base = {
-    executionProviders: eps,
+    executionProviders: cpu ? ['cpu'] : eps,
     logSeverityLevel: 3,
-    ...(epName === 'dml' ? { enableMemPattern: false, executionMode: 'sequential' } : {}),
+    ...(provider === 'dml' ? { enableMemPattern: false, executionMode: 'sequential' } : {}),
+    ...(onCpu.has(name) ? { intraOpNumThreads: CPU_THREADS } : {}),
   };
   let s;
   if (fs.existsSync(cache)) {
@@ -76,11 +90,29 @@ async function beat({ spect }) {
 const SEGMENT = 343980,
   N = SEGMENT;
 async function separate({ left, right }) {
-  const s = await session('htdemucs'),
-    mix = new Float32Array(2 * N);
+  const mix = new Float32Array(2 * N);
   mix.set(left.subarray(0, N), 0);
   mix.set(right.subarray(0, N), N);
-  const out = (await s.run({ mix: new ort.Tensor('float32', mix, [1, 2, N]) })).stems.data; // [1, 4 (drums, bass, other, vocals), 2, N]
+  const input = () => ({ mix: new ort.Tensor('float32', mix, [1, 2, N]) });
+  let result;
+  try {
+    result = await (await session('htdemucs')).run(input());
+  } catch (e) {
+    if (epName === 'cpu' || onCpu.has('htdemucs')) throw e;
+    // (the GPU provider cannot run it here: on the CPU from now on, this segment first)
+    console.warn('[infer] htdemucs on', epName, 'failed, on the CPU instead:', String(e?.message || e).slice(-160));
+    onCpu.add('htdemucs');
+    try {
+      fs.mkdirSync(path.dirname(unusable('htdemucs')), { recursive: true });
+      fs.writeFileSync(unusable('htdemucs'), String(e?.message || e));
+    } catch {
+      /* noted for this process only */
+    }
+    await sessions.get('htdemucs')?.release();
+    sessions.delete('htdemucs');
+    result = await (await session('htdemucs')).run(input());
+  }
+  const out = result.stems.data; // [1, 4 (drums, bass, other, vocals), 2, N]
   const stem = (k) => ({
     left: out.slice(k * 2 * N, (k * 2 + 1) * N),
     right: out.slice((k * 2 + 1) * N, (k * 2 + 2) * N),
@@ -95,6 +127,10 @@ const ops = {
     for (const s of sessions.values()) await s.release();
     sessions.clear();
     return true;
+  },
+  /** which networks run where (for the status and the tests) */
+  async where() {
+    return { ep: epName, cpu: [...onCpu] };
   },
 };
 process.parentPort?.on('message', async ({ data: m }) => {

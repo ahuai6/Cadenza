@@ -1096,15 +1096,17 @@ export class Engine extends Emitter<EngineEvents> {
     this.dirty = true;
   }
   /** Put a session's staged rhythm in place at the moment it shows least: at once where the effect lyrics are not on
-   *  screen; playing, at the peak of a blur transition coming within a few seconds (the picture before, all blur by then,
-   *  dissolving quickly into the new one); else now, the picture before fading out over the new one. */
+   *  screen; playing, at the peak of the next blur transition (the picture before, all blur by then, dissolving quickly
+   *  into the new one) — however far off, as long as the scene already follows a reading (the opening's, carried on: the
+   *  beat is there meanwhile; 4.0.0-alpha.7 waited at most 8 s, then crossfaded in plain view); with no reading yet, or no
+   *  transition left in the song, now, the picture before fading out over the new one. */
   private trySwap(s: Session) {
     if (!s.staged || s.needsFlush) return;
     const t = this.t,
       live = this.view === 'effect' && this.playing;
     if (live && cameraOwner(s.style) === 'director') {
       const P = s.plan.passages.find((P) => P.t >= t - 0.03);
-      if (P && P.t - t < 8) {
+      if (P && (s.analysis || P.t - t < 8)) {
         if (Math.abs(t - P.t) > 0.04) return;
         this.swapNow(s, SWAP_UNDER);
         return;

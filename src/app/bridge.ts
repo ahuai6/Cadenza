@@ -167,6 +167,8 @@ export interface LibApi {
   addFolder(): Promise<LibView>;
   removeFolder(d: string): Promise<LibView>;
   rescan(): Promise<boolean>;
+  /** the background tasks' failed items (identities, rhythm, loudness), tried again */
+  retryFailed(): Promise<boolean>;
   favorite(id: string, on: boolean): Promise<boolean>;
   playlist(op: string, a?: unknown, b?: unknown): Promise<unknown>;
   played(id: string): Promise<void>;

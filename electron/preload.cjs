@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('cadenzaLib', {
   addFolder: () => L('lib:addFolder'),
   removeFolder: (d) => L('lib:removeFolder', d),
   rescan: () => L('lib:rescan'),
+  retryFailed: () => L('lib:retryFailed'),
   favorite: (id, on) => L('lib:favorite', id, on),
   playlist: (op, a, b) => L('lib:playlist', op, a, b),
   played: (id) => L('lib:played', id),

@@ -260,21 +260,27 @@ function patchView() {
   return patch;
 }
 
-const ttmlSidecar = (p) => {
-  const b = p.slice(0, -path.extname(p).length);
-  for (const e of ['.ttml', '.TTML']) if (fs.existsSync(b + e)) return b + e;
-  return null;
-};
-const sidecar = (p) => {
-  const b = p.slice(0, -path.extname(p).length);
-  for (const e of ['.lrc', '.LRC', '.Lrc']) if (fs.existsSync(b + e)) return b + e;
-  return null;
-};
+// a song's own lyric files beside it, by the spellings looked for (the first that exists is the one)
+const ttmlNames = (p) => ['.ttml', '.TTML'].map((e) => p.slice(0, -path.extname(p).length) + e);
+const lrcNames = (p) => ['.lrc', '.LRC', '.Lrc'].map((e) => p.slice(0, -path.extname(p).length) + e);
 const wordSidecarFormats = ['yrc', 'krc'];
-const wordSidecar = (file, format) => {
-  const base = file.slice(0, -path.extname(file).length);
-  return [base + '.' + format, base + '.' + format.toUpperCase()].find((candidate) => fs.existsSync(candidate));
-};
+const wordNames = (p, format) =>
+  [format, format.toUpperCase()].map((e) => p.slice(0, -path.extname(p).length) + '.' + e);
+const ttmlSidecar = (p) => ttmlNames(p).find((file) => fs.existsSync(file)) ?? null;
+const sidecar = (p) => lrcNames(p).find((file) => fs.existsSync(file)) ?? null;
+const wordSidecar = (p, format) => wordNames(p, format).find((file) => fs.existsSync(file));
+/** The first of these files that exists, looked for without holding up the main process (a scan asks it of every song). */
+async function firstPresent(files) {
+  const present = await Promise.all(
+    files.map((file) =>
+      fsp.access(file).then(
+        () => true,
+        () => false,
+      ),
+    ),
+  );
+  return files[present.indexOf(true)] ?? null;
+}
 
 /* ---------- covers: kept once per image, with a small copy for grids ---------- */
 async function storeCover(data) {
@@ -557,11 +563,16 @@ const auxiliaryLyricRoles = ['translation', 'transliteration'];
 const auxiliaryLyricFile = (file, role) => file + '.' + role + '.lrc';
 const appendedLyricFile = (file, format) => file + '.' + format;
 async function sidecars(track) {
-  const files = [ttmlSidecar(track.path), sidecar(track.path)];
+  const [ttml, lrc, ...words] = await Promise.all([
+    firstPresent(ttmlNames(track.path)),
+    firstPresent(lrcNames(track.path)),
+    ...wordSidecarFormats.map((format) => firstPresent(wordNames(track.path, format))),
+  ]);
+  const files = [ttml, lrc];
   const companions = [
     ...auxiliaryLyricRoles.map((role) => auxiliaryLyricFile(track.path, role)),
     ...['ttml', 'lrc', 'yrc'].map((format) => appendedLyricFile(track.path, format)),
-    ...wordSidecarFormats.map((format) => wordSidecar(track.path, format)),
+    ...words,
   ];
   const stamps = await Promise.all(
     [...files, ...companions].map(async (file) => {
@@ -895,10 +906,33 @@ function flavorCompatibility(settings) {
 // Raised when a failure the page reported may no longer hold (alpha.6: sound readings of songs with pauses were refused
 // as "tempo disagrees with the beats"): failures recorded under an earlier generation are tried again.
 const FAILURE_GENERATION = 2;
+// A failure of the moment — the neural engine not answering in time, its worker or device lost, the GPU out of memory —
+// is tried again after a while; one in the song itself (no audio, too long, a reading that does not hold) stays until
+// the song, the settings or the analysis change.
+const TRANSIENT_RETRY_MS = 30 * 60 * 1000;
+const transientFailure = (why) =>
+  /neural|no answer|dropped|device|preempted|out of memory|timed? ?out|worker|busy/i.test(why || '');
 const analysisFailedForVersion = (track) =>
   track.failed === flavor() &&
   track.analysisFailureVersion === want &&
-  (track.analysisFailureGeneration ?? 1) === FAILURE_GENERATION;
+  (track.analysisFailureGeneration ?? 1) === FAILURE_GENERATION &&
+  !(track.failTransient && Date.now() - (track.failedAt || 0) >= TRANSIENT_RETRY_MS);
+let retryWake = 0;
+/** Wake the analysis when the earliest failure of the moment may be tried again. */
+function wakeForRetry() {
+  clearTimeout(retryWake);
+  let due = Infinity;
+  for (const t of Object.values(db.tracks))
+    if (t.failTransient && analysisFailedForVersion(t)) due = Math.min(due, (t.failedAt || 0) + TRANSIENT_RETRY_MS);
+  if (!Number.isFinite(due)) return;
+  retryWake = setTimeout(
+    () => {
+      if (db && !stopping) send('lib:wake');
+    },
+    Math.min(2_147_483_647, Math.max(1000, due - Date.now())),
+  );
+  retryWake.unref?.();
+}
 const rhythmQuality = (analysis) =>
   analysis.engine === 'neural' ? (['drums', 'drumless'].includes(analysis.stems) ? 2 : 1) : 0;
 const upgradeDelay = 24 * 60 * 60 * 1000;
@@ -1124,7 +1158,10 @@ async function analysisFailed(id, why, token) {
   t.analysisFailureVersion = want;
   t.analysisFailureGeneration = FAILURE_GENERATION;
   t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined;
+  t.failTransient = transientFailure(t.failWhy);
+  t.failedAt = Date.now();
   touch(t.id);
+  if (t.failTransient) wakeForRetry();
   save();
   analysisProgress();
   return true;
@@ -2000,6 +2037,28 @@ function register(ipcMain, getWin, canEdit) {
     scan(true);
     return true;
   });
+  // the background tasks' failed items, tried again: songs whose identity could not be worked out (a scan that retries
+  // them) and songs whose rhythm or loudness could not be read (their failure forgotten, the analysis woken)
+  ipcMain.handle('lib:retryFailed', () => {
+    for (const t of Object.values(db.tracks)) {
+      if (!t.failed && !t.loudFailed) continue;
+      for (const key of [
+        'failed',
+        'failWhy',
+        'failTransient',
+        'failedAt',
+        'analysisFailureVersion',
+        'analysisFailureGeneration',
+        'loudFailed',
+      ])
+        delete t[key];
+      touch(t.id);
+    }
+    changed(true);
+    analysisProgress();
+    void scan(true);
+    return true;
+  });
   ipcMain.handle('lib:favorite', (_e, id, on) => {
     db.favorites = db.favorites.filter((x) => x !== id);
     if (on && db.tracks[id]) db.favorites.unshift(id);
@@ -2197,6 +2256,7 @@ function register(ipcMain, getWin, canEdit) {
 async function start(ipcMain, getWin, settings, canEdit) {
   preferences = settings;
   await load();
+  wakeForRetry();
   registerProtocol();
   register(ipcMain, getWin, canEdit);
   watchAll();

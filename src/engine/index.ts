@@ -29,6 +29,7 @@ export {
   analyzeInBackground,
   analyzePcm,
   analyzeHead,
+  extendHead,
   loudnessInBackground,
   RHYTHM_VERSION,
   isCurrent,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Lib, type BackgroundTasks } from '../bridge';
+import { tx } from '../../i18n';
 import { lib, trackOf, useStore } from '../state';
 import s from './BackgroundActivity.module.css';
 
@@ -162,9 +163,12 @@ export function BackgroundActivity({ className = '' }: { className?: string }) {
             )}
           </>
         )}
-        <button type="button" onClick={() => void Lib!.rescan()}>
-          重新扫描并验证
-        </button>
+        {/* (only the failed items are tried again: reading the folders again is the settings' Rescan) */}
+        {!!details?.failed && (
+          <button type="button" onClick={() => void Lib!.retryFailed()}>
+            {tx('s.activity.retry')}
+          </button>
+        )}
       </div>
     </>
   );

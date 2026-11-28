@@ -2,10 +2,13 @@ import { analyzeSpectrum, dspBands, DSP_HOP, DSP_RATE, DSP_SIZE, SPEC_BANDS, typ
 import { bandEnergies, MonoResampler, type Spectrogram } from './dsp';
 import { LoudnessMeter } from './loudness';
 import { clamp } from '../core/math';
-import type { RhythmPreviewSlice } from './types';
+import type { RhythmAnalysis, RhythmPreviewSlice } from './types';
 
 const FEATURE_LIMIT = 1_200_000;
 const PCM_BLOCK = 4096;
+/** How much of a song's opening is read before a first reading of it is given (s): the song starts on that reading,
+ *  carried over the rest of the song on its own beat (rhythm/stream.ts extendHead), until the whole one arrives. */
+export const OPENING_SECONDS = 30;
 
 export class AnalysisFeatures {
   private readonly mono: MonoResampler;
@@ -76,6 +79,27 @@ export class AnalysisFeatures {
   }
   loudness() {
     return this.meter.finish();
+  }
+  /** Seconds of the song read so far. */
+  get seconds() {
+    return this.samples / DSP_RATE;
+  }
+  /** The built-in reading of what has been read so far (the features go on being collected): the song's opening. */
+  reading(): RhythmAnalysis | null {
+    if (this.onlyLoudness || !this.frames) return null;
+    const rms = new Float32Array(this.frames);
+    const energy = new Float32Array(this.frames * dspBands.length);
+    let offset = 0;
+    for (const part of this.chunks) {
+      rms.set(part.rms, offset);
+      energy.set(part.E, offset * dspBands.length);
+      offset += part.frames;
+    }
+    return analyzeSpectrum(
+      { fps: DSP_RATE / DSP_HOP, frames: this.frames, bands: dspBands, rms, E: energy },
+      (this.frames * DSP_HOP) / DSP_RATE,
+      this.loudness(),
+    );
   }
   finish(options: AnalyzeOptions = {}) {
     if (this.onlyLoudness) throw new Error('rhythm features unavailable');

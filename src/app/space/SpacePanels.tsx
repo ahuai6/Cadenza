@@ -218,7 +218,7 @@ function Lyrics({
                 lines={session.doc.lines}
                 live
                 compact
-                song={session.spec.key}
+                song={session.showing}
               />
             ) : null}
           </div>

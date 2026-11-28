@@ -21,6 +21,7 @@ const requests = new Set<{
   id: string;
   deliver: (value: RhythmAnalysis | null) => void;
   preview?: (slice: RhythmPreviewUpdate) => void;
+  opening?: (reading: RhythmAnalysis) => void;
 }>();
 const upgrades = new Set<(content: string, result: RhythmAnalysis) => void>();
 export function onAnalysisUpgrade(listener: (content: string, result: RhythmAnalysis) => void) {
@@ -35,12 +36,23 @@ let running = false;
 let requested = false;
 let focused: string | null = null;
 let capability = '';
-let active: { id: string; source: string; content: string; abort: AbortController } | null = null;
+let active: {
+  id: string;
+  source: string;
+  content: string;
+  abort: AbortController;
+  /** the reading of the song's opening, once given: for a request that comes after it (the song played while the
+   *  background was already reading it) */
+  opening?: RhythmAnalysis;
+} | null = null;
 
+/** The song's reading: the kept one, or one made now (the song about to play goes first). `preview` receives what is
+ *  read as it is read; `opening` a first reading of the song's opening, long before the whole one. */
 export async function requestAnalysis(
   id: string,
   signal?: AbortSignal,
   preview?: (slice: RhythmPreviewUpdate) => void,
+  opening?: (reading: RhythmAnalysis) => void,
 ): Promise<RhythmAnalysis | null> {
   if (!Lib || signal?.aborted) return null;
   const saved = (await Lib.analysis(id, RHYTHM_VERSION).catch(() => null)) as RhythmAnalysis | null;
@@ -53,7 +65,11 @@ export async function requestAnalysis(
   }
   // Register the observer before the main process work is prioritized. It neither owns nor starts an analysis job.
   return new Promise((resolve) => {
-    const entry = { id, deliver, preview };
+    const entry = { id, deliver, preview, opening };
+    if (opening && active?.opening && content && active.content === content) {
+      const reading = active.opening;
+      queueMicrotask(() => requests.has(entry) && opening(reading));
+    }
     function deliver(value: RhythmAnalysis | null) {
       requests.delete(entry);
       signal?.removeEventListener('abort', abort);
@@ -112,6 +128,15 @@ async function analyzeJob(
                 if (signal.aborted) return;
                 for (const entry of requests)
                   if (entry.id === id || trackOf(entry.id)?.audioContentId === token.content) entry.preview?.(slice);
+              },
+        opening:
+          only || upgrade
+            ? undefined
+            : (reading) => {
+                if (signal.aborted) return;
+                if (active?.content === token.content) active.opening = reading;
+                for (const entry of requests)
+                  if (entry.id === id || trackOf(entry.id)?.audioContentId === token.content) entry.opening?.(reading);
               },
       },
       progress,

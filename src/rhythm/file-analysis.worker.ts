@@ -1,5 +1,5 @@
 import { AudioSampleSink, Input, UrlSource, OGG, MATROSKA, MP4, ADTS } from 'mediabunny';
-import { AnalysisFeatures, consumePcm } from './file-analysis';
+import { AnalysisFeatures, consumePcm, OPENING_SECONDS } from './file-analysis';
 import { NeuralWindows } from './neural-windows';
 import type { NeuralRhythm } from './neural/types';
 
@@ -92,6 +92,8 @@ async function run({ url, duration, engine, onlyLoudness, browser, drums, previe
   let rate = 0;
   let frames = 0;
   let lastProgress = 0;
+  // (a first reading of the opening, for the song about to play: only when the song goes on well past it)
+  let opening = preview && !onlyLoudness && duration > OPENING_SECONDS + 10;
   const start = (channels: number, sampleRate: number) => {
     rate = sampleRate;
     features = new AnalysisFeatures(
@@ -126,6 +128,11 @@ async function run({ url, duration, engine, onlyLoudness, browser, drums, previe
       self.postMessage({ progress: Math.min(0.9, duration > 0 ? (0.9 * lastProgress) / duration : 0) });
     }
     await neural?.push(channels);
+    if (opening && features.seconds >= OPENING_SECONDS) {
+      opening = false;
+      const head = features.reading();
+      if (head) self.postMessage({ head });
+    }
   };
   if (browser) await browserPcm(url, start, push);
   else {

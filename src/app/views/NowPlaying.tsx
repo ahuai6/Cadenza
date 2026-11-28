@@ -140,7 +140,7 @@ export function NowPlaying() {
                     key={session.version + ':' + shownId}
                     lines={session.doc.lines}
                     live={live}
-                    song={session.spec.key}
+                    song={session.showing}
                   />
                 ) : (
                   <NoLyrics />

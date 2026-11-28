@@ -54,7 +54,8 @@ function put(el: HTMLElement, k: string, v: string) {
   else el.style.setProperty(k, v);
 }
 let gens = 0;
-/** the song each place last showed lines of: a new song's lines rise in, a replan of the same song's do not */
+/** the showing each place last showed lines of: a new song's lines rise in (the same song played again too), a replan
+ *  of the one showing do not */
 const shownSong = new Map<string, string>();
 // (the dots' curves: soft, no overshoot — Apple Music's)
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
@@ -71,7 +72,8 @@ export function NpLyrics({
   live: boolean;
   compact?: boolean;
   layout?: 'dock';
-  /** the song the lines are of: when it changes, its lines come in with a short rise instead of all at once */
+  /** the showing of the song the lines are of (Session.showing): when it changes, its lines come in with a short rise
+   *  instead of all at once */
   song?: string;
 }) {
   const dock = layout === 'dock';

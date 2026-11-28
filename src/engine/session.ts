@@ -109,7 +109,14 @@ export function loadImage(url: string, signal?: AbortSignal): Promise<HTMLImageE
   });
 }
 
+let sessions = 0;
 export class Session {
+  /** this opening of the song (a song played again is a new one; a replan or a newer rhythm reading is not) */
+  readonly serial = ++sessions;
+  /** what the views name this showing of the song by: its key and this opening */
+  get showing() {
+    return this.spec.key + '#' + this.serial;
+  }
   spec: SessionSpec;
   style!: Style;
   pal!: Palette;
@@ -354,13 +361,15 @@ export class Session {
   async stage(a: RhythmAnalysis, signal?: AbortSignal): Promise<boolean> {
     if (!this.parsed || !isCurrent(a)) return false;
     const quality = (result?: RhythmAnalysis | null) =>
-      result?.partial || !result
-        ? -1
-        : result.engine !== 'neural'
-          ? 0
-          : result.stems === 'drums' || result.stems === 'drumless'
-            ? 2
-            : 1;
+      !result
+        ? -2
+        : result.partial
+          ? -1
+          : result.engine !== 'neural'
+            ? 0
+            : result.stems === 'drums' || result.stems === 'drumless'
+              ? 2
+              : 1;
     const improves = () => quality(a) > quality(this.staged?.analysis ?? this.analysis);
     if (!improves()) return false;
     const version = this.version;
