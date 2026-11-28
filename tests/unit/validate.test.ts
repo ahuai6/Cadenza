@@ -29,6 +29,21 @@ describe('analysis integrity', () => {
     const e = clone();
     e.tempo.bpm = e.tempo.bpm * 1.37;
     expect(checkAnalysis(e)).toMatch(/disagrees/);
+    // 4.0.0-alpha.6: a song with pauses, its tempo read over spans of eight beats (as the neural engine reads it)
+    const paused = clone();
+    let t = 0.5;
+    paused.beats = paused.beats.map((_: number, i: number) => {
+      const at = t;
+      t += i % 8 === 7 ? 1.0 : 0.32;
+      return at;
+    });
+    const spans = paused.beats
+      .slice(8)
+      .map((b: number, i: number) => (b - paused.beats[i]) / 8)
+      .sort((x: number, y: number) => x - y);
+    paused.tempo.bpm = 60 / spans[spans.length >> 1];
+    expect(Math.abs(paused.tempo.bpm - 187.5) / 187.5).toBeGreaterThan(0.06);
+    expect(checkAnalysis(paused)).toBeNull();
     const f = clone();
     f.level[0] = null;
     expect(checkAnalysis(f)).toMatch(/level/);

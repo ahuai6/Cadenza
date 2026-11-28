@@ -115,6 +115,23 @@ fn hw_target(level: f64, prior: Option<(f64, f64)>, want: f64, min: f64, max: f6
 
 pub const RATES: [u32; 10] = [44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000];
 
+/// The performance counter now, in 100 ns units: the time base of a position report. The page maps it to its own clock
+/// (both rest on the same counter), so a report is anchored to when it was read, not to when its message arrived.
+#[cfg(windows)]
+pub fn qpc_now_100ns() -> Option<u64> {
+    use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    let (mut count, mut hz) = (0i64, 0i64);
+    unsafe {
+        QueryPerformanceFrequency(&mut hz).ok()?;
+        QueryPerformanceCounter(&mut count).ok()?;
+    }
+    (hz > 0 && count > 0).then(|| (count as u128 * 10_000_000 / hz as u128) as u64)
+}
+#[cfg(not(windows))]
+pub fn qpc_now_100ns() -> Option<u64> {
+    None
+}
+
 pub fn backend() -> Box<dyn Backend> {
     if let Ok(spec) = std::env::var("CADENZA_AUDIO_FAKE") {
         return Box::new(fake::Fake::new(&spec));

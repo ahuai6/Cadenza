@@ -136,7 +136,12 @@ export function NowPlaying() {
                 ) : instr ? (
                   <Instrumental />
                 ) : hasLyrics && session ? (
-                  <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live={live} />
+                  <NpLyrics
+                    key={session.version + ':' + shownId}
+                    lines={session.doc.lines}
+                    live={live}
+                    song={session.spec.key}
+                  />
                 ) : (
                   <NoLyrics />
                 )}

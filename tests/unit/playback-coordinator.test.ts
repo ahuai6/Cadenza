@@ -17,6 +17,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 class Driver implements Output {
+  running?: () => boolean;
   readonly duration = 12;
   position = 0;
   events: ((event: OutputEvent) => void)[] = [];
@@ -74,6 +75,27 @@ describe('PlaybackCoordinator', () => {
     expect(c.get()).toMatchObject({ phase: 'buffering', intent: true, output: null });
     out.event('running');
     expect(c.get()).toMatchObject({ phase: 'playing', output: { id: 'A' } });
+  });
+
+  // 4.0.0-alpha.6: the standard output joins the next song without a gap and is already sounding when it is selected
+  it('goes straight to playing for an output that is already sounding, and still follows its events', async () => {
+    const { c, open } = setup();
+    const phases: string[] = [];
+    c.subscribe((s) => phases.push(s.phase));
+    const selecting = c.replace(['A', 'B'], 1, true, true);
+    const out = await open();
+    out.running = () => true;
+    await selecting;
+    // (open() resolved before running was set: start again with the joined output)
+    c.pause();
+    c.play();
+    expect(c.get()).toMatchObject({ phase: 'playing', output: { id: 'B' } });
+    expect(phases.at(-1)).toBe('playing');
+    expect(phases.slice(phases.lastIndexOf('paused') + 1)).not.toContain('buffering');
+    out.event('buffering');
+    expect(c.get().phase).toBe('buffering');
+    out.event('running');
+    expect(c.get().phase).toBe('playing');
   });
 
   it('keeps the audio request alive when either scene observer throws synchronously', async () => {

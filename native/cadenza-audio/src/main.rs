@@ -4,6 +4,7 @@
 mod clock;
 mod decode;
 mod identity;
+mod mp4gapless;
 mod output;
 mod player;
 mod proto;
@@ -17,6 +18,10 @@ fn main() {
         let result = match args.as_slice() {
             [cmd, path] if cmd == "--audio-identity" => identity::write(path),
             [cmd, path] if cmd == "--analysis-pcm" => decode::analysis_pcm(path),
+            [cmd, path, start] if cmd == "--play-pcm" => match start.parse() {
+                Ok(start) => decode::play_pcm(path, start),
+                _ => Err("invalid playback PCM request".into()),
+            },
             [cmd, path] if cmd == "--alac-info" => decode::alac_command(path, None),
             [cmd, path, first, count] if cmd == "--alac-pcm" => match (first.parse(), count.parse()) {
                 (Ok(first), Ok(count)) => decode::alac_command(path, Some((first, count))),

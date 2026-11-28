@@ -20,6 +20,8 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::{Time, TimeBase, Timestamp};
 
+use crate::mp4gapless;
+
 #[derive(Clone, Debug)]
 pub struct SrcInfo {
     pub rate: u32,
@@ -115,6 +117,8 @@ struct Reader {
     tb: Option<TimeBase>,
     start: Timestamp,
     channel_mask: u32,
+    /** an MP4 track's priming and length (Symphonia leaves its edit list unapplied) */
+    gapless: Option<mp4gapless::Gapless>,
 }
 
 impl Reader {
@@ -156,7 +160,9 @@ fn open(path: &str) -> Result<(Reader, SrcInfo), String> {
     } else if lossless && !codec.starts_with("pcm_f") {
         p.bits_per_sample.or(p.bits_per_coded_sample)
     } else { None };
-    let info = SrcInfo { rate, ch, bits, frames: track.num_frames, codec, lossless };
+    let gapless = if fmt.format_info().short_name == "isomp4" { mp4gapless::read(path, rate) } else { None };
+    let frames = gapless.and_then(|g| g.length).or(track.num_frames);
+    let info = SrcInfo { rate, ch, bits, frames, codec, lossless };
     let tid = track.id;
     let tb = track.time_base;
     let start = track.start_ts;
@@ -164,7 +170,7 @@ fn open(path: &str) -> Result<(Reader, SrcInfo), String> {
         Some(Channels::Positioned(pos)) => u32::try_from(pos.bits()).unwrap_or(0),
         _ => 0,
     };
-    Ok((Reader { fmt, dec, tid, tb, start, channel_mask }, info))
+    Ok((Reader { fmt, dec, tid, tb, start, channel_mask, gapless }, info))
 }
 
 // The desktop serves this integer PCM as a virtual WAVE. Each request can seek independently,
@@ -229,16 +235,25 @@ pub fn analysis_pcm(path: &str) -> Result<(), String> {
     out.write_all(&(channels as u32).to_le_bytes()).map_err(write_error)?;
     let mut decoded_samples = Vec::<f32>::new();
     let mut output = Vec::with_capacity(4096 * channels * 4);
+    // an MP4 track's priming is dropped and its padding left out, as playback does (media time, not stream time)
+    let mut skip = rd.gapless.map_or(0, |g| g.delay) as usize;
+    let mut left = rd.gapless.and_then(|g| g.length).map_or(usize::MAX, |n| n as usize);
     while let Some(packet) = rd.fmt.next_packet().map_err(|e| format!("analysis read: {e}"))? {
         if packet.track_id != rd.tid { continue; }
+        if left == 0 { break; }
         let decoded = rd.dec.decode(&packet).map_err(|e| format!("analysis decode: {e}"))?;
         if decoded.spec().channels().count() != info.ch || decoded.spec().rate() != info.rate {
             return Err("analysis PCM format changed during decode".into());
         }
         decoded_samples.resize(decoded.samples_interleaved(), 0.0);
         decoded.copy_to_slice_interleaved(&mut decoded_samples);
+        let frames = decoded_samples.len() / info.ch;
+        let drop = skip.min(frames);
+        skip -= drop;
+        let take = (frames - drop).min(left);
+        left -= take;
         output.clear();
-        for frame in decoded_samples.chunks_exact(info.ch) {
+        for frame in decoded_samples[drop * info.ch..(drop + take) * info.ch].chunks_exact(info.ch) {
             for sample in &frame[..channels] {
                 output.extend_from_slice(&sample.to_le_bytes());
             }
@@ -257,6 +272,110 @@ pub fn analysis_pcm(path: &str) -> Result<(), String> {
     out.flush().map_err(write_error)
 }
 
+// Standard playback: the song from `start` seconds, as stereo at its own sample rate (the page's player resamples
+// continuously across songs, so a gapless join is not cut by two separate filters). The header is "CPL2", the rate,
+// the channel count (always 2), the source's channels and valid bits (0 when unknown), the song's length and the
+// first frame sent (u64 frames; length 0 when unknown). Then blocks of a byte length and interleaved f32 samples; a
+// zero-sized block commits EOF. A blocked pipe holds the decoder within its read-ahead, so reading follows playback.
+pub fn play_pcm(path: &str, start: f64) -> Result<(), String> {
+    if !start.is_finite() || start < 0.0 {
+        return Err("invalid playback position".into());
+    }
+    let sh = spawn(path.to_owned(), Box::new(|info: &SrcInfo| Plan { rate: info.rate, ch: 2 }));
+    let finish = |result: Result<(), String>| {
+        sh.quit();
+        result
+    };
+    // The decoder publishes without notifying (the Hi-Fi thread polls its queue), so waits here are bounded polls.
+    const POLL: Duration = Duration::from_millis(5);
+    // A container the reader cannot make sense of can keep it probing: give up, and let the page try its own decoders.
+    const PROBE_LIMIT: Duration = Duration::from_secs(3);
+    let probing = std::time::Instant::now();
+    // (the queue's lock is released before finish(), which takes it again to stop the decoder)
+    let probed = {
+        let mut q = sh.q.lock().unwrap();
+        while q.info.is_none() && !q.closed && probing.elapsed() < PROBE_LIMIT {
+            q = sh.cv.wait_timeout(q, POLL).unwrap().0;
+        }
+        match (&q.info, &q.err) {
+            (Some(info), _) => Ok(info.clone()),
+            (None, Some(err)) => Err(err.clone()),
+            (None, None) if !q.closed => Err("probe timed out".to_string()),
+            (None, None) => Err("no audio".to_string()),
+        }
+    };
+    let info = match probed {
+        Ok(info) => info,
+        Err(error) => return finish(Err(error)),
+    };
+    if !(8_000..=768_000).contains(&info.rate) {
+        return finish(Err("unsupported sample rate".into()));
+    }
+    let frames = info.frames.unwrap_or(0);
+    let first = ((start * info.rate as f64).round() as u64).min(if frames > 0 { frames } else { u64::MAX });
+    if first > 0 {
+        // (anything decoded before this is dropped by the queue's generation)
+        sh.seek(first as i64);
+    }
+    let stdout = std::io::stdout();
+    let mut out = std::io::BufWriter::with_capacity(64 * 1024, stdout.lock());
+    let mut header = Vec::with_capacity(40);
+    header.extend_from_slice(b"CPL2");
+    for value in [info.rate, 2, info.ch as u32, info.bits.unwrap_or(0)] {
+        header.extend_from_slice(&value.to_le_bytes());
+    }
+    header.extend_from_slice(&frames.to_le_bytes());
+    header.extend_from_slice(&first.to_le_bytes());
+    if out.write_all(&header).and_then(|_| out.flush()).is_err() {
+        return finish(Ok(()));
+    }
+    const BLOCK: usize = 4096 * 2;
+    let mut samples = Vec::<i32>::with_capacity(BLOCK);
+    let mut bytes = Vec::<u8>::with_capacity(BLOCK * 4);
+    loop {
+        let taken = {
+            let mut q = sh.q.lock().unwrap();
+            while q.buf.is_empty() && !q.eof && !q.closed {
+                q = sh.cv.wait_timeout(q, POLL).unwrap().0;
+            }
+            if let Some(err) = q.err.clone() {
+                Err(err)
+            } else {
+                let n = q.buf.len().min(BLOCK);
+                samples.clear();
+                samples.extend(q.buf.drain(..n));
+                // the decoder waits for room: wake it once enough has been taken
+                if q.refill_at != 0 && q.buf.len() < q.refill_at {
+                    sh.cv.notify_all();
+                }
+                Ok(q.buf.is_empty() && (q.eof || q.closed))
+            }
+        };
+        let eof = match taken {
+            Ok(eof) => eof,
+            Err(error) => return finish(Err(error)),
+        };
+        if !samples.is_empty() {
+            bytes.clear();
+            for &sample in &samples {
+                bytes.extend_from_slice(&(sample as f32 * (1.0 / 2_147_483_648.0)).to_le_bytes());
+            }
+            let written = out
+                .write_all(&(bytes.len() as u32).to_le_bytes())
+                .and_then(|_| out.write_all(&bytes))
+                .and_then(|_| out.flush());
+            if written.is_err() {
+                // the listener went on to something else
+                return finish(Ok(()));
+            }
+        }
+        if eof {
+            let _ = out.write_all(&0u32.to_le_bytes()).and_then(|_| out.flush());
+            return finish(Ok(()));
+        }
+    }
+}
+
 fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shared) -> Result<(), String> {
     let (mut rd, info) = open(path)?;
     let plan = plan_for(&info);
@@ -270,9 +389,17 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
     let mut conv = Convert::new(&info, plan);
     let mut sbuf: Vec<i32> = Vec::new();
     let mut gen = 0u64;
-    let mut skip: u64 = 0; // source frames still to drop after a seek (seeks land on a packet boundary)
+    // source frames still to drop: the encoder's priming, or the rest of a packet after a seek (seeks land on a packet
+    // boundary); `at` is the next frame's position in the music, and `limit` where the music ends
+    let delay = rd.gapless.map_or(0, |g| g.delay);
+    let limit = rd.gapless.and_then(|g| g.length);
+    let mut skip: u64 = delay;
+    let mut at: u64 = 0;
     let mut done = false;
+    // (test hook: hold the decoder once, after 0.7 s of output; `stall-decoder-file=` limits it to matching paths)
     let mut stall = std::env::var("CADENZA_AUDIO_FAKE").ok().and_then(|s| {
+        let only = s.split(';').find_map(|kv| kv.strip_prefix("stall-decoder-file="));
+        if only.is_some_and(|name| !path.contains(name)) { return None; }
         s.split(';').find_map(|kv| kv.strip_prefix("stall-decoder-ms=")?.parse::<u64>().ok())
     });
     let mut produced = 0usize;
@@ -306,13 +433,14 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
             if done && rd.fmt.format_info().short_name == "isomp4" {
                 (rd, _) = open(path)?;
             }
-            match rd.seek_pcm(target, info.rate) {
+            at = target;
+            match rd.seek_pcm(target + delay, info.rate) {
                 Ok(frames) => skip = frames,
                 Err(_) => {
                     // a reader that cannot seek: start over and drop frames up to the target
                     let (r2, _) = open(path)?;
                     rd = r2;
-                    skip = target;
+                    skip = target + delay;
                 }
             }
             rd.dec.reset();
@@ -368,12 +496,25 @@ fn run(path: &str, plan_for: Box<dyn FnOnce(&SrcInfo) -> Plan + Send>, sh: &Shar
             skip -= drop as u64;
             s = &s[drop * sch..];
         }
-        if s.is_empty() {
-            continue;
+        let mut ending = false;
+        if let Some(limit) = limit {
+            let room = limit.saturating_sub(at) as usize;
+            if s.len() / sch >= room {
+                s = &s[..room * sch];
+                ending = true;
+            }
         }
-        let out = conv.push(s, sch);
-        produced = produced.saturating_add(out.len());
-        push(sh, gen, out, false);
+        at += (s.len() / sch) as u64;
+        if !s.is_empty() {
+            let out = conv.push(s, sch);
+            produced = produced.saturating_add(out.len());
+            push(sh, gen, out, false);
+        }
+        if ending {
+            // the encoder's padding after the music is not played
+            push(sh, gen, conv.flush(), true);
+            done = true;
+        }
     }
 }
 
@@ -403,11 +544,24 @@ struct Convert {
     pend: Vec<Vec<f32>>, // source frames waiting for a full resampler chunk, per output channel
     trim: usize,         // resampler delay still to drop
     tmp: Vec<i32>,
+    ratio: (u64, u64),   // output rate, source rate
+    fed: u64,            // source frames given to the resampler since the last reset
+    made: u64,           // output frames emitted since the last reset
 }
 
 impl Convert {
     fn new(info: &SrcInfo, plan: Plan) -> Self {
-        let mut c = Convert { plan, rs: None, chunk: 1024, pend: vec![Vec::new(); plan.ch], trim: 0, tmp: Vec::new() };
+        let mut c = Convert {
+            plan,
+            rs: None,
+            chunk: 1024,
+            pend: vec![Vec::new(); plan.ch],
+            trim: 0,
+            tmp: Vec::new(),
+            ratio: (plan.rate as u64, info.rate as u64),
+            fed: 0,
+            made: 0,
+        };
         if info.rate != plan.rate {
             c.rs = Fft::<f32>::new(info.rate as usize, plan.rate as usize, c.chunk, plan.ch, FixedSync::Input).ok();
             c.reset();
@@ -422,6 +576,8 @@ impl Convert {
         for p in self.pend.iter_mut() {
             p.clear();
         }
+        self.fed = 0;
+        self.made = 0;
     }
     // src: interleaved frames with sch channels → interleaved output frames
     fn push(&mut self, src: &[i32], sch: usize) -> Vec<i32> {
@@ -435,6 +591,7 @@ impl Convert {
         if self.rs.is_none() {
             return std::mem::take(&mut self.tmp);
         }
+        self.fed += n as u64;
         for f in 0..n {
             for c in 0..och {
                 self.pend[c].push(self.tmp[f * och + c] as f32 * (1.0 / 2147483648.0));
@@ -466,6 +623,12 @@ impl Convert {
                 self.emit(&o, &mut out);
             }
         }
+        // Flushing runs whole zero chunks through the filter. Keep exactly the frames the source's length converts to,
+        // so a song ends on its last sample and the next one can follow it without a gap.
+        let expected = (self.fed as u128 * self.ratio.0 as u128 / self.ratio.1 as u128) as u64;
+        let surplus = self.made.saturating_sub(expected) as usize * self.plan.ch;
+        out.truncate(out.len().saturating_sub(surplus));
+        self.made = self.made.min(expected);
         out
     }
     // one resampler chunk (per-channel input of `frames` frames, `partial` when short of a chunk) → interleaved output
@@ -484,6 +647,7 @@ impl Convert {
         let och = self.plan.ch;
         let start = self.trim.min(o.len() / och);
         self.trim -= start;
+        self.made += (o.len() / och - start) as u64;
         for &x in &o[start * och..] {
             out.push((x as f64 * 2147483648.0).round().clamp(-2147483648.0, 2147483647.0) as i32);
         }

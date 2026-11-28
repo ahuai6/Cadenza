@@ -261,6 +261,8 @@ export interface LyricSources {
 export interface AudioApi {
   state(): Promise<any>;
   cmd(o: Record<string, unknown>): Promise<boolean>;
+  /** the performance counter now, in 100 ns units (the time base of the native core's position reports) */
+  qpc(): Promise<number>;
   onEvent(f: (e: any) => void): Off;
 }
 /** The rhythm engine's networks run natively (electron/infer.cjs): their state, the models' download, one pass. */
@@ -346,6 +348,9 @@ export const coverUrl = (key: string | null | undefined, full = false) =>
   key ? `cadenza://${full ? 'cover' : 'thumb'}/${key}` : '';
 export const mediaUrl = (id: string, revision?: string) =>
   `cadenza://media/${id}${revision ? `?rev=${encodeURIComponent(revision)}` : ''}`;
+/** A song decoded by the native core for the standard output, at its own rate, from `at` seconds. */
+export const pcmUrl = (id: string, revision: string, at: number) =>
+  `cadenza://pcm/${id}?rev=${encodeURIComponent(revision)}&at=${at}`;
 
 /* ---------- files ---------- */
 /** In a browser a finished file is offered as a download. */

@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { ui, useStore } from '../state';
 import { engine } from '../playback/stage';
+import { duration } from '../motion';
 import { fontStack, subLines, type LyricLine as Line } from '../../engine';
 import s from './NpLyrics.module.css';
 
@@ -53,6 +54,8 @@ function put(el: HTMLElement, k: string, v: string) {
   else el.style.setProperty(k, v);
 }
 let gens = 0;
+/** the song each place last showed lines of: a new song's lines rise in, a replan of the same song's do not */
+const shownSong = new Map<string, string>();
 // (the dots' curves: soft, no overshoot — Apple Music's)
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
 const easeIn = (x: number) => x ** 3;
@@ -62,11 +65,14 @@ export function NpLyrics({
   live,
   compact = false,
   layout,
+  song,
 }: {
   lines: Line[];
   live: boolean;
   compact?: boolean;
   layout?: 'dock';
+  /** the song the lines are of: when it changes, its lines come in with a short rise instead of all at once */
+  song?: string;
 }) {
   const dock = layout === 'dock';
   const box = useRef<HTMLDivElement>(null),
@@ -437,6 +443,27 @@ export function NpLyrics({
       if (box.current) box.current.dataset.manual = 'false';
     }, 2600);
   };
+  // (4.0.0-alpha.6: lines arrive once the song's scene is ready; they used to appear in a single frame)
+  useLayoutEffect(() => {
+    const el = box.current,
+      place = dock ? 'dock' : compact ? 'compact' : 'page';
+    if (!el || !song || !lines.length || shownSong.get(place) === song) return;
+    shownSong.set(place, song);
+    const ms = duration('--t-stagger');
+    if (!ms) return;
+    const ease = getComputedStyle(document.documentElement).getPropertyValue('--ease').trim() || 'ease-out';
+    const rise = el.animate(
+      [
+        { opacity: 0, translate: '0 14px' },
+        { opacity: 1, translate: '0 0' },
+      ],
+      {
+        duration: ms,
+        easing: ease,
+      },
+    );
+    return () => rise.cancel();
+  }, [song, lines, dock, compact]);
   return (
     <div
       data-np-lyr

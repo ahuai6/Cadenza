@@ -93,11 +93,15 @@ export class AudioClock {
   warm() {
     this.ac();
   }
-  /** The desktop streaming source feeds the same gain and routing as the buffer source. */
-  mediaInput(element: HTMLMediaElement) {
+  /** Where the standard output's PCM player connects: the same gain and routing as the buffer source. */
+  pcmInput() {
     const context = this.ac();
-    const source = context.createMediaElementSource(element);
-    return { context, source, input: this.gainNode! };
+    return { context, input: this.gainNode! };
+  }
+  /** The audio context's time of what is being heard now (seconds; see heard()). */
+  heardTime() {
+    const c = this.ctx;
+    return c ? this.heard(c) : 0;
   }
   /** Give up Chromium's physical output while the native backend owns it, keeping graph nodes reusable. */
   outputDevice(native: boolean) {
@@ -118,11 +122,6 @@ export class AudioClock {
   }
   private deviceChange = Promise.resolve();
   private parked = false;
-  /** Estimated delay after the graph's render position, in seconds. */
-  outputDelay() {
-    const c = this.ctx;
-    return c?.state === 'running' ? Math.max(0, c.currentTime - this.heard(c)) : 0;
-  }
   get external() {
     return this.ext;
   }

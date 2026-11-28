@@ -75,6 +75,16 @@ struct Mark {
     exact: bool,
 }
 
+/// Where a chained song began in the device stream: the song before ends (is reported ended) once the device has
+/// consumed up to here.
+struct Join {
+    dev: u64,
+    id: Arc<str>,
+    seq: u64,
+    run_id: u64,
+    t: f64,
+}
+
 struct MeterBlock {
     dev: u64,
     end: u64,
@@ -119,6 +129,9 @@ pub struct Player {
     cur: Option<Track>,
     incoming: Option<Track>,
     next: Option<Track>,
+    /// (current seq, next seq, next run): play the preloaded next song right after the current one's last sample
+    chain: Option<(u64, u64, u64)>,
+    joins: VecDeque<Join>,
     closing: Closing,
     queued_load: Option<(String, String, u64)>,
     st: St,
@@ -205,6 +218,8 @@ pub fn run(rx: Receiver<Cmd>) {
         cur: None,
         incoming: None,
         next: None,
+        chain: None,
+        joins: VecDeque::new(),
         closing: Vec::new(),
         queued_load: None,
         st: St::Idle,
@@ -435,6 +450,7 @@ impl Player {
                 replace_track(&mut self.cur, None, &mut self.closing);
                 replace_track(&mut self.incoming, None, &mut self.closing);
                 replace_track(&mut self.next, None, &mut self.closing);
+                self.chain = None;
                 self.st = St::Idle;
                 self.want = None;
                 self.pending = None;
@@ -450,9 +466,11 @@ impl Player {
                     }
                     let track = self.spawn(&id, &path, seq);
                     replace_track(&mut self.next, track, &mut self.closing);
+                    self.chain = None;
                     return true;
                 }
                 self.queued_load = None;
+                self.chain = None;
                 if !self.decoder_slot() {
                     // Supersede the previous request and wait for a retired reader's slot.
                     // The current file cannot keep playing while its replacement is queued.
@@ -542,6 +560,7 @@ impl Player {
                     return true;
                 }
                 self.want = None;
+                self.chain = None;
                 replace_track(&mut self.incoming, None, &mut self.closing);
                 if self.playing_audibly() {
                     self.pending = Some(Pending::Stop);
@@ -586,7 +605,15 @@ impl Player {
                 emit(json!({ "ev": "barrier", "ticket": ticket, "ok": ok }));
             }
             Cmd::Barrier { ticket } => emit(json!({ "ev": "barrier", "ticket": ticket })),
-            Cmd::Clearnext => replace_track(&mut self.next, None, &mut self.closing),
+            Cmd::Clearnext => {
+                replace_track(&mut self.next, None, &mut self.closing);
+                self.chain = None;
+            }
+            Cmd::Chain { seq, next, run } => {
+                let current = self.cur.as_ref().is_some_and(|t| t.seq == seq);
+                let preloaded = self.next.as_ref().is_some_and(|t| t.seq == next);
+                self.chain = (current && preloaded).then_some((seq, next, run));
+            }
             Cmd::Gain { g } => {
                 // (above 1 only for the volume balance's boost, which keeps within the song's own headroom)
                 self.gain_to = if g.is_finite() { g.clamp(0.0, 4.0) } else { 0.0 };
@@ -681,16 +708,17 @@ impl Player {
             if have >= START_S || q.eof {
                 drop(q);
                 t.ready = true;
-                if which == 1 {
-                    emit(json!({ "ev": "preloaded", "id": &*t.id }));
-                } else if let Some(caps) = self.caps.clone() {
+                // (a preloaded song is described as a loaded one is: a joined one is taken over without a load)
+                if let Some(caps) = self.caps.clone() {
                     let f = choose(&caps, self.excl && !self.force_shared, &info);
                     let mut d = describe(&info, &f);
-                    d["ev"] = json!("ready");
+                    d["ev"] = json!(if which == 1 { "preloaded" } else { "ready" });
                     d["id"] = json!(&*t.id);
                     d["seq"] = json!(t.seq);
                     d["dur"] = json!(info.frames.map(|n| n as f64 / info.rate as f64));
                     emit(d);
+                } else if which == 1 {
+                    emit(json!({ "ev": "preloaded", "id": &*t.id, "seq": t.seq }));
                 }
             }
         }
@@ -843,6 +871,7 @@ impl Player {
         }
     }
     fn close(&mut self) {
+        self.settle_joins();
         if let Some(mut s) = self.out.take() {
             s.stop();
             drop(s);
@@ -989,6 +1018,13 @@ impl Player {
             let mut q = sh.q.lock().unwrap();
             let avail = Shared::frames(&q);
             let lim = self.end.map(|e| (e - self.head).max(0) as usize).unwrap_or(usize::MAX);
+            if q.eof && avail == 0 && lim == usize::MAX && self.pending.is_none() {
+                drop(q);
+                if self.join_next(f) {
+                    continue;
+                }
+                q = sh.q.lock().unwrap();
+            }
             if lim == 0 || (q.eof && avail == 0) {
                 // Mark the first silent frame. Report EOF only after the device consumes the preceding audio.
                 drop(q);
@@ -1074,6 +1110,39 @@ impl Player {
             }
         }
     }
+    /// The current song has given its last sample: if the chained next song is decoded ahead in the stream's own format,
+    /// it carries on in the same stream from its first sample. False: the song ends with silence as before.
+    fn join_next(&mut self, f: Format) -> bool {
+        let Some((seq, next_seq, run)) = self.chain else { return false };
+        let (Some(cur), Some(next)) = (self.cur.as_ref(), self.next.as_ref()) else { return false };
+        if cur.seq != seq || next.seq != next_seq || !next.ready || next.failed || self.st != St::Playing {
+            return false;
+        }
+        {
+            let q = next.sh.q.lock().unwrap();
+            if q.plan != Some(Plan { rate: f.rate, ch: f.ch }) || q.base != 0 {
+                return false;
+            }
+        }
+        let dev = self.dev_written + (self.frames.len() / f.ch) as u64;
+        self.joins.push_back(Join { dev, id: cur.id.clone(), seq: cur.seq, run_id: self.run_id, t: self.head as f64 / f.rate as f64 });
+        replace_track(&mut self.cur, self.next.take(), &mut self.closing);
+        self.chain = None;
+        self.run_id = run;
+        self.head = 0;
+        self.end = None;
+        self.ended = false;
+        self.run_origin = 0.0;
+        self.fade_in = false;
+        emit(json!({ "ev": "joined", "seq": next_seq, "runId": run, "epoch": self.epoch }));
+        true
+    }
+    /// Songs joined in a stream that is going away have ended as far as the page is concerned.
+    fn settle_joins(&mut self) {
+        while let Some(j) = self.joins.pop_front() {
+            emit(json!({ "ev": "ended", "id": &*j.id, "seq": j.seq, "runId": j.run_id, "epoch": self.epoch, "t": j.t }));
+        }
+    }
     fn lost(&mut self, e: StreamFailure) {
         let pending = self.pending.take();
         let old_seq = self.cur.as_ref().map(|t| t.seq);
@@ -1119,6 +1188,7 @@ impl Player {
         let pad = match out.padding() { Ok(pad) => pad, Err(e) => { self.lost(e); return; } };
         let observation = out.clock();
         let reading = self.clock.read(observation, self.dev_written, pad, f.rate);
+        let read_at = output::qpc_now_100ns();
         if self.clock_source != Some(reading.source) {
             self.clock_source = Some(reading.source);
             emit(json!({ "ev": "clock-source", "epoch": self.epoch, "source": reading.source,
@@ -1127,6 +1197,11 @@ impl Player {
                 "qpc100ns": observation.map(|o| o.qpc_100ns), "sampledQpc100ns": observation.map(|o| o.now_100ns) }));
         }
         let h = reading.frame;
+        // a chained song's boundary reached: the song before has been heard to its last sample
+        while self.joins.front().is_some_and(|j| h >= j.dev) {
+            let j = self.joins.pop_front().unwrap();
+            emit(json!({ "ev": "ended", "id": &*j.id, "seq": j.seq, "runId": j.run_id, "epoch": self.epoch, "t": j.t }));
+        }
         if h > self.last_consumed.0 {
             self.last_consumed = (h, Instant::now());
         } else if self.dev_written > h && matches!(self.st, St::Playing | St::Waiting)
@@ -1169,7 +1244,7 @@ impl Player {
             let limit = if run { ((m.pos + m.len as i64).max(0) as f64 / f.rate as f64).max(position) } else { position };
             emit(json!({ "ev": "pos", "id": m.id.as_deref(), "seq": m.seq, "runId": m.run_id,
                 "t": position, "run": run, "epoch": self.epoch, "source": reading.source, "qpc100ns": reading.qpc_100ns,
-                "streamFrame": h, "submittedFrame": self.dev_written, "limit": limit, "exact": run && m.exact,
+                "streamFrame": h, "submittedFrame": self.dev_written, "limit": limit, "exact": run && m.exact, "at100ns": read_at,
                 "pcmDb": meter.map(|meter| meter.db) }));
         }
     }

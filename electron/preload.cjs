@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('cadenzaInfer', {
 contextBridge.exposeInMainWorld('cadenzaAudio', {
   state: () => L('audio:state'),
   cmd: (o) => L('audio:cmd', o),
+  qpc: () => L('audio:qpc'),
   onEvent: on('audio:ev'),
 });
 

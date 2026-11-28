@@ -121,8 +121,13 @@ async function main() {
       lang: 'en',
     }),
   );
-  const env = { ...process.env, CADENZA_USER_DATA: profile };
-  delete env.CADENZA_AUDIO_FAKE;
+  // 4.0.0-alpha.6: the standard output plays PCM from the native decoder. A decoder held once after 0.7 s of
+  // long.wav stands in for a slow disk (formerly a gate on the media file's protocol reads).
+  const env = {
+    ...process.env,
+    CADENZA_USER_DATA: profile,
+    CADENZA_AUDIO_FAKE: 'stall-decoder-ms=2500;stall-decoder-file=long.wav',
+  };
   const app = await _electron.launch({ executablePath: require('electron'), args: [root, '--no-sandbox'], env });
   try {
     const page = await app.firstWindow();
@@ -137,49 +142,7 @@ async function main() {
       engine.clock.warm();
     });
     const devtools = await page.context().newCDPSession(page);
-    await devtools.send('Media.enable');
     await devtools.send('Performance.enable');
-    const players = new Set();
-    devtools.on('Media.playersCreated', ({ players: ids }) => ids.forEach((id) => players.add(id)));
-    await app.evaluate((_, dir) => {
-      const fs = process.getBuiltinModule('node:fs');
-      const path = process.getBuiltinModule('node:path');
-      const { Transform } = process.getBuiltinModule('node:stream');
-      const open = fs.promises.open;
-      globalThis.g3 = { transfers: [], held: false, resume: [] };
-      fs.promises.open = async (file, ...args) => {
-        const handle = await open(file, ...args);
-        if (typeof file !== 'string' || path.dirname(file) !== dir) return handle;
-        const create = handle.createReadStream.bind(handle);
-        handle.createReadStream = (opts) => {
-          const stream = create(opts);
-          const name = path.basename(file);
-          const row = { name, start: opts.start, end: opts.end, bytes: 0, closed: false };
-          const push = stream.push.bind(stream);
-          stream.push = (chunk, ...rest) => {
-            row.bytes += chunk?.length || 0;
-            return push(chunk, ...rest);
-          };
-          stream.on('close', () => {
-            row.closed = true;
-          });
-          globalThis.g3.transfers.push(row);
-          if (!globalThis.g3.held || name !== 'long.wav') return stream;
-          let supplied = opts.start;
-          const gate = new Transform({
-            transform(chunk, _, callback) {
-              supplied += chunk.length;
-              if (supplied <= 768 * 1024 || !globalThis.g3.held) callback(null, chunk);
-              else globalThis.g3.resume.push(() => callback(null, chunk));
-            },
-          });
-          stream.on('error', (error) => gate.destroy(error));
-          gate.on('close', () => stream.destroy());
-          return stream.pipe(gate);
-        };
-        return handle;
-      };
-    }, music);
     await page.evaluate(async (tones) => {
       const { engine } = window.__cadenza;
       const ctx = engine.clock.ctx;
@@ -213,7 +176,27 @@ async function main() {
         { ids, album },
       );
     const stop = () => page.evaluate(() => window.__cadenza.api.stopPlayback());
-    const read = () => app.evaluate(() => globalThis.g3.transfers);
+    // the native decoders serving playback streams: their files and first frames
+    const decoders = () =>
+      []
+        .concat(
+          JSON.parse(
+            execFileSync(
+              'powershell.exe',
+              [
+                '-NoProfile',
+                '-Command',
+                "@(Get-CimInstance Win32_Process -Filter \"Name='cadenza-audio.exe'\" | Where-Object { $_.CommandLine -like '*--play-pcm*' } | ForEach-Object { $_.CommandLine }) | ConvertTo-Json -Compress",
+              ],
+              { encoding: 'utf8' },
+            ).trim() || '[]',
+          ),
+        )
+        .filter((line) => line.includes(music))
+        .map((line) => {
+          const [, quoted, plain, start] = line.match(/--play-pcm\s+(?:"([^"]+)"|(\S+))\s+([\d.]+)/) ?? [];
+          return { file: path.basename(quoted ?? plain ?? ''), from: Number(start) };
+        });
     const graph = (channels = 2) =>
       wait(
         (count) =>
@@ -237,25 +220,17 @@ async function main() {
       };
     };
     const measure = { initial: await memory() };
-    await page.evaluate((id) => {
-      window.__cadenza.settings.set({ rhythmStream: 'full' });
-      const fetchFile = window.fetch;
-      window.rawAacPcmRequests = 0;
-      window.fetch = (url, ...rest) => {
-        if (String(url).startsWith(`cadenza://media/${id}?rev=`)) window.rawAacPcmRequests++;
-        return fetchFile(url, ...rest);
-      };
-    }, id(rawAac));
+    await page.evaluate(() => window.__cadenza.settings.set({ rhythmStream: 'full' }));
     for (const name of Object.keys(cases)) {
       await select([id(name)]);
       await output(id(name));
-      await graph(name === 'Surround.flac' ? 6 : 2);
+      // (the standard output is stereo: a surround file is mixed down by the decoder, as the stereo graph did before)
+      await graph(2);
       const levels = await page.evaluate(() => window.g3levels());
       assert.ok(
-        levels.slice(0, name === 'Surround.flac' ? 6 : 2).every((db) => db < -18),
+        levels.slice(0, 2).every((db) => db < -18),
         name,
       );
-      if (name === rawAac) await wait(() => window.rawAacPcmRequests === 1);
       console.log('format', name, JSON.stringify(levels));
       await stop();
     }
@@ -281,25 +256,17 @@ async function main() {
     await graph();
     measure.medium = await memory();
     await stop();
-    await app.evaluate(() => {
-      globalThis.g3.held = true;
-    });
     await select([id('long.wav')]);
     await output(id('long.wav'));
     await graph();
-    const first = (await read()).filter((r) => r.name === 'long.wav');
-    assert.ok(first.length > 0);
-    assert.ok(first.reduce((sum, r) => sum + r.bytes, 0) < tracks[id('long.wav')].size / 100, JSON.stringify(first));
+    const first = decoders();
+    assert.deepEqual(first, [{ file: 'long.wav', from: 0 }]);
     const phase = () => page.evaluate(() => window.__cadenza.api.playback.get().phase);
     const time = () => page.evaluate(() => window.__cadenza.api.playback.time());
     await wait(() => window.__cadenza.api.playback.get().phase === 'buffering');
     const heldAt = await time();
     await page.waitForTimeout(250);
     assert.equal(await time(), heldAt, 'clock stopped on actual starvation');
-    await app.evaluate(() => {
-      globalThis.g3.held = false;
-      for (const resume of globalThis.g3.resume.splice(0)) resume();
-    });
     await output(id('long.wav'));
     await graph();
     measure.long = await memory();
@@ -307,7 +274,11 @@ async function main() {
     await output(id('long.wav'));
     await graph();
     assert.ok((await time()) >= 2690 && (await time()) < 2691);
-    assert.ok((await read()).some((r) => r.name === 'long.wav' && r.start > 500_000_000));
+    // (the stream from 0 is closed; the one from 2690 s may already have read its last ten seconds and ended)
+    assert.ok(
+      decoders().every((d) => d.file === 'long.wav' && d.from === 2690),
+      JSON.stringify(decoders()),
+    );
     await page.evaluate(() => window.__cadenza.api.playback.get().intent && window.__cadenza.api.toggle());
     assert.equal(await phase(), 'paused');
     await page.evaluate(() => window.__cadenza.api.seekFile(2690.25, true));
@@ -317,12 +288,8 @@ async function main() {
     await graph();
     await stop();
     await page.waitForTimeout(350);
-    const final = (await read()).filter((r) => r.name === 'long.wav');
-    assert.ok(
-      final.every((r) => r.closed),
-      JSON.stringify(final),
-    );
-    assert.ok(final.reduce((sum, r) => sum + r.bytes, 0) < 16 * 1024 * 1024);
+    const final = decoders();
+    assert.deepEqual(final, [], 'decoders closed after stop');
     const soakSeconds = Number(process.env.CADENZA_STREAM_SOAK_SECONDS || 0);
     if (soakSeconds > 0) {
       await select([id('long.wav')]);
@@ -350,8 +317,7 @@ async function main() {
     }
     await stop();
     await page.waitForTimeout(350);
-    const open = (await read()).filter((r) => !r.closed);
-    assert.deepEqual(open, [], 'all protocol readers closed after a rapid burst and stop');
+    assert.deepEqual(decoders(), [], 'all decoders closed after a rapid burst and stop');
     await select([id('long.wav')]);
     await output(id('long.wav'));
     await graph();
@@ -364,11 +330,8 @@ async function main() {
     await stop();
     await page.waitForTimeout(750);
     measure.stopped = await memory();
-    console.log('streaming', JSON.stringify({ first, final, heldAt, players: players.size, measure }));
-    fs.writeFileSync(
-      path.join(scratch, 'results.json'),
-      JSON.stringify({ first, final, heldAt, players: players.size, measure }, null, 2),
-    );
+    console.log('streaming', JSON.stringify({ first, final, heldAt, measure }));
+    fs.writeFileSync(path.join(scratch, 'results.json'), JSON.stringify({ first, final, heldAt, measure }, null, 2));
     console.log('Evidence:', scratch);
   } finally {
     await app.close();

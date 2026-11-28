@@ -81,6 +81,7 @@ export interface PerfStats {
 
 const BD_CARRY = 2.6; // seconds the backdrop takes from the old song's pose to the new one's, in album play
 const CARRY = 3.2; // seconds the song before stays on in album play
+const HOLD_MAX = 4; // seconds the song before is held while the next one's scene is not ready (then it fades anyway)
 const SWAP_FADE = 0.9; // seconds a newer rhythm's picture takes over from the one before (with no blur to hide it)
 const SWAP_UNDER = 0.4; // … and at a blur's peak (the picture before, nearly all blur, dissolves into the new one)
 const RM = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -210,9 +211,11 @@ export class Engine extends Emitter<EngineEvents> {
     if (this.stalls.length > 8) this.stalls.shift();
     if (ms > 600) console.warn('[stall]', JSON.stringify(this.stalls[this.stalls.length - 1]));
   }
-  private fadeOut: { cv: HTMLCanvasElement; t0: number } | null = null;
-  /** album play: the song before, still running on in the picture for a moment (see show) */
-  private carry: { s: Session; t0: number; at: number } | null = null;
+  /** the picture of the song before, fading out over the next one; `t0` null while the next one is not ready yet (the
+   *  picture is held as it was, rather than leaving the screen empty while the next song's scene is built) */
+  private fadeOut: { cv: HTMLCanvasElement; t0: number | null; held: number } | null = null;
+  /** album play: the song before, still running on in the picture for a moment (see show); `fadeAt` null while held */
+  private carry: { s: Session; t0: number; at: number; fadeAt: number | null } | null = null;
   private drawnPlan: Session['plan'] | null = null;
   private retireWorld(plan?: Session['plan']) {
     if (plan && plan !== this.session?.plan && plan !== this.carry?.s.plan && plan !== this.swapFade?.s.plan)
@@ -444,14 +447,19 @@ export class Engine extends Emitter<EngineEvents> {
       DEBUG.event('song shown', { title: s.spec.song?.title, at: o.at ?? 0 });
       this.debugSetup(s);
     }
+    const now = performance.now();
     if (o.transition === 'album' && this.session && this.view === 'effect') {
-      this.carry = { s: this.session, t0: this.t, at: performance.now() };
-      this.bdCarry = this.lastBd ? { ...this.lastBd, at: performance.now() } : null;
+      this.carry = { s: this.session, t0: this.t, at: now, fadeAt: now };
+      this.bdCarry = this.lastBd ? { ...this.lastBd, at: now } : null;
     } else if (o.transition && o.transition !== 'none' && this.session && this.view !== 'hidden') {
       const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement;
       cv.getContext('2d')!.drawImage(this.canvas, 0, 0);
-      this.fadeOut = { cv, t0: performance.now() };
+      this.fadeOut = { cv, t0: now, held: now };
     }
+    // the picture held since the song before was cleared now gives way to this one
+    if (this.fadeOut && this.fadeOut.t0 === null) this.fadeOut.t0 = now;
+    if (this.carry && this.carry.fadeAt === null) this.carry.fadeAt = now;
+    if (this.bdCarry) this.bdCarry.at = Math.max(this.bdCarry.at, now - 1);
     this.session = s;
     this.retireWorld(previous);
     this.retireWorld(carried);
@@ -470,14 +478,14 @@ export class Engine extends Emitter<EngineEvents> {
     if (!this.transport) this.stopAudio();
     else {
       this.fadeOut = this.carry = this.bdCarry = null;
+      const now = performance.now();
       if (this.session && this.view === 'effect' && transition === 'album') {
-        const now = performance.now();
-        this.carry = { s: this.session, t0: this.t, at: now };
+        this.carry = { s: this.session, t0: this.t, at: now, fadeAt: null };
         this.bdCarry = this.lastBd ? { ...this.lastBd, at: now } : null;
       } else if (this.session && this.view !== 'hidden' && transition) {
         const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement;
         cv.getContext('2d')!.drawImage(this.canvas, 0, 0);
-        this.fadeOut = { cv, t0: performance.now() };
+        this.fadeOut = { cv, t0: null, held: now };
       }
       this.video.sync(0, false, 0, false);
       this.mv.sync(0, false, 0, false);
@@ -773,10 +781,11 @@ export class Engine extends Emitter<EngineEvents> {
     if (s && this.playing && this.view !== 'hidden' && this.mark.t0 && t0 - this.mark.t0 > 250)
       this.stall(t0 - this.mark.t0, 'between', s);
     if (!s) {
-      if (this.dirty && this.view !== 'hidden') {
+      if ((this.dirty || this.fadeOut || this.carry) && this.view !== 'hidden') {
         this.dirty = false;
         this.g.setTransform(1, 0, 0, 1, 0, 0);
         this.g.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.drawHeld(now);
       }
       if (this.transport)
         this.emit('tick', { t: this.t, dur: 0, musicEnd: 0, playing: this.playing, rs: null, session: null });
@@ -1025,12 +1034,13 @@ export class Engine extends Emitter<EngineEvents> {
       });
     }
     if (this.carry) {
-      const el = (performance.now() - this.carry.at) / 1000;
-      if (el >= CARRY || this.carry.s.needsFlush) {
+      const now = performance.now();
+      const fading = (now - (this.carry.fadeAt ?? now)) / 1000;
+      if (fading >= CARRY || this.carry.s.needsFlush) {
         const plan = this.carry.s.plan;
         this.carry = null;
         this.retireWorld(plan);
-      } else this.drawCarry(this.carry, el);
+      } else this.drawCarry(this.carry, (now - this.carry.at) / 1000, fading);
     }
     // (a newer rhythm put in place without a blur to hide it: the picture as it was fades out over the new one)
     if (this.swapFade) {
@@ -1042,7 +1052,7 @@ export class Engine extends Emitter<EngineEvents> {
       } else this.drawSwapFade(this.swapFade.s, u);
     }
     if (this.fadeOut) {
-      const u = clamp((performance.now() - this.fadeOut.t0) / 900);
+      const u = clamp((performance.now() - (this.fadeOut.t0 ?? performance.now())) / 900);
       if (u >= 1) this.fadeOut = null;
       else {
         g.save();
@@ -1106,13 +1116,46 @@ export class Engine extends Emitter<EngineEvents> {
     this.dirty = true;
     this.emit('change', undefined);
   }
-  private drawCarry(c: { s: Session; t0: number }, el: number) {
+  /** While the next song's scene is being built: the song before as it was (its picture, or in album play the song itself
+   *  running on), so the screen is never left empty between two songs. Held at most HOLD_MAX seconds. */
+  private drawHeld(now: number) {
+    const fo = this.fadeOut,
+      c = this.carry;
+    if (fo && fo.t0 === null && now - fo.held > HOLD_MAX * 1000) fo.t0 = now;
+    if (c && c.fadeAt === null && now - c.at > HOLD_MAX * 1000) c.fadeAt = now;
+    if (c) {
+      const fading = (now - (c.fadeAt ?? now)) / 1000;
+      if (fading >= CARRY) {
+        const plan = c.s.plan;
+        this.carry = null;
+        this.retireWorld(plan);
+      } else {
+        // its own picture, whole, until the fade begins
+        this.drawCarry(c, (now - c.at) / 1000, fading, true);
+      }
+    }
+    if (fo) {
+      const u = clamp((now - (fo.t0 ?? now)) / 900);
+      if (u >= 1) this.fadeOut = null;
+      else {
+        const g = this.g;
+        g.save();
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.globalAlpha = (1 - u) ** 1.5;
+        if (u > 0) g.filter = `blur(${(u * 18 * this.dpr).toFixed(1)}px)`;
+        g.drawImage(fo.cv, 0, 0, this.canvas.width, this.canvas.height);
+        g.filter = 'none';
+        g.restore();
+      }
+    }
+  }
+  private drawCarry(c: { s: Session; t0: number }, el: number, fading = el, whole = false) {
     const f = this.frameAt(c.t0 + el, {}, c.s);
     if (!f) return;
     const g = this.g,
       cw = this.canvas.width,
       ch = this.canvas.height,
-      u = clamp(el / 1.0);
+      u = clamp(fading / 1.0);
     f.px = ch / c.s.plan.H;
     if (u < 1) {
       if (!this.carryCv || this.carryCv.width !== cw || this.carryCv.height !== ch)
@@ -1128,7 +1171,9 @@ export class Engine extends Emitter<EngineEvents> {
       g.drawImage(this.carryCv, 0, 0);
       g.restore();
     }
-    const L = 1 - sstep(clamp((el - 0.6) / (CARRY - 0.6))),
+    // (held whole: no separate words over its own picture)
+    if (whole && u === 0) return;
+    const L = 1 - sstep(clamp((fading - 0.6) / (CARRY - 0.6))),
       k = L * (1 - (1 - u) ** 1.3);
     if (k < 0.01) return;
     const { visibleWords, paintLyrics } = require_lyrics();

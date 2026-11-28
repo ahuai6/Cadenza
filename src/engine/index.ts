@@ -2,6 +2,7 @@
 export { Engine, type View, type Tick, type RenderSettings } from './engine';
 export { Session, loadImage, type SessionSpec, type SessionEnv } from './session';
 export { AudioClock, type AudioLike, type ExternalOut } from './audio';
+export { PcmPlayer, PcmTrack, type PcmSourceSpec, type PcmEvent, type PcmMeta } from './stream/pcm-player';
 export { VideoSource, MvSource } from './media';
 export { Handoff, type HandoffSpec, type HandoffLine, type HandoffCover, type WinRect } from './handoff';
 export { configure, type EngineConfig } from './config';

@@ -16,6 +16,7 @@ const crypto = require('node:crypto');
 const { serveFile } = require('./file-response.cjs');
 const { isKrc, decodeKrc, encodeKrc } = require('./krc.cjs');
 const { analysisPcm, closeAnalysis } = require('./analysis-pcm.cjs');
+const { playbackPcm, closePlayback } = require('./playback-pcm.cjs');
 const { MODELS: onnxModels } = require('./inferHost.cjs');
 const { models: webModels } = require('../src/rhythm/neural/models.json');
 const { serveAlac } = require('./alac.cjs');
@@ -721,7 +722,7 @@ const summary = (t) => (identity.validId(t?.audioContentId) ? db.derived[t.audio
 function rhythmSummary(t) {
   const settings = flavor();
   const row = summary(t)?.rhythm?.[settings];
-  return row && (row.version < 4 || row.compatibility === compatibility(settings)) ? row : null;
+  return row && (row.version < 4 || row.compatibility === compatibility(settings, t)) ? row : null;
 }
 const loudnessOf = (t) => {
   const record = summary(t);
@@ -738,7 +739,14 @@ const anFile = (key, settings, version) => {
 };
 const digest = (text) => crypto.createHash('sha256').update(text).digest('hex');
 const compatibilityByFlavor = new Map();
-function compatibility(settings) {
+// 4.0.0-alpha.6: MP4 audio is decoded in media time (the encoder's priming and padding left out, as the edit list says),
+// so earlier readings of MP4 files are about 23 ms late; only those are made again.
+const mp4 = (t) => /\.(m4a|m4b|mp4|mov)$/i.test(t?.path || '');
+function compatibility(settings, t) {
+  const base = flavorCompatibility(settings);
+  return mp4(t) ? digest(base + ':mp4-edit-list-v1') : base;
+}
+function flavorCompatibility(settings) {
   if (!compatibilityByFlavor.has(settings)) {
     const [engine, drums, runtime] = settings.split('-');
     const include = (name) => name === 'beat_this' || drums === 'drums';
@@ -755,7 +763,13 @@ function compatibility(settings) {
   return compatibilityByFlavor.get(settings);
 }
 
-const analysisFailedForVersion = (track) => track.failed === flavor() && track.analysisFailureVersion === want;
+// Raised when a failure the page reported may no longer hold (alpha.6: sound readings of songs with pauses were refused
+// as "tempo disagrees with the beats"): failures recorded under an earlier generation are tried again.
+const FAILURE_GENERATION = 2;
+const analysisFailedForVersion = (track) =>
+  track.failed === flavor() &&
+  track.analysisFailureVersion === want &&
+  (track.analysisFailureGeneration ?? 1) === FAILURE_GENERATION;
 const rhythmQuality = (analysis) =>
   analysis.engine === 'neural' ? (['drums', 'drumless'].includes(analysis.stems) ? 2 : 1) : 0;
 const upgradeDelay = 24 * 60 * 60 * 1000;
@@ -820,6 +834,7 @@ async function reanalyze(ids) {
       delete t.failWhy;
       delete t.failed;
       delete t.analysisFailureVersion;
+      delete t.analysisFailureGeneration;
     }
     priority = [...ids.filter(activeTrack), ...priority.filter((id) => !ids.includes(id))];
     changed();
@@ -846,7 +861,7 @@ async function saveAnalysis(id, a, token) {
   )
     return false;
   const body = JSON.stringify(a);
-  const signature = compatibility(token.settings);
+  const signature = compatibility(token.settings, activeTrack(id));
   const header = JSON.stringify({
     key: token.content,
     settings: token.settings,
@@ -886,6 +901,7 @@ async function saveAnalysis(id, a, token) {
     if (a.loudness) setLoud(record, a.loudness);
     delete t.failed;
     delete t.analysisFailureVersion;
+    delete t.analysisFailureGeneration;
     delete t.failWhy;
     changed();
     analysisProgress();
@@ -964,6 +980,7 @@ async function analysisFailed(id, why, token) {
   if (rhythmSummary(t)?.version === want) return false; // a failed upgrade does not disqualify an existing result
   t.failed = flavor();
   t.analysisFailureVersion = want;
+  t.analysisFailureGeneration = FAILURE_GENERATION;
   t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined;
   save();
   analysisProgress();
@@ -1707,6 +1724,22 @@ function registerProtocol() {
           return new Response(null, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
         return analysisPcm(t.path, req, scanCounters);
       }
+      if (kind === 'pcm') {
+        const t = key && raw === key && activeTrack(key);
+        const denied = new Response(null, { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
+        if (!t || t.protected || u.searchParams.get('rev') !== mediaRevision(t)) return denied;
+        // the same snapshot checks as a media response: the decoder must read the file the page asked for
+        const st = await fsp.stat(t.path).catch(() => null);
+        if (
+          !st?.isFile() ||
+          st.size !== t.size ||
+          st.mtimeMs !== t.mtime ||
+          (t.sourceStamp && identity.revision(st) !== t.sourceStamp) ||
+          activeTrack(key) !== t
+        )
+          return new Response(null, { status: 409, headers: { 'Access-Control-Allow-Origin': '*' } });
+        return playbackPcm(t.path, req, Number(u.searchParams.get('at') || 0));
+      }
       if (kind === 'media') {
         const t = key && raw === key && activeTrack(key);
         if (!t || t.protected) return new Response(null, { status: 404 });
@@ -1894,6 +1927,7 @@ function register(ipcMain, getWin, canEdit) {
       for (const t of Object.values(db.tracks)) {
         delete t.failed;
         delete t.analysisFailureVersion;
+        delete t.analysisFailureGeneration;
         delete t.failWhy;
         delete t.loudFailed;
       }
@@ -2017,6 +2051,7 @@ const pathOf = async (id) => {
 };
 async function close() {
   closeAnalysis();
+  closePlayback();
   stopping = true;
   clearTimeout(identityTimer);
   clearTimeout(watchTm);

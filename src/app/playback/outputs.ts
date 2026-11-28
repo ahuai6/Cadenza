@@ -1,41 +1,70 @@
 import type { AudioLike } from '../../engine';
-import { mediaUrl, type Track } from '../bridge';
+import type { Track } from '../bridge';
 import type { Output, PlaybackRequest } from './coordinator';
 import * as native from './hifi';
-import { MediaOutput } from './media-output';
+import { PcmOutput, END_FADE_SECONDS } from './pcm-output';
 import { decodeFile } from './pcm';
 import { engine } from './stage';
 
 const amplitude = (album: boolean, remaining: number) =>
-  engine.muted ? 0 : engine.volume * engine.balance * (album ? 1 : Math.min(1, Math.max(0, remaining / 1.6)));
+  engine.muted
+    ? 0
+    : engine.volume * engine.balance * (album ? 1 : Math.min(1, Math.max(0, remaining / END_FADE_SECONDS)));
 
-let ahead: { id: string; url: string; media: MediaOutput; album: boolean } | null = null;
+/** The next song, opened ahead and chained to the one playing so it follows without a gap. */
+let ahead: { key: string; output: PcmOutput; album: boolean; after: PcmOutput | null } | null = null;
+let opening: object | null = null;
+const keyOf = (t: Track) => t.id + '|' + t.mediaRevision;
+
 export function clearPreload(id?: string) {
-  if (!ahead || (id && ahead.id !== id)) return;
-  ahead.media.close();
+  opening = null;
+  if (!ahead || (id && ahead.output.id !== id)) return;
+  ahead.after?.chain(null);
+  ahead.output.stop();
   ahead = null;
 }
 export function keepPreload(track: Track | null, album: boolean) {
-  if (ahead && (!track || ahead.url !== mediaUrl(track.id, track.mediaRevision) || ahead.album !== album))
-    clearPreload();
+  if (ahead && (!track || ahead.key !== keyOf(track) || ahead.album !== album)) clearPreload();
 }
-export function preload(track: Track | null, route: PlaybackRequest['route'], currentId: string, album: boolean) {
+export function preload(
+  track: Track | null,
+  route: PlaybackRequest['route'],
+  current: PreparedOutput | null,
+  album: boolean,
+) {
   if (route === 'hifi') {
     clearPreload();
-    void native.preload(track && track.id !== currentId ? track.id : null);
+    void native.preload(track && track.id !== current?.id ? track.id : null);
     return;
   }
   keepPreload(track, album);
-  if (ahead || !track || track.id === currentId) return;
-  const url = mediaUrl(track.id, track.mediaRevision);
-  const media = new MediaOutput(url, engine.clock, (remaining) => amplitude(album, remaining), !album);
-  const job = (ahead = { id: track.id, url, media, album });
-  void media.ready.catch(() => {
-    if (ahead === job) clearPreload();
-  });
+  const after = current instanceof PcmOutput ? current : null;
+  if (ahead) {
+    // the same next song, now after another stream (a seek replaced it)
+    if (ahead.after !== after) {
+      ahead.after?.chain(null);
+      after?.chain(ahead.output);
+      ahead.after = after;
+    }
+    return;
+  }
+  if (!track || track.id === current?.id) return;
+  const token = (opening = {});
+  void PcmOutput.open(track, 0, album).then(
+    (output) => {
+      if (opening !== token) return output.stop();
+      opening = null;
+      ahead = { key: keyOf(track), output, album, after };
+      after?.chain(output);
+    },
+    () => {
+      if (opening === token) opening = null;
+    },
+  );
 }
 
 export interface PreparedOutput extends Output {
+  readonly id: string;
   readonly audio: AudioLike;
   readonly nativeSeq?: number;
   syncGain(): void;
@@ -44,6 +73,7 @@ export async function prepareOutput(
   request: PlaybackRequest,
   track: Track | null,
   album: boolean,
+  at: number,
 ): Promise<PreparedOutput> {
   const {
     entry: { id },
@@ -64,6 +94,7 @@ export async function prepareOutput(
         engine.muted || engine.volume <= 0 ? 0 : engine.balance,
       );
     return {
+      id,
       route,
       duration,
       nativeSeq: info.seq,
@@ -79,36 +110,21 @@ export async function prepareOutput(
       pause: () => native.pause(info.seq),
       stop: () => native.stop(info.seq),
       time: native.time,
+      running: () => native.joined(info.seq),
       syncGain,
     };
   }
   signal.throwIfAborted();
-  const url = mediaUrl(id, revision);
-  const candidate = ahead?.url === url && ahead.album === album ? ahead : null;
-  if (candidate) ahead = null;
-  else clearPreload();
-  const media =
-    candidate?.media || new MediaOutput(url, engine.clock, (remaining) => amplitude(album, remaining), !album);
-  const cancel = () => media.close();
-  signal.addEventListener('abort', cancel, { once: true });
-  try {
-    await media.ready;
+  if (!track) throw new Error('track unavailable');
+  const candidate = ahead?.key === keyOf(track) && ahead.album === album ? ahead : null;
+  if (candidate) {
+    ahead = null;
+    opening = null;
+  } else clearPreload();
+  const output = candidate?.output ?? (await PcmOutput.open(track, at, album, signal));
+  if (signal.aborted) {
+    output.stop();
     signal.throwIfAborted();
-  } catch (error) {
-    media.close();
-    throw error;
-  } finally {
-    signal.removeEventListener('abort', cancel);
   }
-  const duration = media.duration || trackDuration;
-  return {
-    route,
-    duration,
-    audio: { duration, load: (signal) => decodeFile(id, signal, revision) },
-    start: (at, notify) => media.start(at, notify),
-    pause: () => media.pause(),
-    stop: cancel,
-    time: media.time,
-    syncGain: media.syncGain,
-  };
+  return output;
 }

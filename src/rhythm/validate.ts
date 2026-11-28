@@ -25,14 +25,22 @@ export function checkAnalysis(a: unknown, duration?: number): string | null {
   if (B.length && (B[0] < -1 || B[B.length - 1] > r.duration + 2)) return 'beats outside the song';
   if (!r.tempo || !finite(r.tempo.bpm) || r.tempo.bpm < 30 || r.tempo.bpm > 300) return `tempo ${r.tempo?.bpm}`;
   if (B.length >= 8) {
-    const g = B.slice(1)
-        .map((t, i) => t - B[i])
-        .sort((x, y) => x - y),
-      med = g[g.length >> 1],
-      bpm = 60 / med;
+    // The tempo is read from the beats in one of two ways: the median beat, or (the neural engine's, analyze.ts
+    // feltGrid) the median of spans of eight beats, which averages out the 20 ms frame grid. A song that pauses or
+    // slows makes the two differ by more than the tolerance (4.0.0-alpha.6: such readings were thrown away as broken),
+    // so a tempo agreeing with either is sound.
+    const median = (span: number) => {
+      const g = B.slice(span)
+        .map((t, i) => (t - B[i]) / span)
+        .sort((x, y) => x - y);
+      return 60 / g[g.length >> 1];
+    };
+    const readings = [median(1), median(Math.min(8, B.length - 1))];
     // (the tempo may be the felt one — half or double the counted beat — but it must be one of them)
-    if (![0.5, 1, 2, 1 / 3, 3, 2 / 3, 1.5].some((m) => Math.abs(bpm * m - r.tempo.bpm) / r.tempo.bpm < 0.06))
-      return `tempo ${r.tempo.bpm.toFixed(1)} disagrees with the beats (${bpm.toFixed(1)})`;
+    const agrees = (bpm: number) =>
+      [0.5, 1, 2, 1 / 3, 3, 2 / 3, 1.5].some((m) => Math.abs(bpm * m - r.tempo.bpm) / r.tempo.bpm < 0.06);
+    if (!readings.some(agrees))
+      return `tempo ${r.tempo.bpm.toFixed(1)} disagrees with the beats (${readings[0].toFixed(1)})`;
   }
   if (!finite(r.meter) || r.meter < 1 || r.meter > 16) return `meter ${r.meter}`;
   if (!finite(r.rate) || r.rate <= 0) return 'no rate';

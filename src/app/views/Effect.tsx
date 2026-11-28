@@ -136,7 +136,7 @@ export function EffectView() {
           data-closing={listPresence.closing || undefined}
           inert={listPresence.closing}
         >
-          <NpLyrics lines={session.doc.lines} live compact />
+          <NpLyrics lines={session.doc.lines} live compact song={session.spec.key} />
         </div>
       )}
       <div data-test="fx-bar" className={s.bottom + ' glass'}>

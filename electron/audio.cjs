@@ -172,6 +172,9 @@ function start(ipcMain, getWin, settings, library) {
   }
 
   ipcMain.handle('audio:state', () => ({ supported: supported(), processEpoch, ...state }));
+  // the performance counter now (100 ns units, libuv's high-resolution time rests on it as the native core's reports
+  // do): the page measures how its own clock stands to it
+  ipcMain.handle('audio:qpc', () => Number(process.hrtime.bigint() / 100n));
   ipcMain.handle('audio:cmd', async (_e, o) => {
     if (!o || typeof o.cmd !== 'string') return false;
     const lane = o.next ? 'next' : 'current';
@@ -209,9 +212,19 @@ function start(ipcMain, getWin, settings, library) {
       return write({ cmd: 'load', id: o.id, path: p, next: !!o.next, seq: Number.isSafeInteger(o.seq) ? o.seq : 0 });
     }
     if (
-      ['play', 'pause', 'stop', 'release', 'gain', 'hwgain', 'devices', 'closefile', 'barrier', 'clearnext'].includes(
-        o.cmd,
-      )
+      [
+        'play',
+        'pause',
+        'stop',
+        'release',
+        'gain',
+        'hwgain',
+        'devices',
+        'closefile',
+        'barrier',
+        'clearnext',
+        'chain',
+      ].includes(o.cmd)
     ) {
       return write(o);
     }

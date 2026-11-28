@@ -170,7 +170,12 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
         await engine.clock.outputDevice(route === 'hifi');
         request.signal.throwIfAborted();
         applyBalance();
-        output = await prepareOutput({ ...request, route }, trackOf(request.entry.id), transport.get().album);
+        output = await prepareOutput(
+          { ...request, route },
+          trackOf(request.entry.id),
+          transport.get().album,
+          transport.get().position,
+        );
       } catch (error) {
         if (route === 'std' || request.signal.aborted) throw error;
         await hifiRelease();
@@ -181,7 +186,12 @@ const transport = new PlaybackCoordinator<PreparedOutput>(
           warnedFormat = true;
           toast(tx('s.hifi.notThis'));
         }
-        output = await prepareOutput({ ...request, route: 'std' }, trackOf(request.entry.id), transport.get().album);
+        output = await prepareOutput(
+          { ...request, route: 'std' },
+          trackOf(request.entry.id),
+          transport.get().album,
+          transport.get().position,
+        );
       }
       if (tr) tracePhase(tr, 'audioPrepared', performance.now() - tr.t0);
       return output;
@@ -303,7 +313,7 @@ function schedulePreload() {
   preloadTimer = setTimeout(() => {
     const s = transport.get();
     if (generation === s.generation && s.candidate === candidate && (route === 'hifi' || s.phase === 'playing')) {
-      preload(candidate ? trackOf(candidate.id) : null, route, target.id, album);
+      preload(candidate ? trackOf(candidate.id) : null, route, prepared, album);
     }
   }, 1500);
 }

@@ -213,7 +213,13 @@ function Lyrics({
         ) : (
           <div className={s.lyrBox}>
             {hasLyrics && session ? (
-              <NpLyrics key={session.version + ':' + shownId} lines={session.doc.lines} live compact />
+              <NpLyrics
+                key={session.version + ':' + shownId}
+                lines={session.doc.lines}
+                live
+                compact
+                song={session.spec.key}
+              />
             ) : null}
           </div>
         )}

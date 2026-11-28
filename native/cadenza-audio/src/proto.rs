@@ -34,6 +34,12 @@ pub enum Cmd {
     Closefile { ticket: u64, seq: u64 },
     Barrier { ticket: u64 },
     Clearnext,
+    // after the song `seq` plays its last sample, the preloaded `next` follows in the same stream as run `run` (gapless)
+    Chain {
+        seq: u64,
+        next: u64,
+        run: u64,
+    },
     Gain {
         g: f64,
     },

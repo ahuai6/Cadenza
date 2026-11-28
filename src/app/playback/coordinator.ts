@@ -12,6 +12,9 @@ export interface Output {
   pause(): void;
   stop(): void;
   time(): number;
+  /** Already sounding before start(): a song the output joined to the previous one without a gap. Its start() takes
+   *  it over as it plays, so the player goes straight to 'playing'. */
+  running?(): boolean;
 }
 export interface PlaybackRequest {
   readonly generation: number;
@@ -245,7 +248,12 @@ export class PlaybackCoordinator<T extends Output> {
     if (!output || !s.intent || this.scrubbing || s.phase === 'playing' || s.phase === 'buffering') return;
     const position = output.duration > 0 && s.position >= output.duration ? 0 : s.position;
     const run = ++this.run;
-    this.state.set({ phase: 'buffering', position, output: null });
+    const sounding = output.running?.() === true;
+    this.state.set(
+      sounding
+        ? { phase: 'playing', position, output: current!.request.entry }
+        : { phase: 'buffering', position, output: null },
+    );
     if (this.current !== current || this.run !== run) return;
     try {
       output.start(position, (event) => {

@@ -57,7 +57,7 @@ export function MiniLyrics() {
       </button>
       <div className={s.lyr}>
         {hasLyrics && session ? (
-          <NpLyrics key={session.version + ':' + id} lines={session.doc.lines} live compact />
+          <NpLyrics key={session.version + ':' + id} lines={session.doc.lines} live compact song={session.spec.key} />
         ) : (
           <p className={s.none}>{t?.title || ''}</p>
         )}

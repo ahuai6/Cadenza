@@ -45,6 +45,16 @@ let seq = 0,
   ticket = 0;
 let processEpoch = 0;
 let active: { seq: number; runId: number; notify: (event: OutputEvent) => void } | null = null;
+/** The next song, preloaded and chained to the one loaded (`after`): the native core plays it right after the last
+ *  sample of that one, in the same device stream, as run `runId`. `joined` once it has; `info` from its preload. */
+let chained: {
+  id: string;
+  seq: number;
+  runId: number;
+  after: number;
+  joined: boolean;
+  info: Ready | null;
+} | null = null;
 const waiting = new Map<number, { res: (e: Ready) => void; rej: (e: Error) => void }>();
 const barriers = new Map<number, (ok: boolean) => void>();
 const clock = new HifiClock();
@@ -60,9 +70,42 @@ export function nativeMusic() {
 }
 const matches = (e: { seq: number; runId: number }) => active?.seq === e.seq && active.runId === e.runId;
 
-function onPos(e: NativeObservation & { seq: number; runId: number; exact: boolean; pcmDb?: number }) {
+/* The native core stamps each position report with the performance counter at the moment it was read. The page's own
+   clock rests on the same counter: once their offset is measured (the smallest round trip wins), a report is anchored to
+   when it was read instead of when its message arrived through two processes. */
+let qpcOffset: number | null = null;
+let qpcTrip = Infinity;
+let qpcSynced = 0;
+async function syncQpc() {
+  if (!A || performance.now() - qpcSynced < 30_000) return;
+  qpcSynced = performance.now();
+  for (let i = 0; i < 5; i++) {
+    const before = performance.now();
+    const qpc = await A.qpc().catch(() => NaN);
+    const after = performance.now();
+    if (!Number.isFinite(qpc)) return;
+    // (a fresh measurement replaces a stale one, whatever its round trip)
+    if (i === 0) qpcTrip = Infinity;
+    if (after - before < qpcTrip) {
+      qpcTrip = after - before;
+      qpcOffset = qpc / 1e4 - (before + after) / 2;
+    }
+  }
+}
+/** When a report was read, on the page's clock: its own stamp where it can be trusted, else its arrival. */
+function readAt(e: { at100ns?: number | null }, arrived: number) {
+  if (qpcOffset === null || typeof e.at100ns !== 'number' || !Number.isFinite(e.at100ns)) return arrived;
+  const at = e.at100ns / 1e4 - qpcOffset;
+  // a stamp from the future, or older than any message takes, means the offset is off: fall back
+  return at <= arrived + 1 && arrived - at < 60 ? Math.min(at, arrived) : arrived;
+}
+
+function onPos(
+  e: NativeObservation & { seq: number; runId: number; exact: boolean; pcmDb?: number; at100ns?: number },
+) {
   const now = performance.now();
-  if (!matches(e) || !clock.observe(e, now)) return;
+  void syncQpc();
+  if (!matches(e) || !clock.observe(e, readAt(e, now))) return;
   meter =
     e.run && typeof e.pcmDb === 'number' && Number.isFinite(e.pcmDb)
       ? { level: Math.max(0, Math.min(1, (e.pcmDb + 64) / 46)), at: now }
@@ -94,6 +137,13 @@ export function hwGain(db: number) {
 }
 export function load(id: string, signal: AbortSignal): Promise<Ready> {
   signal.throwIfAborted();
+  // the next song already playing on from the one before: taken over as it is, no load
+  if (chained?.joined && chained.id === id && chained.info) {
+    selected = chained.seq;
+    hifi.set({ track: { src: chained.info.src, out: chained.info.out }, exact: false });
+    return Promise.resolve(chained.info);
+  }
+  chained = null;
   const s = ++seq;
   selected = s;
   hifi.set({ track: null, exact: false });
@@ -126,9 +176,31 @@ export function load(id: string, signal: AbortSignal): Promise<Ready> {
     });
   });
 }
-export const preload = (id: string | null) => cmd(id ? { cmd: 'load', id, next: true } : { cmd: 'clearnext' });
+/** Decode the next song ahead and chain it to the one loaded, so it follows without a gap where the formats allow. */
+export function preload(id: string | null) {
+  if (!id) {
+    chained = null;
+    return cmd({ cmd: 'clearnext' });
+  }
+  if (chained && chained.id === id && chained.after === selected) return Promise.resolve(true);
+  const next = { id, seq: ++seq, runId: ++runId, after: selected, joined: false, info: null };
+  chained = next;
+  return cmd({ cmd: 'load', id, next: true, seq: next.seq }).then((ok) =>
+    ok && chained === next ? cmd({ cmd: 'chain', seq: next.after, next: next.seq, run: next.runId }) : false,
+  );
+}
+/** Whether the native core joined this load's song to the one before it and is playing it now. */
+export const joined = (seq: number) => !!chained?.joined && chained.seq === seq;
 export function start(seq: number, pos: number, notify: (event: OutputEvent) => void) {
   if (seq !== selected) return notify({ error: 'hifi-stale-load' });
+  if (joined(seq)) {
+    // already playing from its first sample: the run the core was given when it was chained
+    active = { seq, runId: chained!.runId, notify };
+    chained = null;
+    hold(0);
+    hifi.set({ exact: false });
+    return;
+  }
   const run = { seq, runId: ++runId, notify };
   active = run;
   hold(pos);
@@ -243,6 +315,17 @@ if (A) {
         if (e.seq === selected) hifi.set({ track: { src: e.src, out: e.out } });
         waiting.get(e.seq)?.res(e);
         break;
+      case 'preloaded': {
+        const next = chained;
+        if (next && next.seq === e.seq && e.src) next.info = e;
+        break;
+      }
+      case 'joined': {
+        // (written into the stream ahead of the speaker: the song before is still heard until its own 'ended')
+        const next = chained;
+        if (next && next.seq === e.seq && next.runId === e.runId) next.joined = true;
+        break;
+      }
       case 'fallback':
         if (e.code === 'default' || e.code === 'back') notice(e.code === 'default' ? 'toDefault' : 'back');
         else {
