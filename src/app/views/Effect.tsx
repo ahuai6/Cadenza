@@ -11,20 +11,10 @@ import { ui, settings, useStore, trackOf, toast, openMenu } from '../state';
 import { Button, IconButton, Row, Slider, Note, Section, Dropdown, Cover, usePresence } from '../ui/kit';
 import { Icon } from '../ui/icons';
 import { engine } from '../playback/stage';
-import {
-  player,
-  editSong,
-  chooseSongPreset,
-  saveSong,
-  setLyricOffset,
-  setMvOn,
-  unbindMv,
-  spacedLines,
-  saveSpacing,
-  fxAspect,
-  FX_ASPECTS,
-  setFxAspect,
-} from '../playback/player';
+import { player } from '../playback/player';
+import { editSong, chooseSongPreset, saveSong, setLyricOffset, spacedLines, saveSpacing } from '../playback/song-data';
+import { setMvOn, unbindMv } from '../playback/mv';
+import { fxAspect, FX_ASPECTS, setFxAspect } from '../playback/visual';
 import { refs, back } from '../layers';
 import { Progress, Transport, QueueButton, ModeButton } from './Player';
 import { NpLyrics } from '../ui/NpLyrics';

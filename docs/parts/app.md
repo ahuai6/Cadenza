@@ -12,7 +12,7 @@
 - `Turn`：换页与换区块时，先淡出旧的、再淡入新的；
 - `usePresence`：让会开关的东西都有离场动画。
 
-离场中的画面仍会重绘，因此组件要用传入的数据，不要假设全域状态仍在。字体菜单在 `ui/fonts.tsx`，界面字体在 `uifont.ts`。特效歌词的画面比例（`settings.fxAspect`）由 `playback/player.ts` 的 `setFxAspect` 统一套用到场景、画面框与导出。
+离场中的画面仍会重绘，因此组件要用传入的数据，不要假设全域状态仍在。字体菜单在 `ui/fonts.tsx`，界面字体在 `uifont.ts`。特效歌词的画面比例（`settings.fxAspect`）由 `playback/visual.ts` 的 `setFxAspect` 统一套用到场景、画面框与导出。
 
 界面是可以整个替换的一层。它和引擎之间的合约是：
 - **只引用** `src/engine/index.ts`、`core`、`theme`、`i18n`（由架构测试把关）。
@@ -26,7 +26,9 @@
 |---|---|
 | `bridge.ts` | 与桌面主行程的类型化接口（音乐库、设置、窗口、Hi-Fi） |
 | `state.ts` | 界面状态（页面、图层、弹窗、音乐库、设置）的 store |
-| `playback/` | `coordinator.ts` 拥有队列和输出生命周期；`player.ts` 投影只读状态并安排视觉；`outputs.ts` 装配 `media-output.ts` 与 `hifi.ts`；`pcm.ts` 提供工坊与导出的独立完整解码；`stage.ts` 挂载视觉 |
+| `playback/` | `coordinator.ts` 拥有队列和输出生命周期；`player.ts` 接上输出、队列与音量；`projection.ts` 是界面读取的播放状态；`visual.ts` 安排场景；`song-data.ts`、`mv.ts`、`lyric-edit.ts` 处理绑定在歌曲上的数据、MV 与歌词修改；`outputs.ts` 装配 `pcm-output.ts` 与 `hifi.ts`；`pcm.ts` 提供工坊与导出的独立完整解码；`stage.ts` 挂载视觉 |
+| `ui/rows-window.ts` | 长列表（160 行以上、不在拖动排序）只绘制可见附近的行，上下用留白占位；歌曲列表的每一行只在它的歌曲、位置或状态变化时重画。「显示正在播放的歌曲」会先把列表滚到那一行 |
+| `kept.ts` | 用户做出和选择的东西（外观、我的风格、工坊项目、收听选择、上次的队列），由主进程与曲库一起保存（网页版留在浏览器） |
 | `actions/` | 启动（`boot`）、快捷键（`bindKeys`）、换页（`go`）、改设置（`setSettings`、`setLang`） |
 | `engineConfig.ts` | 用户设置 → `EngineConfig` |
 | `layers.ts`、`motion.ts` | 书页播放栏展开与反向收起，艺术图像的坐标插值，正在播放与特效歌词的画面切换 |

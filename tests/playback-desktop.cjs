@@ -223,7 +223,15 @@ async function run(route, crash = false) {
       [q[2], q[0], q[3]],
     );
     await wait(() => window.__cadenza.api.playback.get().phase === 'paused');
-    const last = await run(() => JSON.parse(localStorage.getItem('cz-last')));
+    // (the queue is kept with the library since 4.0.0 phase 2; it is written a moment after the change)
+    const last = await run(async () => {
+      for (let i = 0; i < 40; i++) {
+        const queue = await window.cadenzaKept.get('queue');
+        if (queue?.i === 2) return queue;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return window.cadenzaKept.get('queue');
+    });
     assert.deepEqual(last, { q: [q[2], q[0], q[3]], i: 2 });
     assert.deepEqual(
       await run(() => {

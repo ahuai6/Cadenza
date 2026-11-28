@@ -1,8 +1,9 @@
-// Saved custom motion styles (我的風格): how the lyrics move, apart from the look, kept in this profile and offered in
+// Saved custom motion styles (我的風格): how the lyrics move, apart from the look, kept with the library and offered in
 // every song's style pane beside the built-in styles.
 import { createStore } from '../core/emitter';
 import { motionPart, type SavedMotion, type Style } from '../theme/style';
-import { remember, keep, useStore } from './state';
+import { useStore } from './state';
+import { kept, setKept } from './kept';
 import { canEdit } from './editing';
 
 export interface SavedMotionEntry {
@@ -10,8 +11,8 @@ export interface SavedMotionEntry {
   name: string;
   motion: SavedMotion;
 }
-export const motions = createStore({ list: remember<SavedMotionEntry[]>('motions', []) });
-const persist = () => keep('motions', motions.get().list);
+export const motions = createStore({ list: kept<SavedMotionEntry[]>('motions', []) });
+const persist = () => setKept('motions', motions.get().list);
 export const useMotions = () => useStore(motions, (x) => x.list);
 /** Save a style's motion under a name: over the saved style it came from, or as a new one. Returns its id. */
 export function saveMotion(st: Style, name: string, asNew: boolean): string | null {

@@ -72,10 +72,18 @@ contextBridge.exposeInMainWorld('cadenzaLib', {
   setCover: (id, how) => L('lib:setCover', id, how),
   bindMv: (id) => L('lib:bindMv', id),
   onChanged: on('lib:changed'),
+  onPatch: on('lib:patch'),
   onProgress: on('lib:progress'),
   onAnalysis: on('lib:analysis'),
   onWake: on('lib:wake'),
   onAnalysisInvalidated: on('lib:analysisInvalidated'),
+});
+// what the listener makes and chooses, kept with the library (electron/kept.cjs)
+contextBridge.exposeInMainWorld('cadenzaKept', {
+  start: () => L('kept:start'),
+  get: (key) => L('kept:get', key),
+  set: (key, value) => L('kept:set', key, value),
+  move: (values) => L('kept:move', values),
 });
 // the rhythm engine's networks run natively (electron/infer.cjs): their state, the models' download, one network pass
 contextBridge.exposeInMainWorld('cadenzaInfer', {

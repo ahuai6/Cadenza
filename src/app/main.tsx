@@ -6,6 +6,7 @@ import './styles/base.css';
 import './words';
 import { createRoot } from 'react-dom/client';
 import { D, Lib } from './bridge';
+import { loadKept } from './kept';
 import { pointerFocusRelease } from './focus';
 
 pointerFocusRelease();
@@ -19,6 +20,8 @@ const root = createRoot(document.getElementById('root')!);
     return;
   }
   const mode = D && Lib ? (await D.settings().catch(() => null))?.ui : null;
+  // (what the listener made and chose, read before any part of the interface that shows it starts)
+  await loadKept();
   if (mode === 'space') {
     const { SpaceShell } = await import('./space/SpaceShell');
     root.render(<SpaceShell />);

@@ -10,7 +10,8 @@ import { Icon } from '../../ui/icons';
 import { Button, IconButton, Section, Row, Check, TextField, Note, Slider, Dropdown, usePresence } from '../../ui/kit';
 import { LyricTextEditor } from '../../ui/LyricTextEditor';
 import { isTtml } from '../../../engine';
-import { yieldAudio, songForWorkshop } from '../../playback/player';
+import { yieldAudio } from '../../playback/player';
+import { songForWorkshop } from '../../playback/song-data';
 import { DEFAULT_LYRIC_ASPECT, storedStyle } from '../../../theme/style';
 import { StylePage, EndPane, ExportPanel } from '../panes';
 import {

@@ -1,12 +1,12 @@
 // What the space points at, as the commands take it (commands/registry.ts): an album as its songs, a playlist (the
 // favourites among them), one song among its album's songs.
 import { tx } from '../../i18n';
-import { lib, indexOf } from '../state';
+import { lib, libraryIndex } from '../state';
 import type { Target } from '../commands';
 
 export function targetOf(d: { kind: 'album' | 'playlist' | 'song'; key: string }): Target | null {
   const { tracks, favorites, playlists } = lib.get(),
-    idx = indexOf(tracks, favorites);
+    idx = libraryIndex(tracks, favorites);
   if (d.kind === 'album') {
     const a = idx.albums.find((g) => g.key === d.key);
     return a ? { kind: 'tracks', ids: a.tracks.map((t) => t.id) } : null;

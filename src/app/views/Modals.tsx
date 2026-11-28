@@ -7,17 +7,9 @@ import { ui, lib, useStore, keep, toast } from '../state';
 import { Button, Seg, Cover } from '../ui/kit';
 import { openDialog as open, closeDialog as close, DialogHead as Head, addDialogs } from '../ui/dialogs';
 import { engine } from '../playback/stage';
-import {
-  player,
-  playIds,
-  bindMv,
-  setMvOffset,
-  fxAspect,
-  FX_ASPECTS,
-  setFxAspect,
-  wholeRhythm,
-  waitForVisual,
-} from '../playback/player';
+import { player, playIds } from '../playback/player';
+import { bindMv, setMvOffset } from '../playback/mv';
+import { fxAspect, FX_ASPECTS, setFxAspect, wholeRhythm, waitForVisual } from '../playback/visual';
 import { ExportPanel, exportBusy } from './panes';
 import { LyricsTab } from './Effect';
 import { Row, Slider, Check, Select } from '../ui/kit';

@@ -58,6 +58,8 @@ try {
   process.exit(1);
 }
 const library = require('./library.cjs');
+const keptStore = require('./kept.cjs');
+let kept = null;
 const audio = require('./audio.cjs');
 const inferHost = require('./inferHost.cjs');
 protocol.registerSchemesAsPrivileged([library.scheme]);
@@ -546,6 +548,8 @@ app
       settings,
       (event) => editing && fromMain(event),
     );
+    kept = keptStore.createKept(path.join(app.getPath('userData'), 'library', 'kept'));
+    keptStore.register(ipcMain, kept, { fromMain, canEdit: (event) => editing && fromMain(event) });
     hifi = audio.start(ipcMain, () => win, settings, library);
     infer = inferHost.start(ipcMain, () => win, settings);
     createWindow();
@@ -575,7 +579,7 @@ app.on('before-quit', (event) => {
   if (libraryClosing) return;
   libraryClosing = true;
   quitting = true;
-  void Promise.all([library.close(), cancelOwnedExports()])
+  void Promise.all([library.close(), kept?.settled(), cancelOwnedExports()])
     .catch((error) => console.error('[library close]', error))
     .finally(() => {
       libraryClosed = true;

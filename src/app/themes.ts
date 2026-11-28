@@ -1,7 +1,8 @@
-// Saved custom themes: kept in this profile, shared by the workshop and every song's panel.
+// Saved custom themes: kept with the library (kept.ts), shared by the workshop and every song's panel.
 import { createStore } from '../core/emitter';
 import { visualPreset, type Style } from '../theme/style';
-import { remember, keep, useStore } from './state';
+import { useStore } from './state';
+import { kept, setKept } from './kept';
 import { canEdit } from './editing';
 
 export interface SavedTheme {
@@ -9,8 +10,8 @@ export interface SavedTheme {
   name: string;
   style: unknown;
 }
-export const themes = createStore({ list: remember<SavedTheme[]>('themes', []) });
-const persist = () => keep('themes', themes.get().list);
+export const themes = createStore({ list: kept<SavedTheme[]>('themes', []) });
+const persist = () => setKept('themes', themes.get().list);
 export const useThemes = () => useStore(themes, (x) => x.list);
 /** Save a style under a name: over the theme it came from, or as a new one. Returns its id. */
 export function saveTheme(st: Style, name: string, asNew: boolean): string | null {

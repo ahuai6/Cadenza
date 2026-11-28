@@ -18,7 +18,7 @@ import {
 import { tx } from '../../i18n';
 import { Lib, LyricAI, type LyricField, type LyricSources, type LyricTarget } from '../bridge';
 import { canEdit, stageLyricDraft, useEditing, useEditingDraft } from '../editing';
-import { commitLyricField, previewLyrics, resetLyricPreview, switchLyricSource } from '../playback/player';
+import { commitLyricField, previewLyrics, resetLyricPreview, switchLyricSource } from '../playback/lyric-edit';
 import { lib, trackOf, useStore } from '../state';
 import { AiLyricTranslation } from './AiLyricTranslation';
 import { LyricTextEditor } from './LyricTextEditor';

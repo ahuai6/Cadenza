@@ -1197,7 +1197,8 @@ const ok = (name, pass, detail) => {
       .catch(() => '');
     const r = await C(async (shown) => {
       const s = window.__cadenza.player.get().session,
-        list = JSON.parse(localStorage.getItem('cz-motions') || '[]'),
+        // (kept with the library since 4.0.0 phase 2, no longer in the page's localStorage)
+        list = (await window.cadenzaKept.get('motions')) || [],
         e = list[0];
       window.__cadenza.api.editSong((x) => {
         x.applyMotion('float');

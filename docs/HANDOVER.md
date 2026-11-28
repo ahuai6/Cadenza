@@ -10,7 +10,7 @@ Cadenza 是以本地音乐为核心的播放器，提供曲库、歌单、队列
 | --- | --- | --- |
 | Electron 主进程与 Renderer | [main.cjs](../electron/main.cjs) 管理单实例、资料生命周期、窗口和系统集成，加载 `dist-app/index.html`。桌面 [index.html](../index.html) 和网页 [web.html](../web.html) 都进入 [app/main.tsx](../src/app/main.tsx)，再挂载适用界面。 | [架构](ARCHITECTURE.md)、[应用](parts/app.md) |
 | IPC 与本地资源 | Renderer 经 [bridge.ts](../src/app/bridge.ts) 调用 [preload.cjs](../electron/preload.cjs) 暴露的接口。主进程注册 `cadenza:`，由 [library.cjs](../electron/library.cjs) 按曲库条目、文件修订和授权范围提供媒体、封面、MV 等资源。资料目录与启动策略在 [profile.cjs](../electron/profile.cjs)。 | [架构](ARCHITECTURE.md)、[维护](MAINTENANCE.md) |
-| 播放与媒体时间 | 界面和系统命令进入 [player.ts](../src/app/playback/player.ts)，由 [coordinator.ts](../src/app/playback/coordinator.ts) 管理队列、请求代次和输出交接。[outputs.ts](../src/app/playback/outputs.ts) 选择后端。普通路径在 [media-output.ts](../src/app/playback/media-output.ts) 把媒体元素接入 [Web Audio 图](../src/engine/audio.ts)，Hi-Fi 路径从 [hifi.ts](../src/app/playback/hifi.ts) 和 [hifi-clock.ts](../src/app/playback/hifi-clock.ts) 接收原生事件和时间观测。视觉消费当前有效输出提供的歌曲时间。 | [引擎](parts/engine.md)、[G4R](G4R.md) |
+| 播放与媒体时间 | 界面和系统命令进入 [player.ts](../src/app/playback/player.ts)，由 [coordinator.ts](../src/app/playback/coordinator.ts) 管理队列、请求代次和输出交接。[outputs.ts](../src/app/playback/outputs.ts) 选择后端。普通路径在 [pcm-output.ts](../src/app/playback/pcm-output.ts) 把原生解码的 PCM 经 Worker 送进 [Web Audio 图](../src/engine/audio.ts) 的 AudioWorklet，Hi-Fi 路径从 [hifi.ts](../src/app/playback/hifi.ts) 和 [hifi-clock.ts](../src/app/playback/hifi-clock.ts) 接收原生事件和时间观测。视觉消费当前有效输出提供的歌曲时间。 | [引擎](parts/engine.md)、[G4R](G4R.md) |
 | Rust 原生音频 | [audio.cjs](../electron/audio.cjs) 管理原生进程与 IPC。[main.rs](../native/cadenza-audio/src/main.rs) 是原生入口，[player.rs](../native/cadenza-audio/src/player.rs) 管播放， [output.rs](../native/cadenza-audio/src/output.rs) 管设备及缓冲，[clock.rs](../native/cadenza-audio/src/clock.rs) 将设备观测映射到媒体位置。媒体时间的实测依据随输出后端不同，物理 DAC 延迟需独立验证。 | [G4R](G4R.md)、[测试](TESTING.md) |
 | 曲库、身份与缓存 | [library.cjs](../electron/library.cjs) 管扫描、用户资料、后台索引与缓存。 [audio-identity.cjs](../electron/audio-identity.cjs) 调用原生 [identity.rs](../native/cadenza-audio/src/identity.rs) 识别音频内容。曲目条目身份独立于内容身份，重复内容可共享分析，用户编辑仍按条目保存。 | [内容身份](IDENTITY.md)、[G5.5-R](G55-R.md) |
 | 后台任务与音乐分析 | [playback/analysis.ts](../src/app/playback/analysis.ts) 调用曲库的任务接口，按内容修订提交。[rhythm/index.ts](../src/rhythm/index.ts) 和 [file-analysis.worker.ts](../src/rhythm/file-analysis.worker.ts) 处理 DSP、分块和渐进交付，[neural/index.ts](../src/rhythm/neural/index.ts) 与 [inferHost.cjs](../electron/inferHost.cjs) 连接 Beat This!、HTDemucs 和可用运行时。[RhythmMap](../src/rhythm/map.ts) 按媒体时间向视觉提供分析结果。 | [节奏](parts/rhythm.md)、[G6](G6.md)、[G8](G8.md) |
@@ -67,7 +67,7 @@ npm run dist:win -- --publish never
 | --- | --- | --- |
 | 0 准备与基线 | 本机打包流程可用，用户先试用现状 | 检查工具链与模型；开发版跨版本保留资料（`alpha.5`）；打包 G8 基线 |
 | 1 播放连续性 | 听感上没有断点和杂音 | 普通输出改为自建 PCM 管线，普通输出与 Hi-Fi 无缝续播；MP4 编码器延迟裁剪；Hi-Fi 时钟以原生时间戳为锚；切歌时画面与歌词的交接（alpha.6） |
-| 2 曲库与数据 | 大曲库流畅，数据归属唯一 | 曲库索引增量持久化与增量推送；外观、预设、单曲选择、工坊项目迁回主进程存储；拆分 `player.ts` 的编排职责（从阶段 1 移来）；大曲库压力测试 |
+| 2 曲库与数据 | 大曲库流畅，数据归属唯一 | 曲库索引增量持久化与增量推送；外观、预设、单曲选择、工坊项目迁回主进程存储；拆分 `player.ts` 的编排职责（从阶段 1 移来）；大曲库压力测试（alpha.7） |
 | 3 分析不打扰播放 | 分析在后台完成，不抢播放与画面资源 | 分析数据不经界面主线程中转；统一工坊与曲库的分析管线；只做对体验有用的质量升级 |
 | 4 视觉世界独立 | 各风格拥有自己的规划和生命周期 | 视觉世界接口；Folia 不再依附原生导演的规划；下一首场景随音频预读预先就绪；对照新的上游 Folia |
 | 5 渲染路线 | 解决高分辨率长帧 | 先做原型与实测，由用户在「优化现有混合管线」和「建立 GPU 帧图」之间决定，再实施 |
@@ -84,6 +84,7 @@ npm run dist:win -- --publish never
 | alpha.5 | 歌曲加载后，主页与正在播放页的歌词瞬间出现 | 歌词随异步加载到达，没有入场交接 | 阶段 1 已加入场（alpha.6），整体动效在阶段 6 |
 | alpha.5 | 部分歌曲分析失败：速度与拍点不一致 | 神经网络路径的速度取 8 拍跨度间隔的中位数，校验取单拍间隔的中位数，有停顿或变速的歌两者可差 8%，正常结果被当成损坏数据 | 阶段 1 已修（alpha.6），旧失败记录自动重试 |
 | alpha.6 | 特效歌词内拖动进度条或「上一首」回到开头后画面卡住不动 | 普通输出跳转时记下目标位置，新流开始发声后没有清除，时钟一直停在目标位置；之后暂停再继续还会跳回该位置 | 已修（alpha.6.1），回归见 `continuity-desktop.cjs` 与 `streaming-desktop.cjs` |
+| alpha.6.1 | 连续切多首歌时特效歌词黑屏 | 第一次切歌保留了上一首的画面，新场景就绪前再切一次时已没有当前场景可截取，引擎丢掉了保留中的画面 | 阶段 2 已修（alpha.7），回归见 `continuity-desktop.cjs` |
 | alpha.6 | 特效歌词内手动切歌时画面停顿约半秒 | 下一首的场景要等切过去后才开始构建，其间显示上一首的静止快照；新场景第一次绘制时现场创建图层与排版，出现一帧 100 ms 左右的长帧 | 阶段 3–4：随音频预读预先构建下一首场景，首帧准备移出显示帧 |
 | alpha.6 | 仅神经网络模式下分鼓（HTDemucs）在本机原生推理失败，只得到拍点 | 待查 | 阶段 3 |
 | alpha.5 | 仅神经网络模式下偶发 `neural engine unavailable` | 任意一个推理窗口失败就使整首失败，且失败后要等设置变化或手动重新识别才重试 | 阶段 3 |

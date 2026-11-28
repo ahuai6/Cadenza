@@ -2,7 +2,8 @@
 import { tx } from '../../i18n';
 import { Lib } from '../bridge';
 import { lib, toast } from '../state';
-import { enqueue, forgetPrepared, playIds, playNext, setInstrumental } from '../playback/player';
+import { enqueue, forgetPrepared, playIds, playNext } from '../playback/player';
+import { setInstrumental } from '../playback/song-data';
 import { define } from './registry';
 
 const isFav = (id: string) => lib.get().favorites.includes(id);

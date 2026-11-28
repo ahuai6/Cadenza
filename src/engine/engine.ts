@@ -214,8 +214,9 @@ export class Engine extends Emitter<EngineEvents> {
   /** the picture of the song before, fading out over the next one; `t0` null while the next one is not ready yet (the
    *  picture is held as it was, rather than leaving the screen empty while the next song's scene is built) */
   private fadeOut: { cv: HTMLCanvasElement; t0: number | null; held: number } | null = null;
-  /** album play: the song before, still running on in the picture for a moment (see show); `fadeAt` null while held */
-  private carry: { s: Session; t0: number; at: number; fadeAt: number | null } | null = null;
+  /** album play: the song before, still running on in the picture for a moment (see show); `fadeAt` null while held,
+   *  `held` when the wait for the next scene (re)began */
+  private carry: { s: Session; t0: number; at: number; held: number; fadeAt: number | null } | null = null;
   private drawnPlan: Session['plan'] | null = null;
   private retireWorld(plan?: Session['plan']) {
     if (plan && plan !== this.session?.plan && plan !== this.carry?.s.plan && plan !== this.swapFade?.s.plan)
@@ -449,7 +450,7 @@ export class Engine extends Emitter<EngineEvents> {
     }
     const now = performance.now();
     if (o.transition === 'album' && this.session && this.view === 'effect') {
-      this.carry = { s: this.session, t0: this.t, at: now, fadeAt: now };
+      this.carry = { s: this.session, t0: this.t, at: now, held: now, fadeAt: now };
       this.bdCarry = this.lastBd ? { ...this.lastBd, at: now } : null;
     } else if (o.transition && o.transition !== 'none' && this.session && this.view !== 'hidden') {
       const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement;
@@ -476,13 +477,19 @@ export class Engine extends Emitter<EngineEvents> {
     const previous = this.session?.plan;
     const carried = this.carry?.s.plan;
     if (!this.transport) this.stopAudio();
-    else {
+    else if (!this.session) {
+      // asked again before the next scene arrived (songs skipped in a row): the picture already held stays, and the
+      // wait for a scene begins anew, so the screen is not left empty
+      const now = performance.now();
+      if (this.fadeOut && this.fadeOut.t0 === null) this.fadeOut.held = now;
+      if (this.carry && this.carry.fadeAt === null) this.carry.held = now;
+    } else {
       this.fadeOut = this.carry = this.bdCarry = null;
       const now = performance.now();
-      if (this.session && this.view === 'effect' && transition === 'album') {
-        this.carry = { s: this.session, t0: this.t, at: now, fadeAt: null };
+      if (this.view === 'effect' && transition === 'album') {
+        this.carry = { s: this.session, t0: this.t, at: now, held: now, fadeAt: null };
         this.bdCarry = this.lastBd ? { ...this.lastBd, at: now } : null;
-      } else if (this.session && this.view !== 'hidden' && transition) {
+      } else if (this.view !== 'hidden' && transition) {
         const cv = makeCanvas(this.canvas.width, this.canvas.height) as HTMLCanvasElement;
         cv.getContext('2d')!.drawImage(this.canvas, 0, 0);
         this.fadeOut = { cv, t0: null, held: now };
@@ -1122,7 +1129,7 @@ export class Engine extends Emitter<EngineEvents> {
     const fo = this.fadeOut,
       c = this.carry;
     if (fo && fo.t0 === null && now - fo.held > HOLD_MAX * 1000) fo.t0 = now;
-    if (c && c.fadeAt === null && now - c.at > HOLD_MAX * 1000) c.fadeAt = now;
+    if (c && c.fadeAt === null && now - c.held > HOLD_MAX * 1000) c.fadeAt = now;
     if (c) {
       const fading = (now - (c.fadeAt ?? now)) / 1000;
       if (fading >= CARRY) {

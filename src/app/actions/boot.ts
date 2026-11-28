@@ -3,8 +3,12 @@
 // And the hooks the desktop tests read (window.__cadenza): a new interface keeps them by keeping this module.
 import { detectLang, setLang as setI18n, LANGS, words, tx, type Lang } from '../../i18n';
 import { D, Lib, Infer } from '../bridge';
-import { ui, lib, settings, remember, keep, toast, type Page } from '../state';
+import { ui, lib, settings, remember, keep, toast, patchLibrary, type Page } from '../state';
 import * as playerApi from '../playback/player';
+import * as songData from '../playback/song-data';
+import * as mvApi from '../playback/mv';
+import * as visualApi from '../playback/visual';
+import * as lyricEdit from '../playback/lyric-edit';
 import { toggle, seekBy, resumeLast } from '../playback/player';
 import { startAnalysis, pauseAnalysis } from '../playback/analysis';
 import { applyEngineConfig } from '../engineConfig';
@@ -64,6 +68,7 @@ export function boot(ready: () => void): () => void {
   tell();
   const offs = [
     l.onChanged((v) => lib.set(v)),
+    l.onPatch((p) => lib.set(patchLibrary(lib.get(), p))),
     l.onProgress((p) => lib.set({ progress: p })),
     l.onAnalysis((a) => lib.set({ analysis: a })),
     d.onWin((win) => ui.set({ win })),
@@ -123,7 +128,7 @@ Object.assign((window as any).__cadenza, {
   settings,
   setSettings,
   player: playerApi.player,
-  api: playerApi,
+  api: { ...playerApi, ...songData, ...mvApi, ...visualApi, ...lyricEdit },
   layers,
   workshop,
   wsEngine,

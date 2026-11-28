@@ -1,6 +1,7 @@
 import {
   analyzePcm,
   checkAnalysis,
+  isCurrent,
   neuralStatus,
   RHYTHM_VERSION,
   type RhythmAnalysis,
@@ -10,6 +11,11 @@ import {
 import { Lib, mediaUrl, type AnalysisToken } from '../bridge';
 import { lib, settings, trackOf } from '../state';
 
+/** A song's kept rhythm reading, if it is one this version of the analysis made for this length of song. */
+export async function readRhythm(id: string, duration: number) {
+  const analysis = (await Lib!.analysis(id, RHYTHM_VERSION).catch(() => null)) as RhythmAnalysis | null;
+  return isCurrent(analysis, duration || undefined) ? analysis : null;
+}
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const requests = new Set<{
   id: string;

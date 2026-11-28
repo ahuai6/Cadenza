@@ -2,7 +2,7 @@
 // progress bars, the lyric highlight) goes to the DOM through refs on the engine's tick, never through these.
 import { useMemo, useSyncExternalStore } from 'react';
 import { createStore, type Store } from '../core/emitter';
-import type { LibView, Settings, Track } from './bridge';
+import type { LibPatch, LibView, Settings, Track } from './bridge';
 import { DEFAULTS } from './settings/schema';
 
 export function useStore<T extends object, R = T>(s: Pick<Store<T>, 'get' | 'subscribe'>, sel?: (v: T) => R): R {
@@ -149,13 +149,53 @@ export function indexOf(tracks: Track[], favorites: string[]) {
   const genres = group((t) => (t.genre && t.genre.length ? t.genre : ['']));
   return { byId, fav, albums, artists, genres };
 }
+// (one index for every view showing the library, made again only when its songs or favorites change)
+let shared: { tracks: Track[]; favorites: string[]; index: ReturnType<typeof indexOf> } | null = null;
+export function libraryIndex(tracks: Track[], favorites: string[]) {
+  if (shared?.tracks !== tracks || shared.favorites !== favorites)
+    shared = { tracks, favorites, index: indexOf(tracks, favorites) };
+  return shared.index;
+}
 export function useIndex() {
   const tracks = useStore(lib, (s) => s.tracks),
     favorites = useStore(lib, (s) => s.favorites);
-  return useMemo(() => indexOf(tracks, favorites), [tracks, favorites]);
+  return useMemo(() => libraryIndex(tracks, favorites), [tracks, favorites]);
 }
-export const trackOf = (id: string | null | undefined) =>
-  id ? lib.get().tracks.find((t) => t.id === id) || null : null;
+const positions = new WeakMap<Track[], Map<string, number>>();
+/** where each song stands in a track list (made once per list) */
+function positionsOf(tracks: Track[]) {
+  let at = positions.get(tracks);
+  if (!at) {
+    at = new Map(tracks.map((t, i) => [t.id, i]));
+    positions.set(tracks, at);
+  }
+  return at;
+}
+export const trackOf = (id: string | null | undefined) => {
+  if (!id) return null;
+  const tracks = lib.get().tracks;
+  const i = positionsOf(tracks).get(id);
+  return i === undefined ? null : tracks[i];
+};
+/** The library after a patch: changed songs replaced where they stand, new ones at the end, removed ones left out;
+ *  every song not in the patch keeps its object, so views of it need not be made again. */
+export function patchLibrary(view: LibView, patch: LibPatch): Partial<LibView> {
+  const next: Partial<LibView> = {};
+  if (patch.tracks.length || patch.removed.length) {
+    const at = positionsOf(view.tracks);
+    const tracks = view.tracks.slice();
+    for (const t of patch.tracks) {
+      const i = at.get(t.id);
+      if (i === undefined) tracks.push(t);
+      else tracks[i] = t;
+    }
+    const gone = new Set(patch.removed);
+    next.tracks = gone.size ? tracks.filter((t) => !gone.has(t.id)) : tracks;
+  }
+  for (const k of ['folders', 'favorites', 'playlists', 'identityConflicts'] as const)
+    if (patch[k] !== undefined) (next as Record<string, unknown>)[k] = patch[k];
+  return next;
+}
 export const fmtTime = (s: number) => {
   s = Math.max(0, s || 0);
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;

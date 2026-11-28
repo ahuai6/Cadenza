@@ -126,6 +126,43 @@ async function main() {
       assert.ok(emptiest > 0.5, `${transition}: a frame was left empty while the next scene was built`);
       await page.waitForTimeout(2500);
     }
+    // songs skipped in a row, each before the one before has its scene (4.0.0-alpha.7): the held picture stays
+    const rapid = await page.evaluate(async () => {
+      const { api, engine } = window.__cadenza;
+      const probe = document.createElement('canvas');
+      probe.width = 64;
+      probe.height = 40;
+      const g = probe.getContext('2d', { willReadFrequently: true });
+      const covered = () => {
+        g.clearRect(0, 0, 64, 40);
+        g.drawImage(engine.canvas, 0, 0, 64, 40);
+        const d = g.getImageData(0, 0, 64, 40).data;
+        let drawn = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 8) drawn++;
+        return drawn / (64 * 40);
+      };
+      const out = [];
+      const t0 = performance.now();
+      let skips = 0;
+      await new Promise((resolve) => {
+        const step = () => {
+          const ms = performance.now() - t0;
+          if (skips < 5 && ms >= skips * 120) {
+            skips++;
+            void api.next();
+          }
+          out.push(covered());
+          if (ms > 4000) resolve();
+          else requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+      return { frames: out.length, emptiest: +Math.min(...out).toFixed(3), empty: out.filter((c) => c < 0.5).length };
+    });
+    console.log('rapid', JSON.stringify(rapid));
+    results.rapid = rapid;
+    assert.ok(rapid.emptiest > 0.5, 'songs skipped in a row: a frame was left empty');
+    await page.waitForTimeout(2500);
     // a seek and a restart (previous, past the first seconds): the picture goes on from the new position
     for (const action of ['seek', 'previous']) {
       const moved = await page.evaluate(async (action) => {

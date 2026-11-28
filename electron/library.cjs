@@ -22,7 +22,8 @@ const { models: webModels } = require('../src/rhythm/neural/models.json');
 const { serveAlac } = require('./alac.cjs');
 const { binPath } = require('./audio.cjs');
 const identity = require('./audio-identity.cjs');
-const { openLibrary, replace, assertDirectory } = require('./library-storage.cjs');
+const { replace, assertDirectory } = require('./library-storage.cjs');
+const { createLibraryStore } = require('./library-store.cjs');
 const { manifest: mp4Manifest } = require('./mp4-integrity.cjs');
 const { isDeepStrictEqual } = require('node:util');
 const { promisify } = require('node:util');
@@ -62,6 +63,7 @@ const P = {
 };
 
 let db = null,
+  store = null,
   mm = null,
   send = () => {};
 let want = 0; // the rhythm SDK version the page asks for (it tells us with each request)
@@ -73,8 +75,44 @@ async function load() {
     await fsp.mkdir(d, { recursive: true });
     await assertDirectory(d);
   }
-  db = await openLibrary(P.db());
+  store = createLibraryStore(P.db(), { check: process.env.CADENZA_STORE_CHECK === '1' });
+  db = await store.open();
   db.derived ??= {};
+}
+
+// Every change to the index is marked where it is made: the song, the user's edits of it, a recording's content
+// record, or a list. The marks decide what the next save writes (library-store.cjs) and what the page is sent.
+const toPage = { tracks: new Set(), contents: new Set(), lists: new Set(), whole: false };
+/** a song's own record */
+function touch(id) {
+  store.mark('tracks', id);
+  toPage.tracks.add(id);
+}
+/** the user's edits of a song (and where each came from) */
+function touchEdits(id) {
+  store.mark('overrides', id);
+  store.mark('fieldOrigins', id);
+  toPage.tracks.add(id);
+}
+/** what is known of a recording's content (rhythm, loudness): every song with that content shows it */
+function touchContent(key) {
+  if (!key) return;
+  store.mark('derived', key);
+  toPage.contents.add(key);
+}
+/** folders, favorites or playlists */
+function touchList(name) {
+  store.markList(name);
+  toPage.lists.add(name);
+}
+/** most of the index at once */
+function touchWhole() {
+  store.markWhole();
+  toPage.whole = true;
+}
+/** Mark a song only if the work in between changed its record (a scan revisits every song). */
+function touchIfChanged(t, before) {
+  if (JSON.stringify(t) !== before) touch(t.id);
 }
 
 let saveTm = 0;
@@ -82,8 +120,7 @@ let saving = Promise.resolve();
 function flush() {
   clearTimeout(saveTm);
   saveTm = 0;
-  const body = JSON.stringify(db);
-  saving = saving.catch(() => {}).then(() => replace(P.db(), body));
+  saving = store.flush();
   return saving;
 }
 function save() {
@@ -92,18 +129,32 @@ function save() {
 }
 let changeTm = 0;
 let wakeAfterView = false;
+/** how soon the page hears of a change (ms): at once, near enough, as the listener acts; less often while a scan adds
+ *  songs by the hundred, so the page is not kept busy taking in each few */
+const PAGE_DELAY = 120;
+const PAGE_DELAY_SCANNING = 1000;
 function changed(wake = false) {
   wakeAfterView ||= wake;
   save();
   if (!changeTm)
-    changeTm = setTimeout(() => {
-      changeTm = 0;
-      send('lib:changed', view());
-      if (wakeAfterView) {
-        wakeAfterView = false;
-        send('lib:wake');
-      }
-    }, 120);
+    changeTm = setTimeout(
+      () => {
+        changeTm = 0;
+        if (toPage.whole) {
+          // (the whole view: nothing is left over for a patch)
+          toPage.whole = false;
+          toPage.tracks.clear();
+          toPage.contents.clear();
+          toPage.lists.clear();
+          send('lib:changed', view());
+        } else send('lib:patch', patchView());
+        if (wakeAfterView) {
+          wakeAfterView = false;
+          send('lib:wake');
+        }
+      },
+      scanning ? PAGE_DELAY_SCANNING : PAGE_DELAY,
+    );
 }
 
 // what the page sees: tracks with the user's edits applied, no paths beyond the file name
@@ -178,12 +229,35 @@ function view() {
     tracks: Object.values(db.tracks)
       .filter((t) => !t.detached)
       .map(trackView),
-    identityConflicts: Object.values(db.tracks)
-      .filter((t) => t.detached)
-      .map((t) => ({ id: t.id, file: path.basename(t.path), reason: t.detached })),
+    identityConflicts: identityConflicts(),
     favorites: db.favorites.slice(),
     playlists: db.playlists.map((p) => ({ ...p, tracks: p.tracks.slice() })),
   };
+}
+const identityConflicts = () =>
+  Object.values(db.tracks)
+    .filter((t) => t.detached)
+    .map((t) => ({ id: t.id, file: path.basename(t.path), reason: t.detached }));
+/** What changed since the last update of the page: the songs whose view changed (or that left the library) and any
+ *  list that changed. Built from the marks, so it costs what changed, not the size of the library. */
+function patchView() {
+  const ids = new Set(toPage.tracks);
+  if (toPage.contents.size)
+    for (const t of Object.values(db.tracks)) if (toPage.contents.has(t.audioContentId)) ids.add(t.id);
+  const patch = { tracks: [], removed: [] };
+  for (const id of ids) {
+    const t = db.tracks[id];
+    if (t && !t.detached) patch.tracks.push(trackView(t));
+    else patch.removed.push(id);
+  }
+  if (ids.size) patch.identityConflicts = identityConflicts();
+  if (toPage.lists.has('folders')) patch.folders = db.folders.slice();
+  if (toPage.lists.has('favorites')) patch.favorites = db.favorites.slice();
+  if (toPage.lists.has('playlists')) patch.playlists = db.playlists.map((p) => ({ ...p, tracks: p.tracks.slice() }));
+  toPage.tracks.clear();
+  toPage.contents.clear();
+  toPage.lists.clear();
+  return patch;
 }
 
 const ttmlSidecar = (p) => {
@@ -232,6 +306,25 @@ const containsPath = (dir, file) => {
   const relative = path.relative(dir, file);
   return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
 };
+// A set of directories asked about for many paths at once (a scan of thousands of songs in hundreds of folders): each
+// path walks up its own few parents instead of being compared with every directory. Keys are compared as Windows
+// compares paths (case aside), as path.relative does in containsPath.
+const pathKey = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+function directorySet(dirs) {
+  const keys = new Set([...dirs].map(pathKey));
+  /** whether `file` is one of the directories or inside one (from `file` itself, or from its parent) */
+  const holds = (file, fromParent = false) => {
+    let p = pathKey(file);
+    if (fromParent) p = path.dirname(p);
+    for (;;) {
+      if (keys.has(p)) return true;
+      const up = path.dirname(p);
+      if (up === p) return false;
+      p = up;
+    }
+  };
+  return { holds, size: keys.size };
+}
 const identityIssues = new Set();
 const scanCounters = {
   directories: 0,
@@ -400,8 +493,10 @@ async function indexAudio() {
         continue;
       }
       if (!current) {
-        if (db.tracks[track.id] === track) track.identityError = true;
-        else identityIssues.add(file);
+        if (db.tracks[track.id] === track) {
+          track.identityError = true;
+          touch(track.id);
+        } else identityIssues.add(file);
         changed(true);
         continue;
       }
@@ -425,6 +520,7 @@ async function indexAudio() {
       track.audioContentId = content;
       track.identityError = !content;
       db.tracks[track.id] = track;
+      touch(track.id);
       changed(true);
       await pause(40);
     }
@@ -509,19 +605,22 @@ async function scan(retryFailed = false, scopes) {
       const files = [];
       watchAll();
       const whole = fullScan;
-      const roots = whole
-        ? db.folders
-        : [...scanScopes].filter((dir) => db.folders.some((root) => containsPath(root, dir)));
+      const folders = directorySet(db.folders);
+      const roots = whole ? db.folders : [...new Set(scanScopes)].filter((dir) => folders.holds(dir));
       fullScan = false;
       scanScopes.clear();
-      const unique = roots.filter((dir) => !roots.some((root) => root !== dir && containsPath(root, dir)));
+      // (a scope inside another is read with it)
+      const asked = directorySet(roots);
+      const unique = [...new Map(roots.map((dir) => [pathKey(dir), dir])).values()].filter(
+        (dir) => !asked.holds(dir, true),
+      );
+      const scopes = directorySet(unique);
       const unavailable = new Set();
       scanStatus = { phase: 'scan', done: 0, total: 0, unavailable: 0 };
       sendProgress();
       for (const folder of unique) await walk(folder, files, unavailable);
-      const missing = (file) =>
-        (whole || unique.some((dir) => containsPath(dir, file))) &&
-        ![...unavailable].some((dir) => containsPath(dir, file));
+      const unreadable = directorySet(unavailable);
+      const missing = (file) => (whole || scopes.holds(file)) && !(unreadable.size && unreadable.holds(file));
       const seen = new Set(files);
       const rows = Object.values(db.tracks);
       const byPath = new Map();
@@ -529,7 +628,10 @@ async function scan(retryFailed = false, scopes) {
       for (const t of rows) {
         const prior = byPath.get(t.path);
         if (!prior || (prior.detached && !t.detached)) byPath.set(t.path, t);
-        if (!seen.has(t.path) && missing(t.path)) t.detached ||= 'missing';
+        if (!seen.has(t.path) && missing(t.path) && !t.detached) {
+          t.detached = 'missing';
+          touch(t.id);
+        }
         if (t.detached === 'missing') {
           if (t.fileKey) {
             const matches = orphansByKey.get(t.fileKey) || [];
@@ -558,6 +660,7 @@ async function scan(retryFailed = false, scopes) {
             old && !old.sourceStamp && old.path === file && old.size === st.size && old.mtime === st.mtimeMs;
           const unchanged = old && (old.sourceStamp === stamp || legacyUnchanged);
           if (unchanged) {
+            const before = JSON.stringify(old);
             Object.assign(old, { path: file, fileKey: key, sourceStamp: stamp, size: st.size, mtime: st.mtimeMs });
             delete old.detached;
             await sidecars(old);
@@ -568,10 +671,14 @@ async function scan(retryFailed = false, scopes) {
                 Object.assign(old, tags);
               }
             }
+            touchIfChanged(old, before);
             if (!identity.validId(old.audioContentId) && (retry || !old.identityError)) queueIdentity(old);
           } else {
             // Keep an old entry and all its user data quarantined until bytes confirm a safe association.
-            if (old) old.detached = old.path === file ? 'changed' : 'missing';
+            if (old) {
+              old.detached = old.path === file ? 'changed' : 'missing';
+              touch(old.id);
+            }
             if (
               pending.get(file)?.stamp === stamp ||
               (activeIdentity?.track.path === file && activeIdentity.stamp === stamp)
@@ -601,7 +708,10 @@ async function scan(retryFailed = false, scopes) {
               Object.assign(track, tags);
             }
             const previous = !track.protected && old && identity.validId(old.audioContentId) ? old : null;
-            if (!previous) db.tracks[track.id] = track;
+            if (!previous) {
+              db.tracks[track.id] = track;
+              touch(track.id);
+            }
             queueIdentity(track, previous);
           }
         } catch {
@@ -626,6 +736,7 @@ async function scan(retryFailed = false, scopes) {
 async function indexExisting() {
   for (const t of Object.values(db.tracks)) {
     if (t.protected || t.detached) continue;
+    const before = JSON.stringify(t);
     const st = await fsp.stat(t.path).catch(() => null);
     if (
       !st?.isFile() ||
@@ -634,10 +745,12 @@ async function indexExisting() {
       (t.sourceStamp && t.sourceStamp !== identity.revision(st))
     ) {
       if (st?.isFile()) t.detached = 'changed';
+      touchIfChanged(t, before);
       continue;
     }
     t.fileKey = identity.fileKey(st);
     t.sourceStamp = identity.revision(st);
+    touchIfChanged(t, before);
     if (!identity.validId(t.audioContentId)) queueIdentity(t);
   }
   changed();
@@ -668,6 +781,7 @@ function watchChange(root, filename) {
 }
 async function scanWatched(candidates) {
   const scopes = new Set();
+  let known = null;
   for (const file of candidates) {
     const roots = db.folders;
     if (roots.includes(file)) {
@@ -675,14 +789,29 @@ async function scanWatched(candidates) {
       continue;
     }
     const extension = path.extname(file).toLowerCase();
-    if (PLAYABLE.has(extension) || PROTECTED.has(extension) || extension === '.lrc' || extension === '.ttml') {
+    if (PLAYABLE.has(extension) || PROTECTED.has(extension)) {
+      // Windows reports a file being read as a change too (its access time): reading the songs' tags, working out their
+      // identities or playing them would start a scan of their folders each time. A song whose file is as the library
+      // knows it is passed over.
+      known ??= new Map(
+        Object.values(db.tracks)
+          .filter((t) => !t.detached)
+          .map((t) => [pathKey(t.path), t]),
+      );
+      const t = known.get(pathKey(file));
+      const st = t && (await fsp.stat(file).catch(() => null));
+      if (st?.isFile() && identity.revision(st) === t.sourceStamp) continue;
+      scopes.add(path.dirname(file));
+      continue;
+    }
+    if (extension === '.lrc' || extension === '.ttml') {
       scopes.add(path.dirname(file));
       continue;
     }
     const item = await fsp.lstat(file).catch(() => null);
     scopes.add(item?.isDirectory() ? file : path.dirname(file));
   }
-  await scan(false, scopes);
+  if (scopes.size) await scan(false, scopes);
 }
 function watchAll() {
   for (const [d, w] of watchers)
@@ -828,9 +957,11 @@ async function reanalyze(ids) {
         if (analysisFlavor(settings) && analysisVersion(row?.version))
           await fsp.rm(anFile(key, settings, row.version), { force: true });
       if (record) record.rhythm = {};
+      touchContent(key);
     }
     for (const t of Object.values(db.tracks)) {
       if (!contents.has(t.audioContentId)) continue;
+      touch(t.id);
       delete t.failWhy;
       delete t.failed;
       delete t.analysisFailureVersion;
@@ -903,6 +1034,8 @@ async function saveAnalysis(id, a, token) {
     delete t.analysisFailureVersion;
     delete t.analysisFailureGeneration;
     delete t.failWhy;
+    touch(t.id);
+    touchContent(token.content);
     changed();
     analysisProgress();
     return true;
@@ -936,12 +1069,16 @@ async function getAnalysis(id, version) {
     if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return null;
     if (row.version >= 4 && row.quality == null) {
       row.quality = rhythmQuality(result);
+      touchContent(t.audioContentId);
       save();
     }
     scanCounters.cacheHits++;
     return result;
   } catch {
-    if (matchesToken(id, token) && rhythmSummary(t) === row) delete summary(t).rhythm[token.settings];
+    if (matchesToken(id, token) && rhythmSummary(t) === row) {
+      delete summary(t).rhythm[token.settings];
+      touchContent(t.audioContentId);
+    }
     changed();
     send('lib:wake');
     return null;
@@ -968,8 +1105,13 @@ function saveLoudness(id, l, token) {
   return serialize(async () => {
     const t = activeTrack(id);
     if (!matchesToken(id, token) || !(await currentSource(t)) || !matchesToken(id, token)) return false;
-    if (l) setLoud(contentRecord(token.content), l);
-    else t.loudFailed = true;
+    if (l) {
+      setLoud(contentRecord(token.content), l);
+      touchContent(token.content);
+    } else {
+      t.loudFailed = true;
+      touch(t.id);
+    }
     changed();
     return true;
   });
@@ -982,6 +1124,7 @@ async function analysisFailed(id, why, token) {
   t.analysisFailureVersion = want;
   t.analysisFailureGeneration = FAILURE_GENERATION;
   t.failWhy = typeof why === 'string' ? why.slice(0, 200) : undefined;
+  touch(t.id);
   save();
   analysisProgress();
   return true;
@@ -1045,8 +1188,10 @@ function nextJob(version, omit, capability) {
   const issue = (job) => {
     scanCounters.analyses++;
     if (job.upgrade) {
-      const row = rhythmSummary(activeTrack(job.id));
+      const t = activeTrack(job.id);
+      const row = rhythmSummary(t);
       row.upgrade = { ...row.upgrade, [capability]: now + upgradeDelay };
+      touchContent(t.audioContentId);
       save();
     }
     return job;
@@ -1266,6 +1411,7 @@ async function lyricSources(id) {
     if (preferred) {
       preference.lyricsSource = preferred.id;
       delete preference.pendingLegacyLrc;
+      touchEdits(id);
       changed();
     }
   }
@@ -1300,6 +1446,7 @@ async function selectLyrics(id, source) {
   const preference = (db.overrides[id] ||= {});
   preference.lyricsSource = source;
   delete preference.pendingLegacyLrc;
+  touchEdits(id);
   changed();
   return true;
 }
@@ -1381,6 +1528,7 @@ async function applyLyricMutation(id, { source, revision, text } = {}) {
       runIdentityIndex();
     }
   }
+  touch(id);
   changed();
   return { ok: true, target: source.startsWith('sidecar:') ? format : 'tag' };
 }
@@ -1611,6 +1759,8 @@ function editMeta(id, f) {
     'manual',
   );
   t.metadataRevision = (t.metadataRevision || 0) + 1;
+  touch(id);
+  touchEdits(id);
   changed();
   return true;
 }
@@ -1634,6 +1784,8 @@ async function setCover(id, how, getWin, canEdit) {
   db.overrides[id] = o;
   recordFieldOrigins(id, o, ['coverKey'], 'manual');
   t.metadataRevision = (t.metadataRevision || 0) + 1;
+  touch(id);
+  touchEdits(id);
   changed();
   return true;
 }
@@ -1645,6 +1797,7 @@ function setInstrumental(id, on) {
   else delete o.instrumental;
   if (Object.keys(o).length) db.overrides[id] = o;
   else delete db.overrides[id];
+  touchEdits(id);
   changed();
   return true;
 }
@@ -1673,6 +1826,8 @@ function resetMeta(id, part) {
     'manual',
   );
   t.metadataRevision = (t.metadataRevision || 0) + 1;
+  touch(id);
+  touchEdits(id);
   changed();
   return true;
 }
@@ -1828,6 +1983,7 @@ function register(ipcMain, getWin, canEdit) {
     const r = await dialog.showOpenDialog(getWin(), { properties: ['openDirectory', 'multiSelections'] });
     if (r.canceled) return view();
     for (const d of r.filePaths) if (!db.folders.includes(d)) db.folders.push(d);
+    touchList('folders');
     changed();
     watchAll();
     scan();
@@ -1835,6 +1991,7 @@ function register(ipcMain, getWin, canEdit) {
   });
   ipcMain.handle('lib:removeFolder', async (_e, d) => {
     db.folders = db.folders.filter((x) => x !== d);
+    touchList('folders');
     watchAll();
     await scan();
     return view();
@@ -1846,6 +2003,7 @@ function register(ipcMain, getWin, canEdit) {
   ipcMain.handle('lib:favorite', (_e, id, on) => {
     db.favorites = db.favorites.filter((x) => x !== id);
     if (on && db.tracks[id]) db.favorites.unshift(id);
+    touchList('favorites');
     changed();
     return true;
   });
@@ -1858,6 +2016,7 @@ function register(ipcMain, getWin, canEdit) {
         tracks: (b || []).filter((id) => db.tracks[id]),
       };
       db.playlists.push(p);
+      touchList('playlists');
       changed();
       return p.id;
     }
@@ -1874,6 +2033,7 @@ function register(ipcMain, getWin, canEdit) {
       const moved = new Set(ordered);
       p.tracks = [...ordered, ...p.tracks.filter((id) => !moved.has(id))];
     }
+    touchList('playlists');
     changed();
     return true;
   });
@@ -1882,6 +2042,7 @@ function register(ipcMain, getWin, canEdit) {
     if (t) {
       t.plays = (t.plays || 0) + 1;
       t.last = Date.now();
+      touch(id);
       changed();
     }
   });
@@ -1899,6 +2060,7 @@ function register(ipcMain, getWin, canEdit) {
     const row = rhythmSummary(t);
     if (row?.version === version) {
       row.checked = true;
+      touchContent(t.audioContentId);
       save();
     }
   });
@@ -1931,6 +2093,7 @@ function register(ipcMain, getWin, canEdit) {
         delete t.failWhy;
         delete t.loudFailed;
       }
+      touchWhole();
       changed();
       analysisProgress();
       send('lib:wake');
@@ -2062,6 +2225,8 @@ async function close() {
   if (db) {
     await Promise.allSettled([...lyricEdits.values(), writes]);
     await flush();
+    // (a clean close leaves the whole index in db.json, as earlier builds read it)
+    await store.compactNow();
   }
 }
 module.exports = {

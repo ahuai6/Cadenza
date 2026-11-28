@@ -74,6 +74,12 @@ export interface LibView {
   playlists: Playlist[];
   identityConflicts?: { id: TrackId; file: string; reason: 'missing' | 'changed' }[];
 }
+/** What changed in the library since the last update: songs whose view changed (new ones join at the end), songs that
+ *  left it, and any list that changed. */
+export interface LibPatch extends Partial<Omit<LibView, 'tracks'>> {
+  tracks: Track[];
+  removed: TrackId[];
+}
 
 export interface AnalysisToken {
   id: TrackId;
@@ -214,6 +220,7 @@ export interface LibApi {
   setCover(id: string, how: { file?: boolean; reset?: boolean }): Promise<boolean>;
   bindMv(id: string): Promise<{ name: string; offset: number } | null>;
   onChanged(f: (v: LibView) => void): Off;
+  onPatch(f: (p: LibPatch) => void): Off;
   onProgress(f: (p: ScanProgress) => void): Off;
   onAnalysis(f: (p: { done: number; total: number }) => void): Off;
   onWake(f: () => void): Off;
@@ -336,10 +343,21 @@ interface LyricAiApi {
   cancel(): Promise<AiResult<void>>;
 }
 
+/** What the listener makes and chooses, kept with the library (electron/kept.cjs). */
+export type KeptKey = 'themes' | 'motions' | 'project' | 'choices' | 'queue';
+export interface KeptApi {
+  /** the items read at start, and whether an earlier build's copies in the page were taken over already */
+  start(): Promise<{ values: Partial<Record<KeptKey, unknown>>; moved: boolean } | null>;
+  get(key: KeptKey): Promise<unknown>;
+  set(key: KeptKey, value: unknown): Promise<boolean>;
+  move(values: Partial<Record<KeptKey, unknown>>): Promise<boolean>;
+}
+
 const W = (typeof window !== 'undefined' ? window : {}) as any;
 export const D: DesktopApi | null = W.cadenzaDesktop ?? null;
 export const LyricAI: LyricAiApi | null = W.cadenzaLyricAI ?? null;
 export const Lib: LibApi | null = W.cadenzaLib ?? null;
+export const Kept: KeptApi | null = W.cadenzaKept ?? null;
 export const AudioOut: AudioApi | null = W.cadenzaAudio ?? null;
 export const Infer: InferApi | null = W.cadenzaInfer ?? null;
 export const desktop = !!D;

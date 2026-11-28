@@ -2,7 +2,7 @@
 // nave, by name, sixteen to a page), the playlists (the north chapel, the favourites first). Pure: the same library
 // gives the same rooms, so a rescan that changes nothing rebuilds nothing.
 import type { Playlist, Track } from '../bridge';
-import { indexOf } from '../state';
+import { libraryIndex } from '../state';
 import { indexLetter, LETTERS } from '../letters';
 
 export interface SpaceSong {
@@ -69,7 +69,7 @@ export function fromLibrary(
         collator.compare(a.title, b.title) ||
         collator.compare(a.artist, b.artist),
     );
-  const albums: SpaceAlbum[] = indexOf(tracks, favorites)
+  const albums: SpaceAlbum[] = libraryIndex(tracks, favorites)
     .albums.filter((g) => g.key)
     .map((g) => ({
       key: g.key,

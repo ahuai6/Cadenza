@@ -8,9 +8,10 @@ import { analyzeInBackground, type RhythmAnalysis, type SongInfo } from '../../e
 import { storedStyle, presetStyle, DEFAULT_THEME, DEFAULT_LYRIC_ASPECT } from '../../theme/style';
 import { DEMO_LYRICS } from '../../theme/demo';
 import { tx } from '../../i18n';
-import { remember, keep, trackOf } from '../state';
+import { trackOf } from '../state';
+import { keptProject, setKept } from '../kept';
 import { audioContext, sessionEnv } from '../playback/stage';
-import { songForWorkshop } from '../playback/player';
+import { songForWorkshop } from '../playback/song-data';
 import { Lib } from '../bridge';
 import { canEdit, editTask } from '../editing';
 import { applyExistingPreset, type PresetChoice } from '../preset-choice';
@@ -72,7 +73,7 @@ function persist() {
   clearTimeout(saveTm);
   saveTm = window.setTimeout(() => {
     try {
-      keep('project', projectData());
+      setKept('project', projectData());
     } catch {
       /* full storage: the project still lives in memory */
     }
@@ -158,7 +159,7 @@ export async function start() {
     return;
   }
   if (ws.get().session) return;
-  const saved = remember<Project | null>('project', null);
+  const saved = await keptProject<Project>();
   try {
     await restoreProject(saved && saved.app === 'cadenza' ? saved : fresh());
   } catch {

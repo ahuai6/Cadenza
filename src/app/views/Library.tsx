@@ -1,5 +1,5 @@
 // The library page: favourites and playlists (kept by the app), and songs, albums, artists and genres (from the files).
-import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { tx } from '../../i18n';
 import { Lib, type Track } from '../bridge';
 import { ui, lib, useStore, useIndex, fmtTime, keep, remember, toast, openMenu, match } from '../state';
@@ -9,6 +9,7 @@ import { Button, IconButton, Cover, Mosaic, Empty, Dropdown, Turn, Seg } from '.
 import { LiveEq } from '../ui/LiveEq';
 import { quality, QualityTag } from '../ui/quality';
 import { useReorder } from '../ui/reorder';
+import { useRowsWindow } from '../ui/rows-window';
 import { menuFor, run } from '../commands';
 import { askText } from './Modals';
 import { AlbumLine } from './AlbumLine';
@@ -188,6 +189,9 @@ const SORTS: [string, string][] = [
   ['artist', 's.sort.artist'],
   ['plays', 's.sort.plays'],
 ];
+// (made once: a collator compares thousands of titles far faster than localeCompare, which builds one per call)
+const byText = new Intl.Collator(undefined, { numeric: true });
+const byName = new Intl.Collator();
 function Songs({ tracks, search, kicker }: { tracks: Track[]; search: string; kicker: string }) {
   const [sort, setSort] = useState(() => remember('sort', 'added'));
   const list = useMemo(() => {
@@ -195,14 +199,14 @@ function Songs({ tracks, search, kicker }: { tracks: Track[]; search: string; ki
     const cmp = (
       {
         added: (a: Track, b: Track) => b.added - a.added,
-        title: (a: Track, b: Track) => a.title.localeCompare(b.title, undefined, { numeric: true }),
+        title: (a: Track, b: Track) => byText.compare(a.title, b.title),
         artist: (a: Track, b: Track) =>
-          (a.artist || '￿').localeCompare(b.artist || '￿') || a.album.localeCompare(b.album),
+          byName.compare(a.artist || '￿', b.artist || '￿') || byName.compare(a.album, b.album),
         plays: (a: Track, b: Track) => b.plays - a.plays || b.last - a.last,
       } as Record<string, (a: Track, b: Track) => number>
     )[sort];
     const byTitle = (a: Track, b: Track) =>
-      a.title.localeCompare(b.title, undefined, { numeric: true }) || a.id.localeCompare(b.id); // ties never reshuffle the list
+      byText.compare(a.title, b.title) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); // ties never reshuffle the list
     return f.sort((a, b) => cmp(a, b) || byTitle(a, b));
   }, [tracks, search, sort]);
   return (
@@ -258,7 +262,13 @@ function PlayButtons({ ids, album }: { ids: string[]; album?: boolean }) {
 /** Bring the playing song's row into view, centred, and light it up for a moment. */
 export function locatePlaying() {
   const row = document.querySelector<HTMLElement>('[role="list"] [data-cur="true"]');
-  if (!row) return;
+  if (!row) {
+    // (a long list draws only the rows near the view: it scrolls to the song first, which draws its row)
+    const id = player.get().id;
+    if (id && [...locators].some((locate) => locate(id)))
+      requestAnimationFrame(() => requestAnimationFrame(() => locatePlaying()));
+    return;
+  }
   row.scrollIntoView({
     block: 'center',
     behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
@@ -275,6 +285,129 @@ export function locatePlaying() {
 export function trackMenu(e: React.MouseEvent, t: Track, list: Track[], playlist?: string) {
   openMenu(e, menuFor({ kind: 'track', track: t, list, playlist }));
 }
+/** What a row does, the same object for every row of a list (its handlers read the list as it is now), so a row
+ *  whose song did not change is not drawn again when the list is. */
+interface RowActions {
+  down(e: React.PointerEvent<HTMLElement>, i: number): void;
+  play(t: Track): void;
+  menu(e: React.MouseEvent, t: Track): void;
+}
+/** One song's row. Drawn again only when its song, its place or its state changes. */
+const TrackRow = memo(function TrackRow({
+  t,
+  i,
+  isCur,
+  live,
+  on,
+  numbered,
+  reorder,
+  stagger,
+  actions,
+}: {
+  t: Track;
+  i: number;
+  isCur: boolean;
+  /** the playing song, playing now */
+  live: boolean;
+  /** a favourite */
+  on: boolean;
+  numbered?: boolean;
+  reorder: boolean;
+  /** its place in the entrance (rows drawn later, as the list scrolls, come in without one) */
+  stagger: number | null;
+  actions: RowActions;
+}) {
+  return (
+    <div
+      role="listitem"
+      className={s.row}
+      data-cur={isCur}
+      data-protected={t.protected}
+      tabIndex={0}
+      style={stagger === null ? { animation: 'none' } : ({ '--i': stagger } as React.CSSProperties)}
+      onPointerDown={(e) => actions.down(e, i)}
+      onDoubleClick={() => actions.play(t)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && e.currentTarget === e.target) actions.play(t);
+      }}
+      onContextMenu={(e) => actions.menu(e, t)}
+    >
+      <span className={s.grip} aria-hidden="true">
+        {reorder ? (
+          <Icon n="grip" size={15} />
+        ) : isCur ? (
+          <Icon n="play" size={13} />
+        ) : numbered ? (
+          t.track || i + 1
+        ) : (
+          i + 1
+        )}
+      </span>
+      <span className={s.lead}>
+        <Cover k={t.cover} />
+        {live ? (
+          <span className={s.playOver} style={{ opacity: 1 }}>
+            <LiveEq />
+          </span>
+        ) : (
+          !t.protected && (
+            <button type="button" className={s.playOver} aria-label={tx('s.play')} onClick={() => actions.play(t)}>
+              <Icon n="play" size={16} />
+            </button>
+          )
+        )}
+      </span>
+      <span className={s.main}>
+        <b>{t.title}</b>
+        <small>{t.artist || tx('s.unknownArtist')}</small>
+      </span>
+      <span className={s.album}>{t.album}</span>
+      <span className={s.badges}>
+        {/* (its sound: the tier and the format — "Hi-Res FLAC" — and the details when the pointer rests on it) */}
+        {!t.protected && <QualityTag t={t} look="text" />}
+        {t.protected ? (
+          <span className={s.noWords} title={tx('s.badge.protected')} aria-label={tx('s.badge.protected')}>
+            <Icon n="lock" size={14} />
+          </span>
+        ) : (
+          // (a song with no words yet: a quiet mark)
+          !(t.lrc || t.embedded || t.ttml || t.instrumental) && (
+            <span className={s.noWords} title={tx('s.badge.noLyrics')} aria-label={tx('s.badge.noLyrics')}>
+              <Icon n="lyrics" size={14} />
+            </span>
+          )
+        )}
+      </span>
+      {t.protected ? (
+        <span className={s.qadd} />
+      ) : (
+        <IconButton
+          n="plus"
+          size="sm"
+          label={tx('s.queue.add')}
+          className={s.hide + ' ' + s.qadd}
+          onClick={() => enqueue([t.id])}
+        />
+      )}
+      <IconButton
+        n="heart"
+        size="sm"
+        filled={on}
+        on={on}
+        data-fav=""
+        className={s.hide}
+        label={tx(on ? 's.unfav' : 's.fav')}
+        onClick={() => Lib!.favorite(t.id, !on)}
+      />
+      <span className={s.time}>{fmtTime(t.duration)}</span>
+      <IconButton n="more" size="sm" className={s.hide} label={tx('s.more')} onClick={(e) => actions.menu(e, t)} />
+    </div>
+  );
+});
+/** the lists that draw only part of their rows: asked to bring the playing song into view when it is not drawn */
+const locators = new Set<(id: string) => boolean>();
+/** how long a list's first rows take to come in (they stagger in; rows drawn after that, as it scrolls, do not) */
+const ENTRANCE_MS = 900;
 /** onReorder: the rows can be dragged into a new order (playlists). */
 export const TrackList = memo(function TrackList({
   tracks,
@@ -293,113 +426,70 @@ export const TrackList = memo(function TrackList({
     favs = useStore(lib, (x) => x.favorites);
   const fav = useMemo(() => new Set(favs), [favs]);
   const { shown, down, listProps } = useReorder(tracks, onReorder && ((list) => onReorder(list.map((t) => t.id))));
-  const play = (t: Track) => {
-    if (t.protected) {
-      toast(tx('s.protectedHelp'), 4200);
-      return;
-    }
-    const ids = shown.map((x) => x.id);
-    playIds(ids, ids.indexOf(t.id));
-  };
+  // (a list being reordered keeps every row drawn: the drag moves the rows it passes)
+  const win = useRowsWindow(shown.length, !onReorder, listProps.ref);
+  const [entering, setEntering] = useState(true);
+  useEffect(() => {
+    const timer = setTimeout(() => setEntering(false), ENTRANCE_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  const now = useRef({ shown, down, playlist });
+  now.current = { shown, down, playlist };
+  const actions = useMemo<RowActions>(
+    () => ({
+      down: (e, i) => now.current.down(e, i),
+      play(t) {
+        if (t.protected) {
+          toast(tx('s.protectedHelp'), 4200);
+          return;
+        }
+        const ids = now.current.shown.map((x) => x.id);
+        playIds(ids, ids.indexOf(t.id));
+      },
+      menu: (e, t) => trackMenu(e, t, now.current.shown, now.current.playlist),
+    }),
+    [],
+  );
+  const { on: windowed, reveal } = win;
+  useEffect(() => {
+    if (!windowed) return;
+    const locate = (id: string) => {
+      const i = now.current.shown.findIndex((t) => t.id === id);
+      if (i < 0) return false;
+      reveal(i);
+      return true;
+    };
+    locators.add(locate);
+    return () => void locators.delete(locate);
+  }, [windowed, reveal]);
+  const rows = [];
+  for (let i = win.from; i < win.to; i++) {
+    const t = shown[i],
+      isCur = t.id === cur;
+    rows.push(
+      <TrackRow
+        key={t.id}
+        t={t}
+        i={i}
+        isCur={isCur}
+        live={isCur && playing}
+        on={fav.has(t.id)}
+        numbered={numbered}
+        reorder={!!onReorder}
+        stagger={entering || !windowed ? i - win.from : null}
+        actions={actions}
+      />,
+    );
+  }
   return (
-    <div className={s.tracks + ' stagger'} role="list" data-reorder={!!onReorder} {...listProps}>
-      {shown.map((t, i) => {
-        const on = fav.has(t.id),
-          isCur = t.id === cur;
-        return (
-          <div
-            key={t.id}
-            role="listitem"
-            className={s.row}
-            data-cur={isCur}
-            data-protected={t.protected}
-            tabIndex={0}
-            style={{ '--i': i } as React.CSSProperties}
-            onPointerDown={(e) => down(e, i)}
-            onDoubleClick={() => play(t)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && e.currentTarget === e.target) play(t);
-            }}
-            onContextMenu={(e) => trackMenu(e, t, shown, playlist)}
-          >
-            <span className={s.grip} aria-hidden="true">
-              {onReorder ? (
-                <Icon n="grip" size={15} />
-              ) : isCur ? (
-                <Icon n="play" size={13} />
-              ) : numbered ? (
-                t.track || i + 1
-              ) : (
-                i + 1
-              )}
-            </span>
-            <span className={s.lead}>
-              <Cover k={t.cover} />
-              {isCur && playing ? (
-                <span className={s.playOver} style={{ opacity: 1 }}>
-                  <LiveEq />
-                </span>
-              ) : (
-                !t.protected && (
-                  <button type="button" className={s.playOver} aria-label={tx('s.play')} onClick={() => play(t)}>
-                    <Icon n="play" size={16} />
-                  </button>
-                )
-              )}
-            </span>
-            <span className={s.main}>
-              <b>{t.title}</b>
-              <small>{t.artist || tx('s.unknownArtist')}</small>
-            </span>
-            <span className={s.album}>{t.album}</span>
-            <span className={s.badges}>
-              {/* (its sound: the tier and the format — "Hi-Res FLAC" — and the details when the pointer rests on it) */}
-              {!t.protected && <QualityTag t={t} look="text" />}
-              {t.protected ? (
-                <span className={s.noWords} title={tx('s.badge.protected')} aria-label={tx('s.badge.protected')}>
-                  <Icon n="lock" size={14} />
-                </span>
-              ) : (
-                // (a song with no words yet: a quiet mark)
-                !(t.lrc || t.embedded || t.ttml || t.instrumental) && (
-                  <span className={s.noWords} title={tx('s.badge.noLyrics')} aria-label={tx('s.badge.noLyrics')}>
-                    <Icon n="lyrics" size={14} />
-                  </span>
-                )
-              )}
-            </span>
-            {t.protected ? (
-              <span className={s.qadd} />
-            ) : (
-              <IconButton
-                n="plus"
-                size="sm"
-                label={tx('s.queue.add')}
-                className={s.hide + ' ' + s.qadd}
-                onClick={() => enqueue([t.id])}
-              />
-            )}
-            <IconButton
-              n="heart"
-              size="sm"
-              filled={on}
-              on={on}
-              data-fav=""
-              className={s.hide}
-              label={tx(on ? 's.unfav' : 's.fav')}
-              onClick={() => Lib!.favorite(t.id, !on)}
-            />
-            <span className={s.time}>{fmtTime(t.duration)}</span>
-            <IconButton
-              n="more"
-              size="sm"
-              className={s.hide}
-              label={tx('s.more')}
-              onClick={(e) => trackMenu(e, t, shown, playlist)}
-            />
-          </div>
-        );
-      })}
+    <div
+      className={s.tracks + ' stagger'}
+      role="list"
+      data-reorder={!!onReorder}
+      style={windowed ? { paddingTop: win.padTop, paddingBottom: win.padBottom } : undefined}
+      {...listProps}
+    >
+      {rows}
     </div>
   );
 });

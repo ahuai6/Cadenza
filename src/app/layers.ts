@@ -4,7 +4,7 @@ import { Drive, duration, part, rectOf, restRect, type Box } from './motion';
 import { engine } from './playback/stage';
 import { ui, settings } from './state';
 import { ASPECTS } from '../engine';
-import { fxAspect } from './playback/player';
+import { fxAspect } from './playback/visual';
 import { DEFAULT_LYRIC_ASPECT } from '../theme/style';
 
 export const refs = {
