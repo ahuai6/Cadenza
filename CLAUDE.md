@@ -1,6 +1,6 @@
 # Cadenza
 
-Windows 桌面音乐播放器（Electron + React + TypeScript）。它不是「一个特效加一个播放器」，而是几个同样重要、彼此咬合的部分：
+Windows 本地音乐播放器（Electron + React + TypeScript）。首次接手先读 [开发交接](docs/HANDOVER.md)，再按任务查阅项目 Skill 和模块文档。音频播放具有最高资源优先级，音乐分析和 GPU 视觉优先于工坊及导出。
 
 | 部分 | 做什么 | 主要位置 |
 | --- | --- | --- |
@@ -25,9 +25,10 @@ G2 的桌面播放协调器负责输出、队列、播放意图与代次。音�
 最常用的指令：
 
 ```
-npx tsc --noEmit -p .     # 类型检查（必过）
-npx vitest run            # 单元测试（必过）
-npm run build:app         # 产生 dist-app（截图测试与桌面版都用它）
+npm run typecheck       # 类型检查
+npm test                # 单元测试
+npm run build:native    # Windows GNU 目标的 Rust 音频程序
+npm run electron        # 构建桌面界面并启动 Electron
 ```
 
 不可违反的几件事：

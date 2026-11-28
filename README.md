@@ -3,7 +3,7 @@
 Cadenza 是一套功能完整的个人音乐库播放器：音乐库管理、高保真输出与音量平衡、节奏分析、多格式歌词（逐字、和声、翻译、读音）、随节奏运镜的特效歌词、歌词工坊与视频导出、桌面歌词，以及可以走动的空间界面。前身是 Lyric Motion，这一版从头重构。
 
 - **音乐库**：扫描你选定的文件夹，读取标签、封面与同名 `.lrc`。编辑模式可以修改歌曲信息和使用本地图片覆盖封面。歌词可按需联网搜索，TTML 编辑可使用 AI 翻译辅助。
-- **播放**：支持播放列表与四种播放模式。随机播放会加权，播放次数少的歌更容易被选中。另有 Hi-Fi 输出（WASAPI 独占、比特完美）。
+- **播放**：支持播放列表与四种播放模式。随机播放会加权，播放次数少的歌更容易被选中。另有 Hi-Fi 输出（WASAPI 共享或独占，数字输出精度取决于实际格式与处理链）。
 - **正在播放**：背景直接由引擎绘制，用的是这首歌的封面与节奏；歌词逐字浮起。
 - **特效歌词**：从正在播放页无缝交接，封面和歌词会飞入画面。外观（背景、颜色、字体）与风格（排版、镜头、转场）任意搭配，每首歌各自绑定，也可以绑定 MV。除了 Cadenza 自己的六种风格，还有移植自 Folia 的商籁、凝彩与五种背景。
 - **空间界面**：同一个播放器的另一种走法——可以走动的展馆，空中的歌词、收音机、聆听室的六声道。
@@ -16,7 +16,7 @@ Cadenza 是一套功能完整的个人音乐库播放器：音乐库管理、高
 
 ## 架构
 
-所有文档从 [`docs/README.md`](docs/README.md)（文档地图）开始；架构总览在 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，开发范式在 `.claude/skills/cadenza/SKILL.md`。
+首次接手请从 [开发交接](docs/HANDOVER.md) 开始，再看 [架构总览](docs/ARCHITECTURE.md) 和 [文档地图](docs/README.md)。
 
 ```
 core → rhythm（节奏 SDK）→ director（规划）／folia（Folia 风格）→ render（绘制与特效插件）→ engine（时钟、Session、交接、导出）→ app（界面：经典与空间）
@@ -29,25 +29,22 @@ lyrics / text / theme / i18n 为叶子模块
     - **神经网络**（Beat This! 与 HTDemucs，在 GPU 上执行，移植自 Folia）；
     - **内置**（没有可用的 GPU 时自动使用）。
   - 两者输出同一份 `RhythmAnalysis`，详见 `docs/ARCHITECTURE.md`。
-- **Director**：歌曲加载时一次规划版面、镜头路径、转场与片头。播放时只按时间求值，所以预览、预读和导出画出的画面完全一致。
+- **Director**：歌曲加载时一次规划版面、镜头路径、转场与片头。播放时只按时间求值，实时与导出复用视觉执行，按实际输入、时间和资源状态验证一致性。
 - **特效**：在 `src/render/effects` 注册（id、图层、参数定义、`draw`）。界面会依参数定义自动产生控制项。
 - **界面动态**：多部件的动画都由同一个弹簧进度驱动，可以随时反向，不会卡在半途。
 
 ## 开发
 
-```sh
-npm install
-npm run typecheck && npm test            # 单元测试（节奏、歌词、Director）
-npm run build:app                        # 桌面界面 → dist-app（含全部字体，可离线使用）
-npm run build:web                        # 网页版工坊 → dist-web/web.html
-npx vite build --mode harness && node tests/render.cjs   # 绘制测试（主题、裁剪、性能、导出）
-xvfb-run -a node tests/desktop.cjs <截图文件夹>          # 桌面端到端测试
-xvfb-run -a node tests/space.cjs <截图文件夹>            # 空间界面端到端测试
-node tests/hifi.cjs && xvfb-run -a node tests/desktop-hifi.cjs   # Hi-Fi（模拟 DAC）
-node scripts/models.mjs                  # 神经网络节奏引擎的模型 → models/（按 SHA-256 校验）
-node tests/neural.cjs                    # 神经网络引擎端到端（真实模型，WebGPU；无显卡时用 SwiftShader）
-npm run dist:win                         # Windows 安装包与便携版（release/，含模型）
+```powershell
+npm ci
+npm run typecheck
+npm test
+npm run build:native
+npm run electron
+npm run build:web
 ```
+
+Windows 桌面测试、本地打包命令和隔离资料要求见 [开发交接](docs/HANDOVER.md#在-windows-开发与验证)。
 
 各套测试的内容与 Folia 对照在 [`docs/TESTING.md`](docs/TESTING.md)；发布流程在 [`docs/MAINTENANCE.md`](docs/MAINTENANCE.md)。
 
