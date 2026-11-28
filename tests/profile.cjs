@@ -44,7 +44,9 @@ function fixture() {
   return { base, profile, file, put, seed, cleared, preserved };
 }
 
-test('4.0.0 development clears legacy state, then only changes of version or generation clear again', () => {
+// Before 4.0.0-alpha.5 every development version change cleared the profile. Since alpha.5 only a new data
+// generation does, so testers keep their library from one local build to the next.
+test('4.0.0 development clears legacy state, then only a change of generation clears again', () => {
   const f = fixture();
   const outside = path.join(f.base, 'music');
   fs.mkdirSync(outside);
@@ -57,13 +59,14 @@ test('4.0.0 development clears legacy state, then only changes of version or gen
   f.seed('new');
   assert.equal(initializeProfile(f.profile, dev()), 'keep');
   f.preserved('new');
-  assert.equal(initializeProfile(f.profile, dev('4.0.0-alpha.1', 2)), 'reset');
+  assert.equal(initializeProfile(f.profile, dev('4.0.0-alpha.2')), 'keep');
+  f.preserved('new');
+  assert.equal(initializeProfile(f.profile, dev('4.0.0-alpha.2', 2)), 'reset');
   f.cleared();
   f.seed('second generation');
-  for (const [i, version] of ['4.0.0-beta.1', '4.0.0-rc.1', '4.0.0'].entries()) {
-    assert.equal(initializeProfile(f.profile, dev(version, 2)), 'reset');
-    f.cleared();
-    f.seed('channel ' + i);
+  for (const version of ['4.0.0-beta.1', '4.0.0-rc.1', '4.0.0', '4.0.0-alpha.1']) {
+    assert.equal(initializeProfile(f.profile, dev(version, 2)), 'keep');
+    f.preserved('second generation');
   }
   for (const name of assets) assert.equal(fs.readFileSync(path.join(outside, name), 'utf8'), name);
   assert.equal(fs.readFileSync(f.file('export.mp4'), 'utf8'), 'external export beside the profile');

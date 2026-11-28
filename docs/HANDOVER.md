@@ -1,6 +1,6 @@
 # Cadenza 开发交接
 
-Cadenza 是以本地音乐为核心的播放器，提供曲库、歌单、队列、普通与 Hi-Fi 输出、桌面歌词、随音乐变化的特效歌词、空间玩法、歌词工坊及 MP4 导出。交接基准为 `refactor/4.0.0` 的 G8 提交 `d11dc47`，开发版本为 `4.0.0-alpha.4`。G8 已提交其实现和测量记录，其中仍有未闭环的验收项。版本和运行时以 [package.json](../package.json) 与锁文件为准。
+Cadenza 是以本地音乐为核心的播放器，提供曲库、歌单、队列、普通与 Hi-Fi 输出、桌面歌词、随音乐变化的特效歌词、空间玩法、歌词工坊及 MP4 导出。交接基准为 `refactor/4.0.0` 的 G8 提交 `d11dc47`，当时的开发版本为 `4.0.0-alpha.4`。G8 已提交其实现和测量记录，其中仍有未闭环的验收项。之后的工作按下文「接手后的阶段路线」推进。版本和运行时以 [package.json](../package.json) 与锁文件为准。
 
 当前主运行环境是 Windows x64、Electron 45.1.0、React、TypeScript 和 Vite。普通输出使用 Web Audio，Hi-Fi 由 Rust/Symphonia/WASAPI 提供。二维音乐视觉使用 WebGL2、GPU 批次与局部 Canvas2D，空间场景使用 Three.js。神经推理采用 WebGPU 或桌面 ONNX 运行时，视频使用 WebCodecs 与 Mediabunny。Android 是未来目标，当前没有 Android 客户端。
 
@@ -51,7 +51,30 @@ npm run build:web
 npm run dist:win -- --publish never
 ~~~
 
+全新 Windows 机器上的构建前提（2026-11 实测）：
+
+- Rust 用 rustup 安装 `stable-x86_64-pc-windows-gnu`。`windows` crate 在 GNU 目标上需要完整的 `dlltool` 与 `as`。rustup 自带的 `self-contained/dlltool.exe` 缺汇编器，用 `llvm-ar` 冒充 `dlltool` 生成的程序启动即访问冲突。可用做法是装 MSYS2 并安装 `mingw-w64-ucrt-x86_64-toolchain`，构建时把 `C:\msys64\ucrt64\bin` 放在 PATH **末尾**，并设 `RUSTFLAGS=-C link-self-contained=yes`，只借用它的 `dlltool` 与 `as`，链接仍用 Rust 自带的 MinGW 运行库。
+- 新版 npm 会拦截依赖的安装脚本。`npm ci` 后若缺 `node_modules/electron/dist`，运行 `node node_modules/electron/install.js` 补装（按包内 `checksums.json` 校验）。`onnxruntime-node` 的 Windows DirectML 二进制已在包内，被拦截的脚本不影响本地推理。
+- 打包前 `node scripts/models.mjs` 下载并校验 WebGPU 权重；ONNX 权重由应用在用户请求时下载到资料目录。
+
 按改动范围选择测试。命令中的截图目录需替换为实际路径。安装或首次运行开发构建前先读资料版本规则，桌面验证使用隔离 profile 与合成素材。可用 `CADENZA_TEST_EXE` 的脚本可指向同提交拆包 EXE。默认输出交接脚本使用模拟设备，`--real` 走真实 Windows 设备，硬件覆盖与证据边界分别记录。打包是本地操作，发布另按授权执行。 [测试入口与前置条件](TESTING.md) · [维护与发布规则](MAINTENANCE.md)
+
+## 接手后的阶段路线
+
+产品的核心是完整的本地播放体验，音乐分析是为播放服务的基础设施。阶段按对听感和使用体验的影响排序。每个阶段完成实现与对应测试后，在本机打包一个 alpha 版本（NSIS 安装包与便携版）交给用户试用，修完反馈再进入下一阶段。
+
+| 阶段 | 目标 | 主要内容 |
+| --- | --- | --- |
+| 0 准备与基线 | 本机打包流程可用，用户先试用现状 | 检查工具链与模型；开发版跨版本保留资料（`alpha.5`）；打包 G8 基线 |
+| 1 播放连续性 | 听感上没有断点和杂音 | 普通输出与 Hi-Fi 无缝续播；Hi-Fi 时钟以原生时间戳为锚；拆分 `player.ts` 的编排职责 |
+| 2 曲库与数据 | 大曲库流畅，数据归属唯一 | 曲库索引增量持久化与增量推送；外观、预设、单曲选择、工坊项目迁回主进程存储；大曲库压力测试 |
+| 3 分析不打扰播放 | 分析在后台完成，不抢播放与画面资源 | 分析数据不经界面主线程中转；统一工坊与曲库的分析管线；只做对体验有用的质量升级 |
+| 4 视觉世界独立 | 各风格拥有自己的规划和生命周期 | 视觉世界接口；Folia 不再依附原生导演的规划；对照新的上游 Folia |
+| 5 渲染路线 | 解决高分辨率长帧 | 先做原型与实测，由用户在「优化现有混合管线」和「建立 GPU 帧图」之间决定，再实施 |
+| 6 界面整合 | 书页设计覆盖全局 | 全局布局、完整预设、空间与经典即时切换、特效歌词 16:10 |
+| 7 收尾与发布准备 | 达到 4.0.0 正式版质量 | 工坊与导出遗留问题、文档重整、全量回归；用户批准后合入 `main` |
+
+阶段 4 和阶段 6 动工前先给出接口设计请用户过目，阶段 5 由用户决定路线。
 
 ## 推荐阅读顺序
 

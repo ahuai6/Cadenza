@@ -194,14 +194,9 @@ function action(previous, next, reset) {
     if (!reset && previous.schema > next.schema) throw new Error('This build cannot open the newer profile schema');
     return reset ? 'reset' : previous.schema < next.schema ? 'migrate' : 'keep';
   }
-  if (
-    reset ||
-    !previous ||
-    previous.stage !== next.stage ||
-    previous.generation !== next.generation ||
-    (next.stage === 'development' && previous.version !== next.version)
-  )
-    return 'reset';
+  // Development builds keep the profile across version bumps so testers can carry their library between alphas.
+  // Any change in what is stored must raise the data generation instead (checked below for the schema).
+  if (reset || !previous || previous.stage !== next.stage || previous.generation !== next.generation) return 'reset';
   if (previous.schema !== next.schema)
     throw new Error('Increment the data generation when the 4.0.0 profile schema changes');
   return 'keep';
