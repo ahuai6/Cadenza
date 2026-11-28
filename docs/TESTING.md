@@ -8,8 +8,8 @@ G7 的 Windows Electron 硬件渲染探针、上游逐帧对照、资源压力�
 
 - `tests/unit/pcm-stream.test.ts` 从源码文本加载 AudioWorklet 处理器：同采样率逐位拷贝并在下一个采样接续、44.1 kHz 串联在 48 kHz 输出下接缝残差与曲中相当、预缓冲与断流报告、6 ms 暂停包络、曲尾淡出、定位时先淡出旧流、采样率不同的串联歌自行开始。
 - `node tests/gapless-desktop.cjs` 把一段连续正弦在非块边界切成两首（48 kHz WAV、44.1 kHz FLAC、带编码器延迟的 AAC），按专辑连播：普通输出录增益之后的信号，Hi-Fi 读模拟设备的转储。检查正弦递推残差、静音段、接缝前后的相位错位（AAC 两半各自编码，边缘带编解码误差，只要求不多不少一个采样）、无缓冲状态和时钟连续。输出采样率随系统默认设备变化，两种重采样方向都应覆盖。
-- `node tests/continuity-desktop.cjs` 打开特效歌词切到下一首（普通与专辑两种），逐帧检查引擎画布在新场景就绪前不留空白，并检查歌词列表的入场动效。换回旧引擎时它报出 21 个空白帧。
-- `node tests/streaming-desktop.cjs` 按新管线改写：各格式经图内频谱、损坏文件报错、长曲解码器被卡住时时钟冻结（`stall-decoder-file=` 限定文件）、末尾定位、停止与快速切歌后 `--play-pcm` 进程全部退出、文件被改后拒绝播放。
+- `node tests/continuity-desktop.cjs` 打开特效歌词切到下一首（普通与专辑两种），逐帧检查引擎画布在新场景就绪前不留空白，并检查歌词列表的入场动效。换回旧引擎时它报出 21 个空白帧。之后跳转到 12 秒、用「上一首」回到开头，要求画面时钟从新位置继续走（alpha.6 停在目标位置，alpha.6.1 修复）。
+- `node tests/streaming-desktop.cjs` 按新管线改写：各格式经图内频谱、损坏文件报错、长曲解码器被卡住时时钟冻结（`stall-decoder-file=` 限定文件）、末尾定位且时钟在定位后继续走、停止与快速切歌后 `--play-pcm` 进程全部退出、文件被改后拒绝播放。
 - 原生：`cargo test`（含 `mp4gapless` 的编辑列表与 `iTunSMPB` 解析），`node tests/hifi.cjs`，`node --test tests/hifi-clock.cjs` 与 `tests/audio-identity.cjs`。`tests/desktop-hifi.cjs` 的夹具脚本需要 Python 的 NumPy 与 Pillow。
 
 ## G8 分析、场景和创作验证

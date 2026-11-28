@@ -31,7 +31,7 @@ export function balanceOf(t: Track) {
 export class PcmOutput {
   readonly route = 'std' as const;
   private next: PcmOutput | null = null;
-  /** a seek under way: the position asked for, until its stream is playing */
+  /** a seek under way: the position asked for, until the stream read from there takes over */
   private seeking: { at: number; token: object } | null = null;
   private closed = false;
 
@@ -105,7 +105,9 @@ export class PcmOutput {
       track.stop();
       return;
     }
+    // the new stream now tells the time itself: it stands at `at` until it starts, then follows what is heard
     this.track = track;
+    this.seeking = null;
     track.chain(this.next?.track ?? null);
     track.play(notify as (event: PcmEvent) => void, at > 0);
     this.syncGain();

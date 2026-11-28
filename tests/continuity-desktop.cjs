@@ -1,7 +1,8 @@
 // The picture across a change of song (4.0.0-alpha.6): with the effect lyrics open, the next song is asked for and the
 // engine's canvas is sampled every frame until the next song's scene is shown. Before alpha.6 the canvas was cleared
 // while the next scene was built (a black screen under music that had already moved on); now the song before is held
-// and fades over the next one. Also checks that the lyric list's lines come in with a rise, not in a single frame.
+// and fades over the next one. Also checks that the lyric list's lines come in with a rise, not in a single frame,
+// and that a seek and a restart (previous) leave the picture moving on from the new position (alpha.6 froze it).
 // Needs FFmpeg and a Playwright that Node can resolve (NODE_PATH), as the other desktop suites.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -124,6 +125,25 @@ async function main() {
       assert.ok(until >= 0, `${transition}: the next scene was shown`);
       assert.ok(emptiest > 0.5, `${transition}: a frame was left empty while the next scene was built`);
       await page.waitForTimeout(2500);
+    }
+    // a seek and a restart (previous, past the first seconds): the picture goes on from the new position
+    for (const action of ['seek', 'previous']) {
+      const moved = await page.evaluate(async (action) => {
+        const { api, engine } = window.__cadenza;
+        if (action === 'seek') api.seekFile(12);
+        else void api.prev();
+        const target = action === 'seek' ? 12 : 0;
+        const t0 = performance.now();
+        while (!api.player.get().playing && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 20));
+        const from = engine.time;
+        await new Promise((r) => setTimeout(r, 1000));
+        return { target, from: +from.toFixed(3), after: +engine.time.toFixed(3) };
+      }, action);
+      console.log(action, JSON.stringify(moved));
+      results[action] = moved;
+      assert.ok(Math.abs(moved.from - moved.target) < 0.5, `${action}: the clock went to the new position`);
+      assert.ok(moved.after - moved.from > 0.6, `${action}: the picture's clock moves on from the new position`);
+      await page.waitForTimeout(3500);
     }
     // the lyric list: its lines rise in when a new song's scene arrives
     await page.evaluate(() => window.__cadenza.layers.openNp());

@@ -274,6 +274,10 @@ async function main() {
     await output(id('long.wav'));
     await graph();
     assert.ok((await time()) >= 2690 && (await time()) < 2691);
+    // the clock goes on from the new position (alpha.6 held it at the seek target while the music played on)
+    const afterSeek = await time();
+    await page.waitForTimeout(800);
+    assert.ok((await time()) - afterSeek > 0.5, `clock moves after a seek: ${afterSeek} → ${await time()}`);
     // (the stream from 0 is closed; the one from 2690 s may already have read its last ten seconds and ended)
     assert.ok(
       decoders().every((d) => d.file === 'long.wav' && d.from === 2690),
