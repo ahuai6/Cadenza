@@ -32,7 +32,7 @@ Cadenza 是以本地音乐为核心的播放器，提供曲库、歌单、队列
 
 ## 在 Windows 开发与验证
 
-在仓库根目录运行。需要 Node.js/npm，原生构建使用 Rust `x86_64-pc-windows-gnu` 与对应 GNU 工具链。桌面与浏览器测试另需可由 Node 解析的 Playwright，涉及媒体样本的套件按需准备 FFmpeg/FFprobe。Windows PowerShell 如拦截 npm 的脚本入口，可使用 `npm.cmd` 和 `npx.cmd`。
+在仓库根目录运行。需要 Node.js/npm，原生构建使用 Rust `x86_64-pc-windows-gnu` 与对应 GNU 工具链。桌面与浏览器测试另需可由 Node 解析的 Playwright，涉及媒体样本的套件按需准备 FFmpeg/FFprobe；经典界面与 Hi-Fi 桌面套件的素材需要 Python 的 NumPy 和 Pillow（MSYS2 安装与生成步骤见 [测试](TESTING.md#桌面测试素材)）。Windows PowerShell 如拦截 npm 的脚本入口，可使用 `npm.cmd` 和 `npx.cmd`。
 
 ~~~powershell
 npm ci

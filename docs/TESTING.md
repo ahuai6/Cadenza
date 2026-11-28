@@ -10,6 +10,8 @@ G7 的 Windows Electron 硬件渲染探针、上游逐帧对照、资源压力�
 - `node tests/library-stress.cjs`：一万首合成歌曲（`CADENZA_STRESS_SONGS` 可改）从空资料扫描。分三段测量：扫描、扫描后 30 秒内（歌曲身份仍在逐首计算）、重开。记录主进程事件循环的最长停顿、页面长任务、更新次数、各进程内存峰值、一次播放计数显示出来的时间，并核对页面上的曲库与主进程一致、歌曲列表只绘制可见附近的行、滚到底能看到最后一首、「显示正在播放的歌曲」能找到未绘制的行。`CADENZA_STRESS_CHECK=1` 另做磁盘读回校验（会拖慢主进程，只用于正确性），`CADENZA_STRESS_ASSERT=1` 断言预算。
 - `node tests/continuity-desktop.cjs` 新增连续切歌：120 毫秒内连切五首，逐帧检查画布不留空白（alpha.6.1 报出 130 个空白帧）。
 
+补齐素材环境后，`tests/desktop.cjs`（77 项）与 `tests/desktop-hifi.cjs`（19 项）在 alpha.7 上全部通过。
+
 本机一万首的对照（同一台机器，alpha.6.1 → alpha.7）：
 
 | 窗口 | alpha.6.1 | alpha.7 |
@@ -20,7 +22,17 @@ G7 的 Windows Electron 硬件渲染探针、上游逐帧对照、资源压力�
 
 
 
-桌面套件需要能被 Node 解析的 Playwright（例如装在隔离工具目录，用 `NODE_PATH` 指过去）和 FFmpeg。
+桌面套件需要能被 Node 解析的 Playwright（例如装在隔离工具目录，用 `NODE_PATH` 指过去）和 FFmpeg。`tests/desktop.cjs` 与 `tests/desktop-hifi.cjs` 的素材还要 Python 的 NumPy 和 Pillow，生成方式见下面「桌面测试素材」。
+
+### 桌面测试素材
+
+`tests/.cache`（不入库）放生成的素材。经典界面与 Hi-Fi 桌面套件先读 `tests/.cache/lib`，没有时调用 `tests/fixtures/gen/library.sh` 生成，它又用到三个合成脚本产生的 WAV。本机做法：
+
+1. 在 MSYS2 里安装 `mingw-w64-ucrt-x86_64-python`、`-python-numpy`、`-python-pillow`（与原生构建共用 `C:\msys64`，不改系统 Python）。
+2. Windows 自带的 `python3` 只是应用商店的占位程序，而且在 PATH 里更靠前，所以生成素材和运行这两组套件时，把 `C:\msys64\ucrt64\bin` 临时放到 PATH **最前面**（原生构建则放在末尾，见开发交接）。
+3. 在 `tests/.cache` 目录里依次运行 `tests/fixtures/gen/synth.py`、`synth2.py`、`synth3.py`，再运行 `sh tests/fixtures/gen/library.sh <tests/.cache 的绝对路径>`。
+
+生成中途被打断会留下空的 `lib` 目录，套件看到目录已存在就不再生成，表现为等待曲目超时。删掉 `tests/.cache/lib` 重新生成即可。
 
 - `tests/unit/pcm-stream.test.ts` 从源码文本加载 AudioWorklet 处理器：同采样率逐位拷贝并在下一个采样接续、44.1 kHz 串联在 48 kHz 输出下接缝残差与曲中相当、预缓冲与断流报告、6 ms 暂停包络、曲尾淡出、定位时先淡出旧流、采样率不同的串联歌自行开始。
 - `node tests/gapless-desktop.cjs` 把一段连续正弦在非块边界切成两首（48 kHz WAV、44.1 kHz FLAC、带编码器延迟的 AAC），按专辑连播：普通输出录增益之后的信号，Hi-Fi 读模拟设备的转储。检查正弦递推残差、静音段、接缝前后的相位错位（AAC 两半各自编码，边缘带编解码误差，只要求不多不少一个采样）、无缓冲状态和时钟连续。输出采样率随系统默认设备变化，两种重采样方向都应覆盖。
