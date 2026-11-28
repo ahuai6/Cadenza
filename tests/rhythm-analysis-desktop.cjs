@@ -13,6 +13,8 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cadenza-g6-analysis-'));
 const music = path.join(scratch, 'music');
 const profile = path.join(scratch, 'profile');
 const baseline = process.argv.includes('--baseline');
+const hifi = process.argv.includes('--hifi-progressive');
+const watch = process.argv.includes('--watch');
 const seconds = Number(process.env.CADENZA_ANALYSIS_SECONDS) || 900;
 const wave = path.join(music, 'Long click.wav');
 const alias = path.join(music, 'Long click copy.wav');
@@ -51,14 +53,25 @@ fs.writeFileSync(
     derived: {},
   }),
 );
-fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({ closeToTray: false, rhythmEngine: 'dsp' }));
+fs.writeFileSync(
+  path.join(profile, 'settings.json'),
+  JSON.stringify({
+    closeToTray: false,
+    rhythmEngine: watch ? 'auto' : 'dsp',
+    ...(hifi ? { audioOut: 'hifi', audioMode: 'exclusive' } : {}),
+  }),
+);
 
 async function launch() {
   const exe = process.env.CADENZA_TEST_EXE;
   return _electron.launch({
     executablePath: exe || require('electron'),
     args: exe ? [] : [root],
-    env: { ...process.env, CADENZA_USER_DATA: profile },
+    env: {
+      ...process.env,
+      CADENZA_USER_DATA: profile,
+      ...(hifi ? { CADENZA_AUDIO_FAKE: 'rates=22050,44100,48000;fmts=i16;dump=' + path.join(scratch, 'measure') } : {}),
+    },
   });
 }
 async function until(check, message, timeout = 120000) {
@@ -79,7 +92,15 @@ async function main() {
     const tracks = await win.evaluate(() => window.__cadenza.lib.get().tracks);
     const long = tracks.find((t) => t.title === 'Long click');
     const copy = tracks.find((t) => t.title === 'Long click copy');
-    if (!baseline)
+    if (hifi)
+      await win.evaluate(() => {
+        window.measuredNativeLevel = false;
+        window.cadenzaAudio.onEvent((event) => {
+          if (event.ev === 'pos' && event.run && Number.isFinite(event.pcmDb) && event.pcmDb > -50)
+            window.measuredNativeLevel = true;
+        });
+      });
+    if (!baseline && !hifi)
       await win.evaluate(() => {
         const engine = window.__cadenza.engine;
         engine.clock.warm();
@@ -121,7 +142,18 @@ async function main() {
       );
       return;
     }
-    await win.waitForFunction(() => window.analysisTestSignal(), undefined, { timeout: 15000 });
+    if (hifi) {
+      await until(
+        () => {
+          const raw = fs.readdirSync(scratch).find((name) => name.endsWith('.raw'));
+          return raw && fs.readFileSync(path.join(scratch, raw)).some((value) => value !== 0);
+        },
+        'simulated Hi-Fi did not submit audio samples',
+        15000,
+      );
+      assert.equal(await win.evaluate(() => window.__cadenza.api.playback.get().route), 'hifi');
+      await win.waitForFunction(() => window.measuredNativeLevel);
+    } else await win.waitForFunction(() => window.analysisTestSignal(), undefined, { timeout: 15000 });
     const signalMs = performance.now() - waitStart;
     assert.notEqual(
       await win.evaluate((id) => window.__cadenza.lib.get().tracks.find((track) => track.id === id).analyzed, long.id),
@@ -132,6 +164,23 @@ async function main() {
         window.__cadenza.player.get().session?.map?.a?.source === 'unavailable' ||
         window.__cadenza.player.get().session?.analysis?.version === 4,
     );
+    if (watch) await win.evaluate(() => window.__cadenza.layers.openFx());
+    if (process.argv.includes('--progressive') || hifi) {
+      await win.waitForFunction(() => {
+        const { engine, player } = window.__cadenza;
+        const session = player.get().session;
+        return (
+          !session?.analysis &&
+          session?.map.spec(0.05)?.some((value) => value > 0.1) &&
+          !session.map.spec(session.dur - 2) &&
+          engine.frameAt(engine.t)?.I > 0.35
+        );
+      });
+      console.log(
+        'Pass measured visual input and finite DSP coverage before final analysis',
+        performance.now() - waitStart,
+      );
+    }
     const sizes = [];
     let measuring = true;
     const memory = (async () => {
@@ -189,6 +238,7 @@ async function main() {
         seconds,
         playMs,
         signalMs,
+        signalSource: hifi ? 'simulated PCM' : 'Web Audio',
         seekMs,
         doneMs,
         fileBytes: fs.statSync(wave).size,

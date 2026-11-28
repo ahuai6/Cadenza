@@ -127,6 +127,7 @@ export interface RenderOptions {
 
 interface Frame {
   ctx: Ctx2D;
+  pixels?: { width: number; height: number };
   /** stage CSS px → this frame's device px */
   base: Matrix;
   res: number;
@@ -146,7 +147,14 @@ export interface StageQuad {
 }
 
 let drawQuads:
-  | ((width: number, height: number, quads: StageQuad[], target?: FilterTarget) => AnyCanvas | null)
+  | ((
+      width: number,
+      height: number,
+      quads: StageQuad[],
+      target?: FilterTarget,
+      x?: number,
+      y?: number,
+    ) => AnyCanvas | null)
   | undefined;
 export function setStageQuadRenderer(draw: typeof drawQuads) {
   drawQuads = draw;
@@ -242,13 +250,42 @@ export class StageRenderer {
     const pending = f.quads;
     const g = f.ctx;
     const { width, height } = g.canvas;
-    const out = pending.length >= 4 ? drawQuads?.(width, height, pending) : null;
+    let x = 0,
+      y = 0,
+      w = width,
+      h = height;
+    if (drawQuads && pending.length >= 4) {
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      for (const {
+        rect: [rx, ry, rw, rh],
+        transform: [a, b, c, d, tx, ty],
+      } of pending) {
+        const left = a * rx + c * ry + tx;
+        const top = b * rx + d * ry + ty;
+        minX = Math.min(minX, left + Math.min(0, a * rw) + Math.min(0, c * rh));
+        minY = Math.min(minY, top + Math.min(0, b * rw) + Math.min(0, d * rh));
+        maxX = Math.max(maxX, left + Math.max(0, a * rw) + Math.max(0, c * rh));
+        maxY = Math.max(maxY, top + Math.max(0, b * rw) + Math.max(0, d * rh));
+      }
+      x = Math.max(0, Math.floor(minX) - 1);
+      y = Math.max(0, Math.floor(minY) - 1);
+      w = Math.min(width, Math.ceil(maxX) + 1) - x;
+      h = Math.min(height, Math.ceil(maxY) + 1) - y;
+      if (w <= 0 || h <= 0) {
+        pending.length = 0;
+        return;
+      }
+    }
+    const out = pending.length >= 4 ? drawQuads?.(w, h, pending, undefined, x, y) : null;
     f.painted = true;
     g.globalCompositeOperation = 'source-over';
     if (out) {
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.globalAlpha = 1;
-      g.drawImage(out, 0, 0, width, height, 0, 0, width, height);
+      g.drawImage(out, 0, 0, w, h, x, y, w, h);
     } else {
       for (const item of pending) {
         g.setTransform(...item.transform);
@@ -371,7 +408,6 @@ export class StageRenderer {
   private graphics(n: Graphics, f: Frame, world: Matrix, a: number, b: BLEND_MODES, t: number) {
     const ins = n.context.instructions;
     if (!ins.length) return;
-    const g = f.ctx;
     const m = Matrix.multiply(f.base, world, this.mat());
     for (const i of ins) {
       if (
@@ -406,6 +442,7 @@ export class StageRenderer {
       }
       this.flush(f);
       f.painted = true;
+      const g = f.ctx;
       g.setTransform(m.a, m.b, m.c, m.d, m.tx, m.ty);
       g.globalCompositeOperation = compositeOf(b);
       if (i.action === 'texture') {
@@ -466,7 +503,6 @@ export class StageRenderer {
     const tex = n.texture;
     const src = tex.source.resource;
     if (!src || tex === Texture.EMPTY) return;
-    const g = f.ctx;
     const { width: w, height: h } = tex.frame;
     const x0 = -n.anchor.x * w,
       y0 = -n.anchor.y * h;
@@ -494,6 +530,7 @@ export class StageRenderer {
     }
     this.flush(f);
     f.painted = true;
+    const g = f.ctx;
     this.setTransform(f, world);
     g.globalAlpha = a;
     g.globalCompositeOperation = compositeOf(b);
@@ -506,22 +543,31 @@ export class StageRenderer {
 
   private text(n: Text, f: Frame, world: Matrix, a: number, b: BLEND_MODES, t: number) {
     if (!n.text) return;
-    const g = f.ctx;
     const m = Matrix.multiply(f.base, world, this.mat());
     const res = bucket(scaleOf(m));
     const style = n.style;
-    const key = `${n.text}\u0000${textKey(style)}\u0000${res}\u0000${t}`;
-    let c = this.texts.get(key);
     const measured = n.measured;
     const pad = style.padding;
+    const x0 = -n.anchor.x * measured.width - pad;
+    const y0 = -n.anchor.y * measured.height - pad;
+    const w = Math.max(1, Math.ceil((measured.width + 2 * pad) * res)) / res;
+    const h = Math.max(1, Math.ceil((measured.height + 2 * pad) * res)) / res;
+    const x = m.a * x0 + m.c * y0 + m.tx;
+    const y = m.b * x0 + m.d * y0 + m.ty;
+    const farX = x + Math.max(0, m.a * w) + Math.max(0, m.c * h);
+    const farY = y + Math.max(0, m.b * w) + Math.max(0, m.d * h);
+    const nearX = x + Math.min(0, m.a * w) + Math.min(0, m.c * h);
+    const nearY = y + Math.min(0, m.b * w) + Math.min(0, m.d * h);
+    const pixels = f.pixels ?? f.ctx.canvas;
+    if (farX < -1 || farY < -1 || nearX > pixels.width + 1 || nearY > pixels.height + 1) return;
+    const key = `${n.text}\u0000${textKey(style)}\u0000${res}\u0000${t}`;
+    let c = this.texts.get(key);
     if (!c) {
       c = rasterText(n.text, style, res, measured);
       if (t !== 0xffffff) tintInPlace(ctxOf(c), c, t);
       this.texts.set(key, c);
       this.stats.rasters += 1;
     }
-    const x0 = -n.anchor.x * measured.width - pad,
-      y0 = -n.anchor.y * measured.height - pad;
     if (f.quads && drawQuads && b === 'normal') {
       f.quads.push({
         source: c,
@@ -535,6 +581,7 @@ export class StageRenderer {
     }
     this.flush(f);
     f.painted = true;
+    const g = f.ctx;
     g.setTransform(m.a, m.b, m.c, m.d, m.tx, m.ty);
     g.globalAlpha = a;
     g.globalCompositeOperation = compositeOf(b);
@@ -627,15 +674,26 @@ export class StageRenderer {
     // never larger than the target can show
     const MAX = 4096;
     res = Math.min(res, MAX / Math.max(area.width, area.height));
-    let cur = this.canvas(area.width * res, area.height * res);
+    const width = Math.max(1, Math.ceil(area.width * res));
+    const height = Math.max(1, Math.ceil(area.height * res));
+    let cur: AnyCanvas | undefined;
+    const fallback = () => {
+      if (!cur) {
+        cur = this.canvas(width, height);
+        ctxOf(cur).save();
+      }
+      return cur;
+    };
     const inner: Frame = {
-      ctx: ctxOf(cur),
+      get ctx() {
+        return ctxOf(fallback());
+      },
+      pixels: { width, height },
       base: new Matrix(res, 0, 0, res, -area.x * res, -area.y * res),
       res,
       view: area,
       quads: [],
     };
-    inner.ctx.save();
     if (n.mask) {
       inner.painted = true;
       this.masked(n, inner, world, 1, 'normal', t);
@@ -652,11 +710,10 @@ export class StageRenderer {
       const target = runner.target('incoming', w, h, !filters.some((filter) => filter.blendRequired));
       if (drawQuads(w, h, inner.quads!, target)) {
         input = target;
-        inner.quads!.length = 0;
       }
     }
     if (!input) this.flush(inner);
-    inner.ctx.restore();
+    if (cur) ctxOf(cur).restore();
     let gpuOutput: AnyCanvas | null = null;
     let i = 0;
     while (i < filters.length) {
@@ -665,12 +722,13 @@ export class StageRenderer {
         const bl = x as BlurFilter;
         const sigma = bl.sigma(Math.max(Math.abs(bl.strengthX), Math.abs(bl.strengthY))) * res;
         if (sigma > 0.05) {
-          const next = this.canvas(cur.width, cur.height);
+          const source = cur ?? this.canvas(width, height);
+          const next = this.canvas(width, height);
           const g = ctxOf(next);
           g.filter = `blur(${sigma.toFixed(2)}px)`;
-          g.drawImage(cur as CanvasImageSource, 0, 0);
+          g.drawImage(source as CanvasImageSource, 0, 0);
           g.filter = 'none';
-          this.release(cur);
+          this.release(source);
           cur = next;
         }
         i += 1;
@@ -685,7 +743,7 @@ export class StageRenderer {
       if (!runner.ok) continue;
       let back: AnyCanvas | null = null;
       if (run.some((x) => x.blendRequired)) {
-        back = this.canvas(cur.width, cur.height);
+        back = this.canvas(width, height);
         // what is already drawn under the frame, in the target's pixels
         const p0 = f.base.apply({ x: area.x, y: area.y }),
           p1 = f.base.apply({ x: area.right, y: area.bottom });
@@ -701,13 +759,25 @@ export class StageRenderer {
           back.height,
         );
       }
-      const out = runner.run(input || cur, area.width, area.height, res, run, { x: area.x, y: area.y }, back);
+      const out = runner.run(
+        input ?? (cur ??= this.canvas(width, height)),
+        area.width,
+        area.height,
+        res,
+        run,
+        { x: area.x, y: area.y },
+        back,
+      );
       if (back) this.release(back);
       if (out) {
         gpuOutput = out;
       }
     }
     const g = f.ctx;
+    if (input && !gpuOutput) {
+      this.flush(inner);
+      if (cur) ctxOf(cur).restore();
+    }
     const m = f.base;
     g.setTransform(m.a, m.b, m.c, m.d, m.tx, m.ty);
     g.globalAlpha = a;
@@ -724,9 +794,9 @@ export class StageRenderer {
         area.width,
         area.height,
       );
-    else g.drawImage(cur, area.x, area.y, area.width, area.height);
+    else if (cur) g.drawImage(cur, area.x, area.y, area.width, area.height);
     this.stats.draws += 1;
-    this.release(cur);
+    if (cur) this.release(cur);
   }
 
   /** The mask's stage transform: through its own parents when it is in a tree, else beside its owner. */

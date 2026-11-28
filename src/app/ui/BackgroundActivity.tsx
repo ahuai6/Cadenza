@@ -5,10 +5,18 @@ import s from './BackgroundActivity.module.css';
 
 const phaseLabel = {
   rhythm: '节奏分析',
+  upgrade: '神经节奏与音源分离补全',
   loudness: '响度分析',
   validate: '缓存校验',
   paused: '分析已暂停',
   idle: '',
+};
+const analysisStageLabel = {
+  decode: '解码与提取特征',
+  beats: '识别节拍',
+  stems: '分离鼓轨',
+  merge: '融合节奏结果',
+  write: '写入分析缓存',
 };
 
 const problemLabel: Record<string, string> = {
@@ -32,12 +40,14 @@ export function BackgroundActivity({ className = '' }: { className?: string }) {
     progress.phase === 'scan' ||
     !!(progress.hashing || analyzing) ||
     task.phase === 'rhythm' ||
+    task.phase === 'upgrade' ||
     task.phase === 'loudness' ||
     task.phase === 'validate';
   const work = [
     progress.phase === 'scan' && (progress.total ? `扫描 ${progress.done} / ${progress.total}` : '正在发现音乐文件'),
     progress.hashing > 0 && '计算音频指纹',
-    (task.phase !== 'idle' || analyzing) && (phaseLabel[task.phase] || '节奏分析'),
+    (task.phase !== 'idle' || analyzing) &&
+      (task.stage ? analysisStageLabel[task.stage] : phaseLabel[task.phase] || '节奏分析'),
     progress.queued > 0 && `指纹等待 ${progress.queued}`,
   ]
     .filter(Boolean)

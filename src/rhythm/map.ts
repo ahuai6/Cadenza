@@ -6,6 +6,7 @@ import { bisect, clamp, sampleSeries, sstep, lerp } from '../core/math';
 import type { RhythmAnalysis, RhythmEvent, Section, Tier } from './types';
 import { RHYTHM_VERSION } from './types';
 import { barIndexer, type BarIndexer } from './bars';
+import type { RhythmPreview } from './preview';
 
 export interface BeatPos {
   /** continuous beat index (0 = first beat) */ bt: number;
@@ -38,7 +39,11 @@ export class RhythmMap {
 
   /** what was wrong with the analysis and put right as it was read (see repairAnalysis); empty for a sound one */
   readonly repairs: string[];
-  constructor(a0: RhythmAnalysis, offset = 0) {
+  constructor(
+    a0: RhythmAnalysis,
+    offset = 0,
+    private readonly preview?: RhythmPreview,
+  ) {
     const { a, fixes } = repairAnalysis(a0);
     this.repairs = fixes;
     this.a = a;
@@ -181,6 +186,7 @@ export class RhythmMap {
 
   /** Events in [t0, t1] at or above a tier. */
   eventsIn(t0: number, t1: number, minTier: Tier = 0): RhythmEvent[] {
+    if (this.preview && !this.events.length) return this.preview.events(t0, t1, this.offset, minTier);
     const out: RhythmEvent[] = [];
     let i = Math.max(0, bisect(this.evT, t0 - 1e-9) + 1);
     if (i > 0 && this.evT[i - 1] >= t0) i--;
@@ -202,9 +208,11 @@ export class RhythmMap {
 
   /** Song-relative level 0..1 (slow: the section's loudness) and loudness (fast). */
   level(t: number) {
+    if (!this.a.level.length && this.preview) return this.preview.level(t + this.offset);
     return sampleSeries(this.a.level, this.a.rate, t + this.offset);
   }
   loud(t: number) {
+    if (!this.a.loud.length && this.preview) return this.preview.level(t + this.offset);
     return sampleSeries(this.a.loud, this.a.rate, t + this.offset);
   }
   /** How much the voice sings at t (0..1, off the separated vocal stem), or null where the song has no such reading. */
@@ -215,7 +223,7 @@ export class RhythmMap {
   /** The coarse spectrum at t (bands low to high, 0..1), or null without audio analysis. */
   spec(t: number, out: number[] = []): number[] | null {
     const S = this.a.spec;
-    if (!S || !S.length) return null;
+    if (!S || !S.length) return this.preview?.spectrum(t + this.offset, out) ?? null;
     for (let k = 0; k < S.length; k++) out[k] = sampleSeries(S[k], this.a.rate, t + this.offset);
     out.length = S.length;
     return out;

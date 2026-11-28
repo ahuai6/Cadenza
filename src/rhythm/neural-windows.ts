@@ -1,4 +1,5 @@
 import type { NeuralRhythm } from './neural/types';
+import type { RhythmEvent, RhythmPreviewBeats } from './types';
 
 // Window ownership is half-open in media frames. Context frames are never emitted twice.
 export class NeuralWindows {
@@ -9,6 +10,7 @@ export class NeuralWindows {
   private origin = 0;
   private first = true;
   private failed = false;
+  private pending: Promise<boolean> | null = null;
   private result: NeuralRhythm | null = null;
   private groups = new Map<string, number>();
   private scales = 0;
@@ -17,7 +19,12 @@ export class NeuralWindows {
   constructor(
     private rate: number,
     channels: number,
-    private infer: (channels: Float32Array[], rate: number) => Promise<NeuralRhythm | null>,
+    private infer: (
+      channels: Float32Array[],
+      rate: number,
+      onBeats: (result: NeuralRhythm) => void,
+    ) => Promise<NeuralRhythm | null>,
+    private readonly preview?: (beats: RhythmPreviewBeats) => void,
   ) {
     this.span = rate * 30;
     this.context = rate * 2;
@@ -33,29 +40,63 @@ export class NeuralWindows {
         this.ring[i].set(channels[i].subarray(offset, offset + size), this.length);
       offset += size;
       this.length += size;
-      if (this.length === this.span && !(await this.flush(false))) return;
+      if (this.length === this.span) {
+        // One model request in flight, and one bounded window accumulating from the decoder.
+        if (this.pending && !(await this.pending)) return;
+        this.pending = this.flush(false);
+      }
     }
   }
 
   private async flush(final: boolean) {
     if (!this.length) return true;
-    const start = this.first ? 0 : this.context;
-    const end = final ? this.length : this.length - this.context;
-    const result = await this.infer(
-      this.ring.map((channel) => channel.slice(0, this.length)),
-      this.rate,
-    );
+    const { first, origin, length } = this;
+    const start = first ? 0 : this.context;
+    const end = final ? length : length - this.context;
+    const window = this.ring.map((channel) => channel.slice(0, length));
+    if (!final) {
+      const advance = length - 2 * this.context;
+      this.origin += advance;
+      this.length -= advance;
+      this.first = false;
+      for (const channel of this.ring) channel.copyWithin(0, advance);
+    }
+    let published = false;
+    const publish = (result: NeuralRhythm) => {
+      if (!this.preview || published) return;
+      published = true;
+      const down = new Set(result.downbeats);
+      const events: RhythmEvent[] = [];
+      for (const [i, t] of result.beats.entries()) {
+        if (t * this.rate < start || t * this.rate >= end || !result.rhythmic[i] || !result.impact[i]) continue;
+        if (result.group > 1 && !down.has(t)) continue;
+        const low = result.low[i],
+          mid = result.mid[i],
+          high = result.high[i];
+        events.push({
+          t: origin / this.rate + t,
+          s: result.impact[i] * result.trackScale,
+          tier: down.has(t) ? 2 : 1,
+          band: low >= mid && low >= high ? 'low' : mid >= high ? 'mid' : 'high',
+          pos: 0,
+          off: false,
+        });
+      }
+      this.preview({ start: (origin + start) / this.rate, end: (origin + end) / this.rate, events });
+    };
+    const result = await this.infer(window, this.rate, publish);
     if (!result) {
       this.failed = true;
       return false;
     }
-    if (this.first && final) {
+    publish(result);
+    if (first && final) {
       this.result = result;
       return true;
     }
     const span = (end - start) / this.rate;
     const owned = (sec: number) => sec >= start / this.rate && sec < end / this.rate;
-    const at = (sec: number) => this.origin / this.rate + sec;
+    const at = (sec: number) => origin / this.rate + sec;
     const merged = (this.result ??= {
       model: result.model,
       beats: [],
@@ -112,18 +153,11 @@ export class NeuralWindows {
     merged.ms.beats += result.ms.beats;
     merged.ms.drums += result.ms.drums;
 
-    if (!final) {
-      const advance = this.length - 2 * this.context;
-      this.origin += advance;
-      this.length -= advance;
-      this.first = false;
-      for (const channel of this.ring) channel.copyWithin(0, advance);
-    }
     return true;
   }
 
   async finish() {
-    if (this.failed || !(await this.flush(true))) return null;
+    if ((this.pending && !(await this.pending)) || this.failed || !(await this.flush(true))) return null;
     const result = this.result;
     if (result && this.weights) {
       result.trackScale = this.scales / this.weights;

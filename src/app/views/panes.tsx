@@ -2,7 +2,7 @@
 // Session through `edit`, so the session replans what a change affects and the caller keeps the change (bound to the
 // song, or in the workshop's project). The effect list is built from the effect registry: a new effect module with a
 // parameter schema shows up here with its own controls, without touching this file.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { tx } from '../../i18n';
 import type { Engine, Session } from '../../engine';
 import { exportVideo, estimate, blobSink } from '../../engine';
@@ -953,7 +953,8 @@ export function ExportPanel({
     [saved, setSaved] = useState<{ path?: string; blob?: Blob; name?: string } | null>(null);
   const bar = useRef<HTMLDivElement>(null),
     live = useRef<HTMLSpanElement>(null),
-    sig = useRef({ cancelled: false });
+    sig = useRef<AbortController | null>(null);
+  useEffect(() => () => sig.current?.abort(), []);
   const set = (k: string, v: unknown) =>
     setO((p) => {
       const n = { ...p, [k]: v };
@@ -963,28 +964,30 @@ export function ExportPanel({
   const est = estimate(ss, { res: +o.res, fps: +o.fps, quality: o.quality }, engine.viewAspect());
   const start = async () => {
     if (busy) {
-      sig.current.cancelled = true;
+      sig.current?.abort();
       return;
     }
+    if (exportBusy) return;
+    exportBusy = true;
+    const job = new AbortController();
+    sig.current = job;
+    setBusy(true);
     setMsg('');
     setSaved(null);
-    await before?.();
-    const name = `${
-      (ss.spec.song.title || 'cadenza')
-        .trim()
-        .replace(/[\\/:*?"<>|\s]+/g, '-')
-        .slice(0, 60) || 'cadenza'
-    }-${est.w}x${est.h}.mp4`;
-    let path: string | null = null;
-    if (desktop) {
-      path = await pickSavePath(name, 'mp4');
-      if (!path) return;
-    }
-    sig.current = { cancelled: false };
-    setBusy(true);
-    exportBusy = true;
-    pauseAnalysis(true);
+    let held = false;
     try {
+      await before?.();
+      if (job.signal.aborted) return;
+      const name = `${
+        (ss.spec.song.title || 'cadenza')
+          .trim()
+          .replace(/[\\/:*?"<>|\s]+/g, '-')
+          .slice(0, 60) || 'cadenza'
+      }-${est.w}x${est.h}.mp4`;
+      const path = desktop ? await pickSavePath(name, 'mp4') : null;
+      if ((desktop && !path) || job.signal.aborted) return;
+      held = true;
+      pauseAnalysis(true);
       const r = await exportVideo(engine, ss, {
         res: +o.res,
         fps: +o.fps,
@@ -992,7 +995,7 @@ export function ExportPanel({
         codec: o.codec as 'auto',
         captions: o.captions,
         audio: o.audio,
-        signal: sig.current,
+        signal: job.signal,
         sink: path ? fileSink(path) : blobSink(),
         onProgress: (phase, i, n) => {
           bar.current?.style.setProperty('--k', String(n ? i / n : 0));
@@ -1029,10 +1032,13 @@ export function ExportPanel({
         setMsg(done);
         await offerFile(r.name!, blob);
       }
+    } catch (error) {
+      setMsg(tx('x.fail', { e: String((error as Error)?.message || error) }));
     } finally {
       setBusy(false);
+      sig.current = null;
       exportBusy = false;
-      pauseAnalysis(false);
+      if (held) pauseAnalysis(false);
       bar.current?.style.setProperty('--k', '0');
     }
   };

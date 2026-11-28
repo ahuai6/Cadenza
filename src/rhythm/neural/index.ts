@@ -217,6 +217,7 @@ export interface NeuralOptions {
   /** give up after this long (ms) of running — waiting in the queue does not count: the worker is dropped, the GPU let go */ timeoutMs?: number;
   /** the song about to play: it goes ahead of the songs waiting in the background */ urgent?: boolean;
   signal?: AbortSignal;
+  onBeats?: (value: NeuralRhythm) => void;
 }
 /* One song at a time: the worker's networks keep their buffers between runs, so two songs at once would write over
    each other's (and a timeout on one would drop the worker under the other). Requests wait their turn — an urgent one
@@ -280,6 +281,7 @@ export async function neuralRhythm(
         progress,
         (value) => {
           checkpoint = value;
+          opts.onBeats?.(value);
         },
       );
       const stop = new Promise<never>((_, rej) => {

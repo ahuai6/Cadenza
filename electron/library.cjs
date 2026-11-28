@@ -1003,6 +1003,7 @@ function taskDetails() {
     counters: { ...scanCounters },
   };
 }
+let upgradeWake;
 function nextJob(version, omit, capability) {
   const excluded = new Set(Array.isArray(omit) ? omit.filter((id) => typeof id === 'string') : []);
   if (version) want = version;
@@ -1010,14 +1011,18 @@ function nextJob(version, omit, capability) {
   const canUpgrade = !mode.startsWith('dsp-') && /^(web|native):[12]$/.test(capability);
   const target = canUpgrade ? Math.min(mode.includes('-nodrums-') ? 1 : 2, Number(capability.at(-1))) : 0;
   const now = Date.now();
+  let nextDue = Infinity;
   const ready = (t) => t && !t.detached && !t.protected && identity.validId(t.audioContentId);
   const pick = (t) => {
     if (!ready(t) || excluded.has(t.id)) return null;
     const row = rhythmSummary(t);
     if (row?.version !== want) return analysisFailedForVersion(t) ? null : { id: t.id };
     if (!loudnessOf(t) && !t.loudFailed) return { id: t.id, only: 'loudness' };
-    if (row.quality != null && row.quality < target && (row.upgrade?.[capability] ?? 0) <= now)
-      return { id: t.id, upgrade: true };
+    if (row.quality != null && row.quality < target) {
+      const due = row.upgrade?.[capability] ?? 0;
+      if (due <= now) return { id: t.id, upgrade: true };
+      nextDue = Math.min(nextDue, due);
+    }
     return null;
   };
   const issue = (job) => {
@@ -1031,19 +1036,38 @@ function nextJob(version, omit, capability) {
   };
   while (priority.length) {
     const item = pick(activeTrack(priority.shift()));
-    if (item) {
+    if (item && !item.upgrade) {
       return issue(item);
     }
   }
   let candidate = null;
   let job = null;
+  let rank = Infinity;
   for (const track of Object.values(db.tracks)) {
-    if (candidate && (track.last < candidate.last || (track.last === candidate.last && track.added <= candidate.added)))
-      continue;
     const next = pick(track);
-    if (next) {
-      candidate = track;
-      job = next;
+    if (!next) continue;
+    const order = next.upgrade ? 2 : next.only ? 1 : 0;
+    if (order > rank) continue;
+    if (
+      order === rank &&
+      candidate &&
+      (track.last < candidate.last || (track.last === candidate.last && track.added <= candidate.added))
+    )
+      continue;
+    rank = order;
+    candidate = track;
+    job = next;
+  }
+  if (canUpgrade) {
+    clearTimeout(upgradeWake);
+    if (Number.isFinite(nextDue)) {
+      upgradeWake = setTimeout(
+        () => {
+          if (db && !stopping) send('lib:wake');
+        },
+        Math.min(2_147_483_647, Math.max(1, nextDue - Date.now())),
+      );
+      upgradeWake.unref();
     }
   }
   return job ? issue(job) : null;

@@ -48,13 +48,25 @@ let active: { seq: number; runId: number; notify: (event: OutputEvent) => void }
 const waiting = new Map<number, { res: (e: Ready) => void; rej: (e: Error) => void }>();
 const barriers = new Map<number, (ok: boolean) => void>();
 const clock = new HifiClock();
+let meter: { level: number; at: number } | null = null;
 export const time = () => clock.time(performance.now());
 export const clockBudgetMs = () => clock.remainingMs(performance.now());
-const hold = (t: number) => clock.reset(t);
+const hold = (t: number) => {
+  meter = null;
+  clock.reset(t);
+};
+export function nativeMusic() {
+  return active && meter && performance.now() - meter.at < 120 ? meter.level : null;
+}
 const matches = (e: { seq: number; runId: number }) => active?.seq === e.seq && active.runId === e.runId;
 
-function onPos(e: NativeObservation & { seq: number; runId: number; exact: boolean }) {
-  if (!matches(e) || !clock.observe(e, performance.now())) return;
+function onPos(e: NativeObservation & { seq: number; runId: number; exact: boolean; pcmDb?: number }) {
+  const now = performance.now();
+  if (!matches(e) || !clock.observe(e, now)) return;
+  meter =
+    e.run && typeof e.pcmDb === 'number' && Number.isFinite(e.pcmDb)
+      ? { level: Math.max(0, Math.min(1, (e.pcmDb + 64) / 46)), at: now }
+      : null;
   const owner = active;
   const exact = e.run && !!e.exact;
   if (hifi.get().exact !== exact) hifi.set({ exact });
@@ -240,6 +252,7 @@ if (A) {
         break;
       case 'lost':
         if (!matches(e) || !clock.accepts(e.epoch)) break;
+        meter = null;
         if (e.resume) {
           clock.observe({ ...e, run: false, limit: e.t }, performance.now());
           hifi.set({ exact: false });

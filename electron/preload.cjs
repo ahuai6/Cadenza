@@ -80,7 +80,8 @@ contextBridge.exposeInMainWorld('cadenzaLib', {
 // the rhythm engine's networks run natively (electron/infer.cjs): their state, the models' download, one network pass
 contextBridge.exposeInMainWorld('cadenzaInfer', {
   status: () => L('infer:status'),
-  download: () => L('infer:download'),
+  download: (repair) => L('infer:download', repair === true),
+  cancelDownload: () => L('infer:cancel-download'),
   onProgress: on('infer:progress'),
   run: (op, args) => L('infer:run', op, args),
 });

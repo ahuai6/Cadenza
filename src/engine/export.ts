@@ -5,10 +5,11 @@
    decoded front to back with WebCodecs instead of seeking an element for every frame. */
 import { drawFrame } from '../render/renderer';
 import { ssDown, ssFactor } from './ssaa';
-import type { Engine } from './engine';
+import { Engine } from './engine';
 import type { Session } from './session';
 import type { VideoSource } from './media';
 import { withGfx } from '../render/gfx';
+import { exportPcm } from './export-pcm';
 
 export interface Sink {
   write(data: Uint8Array, pos: number): void | Promise<void>;
@@ -24,7 +25,7 @@ export interface ExportOptions {
   audio?: boolean;
   sink?: Sink;
   onProgress?: (phase: string, i: number, n: number) => void;
-  signal?: { cancelled: boolean };
+  signal?: AbortSignal;
 }
 export interface ExportResult {
   ok: boolean;
@@ -161,12 +162,60 @@ const slug = (s: string) =>
 
 /** An export draws each frame in full quality whatever the live picture's mode (render/gfx.ts: withGfx), so the live
  *  picture keeps its mode meanwhile and a change of the setting during an export holds. */
-export async function exportVideo(engine: Engine, s: Session, o: ExportOptions = {}): Promise<ExportResult> {
-  const [w, h] = exportSize(s.style.aspect, o.res || 1080, engine.viewAspect()),
+export async function exportVideo(owner: Engine, source: Session, o: ExportOptions = {}): Promise<ExportResult> {
+  const aspect = owner.viewAspect();
+  const media = (v: VideoSource) =>
+    v.ready && v.el
+      ? {
+          url: v.url,
+          file: v.file,
+          start: v.start,
+          loop: v.loop,
+          offset: v.offset,
+          source: v,
+          element: v.el,
+        }
+      : null;
+  const videoInput = source.style.bgStyle === 'video' ? media(owner.video) : null;
+  const mvInput = owner.mv.on ? media(owner.mv) : null;
+  const mvLook = { ...owner.mvLook };
+  const labels = { ...owner.labels };
+  try {
+    o.signal?.throwIfAborted();
+    const s = await source.exportSnapshot(aspect, o.signal);
+    return await renderVideo(s, aspect, videoInput, mvInput, mvLook, labels, o);
+  } catch (error) {
+    await Promise.resolve()
+      .then(() => o.sink?.abort?.())
+      .catch(() => {});
+    if (o.signal?.aborted) return { ok: false, reason: 'x.cancelled' };
+    return { ok: false, reason: 'x.fail', e: String((error as Error)?.message || error) };
+  }
+}
+
+type Clip = {
+  url: string;
+  file: Blob | null;
+  start: string;
+  loop: boolean;
+  offset: number;
+  source: VideoSource;
+  element: HTMLVideoElement;
+};
+async function renderVideo(
+  s: Session,
+  aspect: number,
+  videoInput: Clip | null,
+  mvInput: Clip | null,
+  mvLook: Engine['mvLook'],
+  labels: Engine['labels'],
+  o: ExportOptions,
+): Promise<ExportResult> {
+  const [w, h] = exportSize(s.style.aspect, o.res || 1080, aspect),
     fps = +(o.fps || 30),
     sink = o.sink || blobSink(),
     prog = o.onProgress || (() => {}),
-    sig = o.signal || { cancelled: false };
+    sig = o.signal;
   if (typeof VideoEncoder === 'undefined') return { ok: false, reason: 'x.noenc' };
   const { Output, Mp4OutputFormat, StreamTarget, EncodedVideoPacketSource, EncodedAudioPacketSource, EncodedPacket } =
     await import('mediabunny');
@@ -185,12 +234,9 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
   }
   let audio = s.audio;
   if (audio && audio.load && o.audio !== false) {
-    try {
-      audio = await audio.load();
-    } catch {
-      audio = null;
-    }
+    audio = await audio.load(sig);
   }
+  if (sig?.aborted) return { ok: false, reason: 'x.cancelled' };
   const ac = audio && (audio as AudioBuffer).getChannelData && o.audio !== false ? await pickAudio() : null;
   // the muxer (Mediabunny) writes through a stream to the sink; each packet it is handed is queued in order, and the
   // encoders wait while too many are still being written, so a slow disk holds the export back instead of memory
@@ -207,6 +253,7 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
   const asrc = ac ? new EncodedAudioPacketSource(ac.mux as 'aac' | 'opus') : null;
   if (asrc) out.addAudioTrack(asrc);
   const put = (add: () => Promise<void>) => {
+    if (sig?.aborted || sinkErr) return;
     queued++;
     chain = chain.then(add).then(
       () => {
@@ -219,7 +266,8 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
     );
   };
   let encErr: unknown = null;
-  const total = Math.round(s.dur * fps),
+  const total = Math.max(1, Math.ceil(s.dur * fps)),
+    endUs = Math.round(s.dur * 1_000_000),
     t0 = performance.now();
   await out.start();
   const enc = new VideoEncoder({
@@ -229,44 +277,30 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
     },
   });
   const vids: [VideoSource, FrameSource | null][] = [];
+  const urls: string[] = [];
+  const engine = new Engine(cnv, { audioContext: () => new AudioContext(), manual: true });
+  engine.session = s;
+  engine.mvLook = mvLook;
+  engine.labels = labels;
+  let audioEncoder: AudioEncoder | null = null;
   try {
     if (ac) {
       prog('audio', 0, 0);
       const sr = 48000,
-        len = Math.ceil(s.dur * sr),
-        oc = new OfflineAudioContext(2, len, sr),
-        src = oc.createBufferSource();
-      src.buffer = audio as AudioBuffer;
-      const g = oc.createGain();
-      src.connect(g);
-      g.connect(oc.destination);
-      const off = s.audioStart,
-        end = s.audioStart + s.musicEnd;
-      if (off < 0) src.start(-off, 0, end);
-      else src.start(0, off, end - off);
-      g.gain.setValueAtTime(0, 0);
-      g.gain.linearRampToValueAtTime(1, 0.02);
-      if (s.spec.fade !== false) {
-        g.gain.setValueAtTime(1, Math.max(0.03, s.musicEnd - 1.6));
-        g.gain.linearRampToValueAtTime(0, s.musicEnd);
-      }
-      const ab = await oc.startRendering(),
-        n = ab.length,
+        n = Math.ceil(s.dur * sr),
         step = 4800,
-        L0 = ab.getChannelData(0),
-        L1 = ab.getChannelData(1);
-      const aenc = new AudioEncoder({
+        pcm = await exportPcm(audio as AudioBuffer, sr, n, s.audioStart, s.musicEnd, s.spec.fade !== false);
+      const aenc = (audioEncoder = new AudioEncoder({
         output: (ch, meta) => put(() => asrc!.add(EncodedPacket.fromEncodedChunk(ch), meta)),
         error: (e) => {
           encErr = e;
         },
-      });
+      }));
       aenc.configure(ac.cfg as AudioEncoderConfig);
       for (let i = 0; i < n; i += step) {
+        if (sig?.aborted || encErr || sinkErr) break;
         const k = Math.min(step, n - i),
-          data = new Float32Array(k * 2);
-        data.set(L0.subarray(i, i + k), 0);
-        data.set(L1.subarray(i, i + k), k);
+          data = pcm(i, k);
         const ad = new AudioData({
           format: 'f32-planar',
           sampleRate: 48000,
@@ -275,24 +309,37 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
           timestamp: Math.round((i / 48000) * 1e6),
           data,
         });
-        aenc.encode(ad);
-        ad.close();
+        try {
+          aenc.encode(ad);
+        } finally {
+          ad.close();
+        }
+        while (aenc.encodeQueueSize > 12 || queued > 24) {
+          if (sig?.aborted || encErr || sinkErr) break;
+          await new Promise((r) => setTimeout(r, 5));
+        }
       }
-      await aenc.flush();
+      if (!sig?.aborted && !encErr && !sinkErr) await aenc.flush();
       aenc.close();
+      audioEncoder = null;
     }
     enc.configure(cfg);
-    for (const v of [s.style.bgStyle === 'video' ? engine.video : null, engine.mv.on ? engine.mv : null])
-      if (v && v.ready) {
+    for (const [v, input] of [
+      [engine.video, videoInput],
+      [engine.mv, mvInput],
+    ] as const)
+      if (input && !sig?.aborted) {
         prog('video', 0, 0);
+        const unchanged = () => input.file || (input.source.el === input.element && input.source.url === input.url);
+        if (!unchanged()) throw new Error('export video source changed');
+        const url = input.file ? URL.createObjectURL(input.file) : input.url;
+        if (input.file) urls.push(url);
+        if (!(await v.open(url, input.file)) || !unchanged()) throw new Error('export video source unavailable');
+        Object.assign(v, { start: input.start, loop: input.loop, offset: input.offset });
+        if (v === engine.mv) engine.mv.setOn(true);
         let fs: FrameSource | null = null;
         try {
-          const blob = v.file || (await (await fetch(v.url)).blob());
-          if (blob.size < 1600 * 1048576)
-            fs = await Promise.race([
-              openFrameSource(blob),
-              new Promise<null>((r) => setTimeout(() => r(null), 20000)),
-            ]);
+          if (input.file && input.file.size <= 64 * 1048576) fs = await openFrameSource(input.file);
         } catch {
           fs = null;
         }
@@ -302,7 +349,7 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
     if (engine.mv.on) engine.mv.k = 1;
     prog('render', 0, total);
     for (let i = 0; i < total; i++) {
-      if (sig.cancelled || encErr || sinkErr) break;
+      if (sig?.aborted || encErr || sinkErr) break;
       const t = i / fps;
       for (const [v, fs] of vids) {
         const x = v.timeAt(t, s.audioStart);
@@ -333,11 +380,17 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
         drawFrame(tg, f, { sig: s.sig, captions: o.captions !== false, captionBottom: s.plan.H * 0.915 }),
       );
       if (big) ssDown(big, cnv, N);
-      const vf = new VideoFrame(cnv, { timestamp: Math.round((i * 1e6) / fps), duration: Math.round(1e6 / fps) });
-      enc.encode(vf, { keyFrame: i % (fps * 2) === 0 });
-      vf.close();
-      while (enc.encodeQueueSize > 6) await new Promise((r) => setTimeout(r, 2));
-      while (queued > 24) await new Promise((r) => setTimeout(r, 5));
+      const timestamp = Math.round((i * 1e6) / fps);
+      const next = Math.min(endUs, Math.round(((i + 1) * 1e6) / fps));
+      const vf = new VideoFrame(cnv, { timestamp, duration: Math.max(1, next - timestamp) });
+      try {
+        enc.encode(vf, { keyFrame: i % Math.max(1, Math.round(fps * 2)) === 0 });
+      } finally {
+        vf.close();
+      }
+      while (!sig?.aborted && !encErr && !sinkErr && enc.encodeQueueSize > 6)
+        await new Promise((r) => setTimeout(r, 2));
+      while (!sig?.aborted && !encErr && !sinkErr && queued > 24) await new Promise((r) => setTimeout(r, 5));
       if (i % 3 === 0) prog('render', i + 1, total);
       await yieldUI();
     }
@@ -346,11 +399,20 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
       v.exportFrame = null;
       fs?.close();
     }
-    if (!sig.cancelled && !encErr && !sinkErr) {
+    if (!sig?.aborted && !encErr && !sinkErr) {
       await enc.flush();
       await chain;
       if (sinkErr) throw sinkErr;
+      if (sig?.aborted) {
+        await out.cancel();
+        await sink.abort?.();
+        return { ok: false, reason: 'x.cancelled' };
+      }
       await out.finalize();
+      if (sig?.aborted) {
+        await sink.abort?.();
+        return { ok: false, reason: 'x.cancelled' };
+      }
       const result = (await sink.close()) as any;
       prog('done', total, total);
       return {
@@ -367,6 +429,7 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
       };
     }
     try {
+      if (enc.state === 'configured') enc.reset();
       await chain;
       await out.cancel();
       await sink.abort?.();
@@ -400,6 +463,11 @@ export async function exportVideo(engine: Engine, s: Session, o: ExportOptions =
     } catch {
       /* ignore */
     }
+    if (audioEncoder && audioEncoder.state !== 'closed') audioEncoder.close();
+    engine.destroy();
+    for (const url of urls) URL.revokeObjectURL(url);
+    cnv.width = cnv.height = 1;
+    if (big) big.width = big.height = 1;
   }
 }
 

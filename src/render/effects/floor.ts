@@ -74,7 +74,7 @@ register({
       I = f.I,
       P = f.P,
       t = f.t;
-    const sp = f.plan.map.spec(t, SPEC),
+    const sp = f.spectrum ?? f.plan.map.spec(t, SPEC),
       nb = sp ? sp.length : 0;
     for (let i = i0; i < i1; i++) {
       const fq = Math.min(1, Math.abs(i - 23.5) / 24);

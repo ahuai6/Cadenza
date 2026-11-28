@@ -11,7 +11,7 @@ import { setAllBitmap, sharpBm, sdfGlyph, sdfTier, SDF_SPREAD, SDF_MAX, type Sdf
 import { EM } from '../text/metrics';
 import { makeCanvas } from './palette';
 import type { Ctx } from './effects/registry';
-import { webglDevice } from '../core/webgl';
+import { fitWebglSurface, webglDevice } from '../core/webgl';
 
 type Src = ((ImageBitmap | HTMLCanvasElement | OffscreenCanvas) & { width: number; height: number }) | Sdf;
 const isSdf = (s: Src): s is Sdf => 'sdf' in s;
@@ -26,15 +26,15 @@ const mul = (m: M, a: number, b: number, c: number, d: number, e: number, f: num
 ];
 
 /* ---------- the atlas: shelves on 2048² pages; a bitmap too big for a shelf gets a texture of its own ---------- */
-// (BIG: past this a bitmap gets a texture of its own — the glyphs never do now (glyphs.ts caps them for this layer under
-// it), only an odd large image; OWN_MAX: the graphics memory those may hold, by size, not count)
+// Wide but narrow text rasters can share an atlas page. Give dense rasters and images that cannot fit a
+// padded shelf their own texture, with a separate graphics memory budget.
 // (MAX_PAGES: the atlas's usual size; HARD_PAGES: what one frame may grow it to when it needs more than that at once —
 // a close-up at 2160p with every character in three layers — rather than leave glyphs out of the frame, which flickered:
 // a different few missing each frame. The extra pages go again once unused for a couple of seconds.)
 const PAGE = 2048,
   MAX_PAGES = 10,
   HARD_PAGES = 24,
-  BIG = 1100,
+  ATLAS_AREA = 1100 ** 2,
   GUT = 2,
   OWN_MAX = 64e6;
 interface Slot {
@@ -393,13 +393,7 @@ export class GpuLyrics {
     }
     this.stats = { quads: 0, uploads: 0, draws: 0, skipped: 0 };
     if (!dry) {
-      // (the canvas only grows: the live picture and an export of another size take turns on it, each drawn into its
-      // top left corner — a canvas resized every frame would be made anew every frame)
-      if (!target && (this.canvas.width < w || this.canvas.height < h)) {
-        this.canvas.width = Math.max(this.canvas.width, w);
-        this.canvas.height = Math.max(this.canvas.height, h);
-      }
-      const y = target ? 0 : this.canvas.height - h;
+      const y = target ? 0 : fitWebglSurface(this.canvas, w, h);
       gl.viewport(0, y, w, h);
       gl.enable(gl.SCISSOR_TEST);
       gl.scissor(0, y, target?.w ?? w, target?.h ?? h);
@@ -425,13 +419,23 @@ export class GpuLyrics {
   }
   private slot(src: Src): Slot | null {
     let s = this.slots.get(src);
-    if (s) return s;
+    if (s) {
+      // Dedicated textures hold Sonnet's largest rasters. Keep a frequently reused one hot.
+      if (!s.page) {
+        const at = this.own.indexOf(s.tex);
+        if (at >= 0 && at !== this.own.length - 1) {
+          this.own.splice(at, 1);
+          this.own.push(s.tex);
+        }
+      }
+      return s;
+    }
     const gl = this.gl,
       w = src.width,
       h = src.height;
     if (!w || !h) return null;
     this.stats.uploads++;
-    if (w > BIG || h > BIG) {
+    if (w + GUT * 2 > PAGE || h + GUT * 2 > PAGE || w * h > ATLAS_AREA) {
       const tex = gl.createTexture()!;
       gl.bindTexture(gl.TEXTURE_2D, tex);
       this.params();

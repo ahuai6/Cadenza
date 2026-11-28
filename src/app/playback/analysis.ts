@@ -1,9 +1,21 @@
-import { analyzePcm, checkAnalysis, neuralStatus, RHYTHM_VERSION, type RhythmAnalysis } from '../../engine';
+import {
+  analyzePcm,
+  checkAnalysis,
+  neuralStatus,
+  RHYTHM_VERSION,
+  type RhythmAnalysis,
+  type RhythmPreviewUpdate,
+  type RhythmTaskStage,
+} from '../../engine';
 import { Lib, mediaUrl, type AnalysisToken } from '../bridge';
 import { lib, settings, trackOf } from '../state';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const requests = new Set<{ id: string; deliver: (value: RhythmAnalysis | null) => void }>();
+const requests = new Set<{
+  id: string;
+  deliver: (value: RhythmAnalysis | null) => void;
+  preview?: (slice: RhythmPreviewUpdate) => void;
+}>();
 const upgrades = new Set<(content: string, result: RhythmAnalysis) => void>();
 export function onAnalysisUpgrade(listener: (content: string, result: RhythmAnalysis) => void) {
   upgrades.add(listener);
@@ -19,17 +31,23 @@ let focused: string | null = null;
 let capability = '';
 let active: { id: string; source: string; content: string; abort: AbortController } | null = null;
 
-export async function requestAnalysis(id: string, signal?: AbortSignal): Promise<RhythmAnalysis | null> {
+export async function requestAnalysis(
+  id: string,
+  signal?: AbortSignal,
+  preview?: (slice: RhythmPreviewUpdate) => void,
+): Promise<RhythmAnalysis | null> {
   if (!Lib || signal?.aborted) return null;
   const saved = (await Lib.analysis(id, RHYTHM_VERSION).catch(() => null)) as RhythmAnalysis | null;
   if (signal?.aborted) return null;
   if (saved && !checkAnalysis(saved)) return saved;
   const content = trackOf(id)?.audioContentId;
-  if (content && focused !== id && active && active.content !== content) active.abort.abort();
-  focused = id;
+  if (preview) {
+    if (content && focused !== id && active && active.content !== content) active.abort.abort();
+    focused = id;
+  }
   // Register the observer before the main process work is prioritized. It neither owns nor starts an analysis job.
   return new Promise((resolve) => {
-    const entry = { id, deliver };
+    const entry = { id, deliver, preview };
     function deliver(value: RhythmAnalysis | null) {
       requests.delete(entry);
       signal?.removeEventListener('abort', abort);
@@ -62,7 +80,12 @@ async function analyzeJob(
   const track = trackOf(id);
   const url = 'cadenza://analysis-pcm/' + id + '?rev=' + encodeURIComponent(token.source);
   const progress = (value: number) => lib.set({ analysisNow: value, analysisFor: id });
+  const stage = (value: RhythmTaskStage) => {
+    const task = lib.get().analysisTask;
+    if (!signal.aborted && task.id === id && task.stage !== value) lib.set({ analysisTask: { ...task, stage: value } });
+  };
   try {
+    stage('decode');
     const browser = /opus/i.test(track?.codec || '') || /^(opus|aac)$/i.test(track?.ext?.replace(/^\./, '') || '');
     const result = await analyzePcm(
       browser ? mediaUrl(id, token.source) : url,
@@ -72,10 +95,23 @@ async function analyzeJob(
         browser,
         onlyLoudness: only === 'loudness',
         urgent: id === focused,
+        stage,
+        // Automatic mode first produces a usable baseline for unanalysed content. The same cache row
+        // remains eligible for both neural stages once the rest of the library has received its baseline.
+        engine: !upgrade && settings.get().rhythmEngine === 'auto' ? 'dsp' : undefined,
+        preview:
+          only || upgrade
+            ? undefined
+            : (slice) => {
+                if (signal.aborted) return;
+                for (const entry of requests)
+                  if (entry.id === id || trackOf(entry.id)?.audioContentId === token.content) entry.preview?.(slice);
+              },
       },
       progress,
     );
     signal.throwIfAborted();
+    stage('write');
     if (only === 'loudness') {
       await Lib!.saveLoudness(id, result.loudness ?? null, token);
       return;
@@ -108,16 +144,8 @@ async function loop() {
   try {
     while (!blockedByUser()) {
       const omit = [...blocked];
-      if (holds.has('watching'))
-        omit.push(
-          ...lib
-            .get()
-            .tracks.filter((track) => track.id !== focused)
-            .map((track) => track.id),
-        );
-      const job = await Lib.nextAnalysis(RHYTHM_VERSION, omit, capability);
+      const job = await Lib.nextAnalysis(RHYTHM_VERSION, omit, holds.has('watching') ? '' : capability);
       if (!job) {
-        if (holds.has('watching')) break;
         if (await verifyCached()) continue;
         // An indexed track may have completed just before the observer registered.
         for (const entry of requests) {
@@ -139,7 +167,11 @@ async function loop() {
       if (blockedByUser()) break;
       const abort = new AbortController();
       active = { id: job.id, source: token.source, content: token.content, abort };
-      lib.set({ analysisTask: { phase: job.only || 'rhythm', id: job.id }, analysisFor: job.id, analysisNow: 0 });
+      lib.set({
+        analysisTask: { phase: job.upgrade ? 'upgrade' : job.only || 'rhythm', id: job.id },
+        analysisFor: job.id,
+        analysisNow: 0,
+      });
       await analyzeJob(job.id, token, job.only, !!job.upgrade, abort.signal);
       active = null;
       lib.set({ analysisTask: { phase: 'idle', id: null }, analysisFor: null, analysisNow: null });
@@ -233,6 +265,6 @@ export function pauseAnalysis(on: boolean, why = 'export') {
   if (on === holds.has(why)) return;
   if (on) holds.add(why);
   else holds.delete(why);
-  if (on && active && (why !== 'watching' || active.id !== focused)) active.abort.abort();
+  if (on && active && why !== 'watching') active.abort.abort();
   if (!on) void loop();
 }

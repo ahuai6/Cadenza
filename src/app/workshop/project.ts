@@ -8,15 +8,17 @@ import { analyzeInBackground, type RhythmAnalysis, type SongInfo } from '../../e
 import { storedStyle, presetStyle, DEFAULT_THEME, DEFAULT_LYRIC_ASPECT } from '../../theme/style';
 import { DEMO_LYRICS } from '../../theme/demo';
 import { tx } from '../../i18n';
-import { remember, keep } from '../state';
+import { remember, keep, trackOf } from '../state';
 import { audioContext, sessionEnv } from '../playback/stage';
+import { songForWorkshop } from '../playback/player';
 import { Lib } from '../bridge';
 import { canEdit, editTask } from '../editing';
 import { applyExistingPreset, type PresetChoice } from '../preset-choice';
 
 export interface Project {
   app: 'cadenza';
-  version: 1;
+  version: 1 | 2;
+  source?: { id: string; content: string };
   lyrics: string;
   bpm: number;
   style: unknown;
@@ -35,7 +37,7 @@ export interface Incoming {
 }
 const fresh = (): Project => ({
   app: 'cadenza',
-  version: 1,
+  version: 2,
   lyrics: DEMO_LYRICS,
   bpm: 120,
   style: { ...storedStyle(presetStyle(DEFAULT_THEME)) },
@@ -60,6 +62,7 @@ export const ws = createStore({
   status: { lyrics: '', audio: '', cover: '', video: '' } as Record<string, string>,
 });
 let cover: Project['cover'] = null,
+  source: Project['source'],
   pending: Incoming | null = null,
   projectSequence = 0,
   saveTm = 0;
@@ -80,7 +83,8 @@ export function projectData(): Project | null {
   if (!s) return null;
   return {
     app: 'cadenza',
-    version: 1,
+    version: 2,
+    source,
     lyrics: s.spec.lyrics,
     bpm: s.spec.bpm || 120,
     style: storedStyle(s.style),
@@ -114,16 +118,17 @@ async function openProject(
   buffer: AudioBuffer | null = null,
   analysis: RhythmAnalysis | null = null,
   name = '',
+  projectId = ++projectSequence,
 ) {
-  const projectId = ++projectSequence;
-  cover = p.cover || null;
+  if (projectId !== projectSequence) return null;
+  const projectCover = p.cover || null;
   const s = await Session.open(
     {
       key: 'workshop',
       lyrics: p.lyrics || '',
       style: p.style,
       song: { ...p.song, on: p.song?.on !== false },
-      coverUrl: cover?.data || '',
+      coverUrl: projectCover?.data || '',
       audio: buffer,
       analysis,
       bpm: p.bpm || 120,
@@ -134,6 +139,9 @@ async function openProject(
     },
     sessionEnv(engine),
   );
+  if (projectId !== projectSequence) return null;
+  source = p.source;
+  cover = projectCover;
   s.style.aspect ||= DEFAULT_LYRIC_ASPECT;
   engine.show(s, { play: false });
   ws.set({ session: s, projectId, audioName: buffer ? name : '' });
@@ -152,10 +160,26 @@ export async function start() {
   if (ws.get().session) return;
   const saved = remember<Project | null>('project', null);
   try {
-    await openProject(saved && saved.app === 'cadenza' ? saved : fresh());
+    await restoreProject(saved && saved.app === 'cadenza' ? saved : fresh());
   } catch {
     await openProject(fresh());
   }
+}
+async function restoreProject(p: Project) {
+  const projectId = ++projectSequence;
+  const track = p.source && trackOf(p.source.id);
+  if (track && track.audioContentId === p.source!.content && !track.protected) {
+    try {
+      const { buffer, analysis } = await songForWorkshop(track);
+      if (trackOf(track.id)?.audioContentId === p.source!.content)
+        return openProject(p, buffer, analysis, track.file, projectId);
+    } catch {
+      // The project is still useful as a visual draft when a referenced file cannot be opened.
+    }
+  }
+  const s = await openProject(p, null, null, '', projectId);
+  if (s && p.source) ws.set({ status: { ...ws.get().status, audio: tx('aud.bad') } });
+  return s;
 }
 /** A library song becomes the workshop's next project, free to change without touching the song. */
 export function queueImport(x: Incoming) {
@@ -199,6 +223,7 @@ async function resetProject() {
 }
 export const importAudio = (file?: File) => (canEdit() ? editTask(() => importProjectAudio(file)) : Promise.resolve());
 async function importProjectAudio(f?: File) {
+  const target = ws.get().session;
   const st = () => ws.get().status;
   const previousAudio = st().audio;
   let ticket: Awaited<ReturnType<NonNullable<typeof Lib>['openWorkshopAudio']>> = null;
@@ -219,6 +244,8 @@ async function importProjectAudio(f?: File) {
     }
     const buf = await audioContext().decodeAudioData(data);
     const a = await analyzeInBackground(buf);
+    if (ws.get().session !== target) return;
+    source = undefined;
     edit((s) => s.setAudio(buf, a));
     const tempo = a.beatEvidence === 'none' ? '' : ` · ${a.tempo.bpm.toFixed(1)} BPM`;
     if (tempo) edit((s) => s.setTiming({ bpm: +a.tempo.bpm.toFixed(1) }));
@@ -238,6 +265,7 @@ async function importProjectAudio(f?: File) {
 }
 export function clearAudio() {
   if (!canEdit()) return;
+  source = undefined;
   edit((s) => s.setAudio(null, null));
   ws.set({ audioName: '', status: { ...ws.get().status, audio: '' } });
 }
@@ -300,8 +328,15 @@ export const importProject = (file: File) =>
 async function openImportedProject(f: File) {
   const p = JSON.parse(await f.text()) as Project;
   if (!p || typeof p !== 'object' || typeof p.lyrics !== 'string') throw new Error('bad');
-  const s = ws.get().session,
-    buf = s?.audio && (s.audio as AudioBuffer).getChannelData ? (s.audio as AudioBuffer) : null;
-  await openProject({ ...fresh(), ...p, app: 'cadenza', version: 1 }, buf, s?.analysis || null, ws.get().audioName);
+  await restoreProject({
+    ...fresh(),
+    ...p,
+    app: 'cadenza',
+    version: 2,
+    source:
+      p.version === 2 && typeof p.source?.id === 'string' && typeof p.source.content === 'string'
+        ? p.source
+        : undefined,
+  });
   persist();
 }

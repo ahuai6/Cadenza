@@ -8,22 +8,24 @@ import { SonnetEngine, SONNET_PARAMS } from '../folia/engines/sonnet';
 import { TemperaEngine, TEMPERA_PARAMS } from '../folia/engines/tempera';
 import type { EngineParam, FoliaEngine } from '../folia/engines/types';
 import { foliaLines, foliaTheme, rgbHex } from '../folia/adapt';
-import { installBeats, tickLive, setBeatEffects } from '../folia/live';
+import { FoliaFrameMusic, sonnetLineLift } from '../folia/live';
 import { fontStack } from '../text/fonts';
 import { setStageQuadRenderer } from '../folia/pixi/render';
 import { gpuQuads } from './gpu';
 import { gpuLyrics } from './gfx';
 
-setStageQuadRenderer((width, height, quads, target) => {
+setStageQuadRenderer((width, height, quads, target, x = 0, y = 0) => {
   const gpu = gpuLyrics() && gpuQuads();
   if (!gpu) return null;
   gpu.begin(width, height, false, target);
   let complete = true;
   try {
     for (const q of quads) {
+      const [a, b, c, d, tx, ty] = q.transform;
+      const pose: typeof q.transform = x || y ? [a, b, c, d, tx - x, ty - y] : q.transform;
       if (
         q.alpha > 0.002 &&
-        !gpu.quad(q.source as Parameters<typeof gpu.quad>[0], ...q.crop, ...q.rect, q.transform, q.alpha, q.tint)
+        !gpu.quad(q.source as Parameters<typeof gpu.quad>[0], ...q.crop, ...q.rect, pose, q.alpha, q.tint)
       )
         complete = false;
     }
@@ -174,17 +176,40 @@ export function releaseWorld(plan: ScenePlan) {
   held.delete(plan);
 }
 
+/** A new music reading can share the existing stage when the Folia director's own inputs match. */
+export function retainWorld(previous: ScenePlan, next: ScenePlan, style: RenderFrame['style']) {
+  const value = held.get(previous);
+  const id = style.engine;
+  if (!value || !isFoliaEngine(id) || value.engine.id !== id || previous.dur !== next.dur) return false;
+  const options = { foliaSeg: style.engp?.[id]?.foliaSeg === true };
+  if (
+    seedOf(previous) !== seedOf(next) ||
+    previous.doc.meta.album !== next.doc.meta.album ||
+    previous.doc.meta.al !== next.doc.meta.al ||
+    JSON.stringify(foliaLines(previous.doc, options)) !== JSON.stringify(foliaLines(next.doc, options))
+  )
+    return false;
+  held.delete(previous);
+  held.set(next, value);
+  return true;
+}
+
 /** An engine still loading its assets (the engine keeps drawing frames until it is in, even paused). */
 export const ENGINE_WAIT = { on: false };
+const musicByEngine = new WeakMap<FoliaEngine, FoliaFrameMusic>();
 
 /** Draws the frame's lyrics with its engine: the live inputs first (beats, bands), then the engine's own picture. */
 export function drawEngine(g: CanvasRenderingContext2D, f: RenderFrame, engine: FoliaEngine) {
-  installBeats(seedOf(f.plan), f.plan.map);
   // (the beat effects a style asks for by id, at the strength its settings give)
   const tuning = f.style.engp?.[engine.id] ?? {};
   const world: World | undefined = isFoliaEngine(engine.id) ? worlds[engine.id] : undefined;
-  setBeatEffects(world?.beatEffects?.(tuning) ?? {});
-  tickLive(f.t, f.playing !== false, f.plan.map);
+  let music = musicByEngine.get(engine);
+  if (!music) musicByEngine.set(engine, (music = new FoliaFrameMusic()));
+  const playing = f.playing !== false;
+  const lineLift =
+    engine.id === 'sonnet' && !f.spectrum && f.plan.map.hasAudio ? sonnetLineLift(f.plan.map, f.t, playing) : undefined;
   ENGINE_WAIT.on = !engine.ready;
-  engine.draw(g, { t: f.t, W: f.W, H: f.H, px: f.px, alpha: f.view.effect, playing: f.playing !== false });
+  music.frame(seedOf(f.plan), f.plan.map, world?.beatEffects?.(tuning) ?? {}, f.t, playing, f.spectrum, () => {
+    engine.draw(g, { t: f.t, W: f.W, H: f.H, px: f.px, alpha: f.view.effect, playing, lineLift });
+  });
 }

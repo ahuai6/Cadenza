@@ -11,9 +11,11 @@ Folia（https://github.com/chthollyphile/folia-major，AGPL-3.0，与 Cadenza �
 | `src/folia/pixi/` | 与 Pixi v8 兼容的舞台。稳定贴图和简单几何使用共享图集与 GPU 批次，GLSL 滤镜使用同上下文的帧缓冲。字形栅格、路径和特殊混合保留 Canvas2D 路径 | Cadenza |
 | `src/folia/shim/` | 上游依赖、Cadenza 另有来源的模块：动态信号、节拍来源、图标、framer-motion 的类型 | Cadenza |
 | `src/folia/adapt.ts` | Cadenza 的歌词模型 → Folia 的 `Line`（用 Cadenza 的分词，含用户自订）；外观 → Folia 的 `Theme` | Cadenza |
-| `src/folia/live.ts` | 用当前歌曲时刻采样节拍事件（上游 `beatFxLive`）与频段，事件与频谱由 Cadenza 的节奏分析供给 | Cadenza |
+| `src/folia/live.ts` | 每个视觉实例各自推进节拍状态。频段和节拍按当前媒体时间采样，实际音乐特征优先取已覆盖的分析区间 | Cadenza |
 | `src/folia/engines/` | 各风格的执行层（取代上游的 `create…PixiRuntime.ts`） | Cadenza |
 | `src/render/engines.ts` | 根据风格登记选择视觉世界、时间与参数接入。Folia 拥有自己的镜头和转场，公共背景及屏幕效果在外层合成 | Cadenza |
+
+G8 的同步清单登记了商籁装饰种子与音乐时间改动。对照工具可连续采样并输出 Shot、镜头和转场时刻。 [G8 原生场景验证](G8.md#folia-原生场景)
 
 分层：`folia` 在 `director` 旁、`render` 之下（`tests/unit/arch.test.ts`）。
 

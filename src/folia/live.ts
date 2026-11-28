@@ -3,7 +3,14 @@
 // measures these off the playing audio; here they come from the analysis every other picture uses,
 // so a Folia style follows the same beats as the director, the now-playing page and the space.
 import type { RhythmMap } from '../rhythm/map';
-import { beginBeatFxTrack, setBeatFxEvents, tickBeatFx, isBeatFxReady } from './vendor/services/beatFx/beatFxLive';
+import {
+  beginBeatFxTrack,
+  setBeatFxEvents,
+  tickBeatFx,
+  isBeatFxReady,
+  createBeatFxRuntime,
+  withBeatFxRuntime,
+} from './vendor/services/beatFx/beatFxLive';
 import type { BeatFxEvent } from './vendor/services/beatFx/clock';
 import type { BeatFxSourceKind } from './shim/beatFxSource';
 import { audioPower, bass, lowMid, mid, vocal, treble } from './shim/motionSignals';
@@ -12,7 +19,9 @@ import { setBeatFxLiveEffects } from './vendor/services/beatFx/beatFxLive';
 import type { AudioBands } from './vendor/types';
 import type { MotionValue } from './shim/framerMotion';
 
-let installed: { key: string; map: RhythmMap | null } | null = null;
+type BeatRuntime = ReturnType<typeof createBeatFxRuntime>;
+const installed = new WeakMap<BeatRuntime, { key: string; map: RhythmMap | null }>();
+const defaultRuntime = createBeatFxRuntime();
 
 /* Cadenza's coarse spectrum (map.spec) is log-spaced from 30 Hz to 10 kHz; a stretch of it in Hz, as a share of it. */
 const LOG_SPAN = Math.log(10000 / 30);
@@ -100,13 +109,38 @@ function reading(map: RhythmMap): WorldRhythm {
 }
 
 /** Two worlds may alternate during a fade. Convert the music data only once for each rhythm revision. */
-export function installBeats(key: string, map: RhythmMap | null) {
-  if (installed && installed.key === key && installed.map === map) return;
-  installed = { key, map };
+export function installBeats(key: string, map: RhythmMap | null, runtime = defaultRuntime) {
+  const previous = installed.get(runtime);
+  if (previous?.key === key && previous.map === map) return;
+  installed.set(runtime, { key, map });
   beginBeatFxTrack(key);
   const r = map && reading(map);
   if (r?.events.length) setBeatFxEvents(key, r.events, r.source, undefined, r.scale);
-  setDrumHits(key, r?.drums ?? null);
+}
+
+export class FoliaFrameMusic {
+  private readonly runtime = createBeatFxRuntime();
+  frame<T>(
+    key: string,
+    map: RhythmMap,
+    strengths: Record<string, number>,
+    time: number,
+    playing: boolean,
+    measured: number[] | undefined,
+    draw: () => T,
+  ): T {
+    return withBeatFxRuntime(this.runtime, () => {
+      installBeats(key, map, this.runtime);
+      setDrumHits(key, reading(map).drums);
+      setBeatEffects(strengths);
+      tickLive(time, playing, map, measured);
+      try {
+        return draw();
+      } finally {
+        setDrumHits(key, null);
+      }
+    });
+  }
 }
 
 /** Which of Folia's beat effects play now, and how strongly (0..2): each style asks for its own by id. */
@@ -124,10 +158,10 @@ const spec: number[] = [];
 /** Folia's five bands and power at song time `t`, as its readers take them (0..255): each band its analyser's range
  *  read off Cadenza's coarse spectrum, raised by Folia's own curve (the power from the bass and low mids, as there);
  *  all 0 while paused. */
-export function bandsAt(map: RhythmMap | null, t: number, playing: boolean) {
+export function bandsAt(map: RhythmMap | null, t: number, playing: boolean, measured?: number[]) {
   const out = { bass: 0, lowMid: 0, mid: 0, vocal: 0, treble: 0, power: 0 };
   if (!map || !playing) return out;
-  const s = map.spec(t, spec);
+  const s = measured ?? map.spec(t, spec);
   if (!s || !s.length) {
     // Loudness can still drive overall power. Missing frequency bands stay unknown.
     const l = map.loud(t);
@@ -147,11 +181,11 @@ export function bandsAt(map: RhythmMap | null, t: number, playing: boolean) {
 }
 
 /** One frame of the live inputs at song time `t` (the beat clock and the bands the lyric styles read). */
-export function tickLive(t: number, playing: boolean, map: RhythmMap | null) {
+export function tickLive(t: number, playing: boolean, map: RhythmMap | null, measured?: number[]) {
   heard.paused = !playing;
   heard.currentTime = t;
   tickBeatFx(heard as unknown as HTMLMediaElement, null, t);
-  const b = bandsAt(map, t, playing);
+  const b = bandsAt(map, t, playing, measured);
   bass.set(b.bass);
   lowMid.set(b.lowMid);
   mid.set(b.mid);
@@ -162,4 +196,16 @@ export function tickLive(t: number, playing: boolean, map: RhythmMap | null) {
 
 export const liveBands: AudioBands = { bass, lowMid, mid, vocal, treble };
 export const livePower: MotionValue<number> = audioPower;
+export function sonnetLineLift(map: RhythmMap, t: number, playing: boolean): number {
+  if (!playing) return 0;
+  let smoothed = 0;
+  // Same attack/release as the upstream 60 Hz reader. Bounded history makes a seek reproducible.
+  for (let i = 54; i >= 0; i--) {
+    const bands = map.spec(t - i / 60, spec);
+    const treble = bands ? bandMean(bands, ...BANDS.treble) ** 2 : 0;
+    const target = Math.min(1, Math.max(0, (treble - 0.04) / 0.35));
+    smoothed += (target - smoothed) * (target > smoothed ? 0.25 : 0.08);
+  }
+  return smoothed;
+}
 export { isBeatFxReady };

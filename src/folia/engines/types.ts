@@ -26,6 +26,7 @@ export interface FoliaEngineSpec {
 }
 
 export interface FoliaEngineFrame {
+  lineLift?: number;
   /** song time (s) */
   t: number;
   /** the reference frame (CSS px) and device px per CSS px */

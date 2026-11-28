@@ -8,6 +8,7 @@ import { loadSegmenter, segmenterReady } from '../text/segment';
 import { buildLyrics, type LyricDoc } from '../lyrics/model';
 import { RhythmMap, Signals, analyzeInBackground, isCurrent, type RhythmAnalysis } from '../rhythm';
 import { emptyRhythm } from '../rhythm/analyze';
+import type { RhythmPreview } from '../rhythm/preview';
 import { planCuesFor, recommendMotion, ASPECTS, type ScenePlan } from '../director';
 import { planSong, type MapOrigin } from './planner';
 import type { SongInfo } from '../director/titles';
@@ -46,6 +47,7 @@ import { clearGlyphCache } from '../render/glyphs';
 import type { AudioLike } from './audio';
 
 export interface SessionSpec {
+  preview?: RhythmPreview;
   key: string;
   lyrics: string;
   /** a stored style, or none: `preset` (the cover theme by default) in the cover's colours */
@@ -207,6 +209,30 @@ export class Session {
     return this.spec.audio ?? null;
   }
 
+  /** Freeze the project's inputs before the next await, keeping the decoded cover and immutable music reading. */
+  async exportSnapshot(viewAspect: number, signal?: AbortSignal) {
+    const s = new Session(
+      {
+        ...this.spec,
+        song: structuredClone(this.spec.song),
+        spacing: structuredClone(this.spec.spacing),
+        style: undefined,
+        look: undefined,
+        preview: undefined,
+        analysis: this.analysis,
+      },
+      { ...this.env, viewAspect: () => viewAspect, onAnalysis: undefined },
+    );
+    s.style = structuredClone(this.style);
+    s.analysis = this.analysis;
+    s.libraryAnalysis = this.libraryAnalysis;
+    s.cover = this.cover;
+    s.coverKey = this.coverKey;
+    s.colors();
+    await s.build(signal);
+    return s;
+  }
+
   /** Everything from the lyrics down: timing, rhythm map, lyric model, plan. */
   async build(signal?: AbortSignal) {
     const sp = this.spec,
@@ -259,9 +285,12 @@ export class Session {
     const origin: MapOrigin = this.analysis
       ? { analysis: this.analysis, offset: audioStart }
       : this.missingRhythm
-        ? { analysis: this.missingRhythm, offset: 0 }
+        ? { analysis: this.missingRhythm, offset: audioStart }
         : { grid: [Math.max(40, Math.min(240, sp.bpm || 120)), 0, dur + 2] };
-    const map = 'grid' in origin ? RhythmMap.grid(...origin.grid) : new RhythmMap(origin.analysis, origin.offset);
+    const map =
+      'grid' in origin
+        ? RhythmMap.grid(...origin.grid)
+        : new RhythmMap(origin.analysis, origin.offset, this.analysis ? undefined : this.spec.preview);
     if (map.repairs.length) console.warn('[rhythm] analysis repaired as read:', map.repairs.join('; '));
     const doc = buildLyrics(parsed, map, musicEnd);
     const tp = performance.now();
@@ -314,7 +343,7 @@ export class Session {
     return this.analysis
       ? { analysis: this.analysis, offset: this.audioStart }
       : this.missingRhythm
-        ? { analysis: this.missingRhythm, offset: 0 }
+        ? { analysis: this.missingRhythm, offset: this.audioStart }
         : { grid: [Math.max(40, Math.min(240, this.spec.bpm || 120)), 0, this.dur + 2] };
   }
   private parsed: ReturnType<typeof parse> | null = null;
@@ -358,6 +387,7 @@ export class Session {
     this.staged = null;
     const before = Object.assign(Object.create(Object.getPrototypeOf(this)), this) as Session;
     Object.assign(this, st);
+    this.spec.preview = undefined;
     this.rec = null;
     this.version++;
     return before;

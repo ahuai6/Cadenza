@@ -1,9 +1,9 @@
 // Starting the interface, whatever it looks like: the settings (and the engine configured from them), the language,
 // the library and its live updates, the last song (paused), the background analysis; the keys; moving between pages.
 // And the hooks the desktop tests read (window.__cadenza): a new interface keeps them by keeping this module.
-import { detectLang, setLang as setI18n, LANGS, words, type Lang } from '../../i18n';
-import { D, Lib } from '../bridge';
-import { ui, lib, settings, type Page } from '../state';
+import { detectLang, setLang as setI18n, LANGS, words, tx, type Lang } from '../../i18n';
+import { D, Lib, Infer } from '../bridge';
+import { ui, lib, settings, remember, keep, toast, type Page } from '../state';
 import * as playerApi from '../playback/player';
 import { toggle, seekBy, resumeLast } from '../playback/player';
 import { startAnalysis, pauseAnalysis } from '../playback/analysis';
@@ -46,9 +46,9 @@ export function boot(ready: () => void): () => void {
       loadSegmenter().catch(() => {});
     });
     startAnalysis();
+    idle(() => void notifyMissingModels());
   })();
-  // the library's analysis waits (between songs) while the effect lyrics are on screen and a song plays: the picture has
-  // the GPU to itself then; it goes on in the library, on the play page, or paused
+  // During effects playback, automatic analysis fills the basic reading and defers GPU quality upgrades.
   const watch = () => pauseAnalysis(ui.get().layer === 'fx' && playerApi.player.get().playing, 'watching');
   const offW = [ui.subscribe(watch), playerApi.player.subscribe(watch)];
   // (the taskbar's play / pause button shows what a click would do)
@@ -72,6 +72,15 @@ export function boot(ready: () => void): () => void {
     offs.forEach((f) => f());
     offW.forEach((f) => f());
   };
+}
+async function notifyMissingModels() {
+  if (!Infer || remember('missing-native-models-v1', false)) return;
+  const chosen = () => settings.get().rhythmEngine !== 'dsp' && settings.get().rhythmRuntime !== 'webgpu';
+  if (!chosen()) return;
+  const state = await Infer.status().catch(() => null);
+  if (!state?.runtime || state.models || state.downloading || !chosen()) return;
+  keep('missing-native-models-v1', true);
+  toast(tx('s.set.native.missing', { mb: Math.round(state.size / 1e6) }), 6500);
 }
 /** The keys: space plays, Esc steps back out of the effect view and the now-playing page, arrows seek there. */
 export function bindKeys(): () => void {

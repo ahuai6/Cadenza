@@ -44,6 +44,7 @@ import {
   releaseSonnetIconUrls,
 } from '../vendor/components/visualizer/sonnet/sonnetIconTextures';
 import { liveBands, livePower } from '../live';
+import { withSceneRandom } from '../shim/sceneRandom';
 import type { EngineParam, FoliaEngine, FoliaEngineFrame, FoliaEngineSpec } from './types';
 
 const D = DEFAULT_SONNET_TUNING;
@@ -262,22 +263,24 @@ export class SonnetEngine implements FoliaEngine {
   }
 
   private buildScene(index: number): SceneView {
-    return buildSonnetScene(
-      pixi,
-      {
-        programSeed: this.program.seed,
-        host: this.host as unknown as HTMLDivElement,
-        theme: this.theme,
-        tuning: this.tuning,
-        smartBeatEnabled: this.spec.beatFx,
-        lyricsFontScale: this.spec.fontScale,
-        staticMode: this.spec.still,
-        transparentBackground: this.spec.transparent,
-        renderResolution: this.resolution,
-        antialiasMode: 'auto',
-      },
-      this.iconTextures,
-      this.program.paragraphs[index],
+    return withSceneRandom(`${this.program.seed}:${index}`, () =>
+      buildSonnetScene(
+        pixi,
+        {
+          programSeed: this.program.seed,
+          host: this.host as unknown as HTMLDivElement,
+          theme: this.theme,
+          tuning: this.tuning,
+          smartBeatEnabled: this.spec.beatFx,
+          lyricsFontScale: this.spec.fontScale,
+          staticMode: this.spec.still,
+          transparentBackground: this.spec.transparent,
+          renderResolution: this.resolution,
+          antialiasMode: 'auto',
+        },
+        this.iconTextures,
+        this.program.paragraphs[index],
+      ),
     );
   }
 
@@ -344,7 +347,7 @@ export class SonnetEngine implements FoliaEngine {
   private readonly mod = (key: string) => readSonnetModulation(undefined, key);
 
   /** Upstream's renderFrame: picks the scene and shot for `time` and poses them. */
-  private update(time: number) {
+  private update(time: number, lineLift?: number) {
     const paragraphIndex = findSonnetParagraphIndexAtTime(this.program, time);
     if (paragraphIndex !== this.activeParagraphIndex) {
       this.activeParagraphIndex = paragraphIndex;
@@ -362,7 +365,7 @@ export class SonnetEngine implements FoliaEngine {
     const finalParagraph = this.program.paragraphs.at(-1);
     const creditsFrame = resolveSonnetCreditsFrame(time, finalParagraph?.endTime ?? Number.POSITIVE_INFINITY);
     const hasCredits = this.creditsContainer.children.length > 0;
-    const beatFx = this.spec.still ? null : this.readBeatFx(liveBands, this.spec.beatFx);
+    const beatFx = this.spec.still ? null : this.readBeatFx(liveBands, this.spec.beatFx, time, lineLift);
     const shotFrameContext: SonnetShotFrameContext = {
       tuning: this.tuning,
       smartBeatEnabled: this.spec.beatFx,
@@ -436,7 +439,7 @@ export class SonnetEngine implements FoliaEngine {
   draw(g: CanvasRenderingContext2D, f: FoliaEngineFrame) {
     if (this.destroyed || !this.loaded || !this.hasLyrics) return;
     this.resize(f.W, f.H, f.px);
-    this.update(f.t);
+    this.update(f.t, f.lineLift);
     this.stage.alpha = f.alpha;
     g.save();
     const ox = f.ox ?? 0,

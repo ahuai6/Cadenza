@@ -307,16 +307,17 @@ function NativeRows({ st, onChange }: { st: Settings; onChange: () => void }) {
     return Infer!.onProgress((k) => setProg(k));
   }, []);
   const rt = st.rhythmRuntime === 'webgpu' ? 'webgpu' : 'auto';
-  async function fetchModels() {
+  async function fetchModels(repair = false) {
     setErr('');
     setProg(0);
-    const r = await Infer!.download();
+    const r = await Infer!.download(repair);
     setProg(null);
     await look();
     if (r.ok) onChange();
     else setErr(r.why || '');
   }
   if (!is?.runtime) return null;
+  const failure = is.errors?.beat || is.errors?.separate;
   const mb = Math.round(is.size / 1e6);
   return (
     <>
@@ -349,16 +350,35 @@ function NativeRows({ st, onChange }: { st: Settings; onChange: () => void }) {
         ) : (
           <Field label={tx('s.set.native.models')}>
             {prog != null || is.downloading ? (
-              <span>{tx('s.set.native.loading', { pct: Math.round((prog ?? 0) * 100) })}</span>
+              <>
+                <span>{tx('s.set.native.loading', { pct: Math.round((prog ?? 0) * 100) })}</span>
+                <Button size="sm" onClick={() => void Infer!.cancelDownload()}>
+                  {tx('s.cancel')}
+                </Button>
+              </>
             ) : (
-              <Button size="sm" onClick={fetchModels}>
+              <Button size="sm" onClick={() => void fetchModels()}>
                 {tx('s.set.native.get', { mb })}
               </Button>
             )}
           </Field>
         ))}
       {rt === 'auto' && !is.models && (
-        <Note>{err ? tx('s.set.native.failed', { r: err }) : tx('s.set.native.help', { mb })}</Note>
+        <Note>{err ? tx('s.set.native.failed', { r: err }) : tx('s.set.native.missing', { mb })}</Note>
+      )}
+      {rt === 'auto' && is.models && failure && (
+        <Field label={tx('s.set.native.models')}>
+          <Note>{tx('s.set.native.failed', { r: err || failure })}</Note>
+          {prog == null ? (
+            <Button size="sm" onClick={() => void fetchModels(true)}>
+              {tx('s.set.native.get', { mb })}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => void Infer!.cancelDownload()}>
+              {tx('s.cancel')}
+            </Button>
+          )}
+        </Field>
       )}
     </>
   );

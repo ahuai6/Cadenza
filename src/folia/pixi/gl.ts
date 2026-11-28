@@ -17,7 +17,7 @@ import {
   type UniformValue,
 } from './filters';
 import { Texture, TextureSource, type ImageLike } from './texture';
-import { webglDevice } from '../../core/webgl';
+import { fitWebglSurface, webglDevice } from '../../core/webgl';
 
 interface Uniform {
   loc: WebGLUniformLocation;
@@ -455,11 +455,7 @@ export class GlRunner {
   }
 }
 
-function outputViewport(canvas: HTMLCanvasElement | OffscreenCanvas, width: number, height: number) {
-  if (canvas.width < width) canvas.width = width;
-  if (canvas.height < height) canvas.height = height;
-  return canvas.height - height;
-}
+const outputViewport = fitWebglSurface;
 
 export interface MeshDraw {
   glProgram: import('./filters').GlProgram;

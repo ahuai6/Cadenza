@@ -6,6 +6,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const https = require('node:https');
 const crypto = require('node:crypto');
+const { Transform } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 
 /** The models, each pinned to a revision of its repository and checked against its hash. */
 const MODELS = [
@@ -42,50 +44,46 @@ function runtime() {
   }
 }
 
-function get(url, onRes, hops = 0) {
-  https
-    .get(url, { headers: { 'user-agent': 'Cadenza' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 8) {
-        res.resume();
-        get(new URL(res.headers.location, url).href, onRes, hops + 1);
-        return;
-      }
-      onRes(res);
-    })
-    .on('error', (e) => onRes(null, e));
-}
-function download(m, progress) {
-  return new Promise((resolve, reject) => {
-    const to = path.join(dir(), m.name + '.onnx'),
-      part = to + '.part';
-    fs.mkdirSync(dir(), { recursive: true });
-    get(m.url, (res, err) => {
-      if (err || !res || res.statusCode !== 200) {
-        res?.resume();
-        reject(err || new Error(`download failed (${res && res.statusCode})`));
-        return;
-      }
-      const out = fs.createWriteStream(part),
-        h = crypto.createHash('sha256');
-      let got = 0;
-      res.on('data', (b) => {
-        h.update(b);
-        got += b.length;
-        progress(got / m.size);
-      });
-      res.pipe(out);
-      out.on('error', reject);
-      out.on('finish', () => {
-        if (h.digest('hex') !== m.sha256 || got !== m.size) {
-          fs.rmSync(part, { force: true });
-          reject(new Error('download corrupted (hash mismatch)'));
-          return;
-        }
-        fs.renameSync(part, to);
-        resolve();
-      });
-    });
+async function get(url, signal, hops = 0) {
+  const res = await new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'user-agent': 'Cadenza' }, signal }, resolve);
+    req.setTimeout(30_000, () => req.destroy(new Error('model download stalled')));
+    req.on('error', reject);
   });
+  if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 8) {
+    res.resume();
+    return get(new URL(res.headers.location, url).href, signal, hops + 1);
+  }
+  return res;
+}
+async function download(m, progress, signal) {
+  const to = path.join(dir(), m.name + '.onnx');
+  const part = to + '.part';
+  await fs.promises.mkdir(dir(), { recursive: true });
+  try {
+    const res = await get(m.url, signal);
+    if (res.statusCode !== 200) {
+      res.resume();
+      throw new Error(`download failed (${res.statusCode})`);
+    }
+    const h = crypto.createHash('sha256');
+    let got = 0;
+    const check = new Transform({
+      transform(bytes, _encoding, done) {
+        got += bytes.length;
+        if (got > m.size) return done(new Error('model exceeds the expected size'));
+        h.update(bytes);
+        progress(got / m.size);
+        done(null, bytes);
+      },
+    });
+    await pipeline(res, check, fs.createWriteStream(part), { signal });
+    if (got !== m.size || h.digest('hex') !== m.sha256) throw new Error('download corrupted (hash mismatch)');
+    signal.throwIfAborted();
+    await fs.promises.rename(part, to);
+  } finally {
+    await fs.promises.rm(part, { force: true }).catch(() => {});
+  }
 }
 
 function start(ipcMain, getWin, settings) {
@@ -94,8 +92,10 @@ function start(ipcMain, getWin, settings) {
     ep = null,
     idle = null,
     next = 1,
-    downloading = null;
+    downloading = null,
+    downloadAbort = null;
   const pending = new Map();
+  const errors = { beat: null, separate: null };
   const send = (ch, d) => {
     const w = getWin();
     if (w && !w.isDestroyed()) w.webContents.send(ch, d);
@@ -115,7 +115,10 @@ function start(ipcMain, getWin, settings) {
         pending.delete(m.id);
         m.error != null ? p.rej(new Error(m.error)) : p.res(m.result);
       });
-      proc.on('exit', () => drop('the inference process ended'));
+      const instance = proc;
+      instance.on('exit', () => {
+        if (proc === instance) drop('the inference process ended');
+      });
     }
     const id = next++;
     return new Promise((res, rej) => {
@@ -142,9 +145,12 @@ function start(ipcMain, getWin, settings) {
         },
       );
       await ready;
-      return await call(op, args);
+      const result = await call(op, args);
+      errors[op] = null;
+      return result;
     } catch (e) {
       ready = null;
+      errors[op] = String(e.message || e).slice(0, 240);
       throw e;
     } finally {
       arm();
@@ -158,26 +164,32 @@ function start(ipcMain, getWin, settings) {
       beats,
       stems,
       ep,
+      errors: { ...errors },
       downloading: !!downloading,
       size: MODELS.reduce((a, m) => a + m.size, 0),
     };
   });
-  ipcMain.handle('infer:download', async () => {
-    if (present()) return { ok: true };
+  ipcMain.handle('infer:download', async (_event, repair) => {
+    const replace = repair === true ? { ...errors } : {};
+    if (present() && !replace.beat && !replace.separate) return { ok: true };
+    if (!downloading) downloadAbort = new AbortController();
     downloading ??= (async () => {
+      const { signal } = downloadAbort;
       const total = MODELS.reduce((a, m) => a + m.size, 0);
       let done = 0;
       for (const m of MODELS) {
-        const f = path.join(dir(), m.name + '.onnx');
-        if (fs.existsSync(f) && fs.statSync(f).size === m.size) {
+        const op = m.name === 'beat_this' ? 'beat' : 'separate';
+        if (!replace[op] && presentModel(m)) {
           done += m.size;
           continue;
         }
-        await download(m, (k) => send('infer:progress', (done + k * m.size) / total));
+        await download(m, (k) => send('infer:progress', (done + k * m.size) / total), signal);
+        errors[op] = null;
         done += m.size;
       }
     })().finally(() => {
       downloading = null;
+      downloadAbort = null;
     });
     try {
       await downloading;
@@ -186,9 +198,10 @@ function start(ipcMain, getWin, settings) {
       return { ok: false, why: String(e.message || e) };
     }
   });
+  ipcMain.handle('infer:cancel-download', () => downloadAbort?.abort());
   ipcMain.handle('infer:run', (_e, op, args) => {
     if (op !== 'beat' && op !== 'separate') throw new Error('unknown op');
-    if (!present()) throw new Error('models missing');
+    if (!presentModel(MODELS[op === 'beat' ? 0 : 1])) throw new Error('model missing');
     return run(op, args);
   });
   // (a new choice of device: the process starts again on it at the next request)
@@ -199,6 +212,7 @@ function start(ipcMain, getWin, settings) {
         drop('restarted');
       }
       ep = null;
+      errors.beat = errors.separate = null;
     },
   };
 }

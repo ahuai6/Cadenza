@@ -21,6 +21,9 @@ if (!folia || !OUT) {
 }
 const MODES = (modesArg || 'sonnet,tempera').split(',');
 const STEP = +(stepArg || 0.5);
+const START = +(process.env.CADENZA_FOLIA_FROM || 0.25);
+const END = +(process.env.CADENZA_FOLIA_TO || Infinity);
+const TRACE = process.env.CADENZA_FOLIA_TRACE === '1';
 const W = 1280,
   H = 720;
 // Each frame on fresh pages by default: Folia's scenes keep some state from the frames drawn before (springs, the
@@ -113,6 +116,31 @@ class Side {
   }
   async close() {
     if (this.s) await this.s.br.close().catch(() => {});
+  }
+  async trace() {
+    if (!this.s) return null;
+    return this.s.p.evaluate(() => {
+      const engine = window.__eng || window.__rt;
+      const paragraph = engine.activeParagraphIndex;
+      const plan = (engine.program || engine.options.program).paragraphs[paragraph];
+      const view = engine.sceneCache.get(paragraph);
+      const shot = view?.activeShotIndex;
+      const pose = (container) =>
+        container &&
+        [container.x, container.y, container.scale.x, container.scale.y, container.rotation, container.alpha].map(
+          (n) => (Number.isFinite(n) ? +n.toFixed(4) : null),
+        );
+      return {
+        paragraph,
+        boundary: plan?.boundary,
+        kind: plan?.shots[shot]?.kind,
+        shot,
+        camera: plan?.shots[shot]?.camera,
+        transition: plan?.transitionOut,
+        scene: pose(view?.container),
+        shotPose: pose(view?.shots[shot]?.container),
+      };
+    });
   }
 }
 
@@ -277,7 +305,7 @@ class Side {
         ),
     );
     const rows = [];
-    for (let t = 0.25; t < song.dur; t += STEP) {
+    for (let t = START; t < Math.min(END, song.dur); t += STEP) {
       let B = await cz.shot(t, async (png) => !(await look(png)).black).catch((e) => console.log(e.message));
       if (!B) continue;
       let inkB = (await look(B)).ink;
@@ -346,7 +374,11 @@ class Side {
       const tag = `${mode}-${t.toFixed(2)}`;
       fs.writeFileSync(path.join(OUT, `${tag}-folia.png`), A);
       fs.writeFileSync(path.join(OUT, `${tag}-cadenza.png`), B);
-      rows.push({ t: +t.toFixed(2), ...m });
+      rows.push({
+        t: +t.toFixed(4),
+        ...m,
+        ...(TRACE ? { folia: await ref.trace(), cadenza: await cz.trace() } : {}),
+      });
       console.log(
         `${tag}  ink IoU ${(m.full.iou * 100).toFixed(1)}%  coarse IoU ${(m.coarse.iou * 100).toFixed(1)}%  mean diff ${(m.full.mean * 100).toFixed(2)}% / coarse ${(m.coarse.mean * 100).toFixed(2)}%`,
       );

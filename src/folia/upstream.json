@@ -121,7 +121,8 @@
     "src/services/beatFx/beatFxSource.ts": "src/folia/shim/beatFxSource.ts",
     "src/components/visualizer/sonnet/sonnetIcons.ts": "src/folia/shim/sonnetIcons.ts",
     "pixi.js/advanced-blend-modes": "src/folia/pixi/advancedBlendModes.ts",
-    "src/services/analysis/drumHits.ts": "src/folia/shim/drumHits.ts"
+    "src/services/analysis/drumHits.ts": "src/folia/shim/drumHits.ts",
+    "@cadenza/scene-random": "src/folia/shim/sceneRandom.ts"
   },
   "patches": [
     {
@@ -171,6 +172,74 @@
       "why": "unused name (noUnusedLocals)",
       "find": "/** The ghost is tinted by the filter, so only its opacity is its own. */\nconst SHADOW_ALPHA = 0.34;\n",
       "replace": ""
+    },
+    {
+      "file": "src/services/beatFx/beatFxLive.ts",
+      "why": "Allow the current Folia host to bind its private beat clock during a synchronous frame.",
+      "find": "const state = createBeatFxClockState();",
+      "replace": "let state = createBeatFxClockState();"
+    },
+    {
+      "file": "src/services/beatFx/beatFxLive.ts",
+      "why": "Allow the current Folia host to bind its private beat clock during a synchronous frame.",
+      "find": "const intensities = { beat: 1, downbeat: 1 };",
+      "replace": "let intensities = { beat: 1, downbeat: 1 };"
+    },
+    {
+      "file": "src/services/beatFx/beatFxLive.ts",
+      "why": "Allow the current Folia host to bind its private beat clock during a synchronous frame.",
+      "find": "const firedCounts = { beats: 0, downbeats: 0 };",
+      "replace": "let firedCounts = { beats: 0, downbeats: 0 };"
+    },
+    {
+      "file": "src/services/beatFx/beatFxLive.ts",
+      "why": "Bind upstream readers to a specific world while keeping their original named exports.",
+      "find": "let liveEffects: Readonly<Record<string, number>> = {};",
+      "replace": "let liveEffects: Readonly<Record<string, number>> = {};\n\nconst currentRuntime = () => ({\n    state, trackKey, lastStepAt, holdUntil, hearing, heardAt, lastHeard,\n    intensities, beatPeriod, firedCounts, liveEffects,\n});\ntype Runtime = ReturnType<typeof currentRuntime>;\n\nexport const createBeatFxRuntime = (): Runtime => ({\n    state: createBeatFxClockState(), trackKey: null, lastStepAt: null, holdUntil: 0,\n    hearing: false, heardAt: null, lastHeard: { key: null, time: 0 },\n    intensities: { beat: 1, downbeat: 1 }, beatPeriod: DEFAULT_BEAT_PERIOD,\n    firedCounts: { beats: 0, downbeats: 0 }, liveEffects: {},\n});\n\nconst bindRuntime = (runtime: Runtime) => {\n    ({ state, trackKey, lastStepAt, holdUntil, hearing, heardAt, lastHeard,\n        intensities, beatPeriod, firedCounts, liveEffects } = runtime);\n};\n\nexport function withBeatFxRuntime<T>(runtime: Runtime, draw: () => T): T {\n    const before = currentRuntime();\n    bindRuntime(runtime);\n    try {\n        return draw();\n    } finally {\n        Object.assign(runtime, currentRuntime());\n        bindRuntime(before);\n        beatImpact.set(state.beatImpact * intensities.beat);\n        downbeatImpact.set(state.downbeatImpact * intensities.downbeat);\n    }\n}\n"
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetBeatFx.ts",
+      "why": "Explicit media-time and historical treble for deterministic Sonnet frames.",
+      "find": "return (audioBands: AudioBands | undefined, smartBeatEnabled: boolean):",
+      "replace": "return (audioBands: AudioBands | undefined, smartBeatEnabled: boolean, mediaTime?: number, sampledTreble?: number):"
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetBeatFx.ts",
+      "why": "The host can evaluate the same treble filter from timestamped input.",
+      "find": "        smoothedTreble += (target - smoothedTreble) * (target > smoothedTreble ? 0.25 : 0.08);",
+      "replace": "        if (sampledTreble === undefined) smoothedTreble += (target - smoothedTreble) * (target > smoothedTreble ? 0.25 : 0.08);"
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetBeatFx.ts",
+      "why": "Keep tear seed and measured line flash fixed to media time.",
+      "find": "            performance.now() / 1000,\n            smoothedTreble,",
+      "replace": "            mediaTime ?? performance.now() / 1000,\n            sampledTreble ?? smoothedTreble,"
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetGuides.ts",
+      "why": "Use a random stream derived from each paragraph and song seed.",
+      "find": "// src/components/visualizer/sonnet/sonnetGuides.ts",
+      "replace": "import { sceneRandom } from '@cadenza/scene-random';\n\n// src/components/visualizer/sonnet/sonnetGuides.ts"
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetGuides.ts",
+      "why": "Keep the same distribution with a seed independent of scene build order.",
+      "find": "Math.random()",
+      "replace": "sceneRandom()",
+      "count": 20
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetAnimatedGraphics.ts",
+      "why": "Use a random stream derived from each paragraph and song seed.",
+      "find": "// src/components/visualizer/sonnet/sonnetAnimatedGraphics.ts",
+      "replace": "import { sceneRandom } from '@cadenza/scene-random';\n\n// src/components/visualizer/sonnet/sonnetAnimatedGraphics.ts"
+    },
+    {
+      "file": "src/components/visualizer/sonnet/sonnetAnimatedGraphics.ts",
+      "why": "Keep the same distribution with a seed independent of scene build order.",
+      "find": "Math.random()",
+      "replace": "sceneRandom()",
+      "count": 2
     }
   ]
 }

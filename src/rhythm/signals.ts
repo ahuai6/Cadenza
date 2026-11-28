@@ -132,6 +132,9 @@ export class Signals {
       out.push({ t: B[i], a: clamp(a * 1.15, 0, 1.25) });
     }
     // the pushes between the beats: a strong hit off the beat that stands well above the bar's usual onset
+    const beatCount = out.length;
+    let beatCursor = 0;
+    let lastOff = -Infinity;
     for (let k = 0; k < ev.length; k++) {
       const e = ev[k];
       if (!e.off || e.tier < 2) continue;
@@ -142,7 +145,14 @@ export class Signals {
       around.sort((x, y) => x - y);
       const med = around.length ? around[around.length >> 1] : e.s;
       if (e.s / Math.max(0.05, med) < 1.6) continue;
-      if (out.some((h) => Math.abs(h.t - e.t) < 0.3 * bl)) continue;
+      while (beatCursor < beatCount && out[beatCursor].t <= e.t) beatCursor++;
+      const nearest = Math.min(
+        e.t - (out[beatCursor - 1]?.t ?? -Infinity),
+        beatCursor < beatCount ? out[beatCursor].t - e.t : Infinity,
+        e.t - lastOff,
+      );
+      if (nearest < 0.3 * bl) continue;
+      lastOff = e.t;
       out.push({
         t: e.t,
         a: clamp(0.5 + 0.35 * clamp((e.s / med - 1.6) / 1.2), 0, 1) * (neural ? A!.trackScale : scale),

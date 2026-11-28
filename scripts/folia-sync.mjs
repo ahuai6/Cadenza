@@ -265,11 +265,11 @@ function patch(rel, text) {
   let out = text;
   for (const p of (manifest.patches ?? []).filter((x) => x.file === rel)) {
     const count = out.split(p.find).length - 1;
-    if (count !== 1) {
+    if (count !== (p.count ?? 1)) {
       problems.push(`${rel}: patch "${p.why}" matches ${count} times`);
       continue;
     }
-    out = out.replace(p.find, () => p.replace);
+    out = out.replaceAll(p.find, () => p.replace);
   }
   return out;
 }

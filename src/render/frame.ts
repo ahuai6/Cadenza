@@ -41,6 +41,8 @@ export interface RenderFrame {
   px: number;
   cam: CamFrame;
   rs: RhythmSample;
+  /** Measured live spectrum when no timestamped analysis bands are present. */
+  spectrum?: number[];
   media: MediaSources;
   view: ViewMix;
   /** reduced motion */ motion: number;

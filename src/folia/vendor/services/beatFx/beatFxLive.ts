@@ -78,7 +78,7 @@ const debug: BeatFxDebug | null = (import.meta.env.DEV || readDebugFlag())
     : null;
 if (debug && typeof window !== 'undefined') window.__foliaBeatFx = debug;
 
-const state = createBeatFxClockState();
+let state = createBeatFxClockState();
 let trackKey: string | null = null;
 let lastStepAt: number | null = null;
 /** `performance.now()` until which a track change counts as ready; see READY_HOLD_MS. */
@@ -89,7 +89,7 @@ let hearing = false;
 let heardAt: number | null = null;
 /** The last time heard while playing, and its track: what a pause or a picture switch leaves. */
 let lastHeard: { key: string | null; time: number } = { key: null, time: 0 };
-const intensities = { beat: 1, downbeat: 1 };
+let intensities = { beat: 1, downbeat: 1 };
 /** Median gap between the installed track's beats, in seconds; see `getBeatFxBeatPeriod`. */
 const DEFAULT_BEAT_PERIOD = 0.5;
 let beatPeriod = DEFAULT_BEAT_PERIOD;
@@ -103,7 +103,7 @@ export const resolveBeatFxBeatPeriod = (events: readonly BeatFxEvent[]): number 
     const median = gaps[gaps.length >> 1];
     return median > 0 ? median : DEFAULT_BEAT_PERIOD;
 };
-const firedCounts = { beats: 0, downbeats: 0 };
+let firedCounts = { beats: 0, downbeats: 0 };
 
 /** The 轻拍 / 重拍 strengths (0..2) the envelopes are scaled by from the next step on. */
 export const setBeatFxIntensities = (beat: number, downbeat: number) => {
@@ -116,6 +116,38 @@ export const getBeatFxIntensities = (): Readonly<{ beat: number; downbeat: numbe
 
 /** The live effects on screen and their strengths (beatClockTargets.ts `liveBeatEffects`). */
 let liveEffects: Readonly<Record<string, number>> = {};
+
+const currentRuntime = () => ({
+    state, trackKey, lastStepAt, holdUntil, hearing, heardAt, lastHeard,
+    intensities, beatPeriod, firedCounts, liveEffects,
+});
+type Runtime = ReturnType<typeof currentRuntime>;
+
+export const createBeatFxRuntime = (): Runtime => ({
+    state: createBeatFxClockState(), trackKey: null, lastStepAt: null, holdUntil: 0,
+    hearing: false, heardAt: null, lastHeard: { key: null, time: 0 },
+    intensities: { beat: 1, downbeat: 1 }, beatPeriod: DEFAULT_BEAT_PERIOD,
+    firedCounts: { beats: 0, downbeats: 0 }, liveEffects: {},
+});
+
+const bindRuntime = (runtime: Runtime) => {
+    ({ state, trackKey, lastStepAt, holdUntil, hearing, heardAt, lastHeard,
+        intensities, beatPeriod, firedCounts, liveEffects } = runtime);
+};
+
+export function withBeatFxRuntime<T>(runtime: Runtime, draw: () => T): T {
+    const before = currentRuntime();
+    bindRuntime(runtime);
+    try {
+        return draw();
+    } finally {
+        Object.assign(runtime, currentRuntime());
+        bindRuntime(before);
+        beatImpact.set(state.beatImpact * intensities.beat);
+        downbeatImpact.set(state.downbeatImpact * intensities.downbeat);
+    }
+}
+
 
 /**
  * Sets which beat effects play now and how strongly (services/beatFx/beatEffects.ts), from the

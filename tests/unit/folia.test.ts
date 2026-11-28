@@ -8,8 +8,12 @@ import { parse } from '../../src/lyrics/parse';
 import { buildLyrics } from '../../src/lyrics/model';
 import { RhythmMap } from '../../src/rhythm/map';
 import { foliaLines } from '../../src/folia/adapt';
-import { beatEvents, installBeats } from '../../src/folia/live';
-import { getBeatFxTrackScale } from '../../src/folia/vendor/services/beatFx/beatFxLive';
+import { beatEvents, FoliaFrameMusic, installBeats } from '../../src/folia/live';
+import {
+  getBeatFxHeard,
+  getBeatEffectStrength,
+  getBeatFxTrackScale,
+} from '../../src/folia/vendor/services/beatFx/beatFxLive';
 import { compileSonnetProgram } from '../../src/folia/vendor/components/visualizer/sonnet/sonnetProgram';
 
 const LRC = readFileSync(new URL('../fixtures/long.lrc', import.meta.url), 'utf8');
@@ -18,6 +22,22 @@ const docOf = () => {
     p = parse(LRC);
   return { doc: buildLyrics(p, map, Math.max(...p.lines.map((l) => l.t)) + 6), map };
 };
+
+it('binds each stage to its own media time and strength even across an interleaved render', () => {
+  const first = new FoliaFrameMusic();
+  const next = new FoliaFrameMusic();
+  const map = RhythmMap.grid(96, 0, 12);
+  const inspect = () => [getBeatFxHeard(), getBeatEffectStrength('effect')];
+  const start = inspect();
+  const result = first.frame('first', map, { effect: 0.3 }, 3.7, true, undefined, inspect);
+  expect(result).toEqual([{ key: 'first', time: 3.7 }, 0.3]);
+  expect(next.frame('next', map, { effect: 1.2 }, 8, true, undefined, inspect)).toEqual([
+    { key: 'next', time: 8 },
+    1.2,
+  ]);
+  expect(first.frame('first', map, { effect: 0.3 }, 3.7, true, undefined, inspect)).toEqual(result);
+  expect(inspect()).toEqual(start);
+});
 
 describe('the stage keeps Pixi v8 semantics', () => {
   it('a fill right after a stroke reuses its path, and cut() punches the last fill', () => {

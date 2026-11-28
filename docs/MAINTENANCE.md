@@ -79,6 +79,7 @@ gh api repos/ahuai6/Cadenza/releases/latest --jq '.tag_name+" "+(.assets|map(.na
 
 - 采用通过验证的稳定版本，精确锁定（`package.json` 不用 `^`，`Cargo.toml` 用 `=`）。升级单独提交并检查行为、兼容性及性能。能保护已支持设备和格式的适配代码需说明原因、验证方法和退役条件。`@types/node` 跟 Electron 内置的 Node 主版本。
 - 神经网络模型不进 git：`scripts/models.mjs` 依 `src/rhythm/neural/models.json` 的 SHA-256 下载并校验；桌面版的 ONNX 模型由用户在设置里下载。
+- G8 的设置诊断分别展示 Beat This! 和 HTDemucs 的完整性及推理错误。升级仍使用同一内容缓存。GPU 帧捕获、曲库吞吐与导出问题使用隔离资料复核，记录应用构建、设备、实际后端和素材授权。 [G8 验证记录](G8.md)
 - 字体全部 SIL OFL 1.1，`npm run build:app` 时由 `scripts/fonts.mjs` 复制进 `dist-app/fonts`；收录表用 `npm run fonts:coverage` 重烤，菜单预览图用 `npm run fonts:previews`。
 - 设置纲要改了要跑 `npm run gen:settings`（单元测试会检查默认值档是否过期）。
 

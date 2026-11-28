@@ -21,6 +21,7 @@ import { insertNext, followList } from './queue';
 import { SCHEMA } from '../settings/schema';
 import { engine, sessionEnv } from './stage';
 import { onAnalysisUpgrade, requestAnalysis } from './analysis';
+import { RhythmPreview } from '../../engine';
 import { traceBegin, tracePhase, traceEnd } from './trace';
 import {
   hifiOn,
@@ -30,6 +31,7 @@ import {
   waitReleased,
   onTrouble,
   hwGain,
+  nativeMusic,
   hifi,
 } from './hifi';
 import { PlaybackCoordinator, weightedPick, type PlaybackRequest, type Phase, type Mode } from './coordinator';
@@ -229,6 +231,13 @@ engine.followTransport({
   time: () => transport.time,
   playing: () => transport.get().phase === 'playing',
   ended: () => transport.get().phase === 'ended',
+  liveAnalysis: () => {
+    const { output, phase, route } = transport.get();
+    if (phase !== 'playing' || output?.id !== engine.session?.spec.key) return null;
+    if (route === 'std') return engine.clock.liveMusic();
+    const level = nativeMusic();
+    return level == null ? null : { level };
+  },
   play: () => transport.play(),
   pause: () => transport.pause(),
   toggle,
@@ -356,7 +365,14 @@ async function openVisual({ request, output, abort }: VisualJob) {
   ]);
   signal.throwIfAborted();
   const analysis = cached;
-  const later = analysis ? undefined : requestAnalysis(id, signal);
+  const preview = analysis ? undefined : new RhythmPreview();
+  const later =
+    preview &&
+    requestAnalysis(id, signal, (slice) => {
+      if (signal.aborted) return;
+      preview.add(slice);
+      engine.invalidate();
+    });
   tracePhase(tr, 'visualData', performance.now() - tm);
   const song = songWrites.get(id)?.song || storedSong;
   const album = player.get().album;
@@ -379,6 +395,7 @@ async function openVisual({ request, output, abort }: VisualJob) {
       coverUrl: coverUrl(t.cover, true),
       audio: output.audio,
       analysis,
+      preview,
       lshift: song?.lshift || 0,
       spacing: song?.spacing,
       fade: !album,
@@ -974,7 +991,7 @@ export async function unbindMv() {
 /** For the workshop: a song's audio, analysis, lyrics, cover and bound style. */
 export async function songForWorkshop(t: Track) {
   const [buffer, cached, song, lyr] = await Promise.all([
-    decodeFile(t.id),
+    decodeFile(t.id, undefined, t.mediaRevision),
     readRhythm(t.id, t.duration),
     Lib!.song(t.id).catch(() => null),
     Lib!.lyrics(t.id).catch(() => null),

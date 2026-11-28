@@ -37,7 +37,10 @@ export {
   neuralDrums,
   neuralStatus,
   neuralRecheck,
+  RhythmPreview,
   type RhythmAnalysis,
+  type RhythmPreviewUpdate,
+  type RhythmTaskStage,
   type RhythmEngine,
   type NativeRuntime,
 } from '../rhythm';

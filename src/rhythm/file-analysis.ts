@@ -1,6 +1,8 @@
-import { analyzeSpectrum, dspBands, DSP_HOP, DSP_RATE, DSP_SIZE, type AnalyzeOptions } from './analyze';
+import { analyzeSpectrum, dspBands, DSP_HOP, DSP_RATE, DSP_SIZE, SPEC_BANDS, type AnalyzeOptions } from './analyze';
 import { bandEnergies, MonoResampler, type Spectrogram } from './dsp';
 import { LoudnessMeter } from './loudness';
+import { clamp } from '../core/math';
+import type { RhythmPreviewSlice } from './types';
 
 const FEATURE_LIMIT = 1_200_000;
 const PCM_BLOCK = 4096;
@@ -18,6 +20,7 @@ export class AnalysisFeatures {
     channels: number,
     rate: number,
     private readonly onlyLoudness: boolean,
+    private readonly preview?: (slice: RhythmPreviewSlice) => void,
   ) {
     this.mono = new MonoResampler(rate, DSP_RATE);
     this.meter = new LoudnessMeter(channels, rate);
@@ -40,14 +43,36 @@ export class AnalysisFeatures {
   private collect(final: boolean) {
     if (this.length < DSP_SIZE && (!final || this.frames)) return;
     const chunk = bandEnergies(this.pending.subarray(0, this.length), DSP_RATE, DSP_SIZE, DSP_HOP, dspBands);
+    const first = this.frames;
     this.frames += chunk.frames;
     if (this.frames > FEATURE_LIMIT) throw new Error('rhythm feature budget');
     this.chunks.push(chunk);
+    if (this.preview) this.publish(chunk, first);
     if (!final) {
       const consumed = chunk.frames * DSP_HOP;
       this.pending.copyWithin(0, consumed, this.length);
       this.length -= consumed;
     }
+  }
+  private publish(chunk: Spectrogram, first: number) {
+    // Preserve global hop phase across irregular PCM blocks, while keeping the display stream small.
+    const decimation = 3;
+    const offset = (decimation - (first % decimation)) % decimation;
+    const n = Math.max(0, Math.ceil((chunk.frames - offset) / decimation));
+    if (!n) return;
+    const stride = SPEC_BANDS + 1;
+    const samples = new Float32Array(n * stride);
+    const bands = dspBands.length / SPEC_BANDS;
+    for (let i = 0; i < n; i++) {
+      const f = offset + i * decimation;
+      samples[i * stride] = clamp((chunk.rms[f] + 64) / 46);
+      for (let b = 0; b < SPEC_BANDS; b++) {
+        let peak = 0;
+        for (let k = 0; k < bands; k++) peak = Math.max(peak, chunk.E[f * dspBands.length + b * bands + k]);
+        samples[i * stride + b + 1] = clamp((10 * Math.log10(1e-12 + peak) + 72) / 52);
+      }
+    }
+    this.preview?.({ start: (first + offset) / chunk.fps, rate: chunk.fps / decimation, stride, samples });
   }
   loudness() {
     return this.meter.finish();
@@ -90,9 +115,11 @@ export async function consumePcm(
       const { value, done } = await reader.read();
       if (done) break;
       if (complete) throw new Error('audio after analysis EOF');
-      const bytes = new Uint8Array(remaining.length + value.length);
-      bytes.set(remaining);
-      bytes.set(value, remaining.length);
+      const bytes = remaining.length ? new Uint8Array(remaining.length + value.length) : value;
+      if (remaining.length) {
+        bytes.set(remaining);
+        bytes.set(value, remaining.length);
+      }
       const view = new DataView(bytes.buffer);
       let pos = 0;
       if (!channels && bytes.length >= 12) {

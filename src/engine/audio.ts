@@ -1,11 +1,18 @@
 /* Shared Web Audio graph and the workshop clock. Desktop playback supplies its own file time via the coordinator.
    Song time t maps to file time as file = audioStart + t. */
 
+import { clamp } from '../core/math';
+
+export interface LiveMusic {
+  level: number;
+  spectrum?: number[];
+}
+
 /** Decoded workshop audio, or duration plus explicit on-demand PCM access for offline use. */
 export interface AudioLike {
   duration: number;
   getChannelData?(i: number): Float32Array;
-  load?(): Promise<AudioBuffer>;
+  load?(signal?: AbortSignal): Promise<AudioBuffer>;
 }
 /** An outside player (Hi-Fi): told where in the file to start and where to stop; reports its own clock (file time). */
 export interface ExternalOut {
@@ -19,6 +26,9 @@ export type AudioClockEvent = 'running' | 'buffering' | 'ended' | { error: strin
 export class AudioClock {
   private ctx: AudioContext | null = null;
   private gainNode: GainNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private readonly fft = new Float32Array(1024);
+  private readonly pcm = new Float32Array(2048);
   private src: AudioBufferSourceNode | null = null;
   private t0 = 0;
   private ctx0 = 0;
@@ -48,6 +58,33 @@ export class AudioClock {
     if (!this.gainNode || !this.ctx) return;
     this.gainNode.disconnect();
     this.gainNode.connect(node || this.ctx.destination);
+    if (this.analyser) this.gainNode.connect(this.analyser);
+  }
+  /** Observe the existing output branch without inserting any processing in the audible path. */
+  liveMusic(): LiveMusic | null {
+    const c = this.ctx;
+    if (this.parked || c?.state !== 'running' || !this.gainNode) return null;
+    if (!this.analyser) {
+      this.analyser = c.createAnalyser();
+      this.analyser.fftSize = this.pcm.length;
+      this.analyser.smoothingTimeConstant = 0.25;
+      this.gainNode.connect(this.analyser);
+    }
+    this.analyser.getFloatTimeDomainData(this.pcm);
+    let energy = 0;
+    for (const sample of this.pcm) energy += sample * sample;
+    const level = clamp((10 * Math.log10(1e-12 + energy / this.pcm.length) + 64) / 46);
+    this.analyser.getFloatFrequencyData(this.fft);
+    const spectrum = new Array<number>(6);
+    const hz = c.sampleRate / this.pcm.length;
+    for (let b = 0; b < spectrum.length; b++) {
+      const lo = Math.max(1, Math.floor((30 * (10000 / 30) ** (b / spectrum.length)) / hz));
+      const hi = Math.min(this.fft.length, Math.ceil((30 * (10000 / 30) ** ((b + 1) / spectrum.length)) / hz));
+      let peak = -Infinity;
+      for (let k = lo; k < hi; k++) peak = Math.max(peak, this.fft[k]);
+      spectrum[b] = clamp((peak + 72) / 52);
+    }
+    return { level, spectrum };
   }
   setExternal(o: ExternalOut | null) {
     this.ext = o;

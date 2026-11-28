@@ -74,6 +74,29 @@ struct Mark {
     eof: bool,
     exact: bool,
 }
+
+struct MeterBlock {
+    dev: u64,
+    end: u64,
+    seq: u64,
+    run_id: u64,
+    db: f64,
+}
+
+fn measured_pcm_db(samples: &[i32], channels: usize) -> f64 {
+    let frames = samples.len() / channels;
+    let step = (frames / 128).max(1);
+    let mut squares = 0.0;
+    let mut count = 0;
+    for frame in samples.chunks_exact(channels).step_by(step) {
+        for &sample in frame {
+            let normalized = f64::from(sample) / 2147483648.0;
+            squares += normalized * normalized;
+            count += 1;
+        }
+    }
+    10.0 * (squares / f64::from(count.max(1)) + 1e-12).log10()
+}
 type Start = (f64, Option<f64>, u64);
 
 const FADE_S: f64 = 0.006;
@@ -113,6 +136,7 @@ pub struct Player {
     preroll: usize,
     dev_written: u64,
     marks: VecDeque<Mark>,
+    meters: VecDeque<MeterBlock>,
     epoch: u64,
     clock: StreamClock,
     heard: Option<(u64, u64, f64)>,
@@ -198,6 +222,7 @@ pub fn run(rx: Receiver<Cmd>) {
         preroll: 0,
         dev_written: 0,
         marks: VecDeque::new(),
+        meters: VecDeque::with_capacity(256),
         epoch: 0,
         clock: StreamClock::default(),
         heard: None,
@@ -767,6 +792,7 @@ impl Player {
                 self.started = false;
                 self.dev_written = 0;
                 self.marks.clear();
+                self.meters.clear();
                 self.preroll = (f.rate as f64 * if f.exclusive { LOCK_S } else { 0.03 }) as usize;
                 let name = self.caps.as_ref().map(|c| c.name.clone()).unwrap_or_default();
                 if self.excl && !f.exclusive && !self.force_shared {
@@ -874,7 +900,22 @@ impl Player {
         let seq = self.cur.as_ref().map(|t| t.seq).unwrap_or(0);
         let run_id = self.run_id;
         let eof = self.ended && id.is_some();
-        let dev = self.dev_written + self.frames.len() as u64 / self.ofmt.map(|f| f.ch as u64).unwrap_or(2) - len as u64;
+        let ch = self.ofmt.map(|f| f.ch).unwrap_or(2);
+        let dev = self.dev_written + self.frames.len() as u64 / ch as u64 - len as u64;
+        // Read the staged samples without touching the PCM, dither, endpoint or clock.
+        if run && pos >= 0 && len != 0 {
+            let samples = &self.frames[self.frames.len() - len * ch..];
+            if self.meters.len() == 256 {
+                self.meters.pop_front();
+            }
+            self.meters.push_back(MeterBlock {
+                dev,
+                end: dev + len as u64,
+                seq,
+                run_id,
+                db: measured_pcm_db(samples, ch),
+            });
+        }
         if let Some(m) = self.marks.back_mut() {
             let same = m.run == run && m.id == id && m.seq == seq && m.run_id == run_id && m.eof == eof && m.exact == exact
                 && m.dev + m.len == dev && (if run { m.pos + m.len as i64 == pos } else { m.pos == pos });
@@ -1096,6 +1137,12 @@ impl Player {
         while self.marks.len() > 1 && self.marks.front().is_some_and(|m| h >= m.dev + m.len) { self.marks.pop_front(); }
         let m = self.marks.front().filter(|m| h >= m.dev && h <= m.dev + m.len);
         let Some(m) = m else { return };
+        while self.meters.front().is_some_and(|meter| meter.end <= h) {
+            self.meters.pop_front();
+        }
+        let meter = self.meters.front().filter(|meter| {
+            m.run && meter.dev <= h && meter.seq == m.seq && meter.run_id == m.run_id
+        });
         let (pos, run) = if m.run { (m.pos + (h.saturating_sub(m.dev)).min(m.len) as i64, true) } else { (m.pos, false) };
         if run && self.endpoint_sampled_at.is_none_or(|at| at.elapsed() >= Duration::from_millis(200)) {
             self.endpoint_sampled_at = Some(Instant::now());
@@ -1122,7 +1169,8 @@ impl Player {
             let limit = if run { ((m.pos + m.len as i64).max(0) as f64 / f.rate as f64).max(position) } else { position };
             emit(json!({ "ev": "pos", "id": m.id.as_deref(), "seq": m.seq, "runId": m.run_id,
                 "t": position, "run": run, "epoch": self.epoch, "source": reading.source, "qpc100ns": reading.qpc_100ns,
-                "streamFrame": h, "submittedFrame": self.dev_written, "limit": limit, "exact": run && m.exact }));
+                "streamFrame": h, "submittedFrame": self.dev_written, "limit": limit, "exact": run && m.exact,
+                "pcmDb": meter.map(|meter| meter.db) }));
         }
     }
 }

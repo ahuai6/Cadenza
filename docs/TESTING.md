@@ -2,6 +2,13 @@
 
 G7 的 Windows Electron 硬件渲染探针、上游逐帧对照、资源压力及 G6 缓存升级回归见 [G7 验证记录](G7.md)。历史 G0–G6 基准继续按原口径比较。
 
+## G8 分析、场景和创作验证
+
+- `node tests/rhythm-analysis-desktop.cjs --progressive --watch` 在特效歌词开启时检查图内音频信号、有限区间的真实音乐特征和其余歌曲完成基础分析。`--hifi-progressive` 单独检查模拟设备收到的 PCM 及对应的原生消费观测。`--invalidate` 检查取消及清理重建。
+- `node tests/g8-library-bench.cjs <音频目录> <报告路径> auto 190` 新建隔离数据目录，观察音乐目录的分析阶段、缓存、完成时间和实际推理后端。以同一批有授权的文件对照，分别切换 `dsp`、`neural` 和 `CADENZA_BENCH_BEATS_ONLY=1`。用 `CADENZA_BENCH_CHECK_WARM=1` 检查重启缓存。
+- 沿用 `tests/g7-render.cjs` 建立同设备同场景对照。`--verify` 模拟上下文恢复，`--extended` 执行 2560×1600、3840×2400 画布，`--pressure` 配合 `CADENZA_GPU_PRESSURE_MINUTES=30` 持续采集资源。另用 `tests/folia-compare.cjs` 与真实上游运行时连续对照。
+- `tests/unit/export-file.test.ts` 检查取消、提交、目标冲突。`tests/desktop.cjs` 通过正式 Electron 界面将本地曲目导出为 MP4，并回归工坊和返回日常播放的流程。 [测量口径与当前覆盖](G8.md)
+
 ## G6 节奏与缓存验证
 
 `node tests/rhythm-analysis-desktop.cjs` 在隔离资料和自生成素材上测试 Windows Electron。可用 `CADENZA_ANALYSIS_SECONDS` 选择 300、900、2700 或 5400 秒，`CADENZA_TEST_EXE` 可指向本地拆包 EXE。探针验证相同内容两条曲目共享分析、长音频末段的绝对拍点位置、并行分析期间的播放图内信号和跳转，以及重启后持久缓存命中。 `--baseline` 适用于 G5.5-F 拆包产物，记录旧版超出预算后跳过的结果。 [实现、性能数据和验证边界](G6.md)

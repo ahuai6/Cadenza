@@ -68,8 +68,9 @@ export const lib = createStore({
   loaded: false,
   progress: { phase: 'idle', done: 0, total: 0, hashing: 0, queued: 0, unavailable: 0 },
   analysisTask: { phase: 'idle', id: null } as {
-    phase: 'idle' | 'rhythm' | 'loudness' | 'validate' | 'paused';
+    phase: 'idle' | 'rhythm' | 'loudness' | 'validate' | 'paused' | 'upgrade';
     id: string | null;
+    stage?: import('../engine').RhythmTaskStage;
   },
   analysis: null as null | { done: number; total: number },
   /** how far the song being analysed now is (0..1), null between songs */ analysisNow: null as null | number,

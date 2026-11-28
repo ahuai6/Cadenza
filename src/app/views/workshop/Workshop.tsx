@@ -68,7 +68,8 @@ async function prepareWorkshopSong(t: Track) {
     queueImport({
       project: {
         app: 'cadenza',
-        version: 1,
+        version: 2,
+        source: t.audioContentId ? { id: t.id, content: t.audioContentId } : undefined,
         lyrics: x.lyrics || `[00:00.00]${clean(t.title)}`,
         bpm: x.analysis?.tempo.bpm || 120,
         style,

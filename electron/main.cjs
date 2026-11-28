@@ -18,6 +18,7 @@ const {
 } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const { openExport, stamp: exportStamp } = require('./export-file.cjs');
 const { profileRoot, identifyBuild, initializeProfile } = require('./profile.cjs');
 
 app.setName('Cadenza');
@@ -150,6 +151,7 @@ let win = null,
   hifi = null,
   infer = null;
 const allowed = new Set(); // paths the user chose in a save dialog during this session: the only ones we write
+const chosenExports = new Map();
 const open = new Map();
 let nextId = 1;
 
@@ -285,9 +287,11 @@ function createWindow() {
     }
   });
   const contents = win.webContents;
+  const owner = contents.id;
   contents.once('destroyed', () => {
     translation.cancel(contents);
     chatgpt.cancel();
+    void cancelOwnedExports(owner);
   });
   win.on('closed', () => {
     win = null;
@@ -458,44 +462,68 @@ ipcMain.handle('settings:set', (_e, patch) => {
 
 /* ---------- exports: the user picks a path, then the page streams positional writes to it ---------- */
 ipcMain.handle('save-dialog', async (_e, opts) => {
+  if (!fromMain(_e)) return null;
   const r = await dialog.showSaveDialog(win, {
     defaultPath: path.join(app.getPath('videos'), String(opts.defaultPath || 'cadenza')),
     filters: opts.filters,
   });
-  if (r.canceled || !r.filePath) return null;
+  if (r.canceled || !r.filePath || !fromMain(_e)) return null;
+  if (opts.filters?.some((filter) => filter.extensions?.includes('mp4')))
+    chosenExports.set(r.filePath, { owner: _e.sender.id, stamp: await exportStamp(r.filePath) });
   allowed.add(r.filePath);
   return r.filePath;
 });
-ipcMain.handle('open-write', async (_e, p) => {
-  if (!allowed.has(p)) throw new Error('not a chosen path');
-  const fh = await fs.promises.open(p, 'w');
+ipcMain.handle('open-write', async (event, p) => {
+  const chosen = chosenExports.get(p);
+  if (quitting || !fromMain(event) || !chosen || chosen.owner !== event.sender.id)
+    throw new Error('not a chosen export path');
+  chosenExports.delete(p);
+  const task = await openExport(p, chosen.stamp);
+  if (quitting || !fromMain(event)) {
+    await task.abort();
+    throw new Error('export window closed');
+  }
   const id = nextId++;
-  open.set(id, { fh, p });
+  open.set(id, { task, owner: chosen.owner });
   return id;
 });
-ipcMain.handle('write', async (_e, id, data, pos) => {
+const exportTask = (event, id) => {
   const f = open.get(id);
-  if (!f) throw new Error('closed');
-  const b = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-  let off = 0;
-  while (off < b.length) {
-    const { bytesWritten } = await f.fh.write(b, off, b.length - off, pos + off);
-    off += bytesWritten;
+  if (!fromMain(event) || !f || f.owner !== event.sender.id) throw new Error('closed export');
+  return f;
+};
+async function cancelOwnedExports(owner) {
+  for (const [file, grant] of chosenExports) if (owner == null || grant.owner === owner) chosenExports.delete(file);
+  await Promise.allSettled(
+    [...open]
+      .filter(([, f]) => owner == null || f.owner === owner)
+      .map(async ([id, f]) => {
+        try {
+          f.finalizing ??= f.task.abort();
+          await f.finalizing;
+        } finally {
+          open.delete(id);
+        }
+      }),
+  );
+}
+ipcMain.handle('write', (event, id, data, pos) => exportTask(event, id).task.write(data, pos));
+ipcMain.handle('close', async (event, id) => {
+  const f = exportTask(event, id);
+  try {
+    return await (f.finalizing = f.task.close());
+  } finally {
+    open.delete(id);
   }
 });
-ipcMain.handle('close', async (_e, id) => {
-  const f = open.get(id);
-  if (!f) return 0;
-  open.delete(id);
-  await f.fh.close();
-  return (await fs.promises.stat(f.p)).size;
-});
-ipcMain.handle('abort', async (_e, id) => {
-  const f = open.get(id);
-  if (!f) return;
-  open.delete(id);
-  await f.fh.close();
-  await fs.promises.rm(f.p, { force: true });
+ipcMain.handle('abort', async (event, id) => {
+  const f = exportTask(event, id);
+  try {
+    if (f.finalizing) await f.finalizing;
+    else await f.task.abort();
+  } finally {
+    open.delete(id);
+  }
 });
 ipcMain.handle('save-text', async (_e, p, text) => {
   if (!allowed.has(p)) throw new Error('not a chosen path');
@@ -547,8 +575,7 @@ app.on('before-quit', (event) => {
   if (libraryClosing) return;
   libraryClosing = true;
   quitting = true;
-  void library
-    .close()
+  void Promise.all([library.close(), cancelOwnedExports()])
     .catch((error) => console.error('[library close]', error))
     .finally(() => {
       libraryClosed = true;

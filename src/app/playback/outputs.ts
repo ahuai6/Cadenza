@@ -67,7 +67,7 @@ export async function prepareOutput(
       route,
       duration,
       nativeSeq: info.seq,
-      audio: { duration, load: () => decodeFile(id, undefined, revision) },
+      audio: { duration, load: (signal) => decodeFile(id, signal, revision) },
       start(at, notify) {
         native.start(info.seq, at, (event) => {
           // End or failure can revoke this resource. Do all of its gain work before notifying.
@@ -104,7 +104,7 @@ export async function prepareOutput(
   return {
     route,
     duration,
-    audio: { duration, load: () => decodeFile(id, undefined, revision) },
+    audio: { duration, load: (signal) => decodeFile(id, signal, revision) },
     start: (at, notify) => media.start(at, notify),
     pause: () => media.pause(),
     stop: cancel,

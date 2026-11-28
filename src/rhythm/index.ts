@@ -1,5 +1,6 @@
 // The rhythm SDK: analysis (in a worker), the map every module queries, and the motion signals derived from it.
 export * from './types';
+export { RhythmPreview } from './preview';
 import { checkAnalysis } from './validate';
 export { RhythmMap, type BeatPos, type SelectOptions } from './map';
 export { Signals, CONE, type RhythmSample, type ConeTuning } from './signals';
@@ -19,7 +20,7 @@ export {
 } from './neural';
 export const rhythmEngine = () => engineSetting;
 
-import type { RhythmAnalysis } from './types';
+import type { RhythmAnalysis, RhythmPreviewUpdate, RhythmTaskStage } from './types';
 import type { Loudness } from './loudness';
 import { neuralDrums, neuralRhythm, neuralStatus, type NeuralOptions } from './neural';
 // bundled inline (a blob: URL), so it also starts from a page loaded from file:// (the desktop app)
@@ -28,7 +29,16 @@ import FileAnalysisWorker from './file-analysis.worker.ts?worker&inline';
 
 export function analyzePcm(
   url: string,
-  options: { duration: number; signal: AbortSignal; browser?: boolean; onlyLoudness?: boolean; urgent?: boolean },
+  options: {
+    duration: number;
+    signal: AbortSignal;
+    browser?: boolean;
+    onlyLoudness?: boolean;
+    urgent?: boolean;
+    engine?: RhythmEngine;
+    preview?: (slice: RhythmPreviewUpdate) => void;
+    stage?: (stage: RhythmTaskStage) => void;
+  },
   progress?: (value: number) => void,
 ): Promise<{ analysis?: RhythmAnalysis; loudness?: Loudness }> {
   const { signal } = options;
@@ -57,17 +67,37 @@ export function analyzePcm(
         finish();
         resolve(data);
       } else if (data.progress !== undefined) progress?.(data.progress);
+      else if (data.stage === 'merge') options.stage?.('merge');
+      else if (data.preview) options.preview?.(data.preview);
       else if (data.window) {
+        options.stage?.('beats');
         const window = data.window as Float32Array[];
         const input = {
           sampleRate: data.sampleRate as number,
           numberOfChannels: window.length,
           getChannelData: (index: number) => window[index],
         };
-        void neuralRhythm(input, undefined, { drums: separate, urgent: options.urgent, timeoutMs: 90000, signal }).then(
+        void neuralRhythm(input, undefined, {
+          drums: separate,
+          urgent: options.urgent,
+          timeoutMs: 90000,
+          signal,
+          onBeats:
+            options.preview || options.stage
+              ? (neuralBeats) => {
+                  if (!signal.aborted) {
+                    if (options.preview) worker.postMessage({ neuralBeats });
+                    options.stage?.('stems');
+                  }
+                }
+              : undefined,
+        }).then(
           (neural) => {
             if (neural && !neural.drumsRun) separate = false;
-            if (!signal.aborted) worker.postMessage({ neural });
+            if (!signal.aborted) {
+              options.stage?.('decode');
+              worker.postMessage({ neural });
+            }
           },
           (reason) => {
             if (!signal.aborted) error(String(reason));
@@ -78,10 +108,11 @@ export function analyzePcm(
     worker.postMessage({
       url,
       duration: options.duration,
-      engine: engineSetting,
+      engine: options.engine ?? engineSetting,
       onlyLoudness: !!options.onlyLoudness,
       browser: !!options.browser,
       drums: requestedDrums,
+      preview: !!options.preview,
     });
   });
 }

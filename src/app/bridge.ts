@@ -271,10 +271,12 @@ export interface InferApi {
     beats: boolean;
     stems: boolean;
     ep: string | null;
+    errors?: { beat: string | null; separate: string | null };
     downloading: boolean;
     size: number;
   }>;
-  download(): Promise<{ ok: boolean; why?: string }>;
+  download(repair?: boolean): Promise<{ ok: boolean; why?: string }>;
+  cancelDownload(): Promise<void>;
   onProgress(f: (k: number) => void): Off;
   run(op: 'beat', a: { spect: Float32Array }): Promise<{ beat: Float32Array; downbeat: Float32Array }>;
   run(

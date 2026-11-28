@@ -12,6 +12,8 @@ const { initializeProfile, identifyBuild } = require('../electron/profile.cjs');
 const [build, folder] = process.argv.slice(2);
 const verify = process.argv.includes('--verify');
 const pressure = process.argv.includes('--pressure');
+const extended = process.argv.includes('--extended');
+const pressureMinutes = Math.max(0, Number(process.env.CADENZA_GPU_PRESSURE_MINUTES) || 0);
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'cadenza-g7-electron-'));
 const profile = path.join(temp, 'profile');
 fs.mkdirSync(profile);
@@ -112,15 +114,21 @@ async function run() {
       return name;
     });
     const cases = {};
-    for (const size of [
-      [1280, 720],
-      [1920, 1080],
-    ])
+    const sizes = extended
+      ? [
+          [2560, 1600],
+          [3840, 2400],
+        ]
+      : [
+          [1280, 720],
+          [1920, 1080],
+        ];
+    for (const size of sizes)
       for (const theme of ['liquid', 'sonnet', 'tempera']) {
         const key = `${theme}-${size[0]}`;
         const outcome = await page.evaluate(
           async ([theme, width, height]) => {
-            H.engine.setAspectBox(16 / 9);
+            H.engine.setAspectBox(width / height);
             const s = await H.open({ theme: theme === 'liquid' ? theme : 'cover' });
             if (theme !== 'liquid') s.style = { ...s.style, engine: theme };
             if (theme !== 'liquid' && s.style.engine !== theme) throw new Error('Wrong style under test');
@@ -237,6 +245,7 @@ async function run() {
       assert.deepEqual(recovery, { unavailable: true, restored: true, error: 0 });
     }
     if (pressure) {
+      const pressureStart = performance.now();
       const before = await resources(app);
       const sample = () =>
         page.evaluate(async (independentWorlds) => {
@@ -279,7 +288,16 @@ async function run() {
       const after = await resources(app);
       const repeated = await sample();
       const end = await resources(app);
-      stress = { before, counts, after, repeated, end };
+      const timeline = [];
+      while (performance.now() - pressureStart < pressureMinutes * 60_000) {
+        const sampleCounts = await sample();
+        if (verify) assert.equal(sampleCounts.contexts, 1);
+        const point = { atMs: performance.now() - pressureStart, ...sampleCounts, ...(await resources(app)) };
+        timeline.push(point);
+        fs.writeFileSync(path.join(folder, 'pressure-timeline.json'), JSON.stringify(timeline, null, 2));
+        console.log('Pressure sample:', Math.round(point.atMs / 1000), 's');
+      }
+      stress = { before, counts, after, repeated, end, timeline };
       if (verify) {
         assert.equal(counts.contexts, 1);
         assert.equal(repeated.contexts, 1);

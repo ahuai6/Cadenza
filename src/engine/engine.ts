@@ -11,13 +11,13 @@ import { frameLoop, type FrameLoop } from '../core/frames';
 import { cameraAt, settleAt, worldFrame, type CamFrame } from '../director/evaluate';
 import { pathDiag, basePose } from '../director/camera';
 import { drawFrame, PROFILE } from '../render/renderer';
-import { cameraOwner, ENGINE_WAIT, releaseWorld } from '../render/engines';
+import { cameraOwner, ENGINE_WAIT, releaseWorld, retainWorld } from '../render/engines';
 import { observeWebgl } from '../core/webgl';
 import { setGpuLyrics, gpuLyrics } from '../render/gfx';
 import { MV_LOOK, type RenderFrame, type MvLook, type BackdropPose } from '../render/frame';
 import { makeCanvas } from '../render/palette';
 import type { RhythmSample } from '../rhythm/signals';
-import { AudioClock, type ExternalOut } from './audio';
+import { AudioClock, type ExternalOut, type LiveMusic } from './audio';
 import { VideoSource, MvSource } from './media';
 import { Handoff, type HandoffSpec, type WinRect } from './handoff';
 import type { Session } from './session';
@@ -232,7 +232,7 @@ export class Engine extends Emitter<EngineEvents> {
   aspectBox: AspectBox = 'fill'; // fill the host, letterbox an aspect inside it, or cover the host with it
   letterbox = '#000';
 
-  constructor(canvas: HTMLCanvasElement, opts: { audioContext: () => AudioContext }) {
+  constructor(canvas: HTMLCanvasElement, opts: { audioContext: () => AudioContext; manual?: boolean }) {
     super();
     this.canvas = canvas;
     this.g = canvas.getContext('2d')!;
@@ -259,7 +259,7 @@ export class Engine extends Emitter<EngineEvents> {
     });
     this.handoff.toRef = (r) => this.toRef(r);
     // (drawn on even when the browser stops giving frames while the page is shown: core/frames)
-    this.frames = frameLoop((n) => this.frame(n));
+    if (!opts.manual) this.frames = frameLoop((n) => this.frame(n));
   }
   /** Where the song's sound goes (AudioClock.route): a host's own audio graph, or null for straight out. */
   audioRoute(node: AudioNode | null) {
@@ -404,6 +404,7 @@ export class Engine extends Emitter<EngineEvents> {
     time(): number;
     playing(): boolean;
     ended(): boolean;
+    liveAnalysis?(): LiveMusic | null;
     play(): void;
     pause(): void;
     toggle(): void;
@@ -705,7 +706,8 @@ export class Engine extends Emitter<EngineEvents> {
       this.goodCf = cf;
       this.lastBad = '';
     }
-    const rs = cf.rs,
+    const live = !opts.offline && !sess && this.playing && !s.analysis ? this.transport?.liveAnalysis?.() : null;
+    const rs = live ? { ...cf.rs, level: live.level, loud: live.level, sounding: live.level } : cf.rs,
       M = s.style.m;
     const mvEnd = this.mv.k > 0 ? this.mv.endK(t, s.audioStart) : 1; // (an MV shorter than the song: fading out at its end, the song then as it is without one)
     const p = this.handoff.p,
@@ -722,6 +724,7 @@ export class Engine extends Emitter<EngineEvents> {
       px: opts.px ?? this.canvas.height / plan.H,
       cam: cf,
       rs,
+      spectrum: live?.spectrum,
       media: {
         cover: s.cover,
         coverKey: s.coverKey,
@@ -1096,7 +1099,8 @@ export class Engine extends Emitter<EngineEvents> {
     const before = s.takeStaged();
     if (!before) return;
     const previous = this.swapFade?.s.plan;
-    this.swapFade = len > 0 ? { s: before, at: performance.now(), len } : null;
+    const continued = retainWorld(before.plan, s.plan, s.style);
+    this.swapFade = len > 0 && !continued ? { s: before, at: performance.now(), len } : null;
     this.retireWorld(previous);
     this.retireWorld(before.plan);
     this.dirty = true;

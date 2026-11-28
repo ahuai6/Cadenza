@@ -445,13 +445,67 @@ const CHECKS = {
     });
     ok(
       'export: an MP4 at the asked size with its soundtrack',
-      r.ok && r.h === 360 && r.size > 20000 && r.audio !== 'x.silent',
+      r.ok && r.w === 576 && r.h === 360 && r.size > 20000 && r.audio !== 'x.silent',
       JSON.stringify(r),
     );
     ok(
       'export: the MP4 reads back through the clip reader, frame by frame at any time',
-      Array.isArray(r.back) && r.back.length === 4 && r.back.every(([w, h]) => w === 640 && h === 360),
+      Array.isArray(r.back) && r.back.length === 4 && r.back.every(([w, h]) => w === r.w && h === r.h),
       JSON.stringify(r.back),
+    );
+  },
+  async exportCancel(p) {
+    const result = await p.evaluate(async () => {
+      const job = new AbortController();
+      let received,
+        loading,
+        aborted = 0,
+        writes = 0;
+      const started = new Promise((resolve) => (loading = resolve));
+      const ses = await H.open({
+        theme: 'liquid',
+        audio: {
+          duration: 3,
+          load(signal) {
+            received = signal === job.signal;
+            loading();
+            return new Promise((_, reject) =>
+              signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+            );
+          },
+        },
+      });
+      const running = H.exportVideo(H.engine, ses, {
+        res: 360,
+        fps: 24,
+        codec: 'avc',
+        signal: job.signal,
+        sink: {
+          write() {
+            writes++;
+          },
+          close() {
+            throw Error('cancelled export attempted to commit');
+          },
+          abort() {
+            aborted++;
+          },
+        },
+      });
+      const preparation = await Promise.race([started.then(() => true), running.then(() => false)]);
+      job.abort();
+      const result = await running;
+      return { preparation, received, aborted, writes, reason: result.reason, same: H.engine.session === ses };
+    });
+    ok(
+      'export: cancel reaches the pending PCM read and preserves the preview',
+      result.preparation &&
+        result.received &&
+        result.aborted === 1 &&
+        !result.writes &&
+        result.reason === 'x.cancelled' &&
+        result.same,
+      JSON.stringify(result),
     );
   },
   async exportMode(p) {

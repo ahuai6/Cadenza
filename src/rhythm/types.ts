@@ -9,6 +9,24 @@ export type Tier = 0 | 1 | 2;
 /** Where the energy of an event sits. */
 export type Band = 'low' | 'mid' | 'high' | 'broad';
 
+/** Provisional measured features, in file time. Never written as a complete analysis. */
+export interface RhythmPreviewSlice {
+  start: number;
+  rate: number;
+  stride: number;
+  /** Interleaved [level, ...bands] rows. */
+  samples: Float32Array;
+}
+
+export interface RhythmPreviewBeats {
+  start: number;
+  end: number;
+  events: RhythmEvent[];
+}
+
+export type RhythmPreviewUpdate = RhythmPreviewSlice | RhythmPreviewBeats;
+export type RhythmTaskStage = 'decode' | 'beats' | 'stems' | 'merge' | 'write';
+
 export interface RhythmEvent {
   /** time in the file (s) */
   t: number;
